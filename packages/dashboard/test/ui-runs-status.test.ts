@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { verdictOf, type RunVerdict } from '../src/run-verdict.js';
 import type { RunJudged } from '../src/run-outcome.js';
-import { outcomeTip } from '../ui/outcome-tip.js';
+import { outcomeTip } from '../ui/outcome-card.js';
 import { outcomeFact } from '../ui/run/metrics.js';
 import { RunsTable } from '../ui/runspage/RunsTable.js';
 import { isFailed, outcomeOf, runGlyph, sideStatus, type RunLike, type RunOutcomeWords } from '../ui/runs.js';

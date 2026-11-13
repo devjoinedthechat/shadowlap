@@ -1,11 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { packRun, Store } from '@shadowlap/engine';
+import { packRun, readConfigFile, Store } from '@shadowlap/engine';
 import type { RouteContext } from '../src/context.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import type { JobBuildContext, JobRequest } from '../src/jobs.js';
+import type { JobBuild, JobBuildContext, JobRequest } from '../src/jobs.js';
+import { configPrints } from '../src/config-tests.js';
 import { packTestKind } from '../src/pack-test.js';
 import { addRun } from './read-model-store.js';
 
@@ -150,5 +151,68 @@ describe('pack-test on a dashboard that serves one store', () => {
     expect(await refused.json()).toMatchObject({ error: 'The golden goes inside the project: no empty, . or .. parts.' });
     // With no folder there is nowhere to pack into.
     expect((await api(bare, 'jobs', { kind: 'pack-test', runId: id, golden: 'goldens/x' })).status).toBe(501);
+  });
+});
+
+describe('Pack with injection gate…: pack-test with a gate', () => {
+  let folder: string;
+  const gated = packTestKind({ jobs: { list: () => [] }, get store() { return store; } } as unknown as RouteContext, null);
+  const configPath = () => join(folder, 'shadowlap.config.json');
+  const fileVersion = () => readConfigFile(folder).version;
+  const author = process.env.SHADOWLAP_AUTHOR;
+  beforeAll(() => {
+    folder = realpathSync(mkdtempSync(join(tmpdir(), 'sl-pack-gate-')));
+    process.env.SHADOWLAP_AUTHOR = 'dana@example.com';
+  });
+  afterAll(() => {
+    rmSync(folder, { recursive: true, force: true });
+    if (author === undefined) delete process.env.SHADOWLAP_AUTHOR;
+    else process.env.SHADOWLAP_AUTHOR = author;
+  });
+  const buildGate = (req: JobRequest) => gated.build(req, place({ project: { name: 'gated', path: folder } }));
+  const stepOf = async (req: JobRequest) => {
+    const built = (await buildGate(req)) as JobBuild;
+    return { built, done: await built.step!.run() };
+  };
+
+  it('packs, writes the gate once it is packed, then tests: the gate the dialog picked, against the version read', async () => {
+    writeFileSync(configPath(), JSON.stringify({ clock: 'exact', tests: { 'goldens/other': { fork: true } } }));
+    const id = addRun(store, { startedAt: T0 + 200, calls: 'll' });
+    const { built, done } = await stepOf({ runId: id, golden: 'goldens/gated', gate: { obeyed: 0, repeat: 3 }, version: fileVersion() });
+    expect(built).toMatchObject({ args: ['pack', id, 'goldens/gated'], then: [['test', 'goldens/gated']], runId: id, title: 'Packing with injection gate', step: { before: 1 } });
+    expect(done).toEqual({ lines: ['  added to shadowlap.config.json, under "tests": "goldens/gated": { "injection": { "obeyed": 0, "repeat": 3 } }'] });
+    expect(JSON.parse(readFileSync(configPath(), 'utf8'))).toEqual({ clock: 'exact', tests: { 'goldens/other': { fork: true }, 'goldens/gated': { injection: { obeyed: 0, repeat: 3 } } } });
+    expect(store.listEvents({ kinds: ['checks.changed'] })[0]).toMatchObject({ ref: 'goldens/gated', actor: 'dana@example.com', data: { gate: { obeyed: 0, repeat: 3 } } });
+    // Templates only when not all of them.
+    const some = await stepOf({ runId: id, golden: 'goldens/some', gate: { obeyed: 0, repeat: 2, templates: ['system-notice', 'user-urgent'] }, version: fileVersion() });
+    expect(some.done.lines[0]).toBe('  added to shadowlap.config.json, under "tests": "goldens/some": { "injection": { "obeyed": 0, "repeat": 2, "templates": ["system-notice","user-urgent"] } }');
+  });
+
+  it('writes first, before the test alone, when the folder holds this run’s pack already', async () => {
+    const id = addRun(store, { startedAt: T0 + 210, calls: 'll' });
+    packRun(store, id, join(folder, 'goldens', 'held'));
+    const { built } = await stepOf({ runId: id, golden: 'goldens/held', gate: { obeyed: 0, repeat: 3 }, version: fileVersion() });
+    expect(built).toMatchObject({ args: ['test', 'goldens/held'], title: 'Packing with injection gate', step: { before: 0 } });
+  });
+
+  it('ends at the write when the file changed since the page read it, naming what changed, and tests nothing', async () => {
+    writeFileSync(configPath(), JSON.stringify({ tests: {} }));
+    const read = configPrints(readConfigFile(folder).data);
+    const was = fileVersion();
+    writeFileSync(configPath(), JSON.stringify({ tests: {}, prices: { 'my-model': { input: 1, output: 2 } } }));
+    const id = addRun(store, { startedAt: T0 + 220, calls: 'll' });
+    const { done } = await stepOf({ runId: id, golden: 'goldens/late', gate: { obeyed: 0, repeat: 3 }, version: was, read });
+    expect(done.code).toBe(1);
+    expect(done.lines).toEqual([expect.stringMatching(/^goldens\/late is packed without its gate: shadowlap\.config\.json changed on disk since this page read it: "prices" added$/)]);
+    expect(JSON.parse(readFileSync(configPath(), 'utf8'))).not.toHaveProperty('tests.goldens/late');
+  });
+
+  it('refuses a gate the config would refuse, and one with no version, before anything runs', async () => {
+    const id = addRun(store, { startedAt: T0 + 230, calls: 'll' });
+    const error = async (req: JobRequest) => (await buildGate({ runId: id, golden: 'goldens/bad', version: fileVersion(), ...req })) as { error: string };
+    expect((await error({ gate: { obeyed: 0, repeat: 0 } })).error).toBe('gate.repeat must be a whole number from 1 to 100');
+    expect((await error({ gate: { obeyed: 1, repeat: 3 } })).error).toMatch(/^gate is \{ "obeyed": 0/);
+    expect((await error({ gate: { obeyed: 0, repeat: 3, templates: ['nosuch'] } })).error).toMatch(/nosuch/);
+    expect((await error({ gate: { obeyed: 0, repeat: 3 }, version: 'x' })).error).toBe('version is the version of shadowlap.config.json the page read: open the dialog again and try again');
   });
 });

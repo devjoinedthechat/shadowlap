@@ -21,7 +21,7 @@ import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
 import { judgeForkWait } from '../scopes.js';
 import { useApp } from '../state.js';
-import { useActionRunner } from '../run/actions.js';
+import { testOpeners, useActionRunner } from '../run/actions.js';
 import { CallsTable } from '../run/CallsView.js';
 import { useCallList } from '../run/call-list.js';
 import { onShow } from '../components/OnShow.js';
@@ -307,9 +307,10 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // What the page reads beside the run once it has ended: its offers, a preset's attempt, its notes and the
   // fork that rescued it (run-extras.ts).
   const chain = useAncestors(run);
-  const { offers, preset, notes, rescued, injection } = useRunExtras(run, chain[0] ?? null, forkAt);
-  const results = useResultsBodies(runId);
-  const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
+  const { offers, preset, presets, notes, rescued, injection } = useRunExtras(run, chain[0] ?? null, forkAt);
+  const results = useResultsBodies(runId, presets, run.about);
+  const actions = useActionRunner(runId, !!run.source, offers, run.forkAt, run.run);
+  const tests = testOpeners(injection.attempt, injection.untrusted, actions.test);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
   const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
@@ -367,15 +368,15 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   // This run, in the palette.
   const check = useCheckEntry({ run, row: selectedRow, detail: detail.data });
-  useRunCommands({ run, selected, canFork: canFork && !forkWait, canMark, labels, mark, offers, judged, actions, forkMenu, setView, addCheck: check.fromPalette });
+  useRunCommands({ run, selected, canFork: canFork && !forkWait, canMark, labels, mark, offers, judged, actions, forkMenu, setView, addCheck: check.fromPalette, test: tests.palette });
 
   // While the pages come, Calls counts the run's calls and Turns says nothing until they are all read (call-list.ts).
   const tabs = viewTabs(v, tabCounts.calls, tabCounts.turns);
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} forkWait={forkWait} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} attempt={injection.attempt} onPick={pickProof} />
+      <RunHeader run={run} call={detail.data} selected={selected} forkWait={forkWait} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} onTest={tests.menu} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} presets={presets} injection={injection.finding} cause={injection.cause} attempt={injection.attempt} onPick={pickProof} />
       <StripBar strip={{ calls: strip.calls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: strip.inScope, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {bar ? <ScopeBar run={run} scopes={scopeTree} scope={scope} judge={judge.size} onScope={setScope} /> : null}
       <div className="work">
@@ -401,7 +402,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           </div>
         </section>
         <InspectorPlace panel={panel} run={run} offers={offers} onClose={closePanel} onPick={select} results={results}>
-          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} />
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} cause={injection.cause} preset={preset} />
         </InspectorPlace>
       </div>
       {actions.dialog}

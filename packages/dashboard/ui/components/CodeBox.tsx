@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { copyText } from '../dom.js';
 import { useApp, useInApp } from '../state.js';
 import { Command } from './Copy.js';
@@ -38,6 +38,21 @@ export interface CodeBoxProps {
    * red), each marked at its start while any line differs. Such a box shows a change: no Copy.
    */
   lines?: ReadonlyArray<{ op: ' ' | '+' | '-'; text: string }>;
+  /** A block of code laid out, a config entry: a line too long for the box wraps at its own indent, never at column 0. */
+  hang?: boolean;
+}
+
+/** Code laid out a line each, the line's indent its wrap's (CSS `.codebox .cl`). */
+function HungLines({ code }: { code: string }) {
+  return (
+    <>
+      {code.split('\n').map((l, i) => (
+        <span key={i} className="cl" style={{ '--i': `${l.length - l.trimStart().length}ch` } as CSSProperties}>
+          {l}
+        </span>
+      ))}
+    </>
+  );
 }
 
 /** A change's lines, one span a line: `+ ` and `− ` lead them while any differs, so the change reads without colour too. */
@@ -133,7 +148,7 @@ function BoxCopy({ text, what, words = false }: { text: string; what: string; wo
 
 /** One code box, with its one Copy: a command, code, or a file of code with its name in the header. */
 export function CodeBox(props: CodeBoxProps) {
-  const { command, code = '', file, full, className, id, lines, actions } = props;
+  const { command, code = '', file, full, className, id, lines, actions, hang } = props;
   const change = props.change ?? !!lines;
   const what = boxWhat(props);
   if (command !== undefined) {
@@ -168,8 +183,8 @@ export function CodeBox(props: CodeBoxProps) {
     );
   }
   const pre = (
-    <pre className={`codebox${lines ? ' wfcode' : ''}${change && className ? ` ${className}` : ''}`} tabIndex={0}>
-      {lines ? <MarkedLines lines={lines} /> : code}
+    <pre className={`codebox${lines ? ' wfcode' : ''}${hang ? ' hang' : ''}${change && className ? ` ${className}` : ''}`} tabIndex={0}>
+      {lines ? <MarkedLines lines={lines} /> : hang ? <HungLines code={code} /> : code}
     </pre>
   );
   return change ? (

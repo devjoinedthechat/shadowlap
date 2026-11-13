@@ -11,6 +11,20 @@ import { parseRoute, routeHref, tokenLinkStep, type Route } from './route.js';
 
 const REPLACED = 'shadowlap:route';
 
+/** What hears the address move before the route it brings is drawn (onAddressMove). */
+const moving = new Set<(e: HashChangeEvent) => void>();
+
+/**
+ * Hears each move of the address (Back, Forward, a link, a commit) before the router draws the route
+ * it brings, the page still as it was, until the call it returns: Runs keeps its place in the view
+ * left. A listener of a page's own would hear it too late, as React draws a hashchange's route before
+ * the event's later listeners run.
+ */
+export function onAddressMove(fn: (e: HashChangeEvent) => void): () => void {
+  moving.add(fn);
+  return () => void moving.delete(fn);
+}
+
 export function currentRoute(): Route {
   return parseRoute(location.hash);
 }
@@ -40,6 +54,7 @@ export function useRoute(): Route {
       const step = tokenLinkStep(location.hash, tokenInUse());
       if (step?.kind === 'reload') return location.reload();
       if (step?.kind === 'open') history.replaceState(history.state, '', `${location.pathname}${location.search}${step.to}`);
+      if (e.type === 'hashchange') for (const fn of [...moving]) fn(e as HashChangeEvent);
       const next = currentRoute();
       // A page of its own, not a call or a view picked in this one (a replace), takes what is open over this one with it.
       if (e.type === 'hashchange' && routeHref(shown.current) !== routeHref(next)) closeLeftBehind();

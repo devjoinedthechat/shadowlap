@@ -24,7 +24,7 @@
       "runBlame": 54
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 92
+      "runPresets": 75
     },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
@@ -39,7 +39,7 @@
       "importMany": 38
     },
     "packages/cli/src/commands/injection.ts": {
-      "register > action(\"injection\")": 81
+      "register > action(\"injection\")": 78
     },
     "packages/cli/src/commands/inspect.ts": {
       "register > action(\"show\")": 87
@@ -49,9 +49,6 @@
     },
     "packages/cli/src/config.ts": {
       "loadConfig": 43
-    },
-    "packages/cli/src/coverage.ts": {
-      "formatCoverage": 34
     },
     "packages/cli/src/decisions-capture.ts": {
       "captureFromCode": 52
@@ -144,9 +141,6 @@
     },
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
-    },
-    "packages/dashboard/src/injection.ts": {
-      "injectionJob": 49
     },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35
@@ -344,7 +338,7 @@
       "runBlame": 250
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 156
+      "runPresets": 153
     },
     "packages/cli/src/commands/data.ts": {
       "register": 207
@@ -384,7 +378,7 @@
       "trainingView": 166
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 165
+      "createClient": 162
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 158
@@ -460,7 +454,6 @@
     "packages/dashboard/src/tests.ts": 896,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
-    "packages/dashboard/test/ui-logic.test.ts": 810,
     "packages/engine/src/pairs.ts": 818,
     "packages/engine/src/redact.ts": 983,
     "packages/remote/test/sync.test.ts": 1059,

@@ -19,8 +19,12 @@ import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js'
 import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, IssueRunsPage, IssuesPage, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { CompareView, NextStep } from './types.js';
-import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
+import type { ChaosMatrix, ChaosView, CoverageView, PresetsPicks, PresetsPlan } from './types.js';
 import type { InjectionPanelView, InjectionReport, InjectionRow, ReportPreview, RunInjection } from './types.js';
+import type { TemplateSet } from '../../engine/src/injection.js';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
+import type { PayloadsRead } from '../src/injection.js';
+import type { SecurityRead } from '../src/injection-security.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
 import type { RequestDiff } from '../src/request-diff.js';
@@ -221,6 +225,16 @@ export interface Client extends ChangesApi, TestsApi {
   injectionResult(resultId: string): Promise<{ row: InjectionRow; report: InjectionReport; gone: string[]; view: InjectionPanelView | null }>;
   /** What a result's security report masks and keeps, and the file it saves (`GET /api/injection/:id/report?preview=1`). */
   injectionPreview(resultId: string): Promise<ReportPreview>;
+  /** The built-in templates, versioned (`GET /api/injection/templates`): Run injection test's chips. */
+  injectionTemplates(): Promise<TemplateSet>;
+  /** A plan picked on a run, or a golden's pack, priced on the server as a test, or (`gate`) as each session's gate (`GET /api/injection/estimate`). */
+  injectionEstimate(q: InjectionPlanQuery): Promise<Estimate>;
+  /** Find cause… on one of a run's untrusted reads, priced on the server (`GET /api/injection/estimate?clean=`). */
+  injectionCauseEstimate(runId: string, read: number): Promise<Estimate>;
+  /** A payload file once it is sent (`GET /api/injection/payloads?upload=`): its name, how many payloads, and those with no `{{canary}}`, by id. */
+  injectionPayloads(uploadId: string): Promise<PayloadsRead>;
+  /** Tests' Security (`GET /api/injection/security`): each golden's recording's untrusted reads, its last test or gate, and its test's price. */
+  injectionSecurity(): Promise<SecurityRead>;
   /** Saves a file a job wrote. */
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
@@ -294,6 +308,8 @@ export interface Client extends ChangesApi, TestsApi {
   chaos(): Promise<ChaosView | null>;
   /** One run's presets matrix, its recording's for a preset's attempt (`/api/chaos/runs/:id`); null when none ran. */
   runChaos(id: string): Promise<ChaosMatrix | null>;
+  /** Run error-path presets…'s plan for the picks (`/api/chaos/runs/:id/plan`): what they run on, hit, are judged and decided by, the command someone else recorded, and what they bill. */
+  presetsPlan(id: string, picks: PresetsPicks): Promise<PresetsPlan>;
 
   // ---- What a fork did differently, and a fix's attempts grouped by what each did
   /** What a fork did differently from its parent (`/api/runs/:id/differences`); null for a run that isn't a fork of a run in the store. */
@@ -536,13 +552,10 @@ export function createClient(token: string): Client {
     models: () => request<ModelsView>('models'),
     ...changesApi(request),
     // A server without the routes answers 404: nothing to show, rather than an error.
-    coverage: () => request<CoverageView>('coverage').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
-    chaos: () => request<ChaosView>('chaos').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
-    runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
     unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
-    ...longRunReads(request), ...injectionReads(request),
+    ...longRunReads(request), ...injectionReads(request), ...chaosReads(request),
   };
 }
 
@@ -586,14 +599,47 @@ function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep' | '
   };
 }
 
-/** What a run's page reads of injection tests, beside the run (`/api/injection`). */
-function injectionReads(request: Request): Pick<Client, 'injectionRun' | 'injectionResults' | 'injectionResult' | 'injectionPreview'> {
+/** A plan Run injection test… or Pack with injection gate… picked: how many payloads, attempts each, Stop at $. */
+export interface InjectionPlanQuery {
+  /** The run it plants in; null for a golden whose recording only its pack holds (`golden`), priced from the pack. */
+  runId: string | null;
+  golden?: string | null | undefined;
+  payloads: number;
+  repeat?: number | undefined;
+  budget?: number | null | undefined;
+  /** Priced as each test session's gate, not as a test. */
+  gate?: boolean | undefined;
+}
+
+type ChaosReads = 'coverage' | 'chaos' | 'runChaos' | 'presetsPlan';
+
+/** What the pages read of error-path presets and production coverage (`/api/chaos`, `/api/coverage`): none on a server without them. */
+function chaosReads(request: Request): Pick<Client, ChaosReads> {
+  const id = encodeURIComponent;
+  const none = (err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err));
+  return {
+    coverage: () => request<CoverageView>('coverage').catch(none),
+    chaos: () => request<ChaosView>('chaos').catch(none),
+    runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, none),
+    presetsPlan: (runId, p) => request<PresetsPlan>(`chaos/runs/${id(runId)}/plan?${p.presets ? `presets=${p.presets.join(',')}&` : ''}${p.tool ? `tool=${id(p.tool)}&` : ''}${p.expect ? 'expect=1' : ''}`),
+  };
+}
+
+type InjectionReads = 'injectionRun' | 'injectionResults' | 'injectionResult' | 'injectionPreview' | 'injectionTemplates' | 'injectionEstimate' | 'injectionCauseEstimate' | 'injectionPayloads' | 'injectionSecurity';
+
+/** What the pages read of injection tests (`/api/injection`): a run's, and what its dialogs ask. */
+function injectionReads(request: Request): Pick<Client, InjectionReads> {
   const id = encodeURIComponent;
   return {
     injectionRun: (runId) => request<RunInjection>(`injection/runs/${id(runId)}`),
     injectionResults: (runId) => request<{ results: InjectionRow[] }>(`injection?run=${id(runId)}`),
     injectionResult: (resultId) => request(`injection/${id(resultId)}`),
     injectionPreview: (resultId) => request<ReportPreview>(`injection/${id(resultId)}/report?preview=1`),
+    injectionTemplates: () => request<TemplateSet>('injection/templates'),
+    injectionEstimate: (p) => request<{ estimate: Estimate }>(`injection/estimate?${p.runId ? `run=${id(p.runId)}` : `golden=${id(p.golden ?? '')}`}&payloads=${p.payloads}${p.repeat ? `&repeat=${p.repeat}` : ''}${p.budget ? `&budget=${p.budget}` : ''}${p.gate ? '&gate=1' : ''}`).then((r) => r.estimate),
+    injectionCauseEstimate: (runId, read) => request<{ estimate: Estimate }>(`injection/estimate?run=${id(runId)}&clean=${read}`).then((r) => r.estimate),
+    injectionPayloads: (uploadId) => request<PayloadsRead>(`injection/payloads?upload=${id(uploadId)}`),
+    injectionSecurity: () => request<SecurityRead>('injection/security'),
   };
 }
 
@@ -698,6 +744,8 @@ export function createExportedClient(data: StaticPayload): Client {
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
+    // A copy runs no preset, so nothing in it asks what they would hit or bill.
+    presetsPlan: readOnly,
     // Held for a fork whose parent the file holds too; otherwise its run page leaves the panel out.
     forkDifferences: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/differences`] as { differences: ForkDifferences | null } | undefined)?.differences ?? null),
     // A copy replays nothing: what its replay would run for real is the store's to say, and reading it would read the run twice.
@@ -709,10 +757,16 @@ export function createExportedClient(data: StaticPayload): Client {
     nextStep: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ next: d.next ?? null })),
     // A copy keeps no injection results: its run's page tags no read and draws no test, and an attempt's
     // page draws what its run's own record says of it (run/model.ts), never what was planted where.
-    injectionRun: () => Promise.resolve({ untrusted: [], results: [], attempt: null }),
+    injectionRun: () => Promise.resolve({ untrusted: [], results: [], rule: null, answers: [], cause: [], attempt: null }),
     injectionResults: () => Promise.resolve({ results: [] }),
     injectionResult: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
     injectionPreview: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
+    // A copy runs no test, so nothing in it asks what one would plant or bill.
+    injectionTemplates: readOnly,
+    injectionEstimate: readOnly,
+    injectionCauseEstimate: readOnly,
+    injectionPayloads: readOnly,
+    injectionSecurity: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
     // Held for each run that diverged, at the call it diverged at; another call's is the store's to read.
     requestDiff: (runId, callNo) => Promise.resolve(callNo === undefined ? ((data.responses[`runs/${full(runId)}/diff`] as { diff: RequestDiff | null } | undefined)?.diff ?? null) : null),
   };

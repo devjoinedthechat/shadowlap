@@ -185,3 +185,59 @@ test('Enter makes the words a step that Back undoes with them; the nav’s Runs 
   await expect.poll(() => hash(page)).toBe('#/runs');
   await expect(page.locator('main#view .tbar .chips button[aria-pressed="true"]')).toHaveText(/^All/);
 });
+
+test('a view a chip commits stays where the reader scrolls as its rows come, not where the page was as it was committed', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await openPage(page, '/runs?types=recording', 'main#view table.runst tbody tr');
+  const rows = page.locator('main#view table.runst tbody tr');
+  const pane = page.locator('main#view .page');
+  // Every run's rows held until the reader has scrolled.
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(/\/api\/runs\/page\?(?!.*types=)/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.locator('main#view .tbar .chips button', { hasText: /^All/ }).click();
+  await expect.poll(() => hash(page)).toBe('#/runs');
+  const before = await rows.count();
+  const y = await pane.evaluate((el) => {
+    el.scrollTop = 200;
+    return el.scrollTop;
+  });
+  expect(y).toBe(200);
+  release();
+  await expect.poll(() => rows.count()).toBeGreaterThan(before);
+  // A place given back comes as the rows land and again a tick later.
+  await page.waitForTimeout(300);
+  expect(await pane.evaluate((el) => el.scrollTop)).toBe(y);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('Back and Forward take each view of Runs to where it was left, after a scroll on the view they leave', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const rows = page.locator('main#view table.runst tbody tr');
+  const pane = page.locator('main#view .page');
+  const scrolledTo = (to: number) =>
+    pane.evaluate((el, y) => {
+      el.scrollTop = y;
+      return el.scrollTop;
+    }, to);
+  const every = await rows.count();
+  expect(await scrolledTo(300)).toBe(300);
+  // Pressed where it is, the chips not scrolled into view first, so every run is left at 300.
+  await page.locator('main#view .tbar .chips button', { hasText: /^Recordings/ }).dispatchEvent('click');
+  await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
+  await expect.poll(() => rows.count()).toBeLessThan(every);
+  await page.waitForTimeout(300);
+  expect(await scrolledTo(100)).toBe(100);
+  await page.goBack();
+  await expect.poll(() => hash(page)).toBe('#/runs');
+  await expect.poll(() => rows.count()).toBe(every);
+  await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(300);
+  await page.goForward();
+  await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
+  await expect.poll(() => rows.count()).toBeLessThan(every);
+  await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(100);
+});

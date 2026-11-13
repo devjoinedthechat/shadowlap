@@ -14,10 +14,12 @@
 @import './css/matrix.css';
 @import './css/checks.css';
 @import './css/injection.css';
+@import './css/presets.css';
 @import './css/compare.css';
 @import './css/changes.css';
 @import './css/fixes.css';
 @import './css/tests.css';
+@import './css/coverage.css';
 @import './css/settings.css';
 @import './css/training.css';
 @import './css/setup.css';

@@ -302,8 +302,9 @@ test('every route at 1440px keeps its heading outline, a command’s $ for the e
 
 /**
  * An injection test's pages (routes.ts' injectionRoutes) at 390, 320 and 1440 px, swept as every
- * route is, on a store real commands made for them (injection-fixture.ts) and a dashboard of their
- * own: one store for the three, its tests in order in one worker, the dashboard stopped after.
+ * route is, on a store real commands made for them (injection-fixture.ts, with its second recording
+ * for Pack with injection gate…) and a dashboard of their own: one store for the three, its tests in
+ * order in one worker, the dashboard stopped after.
  */
 test.describe('an injection test’s pages', () => {
   test.describe.configure({ mode: 'serial' });
@@ -311,12 +312,12 @@ test.describe('an injection test’s pages', () => {
   let served: (Served & { stop: () => Promise<void> }) | null = null;
   const routes = () => {
     if (!built || !served) throw new Error('the injection store was not built');
-    return injectionRoutes(served, built.runId);
+    return injectionRoutes(served, built.runId, built.second);
   };
   test.beforeAll(async () => {
-    // Four commands on a mock model, a few seconds, then the dashboard.
-    test.setTimeout(120_000);
-    built = await buildInjectionStore();
+    // Six commands on a mock model, a few seconds each, then the dashboard.
+    test.setTimeout(180_000);
+    built = await buildInjectionStore({ second: true });
     served = await serveDashboard(built.folder, built.project);
   });
   test.afterAll(async () => {
@@ -327,19 +328,19 @@ test.describe('an injection test’s pages', () => {
   });
 
   test('on a 390px phone have no serious or critical axe violation, scroll nothing sideways, draw no label under 11px and keep their hidden text where it is read', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await over(page, onPhone(page), routes())).toEqual([]);
   });
 
   test('at 320px have no serious or critical axe violation and scroll nothing sideways', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     await page.setViewportSize({ width: 320, height: 640 });
     expect(await over(page, atNarrowest(page), routes())).toEqual([]);
   });
 
   test('at 1440px keep their heading outline, a command’s $ for the eye only and their hidden text and, in a forced-colours theme, their marks, their selection and axe’s rules', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     const marks = { seen: 0 };
     expect(await over(page, atDesk(page, marks), routes())).toEqual([]);
     // The results' cells and the attempts' strip.
@@ -353,6 +354,43 @@ test.describe('an injection test’s pages', () => {
     expect((await names(page, 'main#view table.calls tbody', 'cell')).filter((c) => c.startsWith('tool fetch_page read untrusted '))).toHaveLength(5);
     await openPage(page, `/run/${runId}/turns`, 'run', at);
     expect((await names(page, 'main#view .vbody', 'button')).filter((n) => /^↳ #\d+ fetch_page read untrusted live$/.test(n))).toHaveLength(5);
+  });
+
+  test('say each untrusted read on Tests’ Security apart, its cell wrapping between them on a phone, and a tool apart from its effect on Settings → Tools', async ({ page }) => {
+    const at = served!;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openPage(page, '/tests', 'main#view table.sect tbody tr', at);
+    // The golden's five reads, a space apart: never “fetch_page#8”.
+    expect((await names(page, 'main#view table.sect tbody', 'cell')).filter((c) => c.startsWith('#'))).toEqual([expect.stringMatching(/^#\d+ fetch_page( #\d+ fetch_page){4}$/)]);
+    // Each read kept whole and the line broken between them, so the table's box scrolls nothing sideways.
+    expect(await page.locator('main#view .tscroll:has(table.sect)').evaluate((box) => box.scrollWidth - box.clientWidth)).toBeLessThanOrEqual(0);
+    await openPage(page, '/settings/tools', 'main#view table.trusttab tbody tr', at);
+    expect((await names(page, 'main#view table.trusttab tbody', 'cell')).filter((c) => /^\w+ (read|pure|write)$/.test(c))).toEqual(['fetch_page read', 'search_web read', 'read_file pure', 'send_email write']);
+  });
+
+  test.describe('on a touch screen', () => {
+    test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+    test('Find cause…, the trust marks, the tools entry’s and Run injection test…’s buttons take the tap at their edges, and never a neighbour’s', async ({ page }) => {
+      const states: Array<[string, Target[]]> = [
+        [
+          'Settings → Tools’ Trust column',
+          [
+            { name: 'Mark trusted or untrusted', sel: 'main#view .trusttab .trustbtn', reach: [4, 0, 4, 0] },
+            { name: 'Run injection test… on a read’s row', sel: 'main#view .trusttab .btn.tooltest', size: [0, 24] },
+            { name: 'the tools entry’s Show and Copy entry', sel: 'main#view .wftog button.linkbtn', reach: [4, 0, 4, 0] },
+          ],
+        ],
+        ['Find cause… on a write after an untrusted read', [{ name: 'Find cause…', sel: 'main#view .ihead .iask', size: [0, 32], reach: [6, 2, 6, 2] }]],
+        ['Tests with Security', [{ name: 'Run injection test… on a golden', sel: 'main#view table.sect .btn', size: [0, 24] }]],
+      ];
+      const found: string[] = [];
+      for (const [name, targets] of states) {
+        await show(page, routes().find((r) => r.name === name)!)();
+        for (const t of targets) found.push(...(await taps(page, t)).map((p) => `${name}: ${p}`));
+      }
+      expect(found).toEqual([]);
+    });
   });
 });
 
@@ -486,6 +524,11 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   }
   await openPage(page, `/fixes/${demoId('refundFix')}/blame`, 'fix');
   expect(await names(page, 'main#view table', 'cell')).toEqual(expect.arrayContaining([expect.stringMatching(/^\S+ blamed$/)]));
+  // Tests: a golden's error-path presets heard apart from its checks, then their picture by its counts, then the counts.
+  await openPage(page, '/tests', 'main#view table.gt .gpstrip:visible');
+  const strips = (await names(page, 'main#view table.gt tbody', 'cell')).filter((c) => c.includes('error-path presets'));
+  expect(strips.length).toBeGreaterThan(0);
+  for (const c of strips) expect(c).toMatch(/ error-path presets \d+ presets?: \d+ \w+(, \d+ \w+)* \d+ \w+( · \d+ \w+)*$/);
   // Training's tabs: the word and its count.
   await openPage(page, '/training', 'main#view .stabs a');
   expect(await names(page, 'main#view .stabs', 'link')).toEqual([expect.stringMatching(/^Pairs [\d,]+$/), expect.stringMatching(/^Tasks [\d,]+$/)]);
@@ -771,6 +814,15 @@ test.describe('on a touch screen', () => {
         ],
       ],
       [`/fixes/${demoId('emailFix')}`, 'fix', [{ name: 'a fix’s Edit check…', sel: 'main#view .ph p.chk .fmx .linkbtn', reach: [4, 0, 4, 0] }]],
+      // Not covered's rows (port/presets-coverage): the count's toggle 32px tall on a touch screen and a caret's 5px past it, the row's pack beside it.
+      [
+        '/tests?at=notcovered',
+        'main#view #notcovered ul.covl > li',
+        [
+          { name: 'Not covered’s toggle', sel: 'main#view #notcovered .xbtn.cvn', size: [0, 42], reach: [5, 5, 5, 5] },
+          { name: 'a Not covered row’s pack', sel: 'main#view #notcovered .cvacts .btn', size: [0, 24] },
+        ],
+      ],
     ];
     const found: string[] = [];
     for (const [path, drawn, targets] of pages) {

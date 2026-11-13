@@ -2,10 +2,12 @@ import { lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import type { ConfigVerifyRule } from '../estimates.js';
 import { HttpError } from '../http.js';
+import { outcomeWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { runAffinity } from '../run-index.js';
 import { runVersionTag } from '../run-version.js';
+import { configTools } from './injection.js';
 
 /** A model as `--model` takes it: a name, never a flag. A fix's Run blame with stronger model checks its job's so too (routes/fixes.ts). */
 export const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
@@ -52,13 +54,16 @@ export function register(router: Router, ctx: RouteContext): void {
     }
     const at = callNumber(r.query.get('at'));
     const model = modelParam(r.query.get('model'));
-    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, at, model]));
+    const tools = configTools(ctx);
+    // The config's tests and goldens: Run error-path presets… bills under its golden's gate.
+    const work = outcomeWork(ctx);
+    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, tools ?? null, at, model, work?.version ?? null, work?.goldens ?? null]));
     if (r.req.headers['if-none-match'] === etag) {
       r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
       r.res.end();
       return;
     }
-    const job = { kind: 'run-estimates' as const, runId: run.runId, at, model, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    const job = { kind: 'run-estimates' as const, runId: run.runId, at, model, work, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(tools ? { tools } : {}) };
     sendAnswer(r, await ctx.reads.run(job, runAffinity(ctx.store, run.runId)), { etag });
   });
 }

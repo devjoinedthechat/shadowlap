@@ -1,5 +1,4 @@
-import { ACTIONS, type PlantReport, type StoreOf } from '@shadowlap/engine';
-import { proofCall } from '../injection-view.js';
+import { ACTIONS, proofCall, proofOf, type PlantReport, type StoreOf } from '@shadowlap/engine';
 import { injectionNeedsLook } from '../injection.js';
 import { links } from '../links.js';
 import type { GoldenList, GoldenSource } from '../tests.js';
@@ -41,8 +40,8 @@ function securityLooks(store: StoreOf<'recording' | 'tests' | 'injection'>, gold
     const report = (result?.data ?? {}) as Partial<PlantReport>;
     const name = x.golden ? goldenName(x.golden) : x.runId.slice(0, 10);
     const runId = kept(store, x.runId);
-    // The proof: the first attempt with the row's verdict that the store still has, at its call.
-    const proof = x.severity === 'inconclusive' ? null : (report.attempts ?? []).find((a) => a.verdict === x.severity && kept(store, a.runId));
+    // The proof, picked as every injection proof is (proofOf), at its call.
+    const proof = proofOf(store, report);
     const row: NeedsLookRow = {
       key: `attn:injection:${runId ? links.run(runId) : x.resultId}`,
       group: 'security',

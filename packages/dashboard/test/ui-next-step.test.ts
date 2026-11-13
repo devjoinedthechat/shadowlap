@@ -32,9 +32,17 @@ afterEach(async () => {
   resetSpending();
 });
 
+/** What Run injection test's dialog reads where its step hands it no reads: two templates, one untrusted read, and no price yet. */
+const INJECTION_READS = {
+  injectionTemplates: () => Promise.resolve({ version: 1, updated: '2026-01-01', templates: [{ id: 'system-notice', shape: 'notice', title: 'A system notice', text: 'SYSTEM: {{canary}}' }, { id: 'user-urgent', shape: 'user', title: 'An urgent user', text: 'URGENT {{canary}}' }] }),
+  injectionRun: () => Promise.resolve({ untrusted: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }], results: [], rule: null, answers: [], cause: [], attempt: null }),
+  injectionEstimate: () => new Promise(() => undefined),
+  checks: { goldens: () => Promise.resolve({ version: 'v1', read: { keys: {}, tests: {} } }) },
+};
+
 function app(o: Partial<AppState> = {}, client: Partial<Client> = {}): AppState {
   return {
-    client: { jobs: () => Promise.resolve([]), ...client } as unknown as Client,
+    client: { jobs: () => Promise.resolve([]), ...INJECTION_READS, ...client } as unknown as Client,
     exported: false,
     meta: null,
     tick: 0,
@@ -423,8 +431,8 @@ describe('the run page’s next step', () => {
     expect(dialog.querySelector('.dcost')?.textContent?.replace(/\u00a0/g, ' ')).toContain('live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
-    // The job keeps the estimate the card and the Cost line said, for its drawer.
-    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false, estimate: { usd: 3.11, ceiling: false } }]]);
+    // The job keeps the estimate the card and the Cost line said, for its drawer; `again` titles it a re-run.
+    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false, again: true, estimate: { usd: 3.11, ceiling: false } }]]);
   });
 
   it('runs an injection test its budget stopped, and a gate’s through its golden’s test', async () => {
@@ -432,6 +440,9 @@ describe('the run page’s next step', () => {
     let j = jobs();
     page = await render(both(detail({ state: passedState, next: test }), null, j.a));
     await page.click(page.byText('.rhead .actions button', 'Run injection test…'));
+    // Its dialog (TestDialog.tsx), why the step leads its amber line, every template picked for one read.
+    await page.until('the dialog reads the run', () => page!.all('.dialog .togchips button').length === 2);
+    expect(page.one('.dialog .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('It stopped early');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(j.started).toEqual([['injection', { runId: REC }]]);
     await page.unmount();
@@ -546,22 +557,23 @@ describe('the run page’s next step', () => {
     expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: folder, yes: 'c'.repeat(32) }]);
   });
 
-  it('packs with an injection gate the recording it tested, naming the entry that gates it', async () => {
+  it('packs with an injection gate the recording it tested, the gate written into its tests entry against the version read, then tested', async () => {
     const folder = `goldens/${PARENT.slice(0, 10).toLowerCase()}`;
-    const next: NextStep = { key: 'pack-gate', label: 'Pack with injection gate…', runId: PARENT, folder, gate: { obeyed: 0, repeat: 3 }, title: `Pack ${PARENT.slice(0, 10)} with injection gate`, command: `shadowlap pack ${PARENT.slice(0, 10)} ${folder}`, estimate: { kind: 'injection', usd: 1.95, ceiling: false, recurs: 'every test session, in CI too', parts: ['36 attempts and 9 clean replays'] } };
+    const estimate = { kind: 'injection', usd: 1.95, ceiling: false, recurs: 'every test session, in CI too', parts: ['36 attempts and 9 clean replays'] } as NonNullable<NextStep['estimate']>;
+    const next: NextStep = { key: 'pack-gate', label: 'Pack with injection gate…', runId: PARENT, folder, gate: { obeyed: 0, repeat: 3 }, title: `Pack ${PARENT.slice(0, 10)} with injection gate`, command: `shadowlap pack ${PARENT.slice(0, 10)} ${folder}`, estimate };
     const { a, started } = jobs();
     page = await render(both(detail({ parent: PARENT, state: { ...passedState, kind: 'fork' }, next }), null, a));
     await page.click(page.byText('.rhead .actions button', 'Pack with injection gate…'));
-    const dialog = page.one('.dialog');
-    expect(dialog.textContent).toContain(`"${folder}": { "injection": { "obeyed": 0, "repeat": 3 } }`);
-    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('≈$1.95 every test session, in CI too');
-    // It says the entry is yours to add, for the folder as you name it.
-    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('you add the entry below to shadowlap.config.json');
-    await page.type(page.one('.dialog input'), 'goldens/refund');
-    expect(page.one('.dialog').textContent).toContain('"goldens/refund": { "injection": { "obeyed": 0, "repeat": 3 } }');
-    expect(page.one('.dialog').textContent).not.toContain(`"${folder}"`);
+    await page.until('its dialog', () => page!.all('.dialog .dlg-ok').some((b) => b.props['aria-disabled'] !== 'true'));
+    // The entry it adds, folded behind Show entry, for the folder as you name it; the pack and the test, a line each.
+    expect(page.one('.dialog .injconf').textContent).toContain(`"${folder}": {`);
+    expect(page.one('.dialog .dcost').textContent.replace(/\u00a0/g, ' ')).toContain('≈$1.95 every test session, in CI too');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).not.toContain('you add the entry below');
+    await page.type(page.one('.dialog input[type="text"]'), 'goldens/refund');
+    expect(page.one('.dialog .injconf').textContent).toContain('"goldens/refund": {');
+    expect(page.all('.dialog .cmdline .cstep').map((c) => c.textContent)).toEqual([`$shadowlap pack ${PARENT.slice(0, 10)} goldens/refund`, '$shadowlap test goldens/refund']);
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['pack', { runId: PARENT, dir: 'goldens/refund' }]]);
+    expect(started).toEqual([['pack-test', { runId: PARENT, golden: 'goldens/refund', gate: { obeyed: 0, repeat: 3 }, version: 'v1', read: { keys: {}, tests: {} }, estimate: { usd: 1.95, ceiling: false } }]]);
   });
 
   it('waits as every job button does where nothing runs, saying why, and a link still opens', async () => {

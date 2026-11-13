@@ -10,7 +10,8 @@ import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { Banner } from '../ui/run/FindingsBar.js';
 import { bannerJobsShown } from '../ui/run/diverged.js';
-import { estimatesKey, useTestsEstimates } from '../ui/tests-estimates.js';
+import { useTestsEstimates } from '../ui/tests-estimates.js';
+import { estimatesKey } from '../ui/tests-prices.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { resetSpending, sentEstimate } from '../ui/spending.js';
@@ -92,6 +93,8 @@ function app(sent: Sent[], watched: Array<Promise<JobView>>, o: { live: boolean;
     tests: () => Promise.resolve(o.tests ?? view()),
     jobs: () => Promise.resolve(o.serverJobs ?? []),
     search: () => Promise.resolve({ hits: [] }),
+    injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
+    coverage: () => Promise.resolve(null),
     startJob: (kind: string, fields: Record<string, unknown>) => {
       sent.push({ kind, fields });
       if (o.live && (o.again || fields.yes !== CONFIRM)) return Promise.reject(new ApiError(409, WORDS, CONFIRM));

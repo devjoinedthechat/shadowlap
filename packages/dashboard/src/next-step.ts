@@ -13,18 +13,16 @@ import {
   goldenWords,
   hasRecordedCommand,
   injectionAgainEstimate,
-  injectionEstimate,
-  injectionGateEstimate,
-  injectionTemplates,
   isObject,
   keptCaptureVerdict,
   noEstimate,
   normalizeAddArgs,
   parseTests,
   pathSetByCode,
+  proofCall,
+  proofOf,
   shortRunId as short,
   testsEstimate,
-  untrustedReads,
   updateEstimate,
   type CleanReport,
   type Estimate,
@@ -38,16 +36,18 @@ import {
   type StoredInjectionResult,
   type TestResult,
   type ToolTrust,
+  presetProof,
 } from '@shadowlap/engine';
 import { actionsFor, lookupRun, noSuchRun, type ActionItem } from './api.js';
 import { chaosMatrices, type ChaosMatrix } from './chaos.js';
 import { GOLDEN_HISTORY } from './bisect-start.js';
+import { gatePrice, injectionPrice } from './injection-plan.js';
 import { HEX } from './commits-here.js';
 import { commandLine } from './fix-shared.js';
 import { withFixByCheck } from './fix-by-check.js';
 import { fixForRun, type FixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
-import { againCommand, proofCall, proofOf, testedAs } from './injection-view.js';
+import { againCommand, testedAs } from './injection-view.js';
 import { links } from './links.js';
 import { gitAsync } from './patch-in-tree.js';
 import { blameOffer, crashed, goldenFolder, keepable, packableIn, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
@@ -335,9 +335,6 @@ function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
 
 const packable = (f: Facts, run: RunRecord): boolean => packableIn(f.work?.dir, f.work?.goldens ?? [], run);
 
-/** The payloads every template plants, as a test with none picked plants them. */
-const allTemplates = () => injectionTemplates().templates.length;
-
 function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
   const folder = goldenFolder(runId);
   return {
@@ -351,7 +348,7 @@ function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
     sub: parent ? 'A golden with an injection gate: it fails while the agent obeys a planted instruction' : 'A golden with an injection gate: it fails while the agent obeys a planted instruction, and passes once it is fixed',
     command: commandLine(['pack', short(runId), folder]),
     reads: [runId],
-    price: (p) => injectionGateEstimate(p.calls(runId), untrustedReads(p.raw(runId), f.work?.tools).reads, { payloads: allTemplates() }),
+    price: gatePrice(runId, f.work?.tools),
   };
 }
 
@@ -637,7 +634,7 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   // Stopped early, or with a payload file its result doesn't keep: it can't run again as it ran, so it asks what to test.
   const ownFile = report.payloads?.some((x) => x.source === 'file');
   const stopped = report.stopReason ? stopWords(report.stopReason) : null;
-  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
+  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: injectionPrice(row.runId, f.work?.tools) };
   if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: gateAgainSub(why), price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };
@@ -656,14 +653,11 @@ function injectionStep(f: Facts): Decided | null {
 /** A run whose newest presets failed leads with their proof, the first attempt that failed. Presets left inconclusive change nothing: running them again finds the same. */
 function presetStep(f: Facts): Decided | null {
   const m = f.reads.presets(f.row.runId);
-  if (!m) return null;
-  for (const c of m.cells) {
-    if (c.verdict !== 'failed') continue;
-    const kept = c.runs.filter((x) => f.store.getRun(x.runId));
-    const attempt = kept.find((x) => x.verdict === 'failed') ?? kept.find((x) => x.verdict !== 'passed') ?? kept.at(-1);
-    if (attempt) return { key: 'preset-proof', label: ACTIONS.openProof.label, runId: attempt.runId, href: links.run(attempt.runId, c.callNo ?? 1), title: `Opens ${short(attempt.runId)}`, sub: `${c.label} failed · ${c.passes} of ${c.attempts} passed${c.detail ? ` · ${c.detail}` : ''}` };
-  }
-  return null;
+  // The engine's rule, which a presets job's Open proof follows too.
+  const proof = m ? presetProof(m.cells, (runId) => f.store.getRun(runId) !== null) : null;
+  if (!proof) return null;
+  const { cell: c, attempt } = proof;
+  return { key: 'preset-proof', label: ACTIONS.openProof.label, runId: attempt.runId, href: links.run(attempt.runId, c.callNo ?? 1), title: `Opens ${short(attempt.runId)}`, sub: `${c.label} failed · ${c.passes} of ${c.attempts} passed${c.detail ? ` · ${c.detail}` : ''}` };
 }
 
 // ---- a capture its import judged ----

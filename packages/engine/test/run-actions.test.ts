@@ -123,9 +123,9 @@ describe('the fork menu at a call', () => {
 });
 
 describe('the whole run', () => {
-  it('offers Repeat 5 times, which a recording starts at once, and Replay with writes stubbed', () => {
+  it('offers Repeat 5 times, which a recording starts at once, Replay with writes stubbed and Run error-path presets…', () => {
     const actions = buildActions(run(), call);
-    expect(keys(actions, 'run')).toEqual(['e', 's']);
+    expect(keys(actions, 'run')).toEqual(['e', 's', 'c']);
     const repeat = actions.find((a) => a.key === 'e')!;
     // Five attempts, as its name says: nothing to ask, and a recording's replays offline, so it doesn't ask first.
     expect([repeat.label, repeat.flag, repeat.opensRun, repeat.prompt, repeat.asksFirst]).toEqual(['Repeat 5 times', '--repeat 5', false, undefined, undefined]);
@@ -136,6 +136,17 @@ describe('the whole run', () => {
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', ID, '--writes', 'stub']);
     // Replay and packing belong to the header and Share: no group.
     expect(keys(buildActions(run(), undefined), null)).toEqual(['r', 'p']);
+  });
+
+  it('runs the error-path presets on the run, or on the recording a replay that changed nothing came from, asking first, and not on an attempt', () => {
+    const presets = (r: RunRecord) => buildActions(r, undefined).find((a) => a.key === 'c')!;
+    expect(presets(run())).toMatchObject({ label: 'Run error-path presets…', flag: '--chaos', group: 'run', args: ['replay', ID, '--chaos'], asksFirst: true, opensRun: false, hint: 'Injects one failure per preset at the call it hits, and judges what the agent does next.' });
+    // A clean replay's and a test's presets are their recording's; a fork's are its own.
+    expect(presets(run(undefined, { mode: 'replay', parentRunId: 'PARENT', status: 'completed' })).args).toEqual(['replay', 'PARENT', '--chaos']);
+    expect(presets(run({ test: { golden: 'goldens/refund' } } as unknown as RunRecord['meta'], { mode: 'replay', parentRunId: 'PARENT', status: 'failed' })).args).toEqual(['replay', 'PARENT', '--chaos']);
+    expect(presets(run(undefined, { mode: 'replay', parentRunId: 'PARENT', status: 'completed', divergence: { callNo: 4 } as RunRecord['divergence'] })).args).toEqual(['replay', ID, '--chaos']);
+    expect(presets(run({ chaos: { preset: 'tool-timeout', callNo: 4, session: 'S', attempt: 1 } }, { mode: 'replay', parentRunId: 'PARENT' })).disabled).toBe('A preset’s attempt: run the presets on its recording');
+    expect(presets(run({ injection: { result: 'R', role: 'attempt', read: 4, attempt: 1, of: 3 } }, { mode: 'replay', parentRunId: 'PARENT' })).disabled).toBe('An injection test’s attempt: run the presets on its recording');
   });
 
   it('repeats a fork from its parent, with the flags that made it, asking first as its attempts run live', () => {
@@ -254,7 +265,7 @@ describe('the terminal UI\'s fork menu', () => {
   it('ends the whole run\'s part with Find breaking commit…, as the dashboard\'s does, running bisect itself', () => {
     const failed = run(undefined, { status: 'failed', codeVersion: 'a1b2c3d' });
     const actions = terminalActions(failed, call);
-    expect(keys(actions, 'run')).toEqual(['e', 's', 'b']);
+    expect(keys(actions, 'run')).toEqual(['e', 's', 'c', 'b']);
     // The same items as the dashboard's otherwise, in the same order.
     expect(actions.filter((a) => a.key !== 'b').map((a) => a.key)).toEqual(buildActions(failed, call).map((a) => a.key));
     const find = actions.find((a) => a.key === 'b')!;
@@ -287,6 +298,7 @@ describe('the terminal UI\'s fork menu', () => {
       ['a', 'fork once the recording finishes'],
       ['e', 'fork once the recording finishes'],
       ['s', 'fork once the recording finishes'],
+      ['c', 'run the presets once the recording finishes'],
       ['b', 'look for the commit once the recording finishes'],
       ['p', 'pack once the recording finishes'],
     ]);

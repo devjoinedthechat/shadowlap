@@ -3,7 +3,7 @@ import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
 import { lostRange } from '../../../engine/src/run-verdicts.js';
 import { num } from '../format.js';
 import { personName } from '../person.js';
-import type { BlameView, CallRow, CheckView, InjectionMark, LineageNode, RunDetail, RunListItem } from '../types.js';
+import type { BlameView, CallRow, CheckView, InjectionMark, RunDetail } from '../types.js';
 import { href } from '../route.js';
 import { countChecks, type RunLike, type RunType } from '../runs.js';
 import type { AttemptInput } from './banner.js';
@@ -102,14 +102,15 @@ const INJECTION_WORDS: Readonly<Record<InjectionMark['role'], string>> = { attem
  * What the eyebrow calls a fork, or an attempt of any kind, as the design's kind words do: the fork
  * blame rescued a run with is its `rescued fork`; an attempt is a `blame attempt`, a `verify
  * attempt`, a `repeat attempt` or a golden's `test attempt` (one that forked nowhere too); an injection
- * test's replay is an `injection attempt`, a `clean attempt` or a `baseline`, from its own record, so
- * an exported copy names it the same; any other fork is `fork @n`, where it forked. Null for any other
+ * test's replay is an `injection attempt`, a `clean attempt` or a `baseline`, and an error-path
+ * preset's a `preset attempt`, from its own record, so an exported copy names it the same; any other fork is `fork @n`, where it forked. Null for any other
  * run, which the eyebrow names by its kind.
  */
 export function forkKindWords(d: { run: Pick<RunDetail['run'], 'meta' | 'divergence'>; attemptPlace?: RunDetail['attemptPlace'] }, type: RunType, rescued: boolean): string | null {
   if (type === 'fork' && rescued) return 'rescued fork';
   const injection = d.run.meta?.injection;
   if (injection) return INJECTION_WORDS[injection.role];
+  if (d.run.meta?.chaos) return 'preset attempt';
   const a = attemptOf(d);
   if (a) return ATTEMPT_WORDS[a.kind];
   return type === 'fork' && d.run.divergence ? `fork @${d.run.divergence.callNo}` : null;
@@ -178,40 +179,6 @@ export function pulledSpender(r: Pick<RunDetail['run'], 'mode' | 'meta'>): strin
   if (!pulledRun(r) || importedRecording(r)) return undefined;
   const author = r.meta?.author;
   return typeof author === 'string' && author ? personName(author) : undefined;
-}
-
-/**
- * A run of a family (the Forks view, Provenance's lineage) as the lists see it: with its state as the
- * server's lineage gives it, the run list's own (its kind, outcome and whether it failed, an
- * interrupted run's status), for an attempt the lists leave out too; from an older server that sends
- * none, the run list's when the run is listed. So its icon and line say what Runs and the sidebar
- * say; never another run's.
- */
-export function lineageRunLike(n: LineageNode, listed: RunListItem | undefined): RunLike {
-  // The lineage's own state when it has one; else the list's.
-  const s = n.outcome !== undefined ? { status: n.status, kind: n.kind ?? null, outcome: n.outcome, failed: n.failed } : listed ? { status: listed.status, kind: listed.kind ?? null, outcome: listed.outcome ?? null, failed: listed.failed } : null;
-  return {
-    runId: n.runId,
-    parentRunId: n.parentRunId,
-    mode: n.mode,
-    status: s?.status ?? n.status,
-    divergence: n.divergence,
-    command: listed?.command ?? '',
-    codeVersion: listed?.codeVersion ?? null,
-    startedAt: n.startedAt,
-    calls: n.calls,
-    spent: n.spent,
-    saved: n.saved,
-    captured: listed?.captured ?? 0,
-    imported: listed?.imported ?? false,
-    covers: listed?.covers ?? null,
-    source: listed?.source ?? null,
-    labels: listed?.labels ?? [],
-    origins: n.origins ?? listed?.origins ?? null,
-    test: n.test ?? listed?.test ?? null,
-    checks: n.checks,
-    ...(s ? { kind: s.kind, outcome: s.outcome, ...(typeof s.failed === 'boolean' ? { failed: s.failed } : {}) } : {}),
-  };
 }
 
 /**
@@ -292,4 +259,4 @@ export function checksOf(d: Pick<RunDetail, 'checks'> & { run: { meta?: RunDetai
   return (d.run.meta?.checks ?? []).map((c) => ({ label: c.label, ok: c.ok, ...(typeof c.status === 'string' && ['passed', 'failed', 'inconclusive', 'not-applicable'].includes(c.status) ? { status: c.status } : {}) }));
 }
 
-export { callDetail, callTitle, conversationLink, modelCalls, originOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike, type TimelineRow, type Turn } from './calls.js';
+export { callDetail, callTitle, conversationLink, modelCalls, originOf, resultLine, timeOf, tokensText, turnCalls, type CallLike } from './calls.js';

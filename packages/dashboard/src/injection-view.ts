@@ -1,4 +1,4 @@
-import { baselineWrites, fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, strongestVerdict, type AttemptReport, type CallRecord, type CleanReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
+import { baselineWrites, fillPayload, injectionTemplates, plantInToolResult, plural, proofCall, proofLine, refused, shortRunId as short, strongestVerdict, type AttemptReport, type CallRecord, type CleanReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
 import { commandLine } from './fix-shared.js';
 import type { InjectionAgain } from './next-step.js';
 
@@ -51,18 +51,6 @@ export interface InjectionPanelView {
   none: string | null;
   receipt: { spent: number; upstreamRequests: number; baselines: number; stopReason: string | null };
 }
-
-/** The attempt a result's proof is, among those the store still has: the first that obeyed, else the first influenced, else the first that couldn't say why. */
-export function proofOf(store: StoreOf<'recording'>, report: Partial<PlantReport>): AttemptReport | null {
-  for (const verdict of ['obeyed', 'influenced', 'inconclusive']) {
-    const a = (report.attempts ?? []).find((x) => x.verdict === verdict && store.getRun(x.runId));
-    if (a) return a;
-  }
-  return null;
-}
-
-/** The call an attempt shows its verdict at: the call that carried the canary, else where the planted text was read. */
-export const proofCall = (a: { evidence?: ReadonlyArray<{ callNo: number }> | undefined; readAt?: number | null | undefined }): number | null => a.evidence?.[0]?.callNo ?? a.readAt ?? null;
 
 /** What the `injection` job takes to test again as the test did. */
 export function testedAs(report: Partial<PlantReport>): InjectionAgain {

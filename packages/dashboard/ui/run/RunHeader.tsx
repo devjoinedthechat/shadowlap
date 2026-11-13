@@ -63,7 +63,7 @@ function ForkMenuPart(props: ForkMenuProps) {
  * the eyebrow. The next step is the server's (src/next-step.ts); every other action stays, plain. No
  * chip says how the run stands: its first fact does.
  */
-export function RunHeader({ run, call, selected, forkWait, rescued, offers, forkMenu, check, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged, untrusted }: {
+export function RunHeader({ run, call, selected, forkWait, rescued, offers, forkMenu, check, onAction, onFindCommit, onTest, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged, untrusted }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
@@ -77,6 +77,8 @@ export function RunHeader({ run, call, selected, forkWait, rescued, offers, fork
   check?: CheckEntry | undefined;
   onAction: (p: PendingAction) => void;
   onFindCommit: () => void;
+  /** Run injection test… in the fork menu's whole run: none on an injection test's attempt. */
+  onTest?: ForkMenuProps['onTest'];
   preset?: PresetAttempt | null;
   /** The run's labels as the page shows them (useRunLabels), and how a change of them is shown; the run's own without. */
   labels?: readonly string[];
@@ -226,7 +228,7 @@ export function RunHeader({ run, call, selected, forkWait, rescued, offers, fork
         )}
       </div>
       {share.open && share.anchor ? <ShareMenuPart anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
-      {forkMenu.open && forkMenu.anchor ? <ForkMenuPart anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} check={check} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} untrusted={untrusted} /> : null}
+      {forkMenu.open && forkMenu.anchor ? <ForkMenuPart anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} check={check} onPick={onAction} onFindCommit={onFindCommit} onTest={onTest} onClose={forkMenu.close} untrusted={untrusted} /> : null}
     </section>
   );
 }

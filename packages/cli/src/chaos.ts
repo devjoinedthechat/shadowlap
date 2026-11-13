@@ -1,15 +1,18 @@
 import {
   messageOf,
   UNAVAILABLE_RETRY,
+  chaosJudge,
   chaosTargets,
   decideCountUnavailable,
   decideUnavailable,
-  describeGate,
   effectsFor,
   formatUsd,
+  JUDGED_FROM,
   plural,
   PRESET_LABELS,
+  recordingRule,
   presetHits,
+  presetTotals,
   presetReplay,
   presetResult,
   refused,
@@ -17,16 +20,18 @@ import {
   sessionUnavailableReason,
   safeLine,
   parseTraceback,
-  rateBound,
+  presetBound,
+  presetRule,
+  presetsGate,
   storeEffects,
-  tallyInterval,
   type CallRecord,
   type ChaosPreset,
+  type ChaosJudge,
   type ChaosVerdict,
   type Effect,
-  type EffectOf,
   type Gate,
   type GateDecision,
+  type PresetGate,
   type Palette,
   type RunRecord,
   type Store,
@@ -35,7 +40,7 @@ import {
   unavailableReason,
 } from '@shadowlap/engine';
 import { type ChaosSpec } from './chaos-config.js';
-import { evaluateChecks, type TestSpec } from './checks.js';
+import { type TestSpec } from './checks.js';
 import { attemptVerdict, unavailableIn } from './golden-test.js';
 import { ProviderRetry, type ProviderStreak } from './provider-retry.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -44,6 +49,9 @@ import { emitJobEvent } from './job-events.js';
 import { type JunitCase } from './junit.js';
 import { testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { usageOf, telemetry } from './shared.js';
+
+// The presets' judge is the engine's (chaos-judge.ts), which the dashboard's dialog and panel read too.
+export { checkLabels, gateWords, judgedOnExit, presetRule, recordingRule, writeLimits, type ChaosJudge } from '@shadowlap/engine';
 
 /**
  * `test --chaos` and `replay --chaos`: each error-path preset played into a replay of a recording
@@ -103,23 +111,12 @@ export interface PresetOutcome {
   reason: string | null;
   runs: PresetRun[];
   /** The gate its attempts were decided by. */
-  gate: { good: number; bad: number; risk: number; max: number } | { repeat: number; passes: number };
+  gate: PresetGate;
   upstreamRequests: number;
   spent: number;
   /** Attempts its provider failed for real and nobody counted, and those it cut short that the gate counted. Absent when none. */
   unavailable?: number;
   cutShort?: number;
-}
-
-/** What judged a recording's presets besides the agent exiting 0. */
-export interface ChaosJudge {
-  /**
-   * `chaos.expect` (the golden's tests entry), `--expect` (replay --chaos), `write-limits` (the upper
-   * bounds the golden's own expect sets on write tools), or `exit` (nothing but the exit status).
-   */
-  source: 'chaos.expect' | '--expect' | 'write-limits' | 'exit';
-  /** The checks, as a failure names them: `issue_refund called at most 1 time`. */
-  checks: string[];
 }
 
 export interface ChaosContext {
@@ -149,33 +146,6 @@ export interface ChaosContext {
 }
 
 type FixedGate = { repeat: number; passes: number };
-
-/** The gate in words, its rule: `tells 90%+ from 70%- at <= 5% risk, up to 20 attempts`, or `1 of 1 attempt must pass`. */
-export function gateWords(g: PresetOutcome['gate']): string {
-  if ('good' in g) return describeGate({ kind: 'sprt', good: g.good, bad: g.bad, risk: g.risk, max: g.max });
-  return `${g.passes} of ${g.repeat} attempt${g.repeat === 1 ? '' : 's'} must pass`;
-}
-
-/**
- * The rule a sequential gate (`chaos.gate`) decided a preset by, as a report states it beside the
- * tally and the bound: `gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`. Null
- * when no gate decided it: no attempt ran, the golden's own repeat and passes decided (its tally
- * says the count), or it is inconclusive for a reason of its own (the replay never reached the
- * call, a check no attempt could decide), which only a gate that ran out of attempts leaves unsaid.
- */
-export function presetRule(o: Pick<PresetOutcome, 'attempts' | 'gate' | 'verdict' | 'reason'>): string | null {
-  if (o.attempts === 0 || !('good' in o.gate) || (o.verdict === 'inconclusive' && o.reason !== null)) return null;
-  return `gate: ${gateWords(o.gate)}`;
-}
-
-/** The rule a recording's presets were decided by, stated once under them; null as presetRule says. */
-export function recordingRule(outcomes: readonly PresetOutcome[]): string | null {
-  for (const o of outcomes) {
-    const rule = presetRule(o);
-    if (rule) return rule;
-  }
-  return null;
-}
 
 /** The call a preset hits, as a sentence names it: `lookup_order (#4)`, `model call #5`. */
 export function callWords(preset: ChaosPreset, target: { callNo: number; name: string }): string {
@@ -216,27 +186,6 @@ export function lastLine(output: string): string | null {
   return said ? safeLine(said).slice(0, 200) : null;
 }
 
-/**
- * The checks every error path must pass when `chaos.expect` doesn't say: the upper bounds the
- * golden's own expect sets on write tools, a tool of unknown effect counted as one. They hold on any
- * path (an agent whose lookup timed out may escalate rather than refund, but never refunds more than
- * the golden allows). A lower bound, or a bound on a read, says what the recorded path did, which a
- * path through a failure needn't do: a read retried after a timeout is the agent doing its job.
- * Null when the golden's expect sets no such bound.
- */
-export function writeLimits(golden: TestSpec | null, effectOf: EffectOf): TestSpec | null {
-  if (!golden) return null;
-  const tools = golden.tools
-    .filter((t) => Number.isFinite(t.count.max) && effectOf(t.name) !== 'read' && effectOf(t.name) !== 'pure')
-    .map((t) => ({ name: t.name, count: { min: 0, max: t.count.max }, ...(t.args ? { args: t.args } : {}) }));
-  return tools.length ? { fork: true, repeat: 1, passes: 1, tools } : null;
-}
-
-/** A spec's checks as a failure names them, without running them. */
-export function checkLabels(spec: TestSpec): string[] {
-  return evaluateChecks(spec, { calls: [], output: '', argsOf: () => undefined, answer: null, costOf: () => null }).map((r) => r.label);
-}
-
 function notApplicable(preset: ChaosPreset, why: string, gate: PresetOutcome['gate'], hit: { callNo: number; name: string } | null = null): PresetOutcome {
   const at = hit ? `${callWords(preset, hit)}: ` : '';
   const target = hit ? { kind: presetHits(preset) === 'tool' ? ('tool' as const) : ('api' as const), name: hit.name } : null;
@@ -252,13 +201,12 @@ function notApplicable(preset: ChaosPreset, why: string, gate: PresetOutcome['ga
 export async function runPresets(parent: RunRecord, golden: TestSpec | null, chaos: ChaosSpec, ctx: ChaosContext): Promise<{ outcomes: PresetOutcome[]; interrupted: boolean; judge: ChaosJudge }> {
   const calls = ctx.store.getCalls(parent.runId);
   const targets = chaosTargets(calls, { tool: chaos.tool });
-  const gate: Gate | FixedGate = chaos.gate ?? { repeat: golden?.repeat ?? 1, passes: golden?.passes ?? golden?.repeat ?? 1 };
-  const shownGate: PresetOutcome['gate'] = 'kind' in gate ? (gate.kind === 'sprt' ? { good: gate.good, bad: gate.bad, risk: gate.risk, max: gate.max } : { repeat: gate.min, passes: gate.min }) : gate;
+  // The gate as a result keeps it (the engine's rule, which the dashboard's dialog states), decided by the configured one when there is one.
+  const shownGate = presetsGate(chaos, golden);
+  const gate: Gate | FixedGate = chaos.gate ?? (shownGate as FixedGate);
   // A fork passes on its checks: here, what an error path must do, judged on every attempt.
   const configured = new Map<string, Effect>(Object.entries<Effect>(ctx.config.mcp?.effects ?? {}));
-  const limits = chaos.expect ? null : writeLimits(golden, effectsFor(calls, storeEffects(ctx.store, configured)));
-  const checks = chaos.expect ?? limits;
-  const judge: ChaosJudge = checks ? { source: chaos.expect ? (chaos.expectFrom ?? 'chaos.expect') : 'write-limits', checks: checkLabels(checks) } : { source: 'exit', checks: [] };
+  const { checks, judge } = chaosJudge(chaos, golden, effectsFor(calls, storeEffects(ctx.store, configured)));
   const forkSpec: TestSpec = { ...(checks ?? { repeat: 1, passes: 1, tools: [] }), fork: true };
   const resultOf = storedResult(ctx.store);
   const outcomes: PresetOutcome[] = [];
@@ -271,7 +219,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     const hits = presetHits(preset);
     const target = hits === 'tool' ? targets.tool : targets.model;
     if ('none' in target) {
-      outcomes.push(record(ctx, parent, notApplicable(preset, target.none, shownGate)));
+      outcomes.push(record(ctx, parent, notApplicable(preset, target.none, shownGate), judge));
       continue;
     }
     const call = calls.find((c) => c.callNo === target.callNo)!;
@@ -280,7 +228,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     if (preset === 'empty' || preset === 'malformed' || preset === 'oversized') {
       const made = presetResult(preset, resultOf(call).result, resultShape(call), { oversize: chaos.oversize });
       if (refused(made)) {
-        outcomes.push(record(ctx, parent, notApplicable(preset, made.refused, shownGate, target)));
+        outcomes.push(record(ctx, parent, notApplicable(preset, made.refused, shownGate, target), judge));
         continue;
       }
       served = made;
@@ -384,8 +332,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     const firstFail = runs.find((r) => r.verdict === 'failed');
     const checks = runs.at(-1)?.checks?.length ?? 0;
     // Under a gate, its bound beside the tally (exact under its stopping, stats.ts); the rule is said once, under the table.
-    const sprt = 'kind' in gate && gate.kind === 'sprt' ? gate : null;
-    const bound = sprt && counted ? rateBound({ attempts: counted, interval: tallyInterval(sprt, { passes, attempts: counted }, decision, null, cut), decision }) : null;
+    const bound = presetBound(shownGate, { passes, attempts: counted }, decision, cut);
     const cutWords = cut ? ` (${cut} cut short by the provider, counted against either verdict)` : '';
     const tally = counted > 1 ? `${passes} of ${counted} attempts passed${cutWords}${bound ? ` · ${bound}` : ''}` : null;
     const said = firstFail?.lastLine ? ` (${firstFail.lastLine})` : '';
@@ -416,7 +363,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         spent,
         ...(providers.unavailable ? { unavailable: providers.unavailable } : {}),
         ...(cut ? { cutShort: cut } : {}),
-      }),
+      }, judge),
     );
   }
   return { outcomes, interrupted, judge };
@@ -428,8 +375,11 @@ async function pause(ms: number, stopped?: () => boolean): Promise<void> {
   while (Date.now() < until && !stopped?.()) await new Promise<void>((r) => setTimeout(r, Math.min(250, until - Date.now())));
 }
 
-/** Keeps an outcome in the session; a store that refuses it costs the history, not the result. */
-function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome): PresetOutcome {
+/**
+ * Keeps an outcome in the session, with what judged it and the attempts its provider cut short (a
+ * bound reads them back); a store that refuses it costs the history, not the result.
+ */
+function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome, judge: ChaosJudge): PresetOutcome {
   try {
     ctx.store.addChaosResult({
       sessionId: ctx.session,
@@ -440,7 +390,7 @@ function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome): PresetO
       callNo: o.callNo,
       passes: o.passes,
       attempts: o.attempts,
-      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate, upstreamRequests: o.upstreamRequests, spent: o.spent },
+      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate, upstreamRequests: o.upstreamRequests, spent: o.spent, judge, ...(o.cutShort ? { cutShort: o.cutShort } : {}) },
     });
   } catch (err) {
     process.stderr.write(`[shadowlap] the ${o.label} result was not kept: ${messageOf(err)}\n`);
@@ -486,13 +436,6 @@ export function chaosReport(results: ChaosRecordingResult[], o: { session: strin
 
 const VERDICT_WORDS: Readonly<Record<ChaosVerdict, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
 
-/** Where checks that judged the presets came from, as the table's last line says it. */
-const JUDGED_FROM: Readonly<Record<Exclude<ChaosJudge['source'], 'exit'>, string>> = {
-  'chaos.expect': 'chaos.expect',
-  '--expect': '--expect',
-  'write-limits': "the write limits of the golden's expect",
-};
-
 /**
  * One recording's presets as a table, preset × outcome, under a header that names the calls they
  * hit; a failure's last line is what the agent died of. Under it, the gate, and the checks that
@@ -521,17 +464,9 @@ export function formatPresets(name: string, outcomes: readonly PresetOutcome[], 
   return lines.join('\n');
 }
 
-/** The hint under a table whose presets only the exit status judged: what would say more, in two lines. */
-export function judgedOnExit(where: 'chaos.expect' | '--expect'): string {
-  const example = `{"tools":{"issue_refund":"<= 1"}}`;
-  const first = 'Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.';
-  return where === '--expect' ? `${first}\nSay it with --expect, such as --expect '${example}'.` : `${first}\nSay it in its tests entry, as "chaos": { "expect": ${example} }, or as upper bounds on write tools in its "expect".`;
-}
-
 /** The session's totals, as the last line says them. */
 export function chaosTotals(r: ChaosReport, upstreamRequests: number, spent: number): string {
-  const parts = [`${r.passed} passed`, `${r.failed} failed`, ...(r.inconclusive ? [`${r.inconclusive} inconclusive`] : []), ...(r.notApplicable ? [`${r.notApplicable} not applicable`] : [])];
-  return `${parts.join(', ')} · ${plural(upstreamRequests, 'upstream request')}${spent ? ` · ≈${formatUsd(spent)} spent` : ''}`;
+  return `${presetTotals(r)} · ${plural(upstreamRequests, 'upstream request')}${spent ? ` · ≈${formatUsd(spent)} spent` : ''}`;
 }
 
 /** One attempt as a JUnit failure's details list it, by its own verdict: `attempt 2 (run 01J…): inconclusive: <why>`. */

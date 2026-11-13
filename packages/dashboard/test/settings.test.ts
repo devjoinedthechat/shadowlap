@@ -312,8 +312,10 @@ describe('toolsSettings', () => {
       ['lookup_order', 'read', 2, 2, false, false],
       ['search_docs', 'read', 1, 1, false, true],
     ]);
-    // Its declaration changed from read to write: the latest call decides the group.
-    expect(t.fenced).toEqual([{ name: 'issue_refund', effect: 'write', calls: 2, runs: 2, lastAt: 210, changed: true, mcp: false }]);
+    // Its declaration changed from read to write: the latest call decides the group. Nothing marks
+    // it, so it is trusted, and its Trust cell offers the line that marks it untrusted.
+    const flip = '"tools": { "issue_refund": { "trust": "untrusted" } }';
+    expect(t.fenced).toEqual([{ name: 'issue_refund', effect: 'write', calls: 2, runs: 2, lastAt: 210, changed: true, mcp: false, trust: 'trusted', from: null, where: null, flip, input: false, test: null }]);
     expect(t.http).toEqual([
       { host: '*.pinecone.io', effect: 'read', declared: true, calls: 2, lastAt: 150, error: null },
       { host: 'hooks.slack.com', effect: 'write', declared: true, calls: 0, lastAt: null, error: null },

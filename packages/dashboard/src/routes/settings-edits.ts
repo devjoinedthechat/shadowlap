@@ -50,7 +50,8 @@ function listOf(name: string | undefined): RuleList {
   return name as RuleList;
 }
 
-function expectOf(value: unknown): string {
+/** The version an edit names (`expect`), checked: refused with the words that say where it comes from. */
+export function expectOf(value: unknown): string {
   if (typeof value !== 'string' || !VERSION.test(value)) throw new HttpError(400, "expect is the version of shadowlap.config.json the page read (its config.version): reload Settings and try again");
   return value;
 }

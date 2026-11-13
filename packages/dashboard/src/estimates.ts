@@ -41,6 +41,9 @@ import {
   type RunRecord,
   type Store,
   type StoredBlame,
+  type InjectionPlan,
+  packRecording,
+  type ToolTrust,
 } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from './api.js';
 import { decisionSession, runsToVerify, sessionGate, sessionReport } from './decisions.js';
@@ -48,6 +51,9 @@ import { nextBlameRule } from './fix-blame-step.js';
 import { acceptedVerdict, sprtGate } from './fix-shared.js';
 import { verdictRule, verifyLeftExpected } from './fix-verify-step.js';
 import { fixDetail } from './fixes.js';
+import { causePrice, gatePrice, injectionPrice } from './injection-plan.js';
+import { presetsRowPrice } from './presets-plan.js';
+import { CANT_READ_RECORDING } from './injection-security.js';
 import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, runTestsEstimate } from './next-step.js';
 import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
 import { previewEstimates, type PreviewEstimateJob } from './preview-estimate.js';
@@ -71,7 +77,7 @@ import { gateResultView, normalizeAndTestJob, unreadable, type GoldenSource } fr
  * `at`, the whole run's rows alone. `model` is Switch model's, as typed; without it, the recorded
  * model's price.
  */
-export type RunEstimatesJob = { kind: 'run-estimates'; runId: string; at: number | null; model: string | null; prices?: Record<string, Price> };
+export type RunEstimatesJob = { kind: 'run-estimates'; runId: string; at: number | null; model: string | null; prices?: Record<string, Price>; tools?: ToolTrust; work?: OutcomeWork | null };
 
 /**
  * Tests' estimates (`GET /api/tests/estimates`): Run tests', and each golden's on disk by its path, as
@@ -108,12 +114,22 @@ export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: 
 /** `max` and `keptMax`: Run more attempts' raised limits, as `decisions-verify` takes them; absent for Verify, which runs by verify's own. */
 export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runIds: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; max?: number | null; keptMax?: number | null; prices?: Record<string, Price> };
 
-export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob | PreviewEstimateJob;
+/**
+ * A dialog's price. Run injection test…'s and Pack with injection gate…'s: the plan picked, priced as
+ * a test (or, `gate`, as each session's gate), on a run of the store, or on the recording a golden's
+ * pack holds where the store doesn't (`pack`, the golden's folder). Find cause…'s: one read made
+ * neutral (`clean`), as the dialog picks it.
+ */
+export type InjectionEstimateJob = { kind: 'injection-estimate'; runId: string; pack?: string; clean?: number; plan: InjectionPlan; gate: boolean; prices?: Record<string, Price>; tools?: ToolTrust };
+
+export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob | InjectionEstimateJob | PreviewEstimateJob;
 
 /** A run's answer: Run blame's estimate, and each row's by its key. */
 export interface RunEstimates {
   blame: Estimate | null;
   actions: Record<string, Estimate>;
+  /** Run injection test… at the plan nobody picked, as its openers' cards and its dialog's first cost line say it: in the whole run's answer (no `at`) alone. */
+  injection?: Estimate | null;
 }
 
 /** How a fork menu row at call `call` changes the run, as its estimate reads it, by the row's key; null for one that bills by another rule, or nothing. */
@@ -126,8 +142,10 @@ function forkChange(key: string, call: CallRecord, model: string | null): Omit<F
 }
 
 /** What a row bills, by its key: a fork from the call, a planted instruction, or the whole run again; null for one that bills nothing (Replay, a normalizer, Pack). */
-function rowPrice(key: string, run: RunRecord, call: CallRecord | undefined, job: RunEstimatesJob): ((p: Pricing) => Estimate) | null {
+function rowPrice(store: Store, key: string, run: RunRecord, call: CallRecord | undefined, job: RunEstimatesJob): ((p: Pricing) => Estimate) | null {
   const o = { prices: job.prices };
+  // Run error-path presets…: every preset at the first read of the recording it runs on, under its golden's gate.
+  if (key === 'c') return presetsRowPrice(store, run, job.work ?? null);
   // Repeat, and Replay with writes stubbed on a replay Shadowlap made: each attempt made again from the parent, live from where it forks.
   if (key === 'e') return (p) => repeatEstimate(run, p.raw(run.runId), REPEAT_TIMES, o);
   if (key === 's') return forkArgs(run) === null ? null : (p) => repeatEstimate(run, p.raw(run.runId), 1, o);
@@ -154,12 +172,45 @@ async function runEstimates(store: Store, job: RunEstimatesJob): Promise<ReadAns
   const actions: Record<string, Estimate> = {};
   // A row turned off runs nothing, so it bills nothing.
   for (const a of buildActions(run, call, actionContext(store, call))) {
-    const price = a.disabled ? null : rowPrice(a.key, run, call, job);
+    const price = a.disabled ? null : rowPrice(store, a.key, run, call, job);
     const e = price ? await estimateOf(price, pricing) : null;
     if (e) actions[a.key] = e;
   }
-  const body: RunEstimates = { blame: await estimateOf(blamePrice(run.runId).price!, pricing), actions };
+  const body: RunEstimates = {
+    blame: await estimateOf(blamePrice(run.runId).price!, pricing),
+    actions,
+    // The whole run's alone: a menu opened at each call asks its rows again, never this.
+    ...(job.at === null ? { injection: await estimateOf(injectionPrice(run.runId, job.tools), pricing) } : {}),
+  };
   return answer(body, { tagged: true });
+}
+
+/** A dialog's plan's answer: `{ estimate }`, null where it can't be worked out (the line is then left out). */
+async function injectionPlanEstimate(store: Store, job: InjectionEstimateJob): Promise<ReadAnswer> {
+  if (job.pack !== undefined) return packPlanEstimate(job.pack, job);
+  const run = lookupRun(store, job.runId);
+  if (!run) {
+    const no = noSuchRun(store, job.runId);
+    return failed(no.status, no.message);
+  }
+  return answer({ estimate: await estimateOf(dialogPrice(run.runId, job), pricingOf(store, job.prices)) }, { tagged: true });
+}
+
+const dialogPrice = (runId: string, job: InjectionEstimateJob) => (job.clean !== undefined ? causePrice(runId, job.tools, job.clean) : job.gate ? gatePrice(runId, job.tools, job.plan) : injectionPrice(runId, job.tools, job.plan));
+
+/** A plan on a golden whose recording only its pack holds, priced from the pack, read into a store of its own, then closed. */
+async function packPlanEstimate(folder: string, job: InjectionEstimateJob): Promise<ReadAnswer> {
+  let pack: ReturnType<typeof packRecording>;
+  try {
+    pack = packRecording(folder);
+  } catch {
+    return failed(404, CANT_READ_RECORDING);
+  }
+  try {
+    return answer({ estimate: await estimateOf(dialogPrice(pack.run.runId, job), pricingOf(pack.store, job.prices)) }, { tagged: true });
+  } finally {
+    pack.store.close();
+  }
 }
 
 /** A fix's answer: each of its page's billed buttons, and each Verify step's by its verdict's id. */
@@ -375,5 +426,6 @@ export const ESTIMATE_READS: ReadTable<EstimateJob> = {
   'tests-estimates': (store, job) => testsEstimates(store, job),
   'bisect-estimate': (store, job) => bisectEstimates(store, job),
   'decision-estimates': (store, job) => decisionEstimates(store, job),
+  'injection-estimate': (store, job) => injectionPlanEstimate(store, job),
   'preview-estimate': (store, job) => previewEstimates(store, job),
 };

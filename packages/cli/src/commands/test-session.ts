@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { InvalidArgumentError, type Command } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, outputTail, noVerdicts, proofLine, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
+import { ACTIONS, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, outputTail, noVerdicts, proofCall, proofLine, proofOf, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type AttemptReport, type InjectionGateData, type PlantReport, type RunRecord, type StoreOf, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { sessionPullRequest, sessionSource } from '../baseline-branch.js';
 import { testChaos } from '../chaos-session.js';
@@ -15,7 +15,7 @@ import { formatChecks, inconclusiveFor, junitCase, packResult, pruneQuietly, res
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, isPack, rawExpectFor } from '../goldens.js';
 import { gateLetsThrough, gateLine, injectionGate } from '../injection.js';
-import { emitJobEvent } from '../job-events.js';
+import { emitJobEvent, type JobEvent } from '../job-events.js';
 import { judgesOf } from '../judge.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { ProviderStreak, unavailableWords } from '../provider-retry.js';
@@ -190,6 +190,8 @@ class Session {
   readonly results: PackResult[] = [];
   upstreamRequests = 0;
   updates = 0;
+  /** The attempt that proves the last injection gate that failed, which a job testing one golden opens first (sessionLinks). */
+  gateProof: AttemptReport | null = null;
   readonly tested = new Map<string, { ok: boolean; fork: boolean }>();
   /** The goldens not run for want of a yes: someone else's packs, which a session of nothing else ends 2 for. */
   readonly unvouched = new Set<string>();
@@ -448,6 +450,7 @@ class Session {
       this.upstreamRequests += gate.report.cost.upstreamRequests;
       if (this.signal) return null;
       data = gate.data;
+      this.gateProof = failedProof(this.store, gate);
       const obeyed = gate.report.attempts.find((a) => a.verdict === 'obeyed');
       proof = obeyed ? proofLine(obeyed) : null;
     } catch (err) {
@@ -618,6 +621,35 @@ function inconclusiveWords(count: number, results: readonly PackResult[], given:
   return `, ${count} inconclusive (${[through, fails].filter(Boolean).join(', ')})`;
 }
 
+/**
+ * One golden's injection gate that decided nothing to fail on: a pass ends on Tests alone, and one
+ * that showed too little on Tests beside it, so the dashboard's Re-run test leads (a footer starts
+ * what a link can't). Null for any other session.
+ */
+function gateLinks(only: PackResult): JobEvent[] | null {
+  const verdict = only.injection?.verdict;
+  if (verdict === 'passed' && only.ok) return [{ type: 'link', label: 'Open Tests', href: links.tests() }];
+  return verdict === 'inconclusive' ? [{ type: 'link', label: 'Open Tests', href: links.tests(), secondary: true }] : null;
+}
+
+/**
+ * A dashboard job's links: one golden (as Add normalizer and re-run tests it) to its replay; a
+ * session over several to the replay of each that failed, the first few, then Tests for them all.
+ * One primary action: Open proof where one golden's injection gate failed on an attempt that proves
+ * it, Tests where it passed, else the replay of a single golden, else Tests, with the other links beside it.
+ */
+function sessionLinks(results: readonly PackResult[], only: PackResult | null, gateProof: AttemptReport | null): JobEvent[] {
+  const proof = only?.runId && only.injection?.verdict === 'failed' ? gateProof : null;
+  if (!only?.runId) return [...results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS).map((r): JobEvent => ({ type: 'link', label: r.name, href: links.run(r.runId!), secondary: true })), { type: 'link', label: 'Open Tests', href: links.tests() }];
+  const gate = gateLinks(only);
+  if (gate) return gate;
+  const replay: JobEvent = { type: 'link', label: only.ok ? 'Open passing run' : 'Open run', href: links.run(only.runId), ...(proof ? { secondary: true } : {}) };
+  return [...(proof ? [{ type: 'link', label: ACTIONS.openProof.label, href: links.run(proof.runId, proofCall(proof)) } satisfies JobEvent] : []), replay, { type: 'link', label: 'Open Tests', href: links.tests(), secondary: true }];
+}
+
+/** The attempt that proves a gate that failed, among the runs kept (the engine's proofOf); null for one that passed or couldn't say. */
+const failedProof = (store: StoreOf<'recording'>, gate: { data: InjectionGateData; report: PlantReport }): AttemptReport | null => (gate.data.verdict === 'failed' ? proofOf(store, gate.report) : null);
+
 /** The reports a session was asked for, its job's links and summary, and the status it ends with. */
 async function reportSession(request: TestRequest, pusher: Pusher | null, s: Session): Promise<void> {
   const { flags, packs, noPack } = request;
@@ -632,13 +664,7 @@ async function reportSession(request: TestRequest, pusher: Pusher | null, s: Ses
   if (flags.annotations && (report.failed || report.inconclusive)) process.stdout.write(githubAnnotations(report) + '\n');
   if (pusher) await pusher.finish(report);
   emitJobEvent({ type: 'result', data: report });
-  // A dashboard job's links: one golden (as Add normalizer and re-run tests it) to its replay; a
-  // session over several to the replay of each that failed, the first few, then Tests for them all.
-  const only = results.length === 1 && packs.length === 1 ? results[0]! : null;
-  // One primary action: the replay of a single golden, else Tests, with the other links beside it.
-  if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open passing run' : 'Open run', href: links.run(only.runId) });
-  else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: r.name, href: links.run(r.runId!), secondary: true });
-  emitJobEvent({ type: 'link', label: 'Open Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) });
+  sessionLinks(results, results.length === 1 && packs.length === 1 ? results[0]! : null, s.gateProof).forEach((e) => emitJobEvent(e));
   // Inconclusive ones are counted apart, and what CI does with them is said.
   const inconclusive = inconclusiveWords(report.inconclusive, results, request.inconclusiveGiven);
   const passedCount = results.filter((r) => r.verdict === 'passed').length;

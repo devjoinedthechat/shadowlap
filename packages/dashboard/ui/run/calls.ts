@@ -1,7 +1,7 @@
 import { callName, dur, ktok } from '../format.js';
 import { displayOrigin, isFailure, type Origin7 } from '../origins.js';
 import { recordedDuration, type CallIndex } from '../recorded.js';
-import { agentOf, inScope, scopeOnly } from '../scopes.js';
+import { inScope, scopeOnly } from '../scopes.js';
 
 /**
  * Each call's line in the run page's views: its detail, its result, its time, the turn it belongs
@@ -87,10 +87,14 @@ export const failedBy = (c: Pick<CallLike, 'origin' | 'status' | 'error'>): Fail
 /**
  * A failed model call's note, as the inspector leads with it (CallNote, which then says what its
  * view shows) and Compare's opened row says it: its word, then why, in parts, the flag Shadowlap
- * answered with as code (`--fail-at 19=529` where the fork's flag is one) and the attempts it took.
+ * answered with as code (`--fail-at 19=529` where the fork's flag is one) and the attempts it took;
+ * an error-path preset's attempt, the preset that played in (`played`).
  */
-export function failureNote(c: Pick<CallLike, 'status' | 'error' | 'attempts'>, by: FailedBy, flag: string | null): { word: string; why: Array<string | { code: string }> } {
-  if (by === 'injected') return { word: 'Never sent.', why: [`Shadowlap answered with HTTP ${c.status ?? '?'} (`, { code: flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at' }, `)${c.attempts ? `, ${c.attempts + 1} attempts` : ''}.`] };
+export function failureNote(c: Pick<CallLike, 'status' | 'error' | 'attempts'>, by: FailedBy, flag: string | null, played: string | null = null): { word: string; why: Array<string | { code: string }> } {
+  const tries = c.attempts ? `, ${c.attempts + 1} attempts` : '';
+  // An error-path preset's attempt names its preset, in place of the flag.
+  if (by === 'injected' && played) return { word: 'Never sent.', why: [`The ${played} preset answered with HTTP ${c.status ?? '?'}${tries}.`] };
+  if (by === 'injected') return { word: 'Never sent.', why: [`Shadowlap answered with HTTP ${c.status ?? '?'} (`, { code: flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at' }, `)${tries}.`] };
   if (by === 'offline') return { word: 'Refused.', why: [`The replay is offline and this request is not in the recording, so it got HTTP ${c.status ?? '?'}.`] };
   return { word: 'Failed.', why: [failedWhy(c)] };
 }
@@ -164,73 +168,6 @@ export function timeOf(c: CallLike, ancestors: readonly CallIndex[], live: boole
   }
   if (c.latencyMs !== null) return { text: dur(c.latencyMs), was: false };
   return { text: c.outcome === null && live ? '…' : '', was: false };
-}
-
-export interface Turn<C extends CallLike = CallLike> {
-  model: C;
-  tools: C[];
-}
-
-/**
- * Calls grouped the way an agent loop makes them: a model call, then the tool calls it led to. With
- * scopes, a tool call belongs to the last model call made in its own scope.
- */
-export function turnsOf<C extends CallLike>(calls: readonly C[], scoped: boolean): Array<Turn<C>> {
-  const turns: Array<Turn<C>> = [];
-  const last = new Map<string, Turn<C>>();
-  let cur: Turn<C> | null = null;
-  for (const c of calls) {
-    if (c.kind === 'api') {
-      cur = { model: c, tools: [] };
-      turns.push(cur);
-      last.set(agentOf(c) ?? '', cur);
-    } else if (c.kind === 'tool') {
-      const t = scoped ? last.get(agentOf(c) ?? '') : cur;
-      t?.tools.push(c);
-    }
-  }
-  return turns;
-}
-
-export interface TimelineRow<C extends CallLike = CallLike> {
-  call: C;
-  start: number;
-  end: number;
-  /** First token, from the start of the call, for a streamed model call that ran live. */
-  firstToken: number | null;
-}
-
-/** Every call on one clock, from the first call's start, and the pairs of calls that ran at once. */
-export function timelineOf<C extends CallLike>(calls: readonly C[], now = Date.now()): { rows: Array<TimelineRow<C>>; end: number; parallel: Array<[number, number]> } {
-  const timed = calls.filter((c) => c.startedAt > 0);
-  if (!timed.length) return { rows: [], end: 1, parallel: [] };
-  // A loop, not Math.min(...): a run of 100,000 calls is more arguments than a call can take.
-  let t0 = Infinity;
-  for (const c of timed) t0 = Math.min(t0, c.startedAt);
-  const rows = timed.map((c) => {
-    const endAt = c.endedAt ?? (c.outcome === null ? now : c.startedAt + (c.latencyMs ?? 0));
-    return { call: c, start: c.startedAt - t0, end: Math.max(c.startedAt, endAt) - t0, firstToken: c.ttftMs !== null && c.origin === 'live' ? c.ttftMs : null };
-  });
-  let end = 1;
-  for (const r of rows) end = Math.max(end, r.end);
-  // A call ran at once with another when it started before the one still running ended.
-  const parallel: Array<[number, number]> = [];
-  const byStart = [...rows].filter((r) => r.call.kind !== 'clock' && r.call.kind !== 'random').sort((a, b) => a.start - b.start || a.call.callNo - b.call.callNo);
-  let running: TimelineRow<C> | null = null;
-  for (const r of byStart) {
-    if (running && r.start < running.end - 1) parallel.push([running.call.callNo, r.call.callNo]);
-    if (!running || r.end > running.end) running = r;
-  }
-  return { rows, end, parallel };
-}
-
-/** Axis ticks for a span: a round step, at most about nine ticks. */
-export function ticksFor(end: number): Array<{ at: number; label: string }> {
-  const steps = [10, 50, 100, 500, 1000, 2000, 5000, 10_000, 30_000, 60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000];
-  const step = steps.find((s) => end / s <= 9) ?? 3_600_000;
-  const out: Array<{ at: number; label: string }> = [];
-  for (let x = 0; x <= end; x += step) out.push({ at: x, label: step >= 60_000 ? `${x / 60_000}m` : end > 1000 ? `${x / 1000}s` : `${x}ms` });
-  return out;
 }
 
 /**

@@ -125,6 +125,61 @@ describe('how a job ends, in the words of its kind', () => {
   });
 });
 
+describe('an injection job’s end', () => {
+  const plant = (code: number, verdict: string) => jobStatus(done({ kind: 'injection', title: 'Running injection test', args: ['injection', 'X'], code, result: { results: [{ mode: 'plant' }], verdict } }), []);
+  const clean = (code: number, verdict: string) => jobStatus(done({ kind: 'injection', title: 'Finding cause: testing #4', args: ['injection', 'X', '--clean', '4'], code, result: { results: [{ mode: 'clean', verdict }], verdict: 'passed' } }), []);
+  const gate = (code: number, line: string) => jobStatus(done({ kind: 'pack-test', title: 'Packing with injection gate', args: ['test', 'goldens/x'], code }), ['  added to shadowlap.config.json, under "tests": "goldens/x": { "injection": { "obeyed": 0, "repeat": 3 } }', line]);
+
+  it('says a test’s verdict with its real code: inconclusive exits 3', () => {
+    expect(plant(1, 'failed')).toEqual({ text: 'failed · exit 1', tone: 'err' });
+    expect(plant(3, 'inconclusive')).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(plant(0, 'passed')).toEqual({ text: 'passed · exit 0', tone: 'ok' });
+    expect(plant(130, 'inconclusive')).toEqual({ text: 'interrupted · exit 130', tone: 'warn' });
+  });
+
+  it('says Find cause’s answer: caused in red, not caused plain', () => {
+    expect(clean(0, 'caused')).toEqual({ text: 'caused · exit 0', tone: 'err' });
+    expect(clean(0, 'not caused')).toEqual({ text: 'not caused · exit 0', tone: '' });
+    expect(clean(3, 'inconclusive')).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+  });
+
+  it('says Pack with injection gate packed, then how its test came out', () => {
+    expect(gate(1, '0 passed, 1 failed · 4 upstream requests')).toEqual({ text: 'packed · its test failed · exit 1', tone: 'err' });
+    expect(gate(3, '0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through) · 0 upstream requests')).toEqual({ text: 'packed · its test inconclusive · exit 3', tone: 'warn' });
+    expect(gate(0, '1 passed, 0 failed · 4 upstream requests')).toEqual({ text: 'packed · its test passed · exit 0', tone: 'ok' });
+    // Its header: packed, whatever its test said, and the test after it.
+    expect(jobHeader({ kind: 'pack-test', title: 'Packing with injection gate', args: ['test', 'goldens/x'], done: true, code: 1 }, ['0 passed, 1 failed · 4 upstream requests'])).toEqual({ title: 'Packed with injection gate', text: 'its test failed · exit 1', tone: 'err' });
+    // A Pack as golden… is a session's words, as before.
+    expect(jobStatus(done({ kind: 'pack-test', title: 'Packing and testing', args: ['test', 'goldens/x'], code: 1 }), ['0 passed, 1 failed · 4 upstream requests']).text).toBe('failed · exit 1');
+  });
+
+  it('ends Find cause as a search, whatever the answer', () => {
+    const header = (code: number, verdict: string) => jobHeader({ kind: 'injection', title: 'Finding cause: testing #4', args: ['injection', 'X', '--clean', '4'], done: true, code, result: { results: [{ mode: 'clean', verdict }] } }, []);
+    expect(header(0, 'not caused')).toEqual({ title: 'Searched for cause: testing #4', text: 'not caused · exit 0', tone: '' });
+    expect(header(0, 'caused')).toEqual({ title: 'Searched for cause: testing #4', text: 'caused · exit 0', tone: 'err' });
+    expect(jobHeader({ kind: 'injection', title: 'Running injection test', args: ['injection', 'X'], done: true, code: 1, result: { results: [{ mode: 'plant' }], verdict: 'failed' } }, [])).toEqual({ title: 'Ran injection test', text: 'failed · exit 1', tone: 'err' });
+  });
+});
+
+describe('the presets’ and coverage’s ends', () => {
+  const presets = (code: number, line: string) => jobHeader({ kind: 'chaos', title: 'Running error-path presets', args: ['replay', 'X', '--chaos'], done: true, code }, [line]);
+  const pack = (code: number, golden: string | null) => jobHeader({ kind: 'coverage-pack', title: 'Packing 3f9a2c1d as golden', args: ['coverage', '--pack', '3f9a2c1d00000000'], done: true, code, result: { pack: [{ key: '3f9a2c1d00000000', golden, reason: golden ? null : 'diverged' }] } }, []);
+
+  it('says the presets’ verdict with no golden tally, and their real code: inconclusive exits 3', () => {
+    expect(presets(1, '1 passed, 2 failed · 5 upstream requests')).toEqual({ title: 'Ran error-path presets', text: 'failed · exit 1', tone: 'err' });
+    expect(presets(3, '2 passed, 0 failed, 1 inconclusive · 3 upstream requests')).toEqual({ title: 'Ran error-path presets', text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(presets(0, '3 passed, 0 failed · 3 upstream requests')).toEqual({ title: 'Ran error-path presets', text: 'passed · exit 0', tone: 'ok' });
+  });
+
+  it('says a scan read, and a pack whether it wrote the golden, never repeating its title', () => {
+    expect(jobHeader({ kind: 'coverage', title: 'Scanning coverage', args: ['coverage'], done: true, code: 0 }, [])).toEqual({ title: 'Scanned coverage', text: 'read · exit 0', tone: 'ok' });
+    expect(pack(0, 'goldens/triage.json')).toEqual({ title: 'Packed 3f9a2c1d as golden', text: 'exit 0', tone: 'ok' });
+    expect(pack(1, null)).toEqual({ title: 'Tried packing 3f9a2c1d as golden', text: 'not packed · exit 1', tone: 'err' });
+    // A pack that never got to report one is the generic words'.
+    expect(jobStatus(done({ kind: 'coverage-pack', title: 'Packing 3f9a2c1d as golden', args: ['coverage', '--pack', 'x'], code: 2 }), ['✗ no such behaviour']).text).not.toMatch(/packed/);
+  });
+});
+
 describe('the drawer’s header', () => {
   it('a preview ends finished, or inconclusive in amber where it settled nothing, and its read of the working tree read', () => {
     const preview = (code: number) => done({ kind: 'decisions', title: 'Previewing model switch', args: ['decisions', 'goldens/refund', '--model', 'claude-haiku-4-5'], code });

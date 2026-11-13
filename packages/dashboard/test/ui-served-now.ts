@@ -1,5 +1,7 @@
 import { createElement, type ComponentType, type ReactNode } from 'react';
 import { onShow, type OnShow } from '../ui/components/OnShow.js';
+import { PackWithGate } from '../ui/injection/PackWithGate.js';
+import { TestDialog } from '../ui/injection/TestDialog.js';
 import { SERVED_PARTS } from '../ui/pages/served.js';
 import { StepDialog } from '../ui/run/StepDialogs.js';
 import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
@@ -11,8 +13,8 @@ export function shownNow<P extends object>(part: ComponentType<P>): OnShow<P> {
   return shown;
 }
 
-/** The dialogs the served dashboard hands the run page's steps and Tests' Pack as golden… (ui/run/StepDialogs.tsx). */
-export const STEP_PARTS: ServedParts = { StepDialog: shownNow(StepDialog) };
+/** The dialogs the served dashboard hands the run page's steps and Tests' Pack as golden… (ui/run/StepDialogs.tsx), and Run injection test…'s and Pack with injection gate…'s (ui/injection/). */
+export const STEP_PARTS: ServedParts = { StepDialog: shownNow(StepDialog), TestDialog: shownNow(TestDialog), PackWithGate: shownNow(PackWithGate) };
 
 /** `child` as the served dashboard draws it, with the step dialogs handed in. */
 export const withStepDialogs = (child: ReactNode) => createElement(ServedPartsContext.Provider, { value: STEP_PARTS }, child);

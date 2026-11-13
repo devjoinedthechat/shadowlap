@@ -1,7 +1,11 @@
+import { createHash } from 'node:crypto';
+import { ACTIONS } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
-import { coveragePackArgs, coverageView } from '../coverage.js';
+import { coveragePackArgs } from '../coverage.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * Production coverage: the last `shadowlap coverage` scan (`GET /api/coverage`), for Tests' Not
@@ -25,10 +29,22 @@ export const COVERAGE_JOB_KINDS = { scan: 'coverage', pack: 'coverage-pack' } as
 const sameArgv = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 export function register(router: Router, ctx: RouteContext): void {
-  router.get('/coverage', (r) => r.tagged(coverageView(ctx.store)));
+  // The last scan, a pooled read: it counts every imported run no scan has read. Revalidated from the
+  // store's runs and coverage counters and whether names show, so Tests' asks are a 304 while nothing moved.
+  router.get('/coverage', async (r) => {
+    const shared = namesTeamStore(ctx.project?.path);
+    const { runs, coverage } = ctx.store.changeCounts();
+    const etag = `"c${createHash('sha1').update(JSON.stringify([runs, coverage, shared])).digest('base64url')}"`;
+    if (r.req.headers['if-none-match'] === etag) {
+      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+      r.res.end();
+      return;
+    }
+    sendAnswer(r, await ctx.reads.run({ kind: 'coverage-view', shared }), { etag });
+  });
 
   ctx.jobs.registerJobKind(COVERAGE_JOB_KINDS.scan, {
-    title: () => 'Reading coverage',
+    title: () => ACTIONS.rescanCoverage.doing,
     build: () => ({ args: ['coverage'] }),
   });
   ctx.jobs.registerJobKind(COVERAGE_JOB_KINDS.pack, {

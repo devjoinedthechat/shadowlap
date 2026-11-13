@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { JOB_KINDS, type ActionItem, type RunOffers } from '../api.js';
+import { JOB_KINDS, type ActionItem, type RunDetail, type RunOffers } from '../api.js';
 import { consentAsked } from '../actions.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
@@ -8,6 +8,10 @@ import { useBilledPress } from '../components/JobButton.js';
 import { sentEstimate } from '../spending.js';
 import { rowPriced, type RowPrice } from './estimates.js';
 import { useServedParts } from '../served-parts.js';
+import { TestDialogPart } from '../injection/test-part.js';
+import { PresetsDialogPart } from '../presets/part.js';
+import type { TestOpener } from './ForkMenu.js';
+import type { UntrustedView } from '../types.js';
 
 /**
  * Running a run's actions, the fork menu's (ForkMenu.tsx) among them, and the dialog an action asks
@@ -29,6 +33,8 @@ export interface PendingAction {
    * Left out (a key, the banner), the runner tells a row that bills nothing by its key and the run.
    */
   estimate?: RowPrice;
+  /** Plant instruction…'s Judged by, as its dialog sent it: the text of its `--expect`. */
+  expect?: string;
 }
 
 /**
@@ -39,7 +45,7 @@ export interface PendingAction {
  * pulled from the team store, runs their command: the server refuses it until it is confirmed, and
  * says the command, which a dialog shows, and only its Run sends the yes.
  */
-export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null, forkAt?: number | null) {
+export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null, forkAt?: number | null, record?: Pick<RunDetail['run'], 'meta'>) {
   const app = useApp();
   // The dialog an action asks in, and Find breaking commit's, which a run's page rarely opens: parts the
   // served entry hands in, each loading the first time it asks (OnShow.tsx). A copy's actions wait, so it asks in neither.
@@ -47,6 +53,9 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [bisecting, setBisecting] = useState(false);
   const [consent, setConsent] = useState<{ p: PendingAction; value?: string; why: string; confirm: string } | null>(null);
+  const [testing, setTesting] = useState<Parameters<TestOpener> | null>(null);
+  const [presets, setPresets] = useState<string | null>(null);
+  const test: TestOpener = (...t) => app.guard(() => setTesting(t));
   const findCommit = () => {
     if (app.actionsOff) return app.toast(app.actionsOff);
     const blocked = bisectBlocked(runId, offers?.bisect ?? null, app.hasKind(JOB_KINDS.bisect));
@@ -58,7 +67,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const start = (p: PendingAction, value?: string, yes?: string) =>
     app.guard(
       () =>
-        void app.client.action(p.runId ?? runId, p.action.key, p.callNo, value, yes, sentEstimate(p.estimate || null)).then(
+        void app.client.action(p.runId ?? runId, p.action.key, p.callNo, value, yes, { ...sentEstimate(p.estimate || null), ...(p.expect ? { expect: p.expect } : {}) }).then(
           (job) => app.watchJob(Promise.resolve(job)),
           (err: unknown) => {
             const asked = yes === undefined ? consentAsked(err) : null;
@@ -71,6 +80,8 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const run = (p: PendingAction) => {
     if (p.action.disabled) return app.toast(p.action.disabled);
     if (app.actionsOff) return app.toast(app.actionsOff);
+    // Run error-path presets… (`c`) asks in its own dialog, which prices the picks.
+    if (p.action.key === 'c') return app.guard(() => setPresets(p.runId ?? runId));
     const priced = 'estimate' in p ? p.estimate : rowPriced(undefined, p.action, forkAt != null || !!p.action.asksFirst);
     if (p.action.prompt) app.guard(() => setPending(p));
     else if (priced === false) app.guard(() => start(p));
@@ -83,8 +94,9 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
         capture={capture}
         forkAt={forkAt}
         pending={pending}
+        expect={record?.meta?.expect}
         onClose={() => setPending(null)}
-        onRun={(v, estimate) => start({ ...pending, estimate }, v)}
+        onRun={(v, estimate, expect) => start({ ...pending, estimate, ...(expect ? { expect } : {}) }, v)}
       />
     ) : null
   ) : consent ? (
@@ -101,6 +113,15 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
       onClose={() => setBisecting(false)}
       onRun={(good, sent) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent })))}
     />
+  ) : testing ? (
+    <TestDialogPart runId={runId} reads={testing[0]} estimate={testing[1]} onClose={() => setTesting(null)} />
+  ) : presets ? (
+    <PresetsDialogPart runId={presets} onClose={() => setPresets(null)} />
   ) : null;
-  return { run, dialog, findCommit };
+  return { run, dialog, findCommit, test };
+}
+
+/** Run injection test… where the page offers it, the fork menu's row and the palette's: none on an injection test's attempt. */
+export function testOpeners(attempt: unknown, untrusted: ReadonlyMap<number, UntrustedView>, test: TestOpener): { menu?: TestOpener; palette?: { reads: number; open: () => void } } {
+  return attempt ? {} : { menu: test, palette: { reads: untrusted.size, open: () => test([...untrusted.values()], undefined) } };
 }

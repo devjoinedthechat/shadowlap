@@ -254,6 +254,7 @@ const FADES: Record<string, string> = {
   '.pop .px': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
   '.arow .adis': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
   'table.gt .chk .cka': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
+  '.trusttab .trustbtn': 'a control drawn from nothing on its row’s hover or focus, whole once shown, and always on a touch screen',
   '.cal.has-sel button.cd:not(.on)': 'a calendar day outside the days picked: a mark with no text',
   '.cal.hist.has-sel button.cd.hb:not(.on)': 'a calendar day outside the days picked: a mark with no text',
   '.cells button.dim': 'a strip cell the filter leaves out: a mark with no text',

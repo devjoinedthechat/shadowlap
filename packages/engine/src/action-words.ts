@@ -103,10 +103,27 @@ export const ACTIONS = {
   compare: { label: 'Compare' },
   replayRecording: { label: 'Replay recording', doing: 'Replaying' },
   rerunTest: { label: 'Re-run test', doing: 'Re-running test' },
-  runInjectionTest: { label: 'Run injection test…', doing: 'Testing for injection' },
-  rerunInjectionTest: { label: 'Re-run injection test', doing: 'Testing for injection' },
+  runInjectionTest: { label: 'Run injection test…', doing: 'Running injection test' },
+  rerunInjectionTest: { label: 'Re-run injection test', doing: 'Re-running injection test' },
+  // Find cause… on a write after an untrusted read: the read made neutral (`injection --clean`); once
+  // the finding has its answer, the same dialog asks of another read.
+  findCause: { label: 'Find cause…', doing: 'Finding cause' },
+  testAnotherRead: { label: 'Test another read…', confirm: 'Test another read' },
+  // Settings → Tools: a tool's trust in shadowlap.config.json.
+  markUntrusted: { label: 'Mark untrusted' },
+  markTrusted: { label: 'Mark trusted' },
   packAsGolden: { label: 'Pack as golden…', doing: 'Packing as golden' },
   packWithGate: { label: 'Pack with injection gate…', doing: 'Packing with injection gate' },
+  // Error-path presets, on a run from the fork menu's whole run or on a golden from Tests: its dialog
+  // picks the presets and the tool they hit.
+  runPresets: { label: 'Run error-path presets…', doing: 'Running error-path presets' },
+  // Tests › Not covered: the imported runs read again; a behaviour no golden covers packed (its dialog
+  // asks for no folder, so no ellipsis), or packed as a golden that forks, judged by the checks it asks
+  // for (each titled by packingBehaviour); then the golden's test, titled as every test is.
+  rescanCoverage: { label: 'Rescan coverage', doing: 'Scanning coverage' },
+  packBehaviour: { label: 'Pack as golden' },
+  packWithChecks: { label: 'Pack with checks…' },
+  runTest: { label: 'Run test' },
   // Runs and Training. Import capture… takes a trace from a store too, which Activity names.
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
@@ -130,6 +147,9 @@ export const ACTIONS = {
   previewPrComment: { label: 'Preview pull request comment' },
   keyboardShortcuts: { label: 'Keyboard shortcuts' },
 } as const satisfies Record<string, ActionWords>;
+
+/** Not covered's pack, by the behaviour's short key, as its job's title: `Packing 3f9a2c1d as golden`, `Packing 3f9a2c1d with checks`. */
+export const packingBehaviour = (key: string, fork: boolean): string => `Packing ${key} ${fork ? 'with checks' : 'as golden'}`;
 
 /** Force <tool> live, at a tool call of the fork menu. */
 export const forceLiveLabel = (tool: string): string => `Force ${tool} live`;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { ActionButton, useOfflineLink } from '../components/ActionButton.js';
@@ -25,8 +25,10 @@ import { useDivergedJobs } from './diverged.js';
 import { EditCheckStep } from './check-entry.js';
 import { checksOf, runLikeOf } from './model.js';
 import { blameBesideCard, replayAction, stepCard, stepEstimate, stepJob, type StepCard } from './next-step.js';
+import { keepStep } from './kept-step.js';
 import { blameTitle } from './offers.js';
 import { PackAsGolden, StepDialogPart } from './PackAsGolden.js';
+import { PackWithGatePart, TestDialogPart } from '../injection/test-part.js';
 import { packRunCommand } from './share-steps.js';
 
 /**
@@ -46,7 +48,11 @@ export function useWholeStep(run: RunDetail): RunDetail {
   const ask = !!run.next?.later && run.run.status !== 'running';
   const asked = useLoad(() => (ask ? client.nextStep(run.run.runId) : null), ask ? run.run.runId : 'none', run.next);
   const whole = ask ? asked.data?.next : null;
-  return useMemo(() => (whole ? { ...run, next: whole } : run), [run, whole]);
+  const done = useMemo(() => (whole ? { ...run, next: whole } : run), [run, whole]);
+  // Kept for a drawer whose job ended here, to offer what the page now leads with (ui/injection/job-footer.tsx).
+  useEffect(() => keepStep(done.run.runId, done.next ?? null), [done]);
+  useEffect(() => () => keepStep(null, null), []);
+  return done;
 }
 
 /**
@@ -212,9 +218,9 @@ function RuleStep({ run, step, onAction }: StepProps) {
 }
 
 /**
- * Run injection test… and Re-run injection test: what it plants and bills, why the last test leads
- * to it, then the `injection` job, which asks again for a command someone else recorded, as every
- * such command is asked (ConsentDialog).
+ * Run injection test… opens its dialog (TestDialog.tsx), why the last test leads to it its amber
+ * line; Re-run injection test confirms what it plants again and bills. Each starts the `injection`
+ * job, which asks again for a command someone else recorded, as every such command is asked (ConsentDialog).
  */
 function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-test' | 'injection-again' }> }) {
   const app = useApp();
@@ -222,7 +228,8 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const busy = useTreeBusy('reads', stepJob(step)!.verb);
   const title = confirmWords(step.label);
   // The job keeps the estimate its card and Cost line said, so its drawer says it too; the consent's yes sends it again.
-  const fields = { ...(step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId }), ...sentEstimate(stepEstimate(step)) };
+  const again = step.key === 'injection-again' ? step.job : null;
+  const fields = { runId: step.runId, ...(again ? { repeat: again.repeat, ...(again.templates.length ? { templates: again.templates } : {}), baselines: again.baselines, liveReads: again.liveReads, again: true } : {}), ...sentEstimate(stepEstimate(step)) };
   const start = (yes?: string) =>
     app.guard(() => {
       void app.client.startJob(JOB_KINDS.injection, yes === undefined ? fields : { ...fields, yes }).then(
@@ -239,7 +246,7 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
       <ActionButton className="btn lime" why={busy} data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking({ kind: 'step' }))}>
         {step.label}
       </ActionButton>
-      {asking?.kind === 'step' ? <StepDialogPart ask={{ kind: 'injection', step, onOk: () => start() }} onClose={() => setAsking(null)} /> : null}
+      {asking?.kind === 'step' ? step.key === 'injection-test' ? <TestDialogPart runId={step.runId} why={step.sub} estimate={stepEstimate(step)} onClose={() => setAsking(null)} /> : <StepDialogPart ask={{ kind: 'injection', step, onOk: () => start() }} onClose={() => setAsking(null)} /> : null}
       {asking?.kind === 'consent' ? <StepDialogPart ask={{ kind: 'consent', why: asking.why, ok: title, onOk: () => start(asking.confirm) }} onClose={() => setAsking(null)} /> : null}
     </>
   );
@@ -271,17 +278,17 @@ export function PlainPackAsGolden({ run, offers, next, judged }: { run: RunDetai
   return folder ? <PackAsGolden runId={runId} folder={folder} offers={offers} lead={false} tip={packTip(runId, folder)} fold="pack" /> : null;
 }
 
-/** Pack as golden… where it leads, and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
+/** Pack as golden… where it leads, and Pack with injection gate…: the run packed into a folder of the goldens, named for the run, then tested, the gate written into its tests entry between the two (injection/PackWithGate.tsx). Each waits as Tests' jobs do. */
 function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }>; offers: RunOffers | null }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
   if (step.key === 'pack') return <PackAsGolden runId={step.runId} folder={step.folder} offers={offers} lead tip={tipOf(stepCard(step))} />;
   return (
     <>
-      <ActionButton className="btn lime" data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking(true))}>
+      <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
-      </ActionButton>
-      {asking ? <StepDialogPart ask={{ kind: 'pack-gate', step, offers, onRun: (dir) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.pack, { runId: step.runId, dir }))) }} onClose={() => setAsking(false)} /> : null}
+      </TestsJobButton>
+      {asking ? <PackWithGatePart runId={step.runId} folder={step.folder} gate={step.gate} estimate={stepEstimate(step)} offers={offers} onClose={() => setAsking(false)} /> : null}
     </>
   );
 }

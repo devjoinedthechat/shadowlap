@@ -184,6 +184,7 @@
     // These render a run's page and Runs: where a run opens, its key, its notes, its calls grouped, and Runs from its address.
     "packages/dashboard/test/ui-run-open.test.ts",
     "packages/dashboard/test/ui-runs-url.test.ts",
+    "packages/dashboard/test/ui-runs-scroll.test.ts",
     "packages/dashboard/test/ui-issues.test.ts",
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
@@ -205,6 +206,9 @@
     // the page of them browser/matrix.spec.ts measures in a real browser.
     "packages/dashboard/test/ui-matrix.test.ts",
     "packages/dashboard/test/ui-injection-results.test.ts",
+    "packages/dashboard/test/ui-injection-jobs.test.ts",
+    "packages/dashboard/test/ui-presets-dialog.test.ts",
+    "packages/dashboard/test/ui-not-covered.test.ts",
     "packages/dashboard/test/matrix-page.tsx",
     // This renders the status bar, which measures what fits it.
     "packages/dashboard/test/ui-status-bar.test.ts",

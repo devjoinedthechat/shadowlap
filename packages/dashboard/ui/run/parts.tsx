@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
@@ -9,7 +9,7 @@ import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { outcomeOf, runType, TODAY } from '../runs.js';
 import { PageHeader, SrSpace } from '../components/bits.js';
-import { tipCard } from '../components/HoverCard.js';
+import { tipCard, tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
 import { Skeleton } from '../components/States.js';
 import { Status } from '../components/Status.js';
@@ -148,14 +148,22 @@ function useJudged(run: RunDetail): RunDetail['judged'] {
   return asked.data ? asked.data.judged : asked.error ? null : undefined;
 }
 
+/** The card a status's checks give (outcome-card.ts), loaded once the pointer or the focus first reached a status, for every run page after. */
+let cards: typeof import('../outcome-card.js') | null = null;
+
 /**
  * The run's first fact: its status, a dot and its verdict's word, the call it turned on as a link,
- * by today's checks after it; what judged it on hover, and to a screen reader the check it names.
+ * by today's checks after it; what judged it on hover, and to a screen reader the check it names. The
+ * card its checks give loads as the pointer or the focus reaches the status, ahead of the card, which
+ * says the status's words until it has come.
  */
 function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
-  const tip = fact.tip ? tipCard(fact.tip.title, fact.tip.rows.map(([label, value, color]) => ({ label, value, color })), fact.tip.sub) : undefined;
+  const [, loaded] = useState(cards);
+  const t = cards ? cards.factCard(fact) : fact.tip;
+  const load = fact.card && !cards ? () => void import('../outcome-card.js').then((m) => loaded((cards = m))) : undefined;
+  const tip = t ? tipCard(t.title, t.rows.map(([label, value, color]) => ({ label, value, color })), t.sub) : fact.card ? tipText(fact.words) : undefined;
   return (
-    <span className="metric rout">
+    <span className="metric rout" onPointerEnter={load} onFocus={load}>
       <Status tone={fact.tone} tip={tip}>
         {fact.words}
         {fact.callNo !== null ? (
@@ -166,7 +174,7 @@ function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
             </a>
           </>
         ) : null}
-        {fact.tip?.said ? <span className="sr">: {fact.tip.said}</span> : null}
+        {fact.said ? <span className="sr">: {fact.said}</span> : null}
       </Status>
       {fact.today ? <span className="rtoday">{TODAY}</span> : null}
     </span>

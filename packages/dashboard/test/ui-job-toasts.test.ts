@@ -26,6 +26,13 @@ describe('the toast a job ends with', () => {
     expect(endToast(done({ kind: 'blame', args: ['blame', 'X'], code: 3, result: { outcome: 'stopped' } }), [])).toBe('Tried blaming · stopped · exit 3');
   });
 
+  it('says an injection job in the past as far as it went: packed though its test failed, a cause searched for whatever it answered', () => {
+    expect(endToast(done({ kind: 'pack-test', title: 'Packing with injection gate', args: ['test', 'goldens/x'], code: 1 }), ['0 passed, 1 failed · 4 upstream requests'])).toBe('Packed with injection gate · its test failed · exit 1');
+    expect(endToast(done({ kind: 'pack-test', title: 'Packing with injection gate', args: ['test', 'goldens/x'], code: 1 }), ['goldens/x is packed without its gate: its entry changed'])).toBe('Tried packing with injection gate · goldens/x is packed without its gate: its entry changed');
+    expect(endToast(done({ kind: 'injection', title: 'Finding cause: testing #4', args: ['injection', 'X', '--clean', '4'], code: 0, result: { results: [{ mode: 'clean', verdict: 'not caused' }] } }), [])).toBe('Searched for cause: testing #4 · not caused · exit 0');
+    expect(endToast(done({ kind: 'injection', title: 'Re-running injection test', args: ['injection', 'X'], code: 3, result: { results: [{ mode: 'plant' }], verdict: 'inconclusive' } }), [])).toBe('Re-ran injection test · inconclusive · exit 3');
+  });
+
   it('says it in the past where it did what its title says, or ran and says only that', () => {
     expect(endToast(done({ kind: 'apply', title: 'Applying fix', args: ['fix', 'apply', 'fx-1'], code: 1, result: { status: 'applied', tests: 'failed' } }), [])).toBe('Applied fix · tests failed · exit 1');
     expect(endToast(done({ kind: 'apply', title: 'Marking the fix applied', args: ['fix', 'apply', 'fx-1'], code: 0, result: { status: 'applied' } }), [])).toBe('Marked the fix applied · exit 0');

@@ -9,6 +9,13 @@ import { TestsPage } from '../ui/pages/Tests.js';
 import { bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { Banner } from '../ui/run/FindingsBar.js';
 import { exitWords, presetAttempt, presetWhy } from '../ui/run/preset.js';
+import { runFindings } from '../ui/run/findings.js';
+import { presetsLine } from '../ui/presets/PresetsFinding.js';
+import { presetsMatrix, presetsMeta, presetsReceipt, PresetsResults } from '../ui/presets/PresetsResults.js';
+import { PresetsNode } from '../ui/presets/PresetsNode.js';
+import { presetsNode } from '../ui/presets/fork-node.js';
+import { panelOn, resetPanel } from '../ui/run/panel-state.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -28,6 +35,7 @@ const ATTEMPT = '01M5GRZVY1P4DYJZVXZ6F0KEMM';
 const PASSED = '01M5GRZW2G2G43STN6FXX48NAN';
 const SECOND = '01M5GRZWPAE7H60Y55J79W68Y5';
 const UNSURE = '01M5GRZWTW1SF8QP95NKPCK624';
+const FORK = '01M5GRZX3D6M0Q2V8KJH4TB7SE';
 
 const WHY = 'the agent exited with code 1 (TimeoutError: list_inbox timed out)';
 const matrix: ChaosMatrix = {
@@ -35,12 +43,18 @@ const matrix: ChaosMatrix = {
   golden: 'goldens/list-inbox',
   at: 1,
   counts: { passed: 1, failed: 2, inconclusive: 1, notApplicable: 0 },
+  command: 'shadowlap test goldens/list-inbox --chaos',
+  rule: null,
+  judge: null,
+  spent: 0,
+  upstreamRequests: 0,
+  toolCall: { name: 'list_inbox', callNo: 2 },
   cells: [
-    { preset: 'timeout', label: 'tool timeout', verdict: 'failed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 0, attempts: 1, detail: `list_inbox (#2) timed out: ${WHY}`, reason: WHY, runs: [{ runId: ATTEMPT, verdict: 'failed', passed: false, exitCode: 1, reason: WHY }], gate: null, at: 1, sessionId: 'S' },
-    { preset: 'empty', label: 'empty result', verdict: 'passed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 1, attempts: 1, detail: 'list_inbox (#2) answered with nothing: the agent exited 0', reason: null, runs: [{ runId: PASSED, verdict: 'passed', passed: true, exitCode: 0, reason: null }], gate: null, at: 1, sessionId: 'S' },
+    { preset: 'timeout', label: 'tool timeout', verdict: 'failed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 0, attempts: 1, detail: `list_inbox (#2) timed out: ${WHY}`, reason: WHY, runs: [{ runId: ATTEMPT, verdict: 'failed', passed: false, exitCode: 1, reason: WHY }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
+    { preset: 'empty', label: 'empty result', verdict: 'passed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 1, attempts: 1, detail: 'list_inbox (#2) answered with nothing: the agent exited 0', reason: null, runs: [{ runId: PASSED, verdict: 'passed', passed: true, exitCode: 0, reason: null }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
     // Decided by its second attempt, kept before attempts kept why: this attempt's exit says it.
-    { preset: '429', label: 'provider 429', verdict: 'failed', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 1, attempts: 2, detail: 'model call #3 failed with HTTP 429: 1 of 2 attempts passed; the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: '01M5GRZWNNNNNNNNNNNNNNNNNN', verdict: 'passed', passed: true, exitCode: 0, reason: null }, { runId: SECOND, verdict: 'failed', passed: false, exitCode: 1, reason: null }], gate: null, at: 1, sessionId: 'S' },
-    { preset: '500', label: 'provider 500', verdict: 'inconclusive', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 0, attempts: 1, detail: 'model call #3 failed with HTTP 500: the replay never reached #3, so the preset was never played in', reason: 'the replay never reached #3, so the preset was never played in', runs: [{ runId: UNSURE, verdict: 'inconclusive', passed: false, exitCode: 0, reason: 'the replay never reached #3, so the preset was never played in' }], gate: null, at: 1, sessionId: 'S' },
+    { preset: '429', label: 'provider 429', verdict: 'failed', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 1, attempts: 2, detail: 'model call #3 failed with HTTP 429: 1 of 2 attempts passed; the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: '01M5GRZWNNNNNNNNNNNNNNNNNN', verdict: 'passed', passed: true, exitCode: 0, reason: null }, { runId: SECOND, verdict: 'failed', passed: false, exitCode: 1, reason: null }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
+    { preset: '500', label: 'provider 500', verdict: 'inconclusive', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 0, attempts: 1, detail: 'model call #3 failed with HTTP 500: the replay never reached #3, so the preset was never played in', reason: 'the replay never reached #3, so the preset was never played in', runs: [{ runId: UNSURE, verdict: 'inconclusive', passed: false, exitCode: 0, reason: 'the replay never reached #3, so the preset was never played in' }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
   ],
 };
 
@@ -104,7 +118,7 @@ describe('a preset’s attempt', () => {
     expect(html).toContain('<section class="banner fork wrap"><span class="bk">forked at</span><button class="bn" type="button">#2</button>');
     // Its tally kept whole where the line wraps.
     expect(html).toContain('<span class="why">tool timeout preset on goldens/list-inbox, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
-    expect(html).toContain('<a class="more" href="#/tests" title="list-inbox on Tests">Tests →</a>');
+    expect(html).toContain(`<a class="more" href="#/run/${REC}">Results →</a>`);
     // Never a line cut at the banner's end.
     expect(html).not.toContain('…');
   });
@@ -116,10 +130,10 @@ describe('a preset’s attempt', () => {
     const failed = header(presetAttempt(matrix, ATTEMPT));
     expect(failed).not.toContain('class="tag');
     expect(failed).toContain(`<span class="mfail">${WHY}</span>`);
-    // Before the presets are read: its eyebrow naming it a fork, and that it exited with an error, plainly.
+    // Before the presets are read: its eyebrow naming it a preset's attempt, from its own record, and that it exited with an error, plainly.
     const plain = header(null);
     expect(plain).not.toContain('class="tag');
-    expect(plain).toContain('<span class="ebk">fork @2</span>');
+    expect(plain).toContain('<span class="ebk">preset attempt</span>');
     expect(plain).toContain('<span>exited with an error</span>');
   });
 });
@@ -155,25 +169,76 @@ describe('a preset’s attempts in the Forks view', () => {
     r = null;
   });
 
-  it('marks an attempt its preset failed by the verdict the lineage carries, an earlier session’s too', async () => {
-    const node = (runId: string, parentRunId: string | null, about: string, status: 'completed' | 'failed', preset?: LineageNode['preset']): LineageNode => ({ runId, parentRunId, depth: parentRunId ? 1 : 0, mode: parentRunId ? 'replay' : 'record', status, label: parentRunId ? 'fork @2' : 'recording', divergence: parentRunId ? { callNo: 2, type: 'forced' } : null, calls: 2, spent: 0, saved: 0, startedAt: parentRunId ? 2 : 1, repeat: null, checks: null, about: { text: about, from: parentRunId ? 'change' : 'user' }, ...(preset ? { preset } : {}) });
+  it('draws a session’s attempts on the recording as one node, each attempt a mark of its picture, the ones that failed linked under it', async () => {
+    const node = (runId: string, parentRunId: string | null, about: string, status: 'completed' | 'failed', startedAt: number, preset?: LineageNode['preset']): LineageNode => ({ runId, parentRunId, depth: parentRunId ? 1 : 0, mode: parentRunId ? 'replay' : 'record', status, label: parentRunId ? 'fork @2' : 'recording', divergence: parentRunId ? { callNo: 2, type: 'forced' } : null, calls: 2, spent: 0, saved: 0, startedAt, repeat: null, checks: null, about: { text: about, from: parentRunId ? 'change' : 'user' }, ...(preset ? { preset } : {}) });
+    // Each mark carries its session's totals, a preset that couldn't apply too, and what the session spent.
+    const S1 = { counts: { passed: 0, failed: 1, inconclusive: 1, notApplicable: 1 }, spent: 0.3 };
+    const S2 = { counts: { passed: 1, failed: 0, inconclusive: 0, notApplicable: 0 }, spent: 0 };
+    const mark = (label: string, verdict: 'passed' | 'failed' | 'inconclusive', session: 'S1' | 'S2') => ({ label, verdict, session, callNo: label === 'provider 500' ? 3 : 2, golden: 'goldens/list-inbox', ...(session === 'S1' ? S1 : S2) });
     const nodes = [
-      node(REC, null, 'Triage the unread threads', 'completed'),
-      // The first session's attempt, failed; the presets ran again since, and the second's passed.
-      node(ATTEMPT, REC, 'tool timeout #2', 'failed', { label: 'tool timeout', verdict: 'failed' }),
-      node(PASSED, REC, 'tool timeout #2', 'completed', { label: 'tool timeout', verdict: 'passed' }),
-      node(UNSURE, REC, 'provider 500 #3', 'completed', { label: 'provider 500', verdict: 'inconclusive' }),
+      node(REC, null, 'Triage the unread threads', 'completed', 1),
+      // The first session: tool timeout failed, provider 500 couldn't say; the presets ran again since, and passed.
+      node(ATTEMPT, REC, 'tool timeout #2', 'failed', 2, mark('tool timeout', 'failed', 'S1')),
+      node(PASSED, REC, 'tool timeout #2', 'completed', 3, mark('tool timeout', 'passed', 'S1')),
+      node(UNSURE, REC, 'provider 500 #3', 'completed', 4, mark('provider 500', 'inconclusive', 'S1')),
+      node(SECOND, REC, 'tool timeout #2', 'completed', 9, mark('tool timeout', 'passed', 'S2')),
+      // A fork made from the attempt that failed, after Open proof.
+      node(FORK, ATTEMPT, 'retry the read once', 'completed', 12),
     ];
     // No matrix to read: the family's tree goes by the lineage alone.
     const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), injectionResults: () => Promise.resolve({ results: [] }), runChaos: () => Promise.reject(new Error('not asked')) } as unknown as Client;
     const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true };
-    r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
-    await r.until('the family to load', () => r!.all('.fnode .f2').length === 4);
-    const [, failed, passed, unsure] = r.all('.fnode .f2');
-    expect(failed.querySelector('em')!.textContent).toBe('preset failed');
-    expect(failed.textContent.replace(/\u00a0/g, ' ').startsWith('preset failed · ')).toBe(true);
-    expect(passed.querySelector('em')).toBeNull();
-    expect(unsure.querySelector('em.inc')!.textContent).toBe('preset inconclusive');
+    r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: ATTEMPT })));
+    await r.until('the family to load', () => r!.all('[data-node="presets"]').length === 2);
+    // The attempts are no forks of their own: the recording, then a node a session, and the one
+    // attempt something was made from, with the fork made of it.
+    expect(r.all('.fam > .fnode, .fkids > .fnode').length).toBe(5);
+    const [first, second] = r.all('[data-node="presets"]');
+    expect(first.querySelector('.fbt')!.textContent).toBe('error-path presets');
+    // The session's totals as the CLI and the activity feed word them: passed and failed always.
+    expect(first.querySelector('.f2')!.textContent).toBe('failed · 0 passed, 1 failed, 1 inconclusive, 1 not applicable · 3 attempts · ≈$0.300');
+    expect(first.className).toContain('here');
+    const strip = first.querySelector('.astrip')!;
+    expect([strip.getAttribute('role'), strip.getAttribute('aria-label')]).toEqual(['img', '3 attempts in the order they ran: 1 passed, 1 failed, 1 inconclusive']);
+    expect(strip.querySelectorAll('i').map((i) => i.className)).toEqual(['ac no', 'ac', 'ac inc']);
+    expect(first.querySelectorAll('.al a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${ATTEMPT}/2`, `#/run/${UNSURE}/3`]);
+    expect(first.querySelector('.al .an')!.textContent).toBe(' · tool timeout · attempt 1 · failed');
+    expect(second.querySelector('.f2')!.textContent).toBe('passed · 1 passed, 0 failed · 1 attempt');
+    // What was made from an attempt is drawn under its session's node, under that attempt, so the fork keeps its place in the family.
+    const fork = r.one(`a.fnode[href="#/run/${FORK}/2"]`);
+    const own = fork.parentNode!;
+    const made = own.parentNode!;
+    expect([own.className, made.className]).toEqual(['fkids', 'fkids']);
+    expect(made.parentNode).toBe(first.parentNode);
+    expect(made.querySelector('a.fnode')!.getAttribute('href')).toBe(`#/run/${ATTEMPT}/2`);
+    expect(made.querySelector('a.fnode')!.className).toContain('here');
+  });
+
+  it('counts a session’s presets once for each golden they ran for, as two goldens can hold one recording', () => {
+    type Attempt = Parameters<typeof presetsNode>[0][number];
+    const attempt = (runId: string, golden: string, [passed, failed, notApplicable]: number[], spent: number) =>
+      ({ runId, parentRunId: REC, startedAt: 2, preset: { label: 'tool timeout', verdict: 'passed', session: 'S1', callNo: 2, golden, counts: { passed, failed, inconclusive: 0, notApplicable }, spent } }) as unknown as Attempt;
+    const v = presetsNode([attempt(ATTEMPT, 'goldens/a', [1, 0, 1], 0.1), attempt(PASSED, 'goldens/a', [1, 0, 1], 0.1), attempt(SECOND, 'goldens/b', [0, 1, 0], 0.2)]);
+    expect(v.parts).toEqual(['failed', '1 passed, 1 failed, 1 not applicable', '3 attempts', '≈$0.300']);
+  });
+});
+
+describe('a session’s presets node in an exported copy', () => {
+  afterEach(() => resetPanel());
+
+  it('links the recording plain where no results part was handed in, as in a copy, and with its results open where the served dashboard handed it in', async () => {
+    const preset = { label: 'tool timeout', verdict: 'failed' as const, session: 'S1', callNo: 2, golden: null, counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, spent: 0 };
+    const attempts = [{ runId: ATTEMPT, parentRunId: REC, depth: 1, mode: 'replay', status: 'failed', label: 'fork @2', divergence: null, calls: 2, spent: 0, saved: 0, startedAt: 2, repeat: null, checks: null, about: null, preset }] as unknown as Parameters<typeof PresetsNode>[0]['attempts'];
+    const app = appState();
+    let r = await render(createElement(AppContext.Provider, { value: app }, createElement(PresetsNode, { attempts, current: REC })));
+    await r.click(r.one('.fbt'));
+    expect(panelOn(REC)).toBeNull();
+    await r.unmount();
+    const parts = { PresetsResults: Object.assign(() => null, { preload: () => undefined }) } as never;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: parts }, createElement(PresetsNode, { attempts, current: REC }))));
+    await r.click(r.one('.fbt'));
+    expect(panelOn(REC)).toEqual({ runId: REC, kind: 'results', key: 'presets' });
+    await r.unmount();
   });
 });
 
@@ -206,7 +271,7 @@ describe('a golden’s presets on Tests', () => {
   it('says its presets failed, which attempt to open, and never that it has not run', async () => {
     const v = view();
     (globalThis as { location?: unknown }).location = { hash: '#/tests' };
-    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]) } as unknown as Client;
+    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]), injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }), coverage: () => Promise.resolve(null) } as unknown as Client;
     const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined };
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage)));
     await r.until('the golden to load', () => r!.all('td.glast').length === 1);
@@ -219,5 +284,49 @@ describe('a golden’s presets on Tests', () => {
     expect(r.document.body.textContent).not.toContain('not run yet');
     // The palette's hint for it says the same.
     expect(testsPalette(v, { update: false }).find((e) => e.label === 'list-inbox')?.hint).toBe('presets failed');
+  });
+});
+
+describe('a recording’s presets on its page', () => {
+  const about = { text: 'Lists the inbox', from: 'user' as const };
+
+  it('is a finding by its verdict and what came of each preset, weighed as a gate is, after the run’s own', () => {
+    expect(presetsLine(matrix)).toBe('tool timeout and provider 429 failed\u00a0· provider 500 inconclusive');
+    const passed = { ...matrix, counts: { passed: 2, failed: 0, inconclusive: 0, notApplicable: 1 }, cells: [matrix.cells[1], { ...matrix.cells[1], preset: 'oversized', label: 'oversized result', verdict: 'not-applicable' as const }] };
+    expect(presetsLine(passed)).toBe('every preset passed, 1 not applicable');
+    const found = runFindings({ own: null, differences: null, notRecorded: null, notes: [], presets: matrix });
+    expect(found.map((f) => [f.key, f.sev, f.says])).toEqual([['presets', 2, 'error-path presets failed']]);
+    expect(runFindings({ own: null, differences: null, notRecorded: null, notes: [], presets: passed })[0].sev).toBe(0);
+  });
+
+  it('lays the recording out against each preset on the shared matrix: where each hit, its tally and the attempt that shows it', () => {
+    const m = presetsMatrix(matrix, about);
+    // Named by its short id, as the dialog's title names it; its head keeps room for the about line's shortest form.
+    expect([m.id, m.label, m.rowInLabel, m.corner]).toEqual([`presets-${REC}`, 'Error-path presets on 01M5GRZVBY', true, 'run']);
+    expect(m.rows).toEqual([{ key: REC, label: '01M5GRZVBY', chip: 'list-inbox', sub: 'Lists the inbox', subMin: 'Lists the inbox' }]);
+    expect(m.cols.map((c) => [c.label, c.sub])).toEqual([
+      ['tool timeout', 'list_inbox (#2) timed out'],
+      ['empty result', 'list_inbox (#2) answered with nothing'],
+      ['provider 429', 'model call #3 failed with HTTP 429'],
+      ['provider 500', 'model call #3 failed with HTTP 500'],
+    ]);
+    const cell = (key: string) => m.cell(m.rows[0], m.cols.find((c) => c.key === key)!)!;
+    // The first attempt that didn't pass, else the last, at the call it hit.
+    expect([cell('429').word, cell('429').tally, cell('429').href]).toEqual(['failed', '1 of 2 passed', `#/run/${SECOND}/3`]);
+    expect([cell('empty').word, cell('empty').href]).toEqual(['passed', `#/run/${PASSED}/2`]);
+    expect(JSON.parse(cell('429').tip!)).toMatchObject({ t: 'provider 429 · failed · 1 of 2 passed', s: 'model call #3 failed with HTTP 429' });
+  });
+
+  it('says what ran, where and when, what judged it and what it spent, as the panel draws it', () => {
+    expect(presetsMeta({ ...matrix, at: Date.now() }).slice(0, 2)).toEqual(['4 presets', 'at list_inbox (#2) and model call #3']);
+    expect(presetsReceipt({ ...matrix, spent: 0.486, upstreamRequests: 132 })).toEqual([{ parts: ['these presets spent ≈$0.486', 'every call before #2 replayed free'] }, { parts: ['132 upstream requests'] }]);
+    const html = renderToStaticMarkup(createElement(PresetsResults, { matrix, about }));
+    expect(html).toContain('aria-label="Error-path preset results"');
+    expect(html).toContain('Run × presets');
+    expect(html).toContain('judged on the agent exiting 0 alone: no checks say what an error path must do');
+    const judged = renderToStaticMarkup(createElement(PresetsResults, { matrix: { ...matrix, rule: 'gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts', judge: { source: 'chaos.expect', checks: ['issue_refund called 0 times'], from: 'chaos.expect' } }, about }));
+    expect(judged).toContain('&quot;s&quot;:&quot;chaos.expect&quot;');
+    expect(judged).toContain('checks: issue_refund called 0 times');
+    expect(judged).toContain('gate: tells');
   });
 });

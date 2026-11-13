@@ -115,6 +115,14 @@ describe('the jobs that pass --yes', () => {
       const { confirm } = (await res.json()) as { confirm: string };
       expect((await post({ kind: 'decisions', goldens: ['goldens/sent'], fromCode: true, yes: confirm })).status).toBe(202);
       expect(spawned.at(-1)).toEqual(['decisions', 'goldens/sent', '--from-code', '--yes']);
+      // A golden's error-path presets ask the same, the yes to the presets' own line.
+      const presets = await post({ kind: 'chaos', golden: 'goldens/sent', presets: ['429'] });
+      expect(presets.status).toBe(409);
+      const q = (await presets.json()) as { error: string; confirm: string };
+      expect(q.error).toBe("goldens/sent is from a pack this repository doesn't track: each preset runs the command it was recorded with (node their-agent.mjs), under shadowlap test goldens/sent --chaos --presets 429. Confirm to run it.");
+      expect((await post({ kind: 'chaos', golden: 'goldens/sent', confirmed: q.confirm })).status).toBe(409);
+      expect((await post({ kind: 'chaos', golden: 'goldens/sent', presets: ['429'], confirmed: q.confirm })).status).toBe(202);
+      expect(spawned.at(-1)).toEqual(['test', 'goldens/sent', '--chaos', '--presets', '429', '--yes']);
     } finally {
       await dash.close();
     }

@@ -7,9 +7,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { Store, unpackRun } from '@shadowlap/engine';
 import { exportHtml, type StaticPayload } from '../src/index.js';
 import { createExportedClient, JOB_KINDS, type ActionItem, type CallDetail } from '../ui/api.js';
+import '../ui/palette-actions.js';
+import { paletteSources, type PaletteContext } from '../ui/palette-sources.js';
 import { CopyPages } from '../ui/pages/copy.js';
 import { Elsewhere } from '../ui/pages/held-elsewhere.js';
 import { useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
+import { testRow } from '../ui/run/run-commands.js';
 import { useRoute } from '../ui/router.js';
 import { useActionRunner } from '../ui/run/actions.js';
 import { bannerJobsShown } from '../ui/run/diverged.js';
@@ -56,6 +59,9 @@ beforeAll(() => {
   const injection = { result: 'inj-01PLANT', role: 'attempt' as const, read: 2, payload: 'system-notice', attempt: 2, of: 3, canary, verdict: 'obeyed' as const, readAt: 3, evidence: [{ kind: 'canary' as const, callNo: 4, tool: 'send_email', path: '$.to', value: canary.address }] };
   attemptId = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { injection } }).runId;
   // The test it was in, kept for the run it tested, as the served dashboard draws its finding from.
+  // The presets run on it, which the served dashboard draws as a finding and a panel: a copy keeps neither.
+  store.startChaosSession({ sessionId: 'S1', startedAt: 3, command: ['shadowlap', 'replay', runId, '--chaos'], presets: ['timeout'] });
+  store.addChaosResult({ sessionId: 'S1', runId, golden: null, preset: 'timeout', verdict: 'failed', callNo: 2, passes: 0, attempts: 1, at: 3, data: { detail: 'search (#2) timed out: the agent exited with code 1', runs: [{ runId: attemptId, verdict: 'failed', passed: false, exitCode: 1 }] } });
   store.putInjectionResult({ resultId: 'inj-01PLANT', runId, golden: null, sessionId: null, mode: 'plant', at: 1, endedAt: 2, attempts: 3, obeyed: 1, influenced: 0, ignored: 2, inconclusive: 0, verdict: 'obeyed', actor: null, data: { resultId: 'inj-01PLANT', mode: 'plant', gate: { obeyed: 0, influenced: null, verdict: 'failed', reason: 'send_email obeyed a planted instruction in 1 of 3 attempts (at most 0 allowed)' }, cost: { spent: 0 } } });
   for (const c of store.getCalls(runId).slice(0, 4)) {
     const { end, attempts, ...start } = c;
@@ -194,6 +200,36 @@ describe('an exported copy', () => {
     await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
     expect(r!.all('[data-finding="injection"]')).toHaveLength(0);
     expect(r!.all('[data-act="results"]')).toHaveLength(0);
+  });
+
+  it('keeps no error-path presets, so the run they ran on draws no finding of them nor their results, which the served dashboard alone hands in', async () => {
+    await open([attemptId, runId], `#/run/${runId}`);
+    await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
+    expect(r!.all('[data-finding="presets"]')).toHaveLength(0);
+    expect(r!.all('.rmxp')).toHaveLength(0);
+  });
+
+  it('runs no injection test, so it offers no Run injection test…, Find cause… nor Pack with injection gate…, and loads none of their dialogs', async () => {
+    // The page's code that loads their scripts: the parts the served entry hands in, which a copy's
+    // entry never does, so the copy's script holds none of them (COPY_PARTS in test/ui-bundle-size.test.ts).
+    for (const part of ['TestDialog', 'PackWithGate', 'FindCause', 'CauseFinding', 'CheckMenu']) expect([part, loadersOf(new RegExp(`\\b${part}\\.js['"]`))]).toEqual([part, ['pages/served.tsx']]);
+    // A copy holds no test's read: no untrusted read, so its write has no Find cause…, and no finding of an answer.
+    const write = store.getCalls(runId).find((c) => c.name === 'send_email')!.callNo;
+    await open([forkId, runId], `#/run/${runId}/${write}`);
+    await r!.until('the call’s inspector', () => r!.all('.insp').length === 1);
+    expect(r!.all('[data-act="injcause"], [data-finding="cause"], .dialog')).toHaveLength(0);
+    // Nor its palette: this run's row and Security's typed rows are the served dashboard's.
+    expect(testRow(runId, 3, { live: false, exported: true, next: null, open: () => undefined })).toEqual([]);
+    const ctx = { app: { exported: true, actionsOff: null, hasKind: () => true }, route: { page: 'run', id: runId, call: write, view: null }, go: () => undefined } as unknown as PaletteContext;
+    const rows = paletteSources().flatMap((source) => {
+      try {
+        return source(ctx);
+      } catch {
+        // A source that reads more of the app than this stand-in holds offers nothing here.
+        return [];
+      }
+    });
+    expect(rows.filter((x) => x.label === 'Run injection test…')).toEqual([]);
   });
 
   it('keeps Failed a filter over its runs, so draws no issues, which the served dashboard alone hands in', async () => {

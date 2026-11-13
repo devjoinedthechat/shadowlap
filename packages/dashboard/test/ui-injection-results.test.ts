@@ -89,7 +89,7 @@ describe('the untrusted tag', () => {
 
   it('draws nothing for a call that is no untrusted read, and leaves out a read no model call follows', () => {
     expect(renderToStaticMarkup(createElement(UntrustedTag, { read: undefined }))).toBe('');
-    const view = runInjectionView({ untrusted: [read(), read({ callNo: 9, readAt: null })], results: [], attempt: null }, null);
+    const view = runInjectionView({ untrusted: [read(), read({ callNo: 9, readAt: null })], results: [], rule: null, answers: [], cause: [], attempt: null }, null);
     expect([...view.untrusted.keys()]).toEqual([4]);
   });
 });
@@ -125,7 +125,7 @@ describe('the run’s finding', () => {
   });
 
   it('takes the results read as runs move over those the run’s read held', () => {
-    const view = runInjectionView({ untrusted: [], results: [row({ resultId: 'inj-first' })], attempt: null }, [row({ resultId: 'inj-later', gate: 'passed' })]);
+    const view = runInjectionView({ untrusted: [], results: [row({ resultId: 'inj-first' })], rule: null, answers: [], cause: [], attempt: null }, [row({ resultId: 'inj-later', gate: 'passed' })]);
     expect(view.finding).toMatchObject({ resultId: 'inj-later', gate: 'passed' });
   });
 
@@ -148,7 +148,7 @@ describe('an attempt’s first fact', () => {
 
   it('says an attempt obeyed at the call that carried the canary, in red, its card why from its check', () => {
     const f = fact({ role: 'attempt', verdict: 'obeyed', evidence: [{ callNo: 6, tool: 'send_email', path: '$.to', value: 'x7f3kq2m@canary.invalid', kind: 'canary' }] }, [{ label: CHECK, ok: false, detail: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' }]);
-    expect(f).toEqual({ tone: 'err', words: 'obeyed at', callNo: 6, today: false, tip: { title: 'Obeyed', sub: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4', rows: [], said: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' } });
+    expect(f).toEqual({ tone: 'err', words: 'obeyed at', callNo: 6, today: false, tip: { title: 'Obeyed', sub: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4', rows: [], said: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' }, card: null, said: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' });
   });
 
   it('says influenced and inconclusive amber with the mark’s why, ignored muted', () => {
@@ -193,7 +193,7 @@ describe('the finding as the bar draws it', () => {
 describe('an exported copy', () => {
   it('keeps no injection results: its run’s read answers none, and a result’s read and its report’s preview are refused in its words', async () => {
     const client = createExportedClient({ responses: {}, runIds: [] } as never);
-    await expect(client.injectionRun(RUN)).resolves.toEqual({ untrusted: [], results: [], attempt: null });
+    await expect(client.injectionRun(RUN)).resolves.toEqual({ untrusted: [], results: [], rule: null, answers: [], cause: [], attempt: null });
     await expect(client.injectionResults(RUN)).resolves.toEqual({ results: [] });
     await expect(client.injectionResult('inj-01PLANT')).rejects.toMatchObject({ status: 404, message: 'this is an exported copy, and injection tests are not part of it' });
     await expect(client.injectionPreview('inj-01PLANT')).rejects.toMatchObject({ status: 404 });
@@ -202,7 +202,7 @@ describe('an exported copy', () => {
   it('is handed no results part, so a finding would offer no Show results and the inspector draws no results in its place', () => {
     expect(withParts({}, createElement(InjectionFinding, { runId: RUN, f: injectionFinding(row())!, fx: false, more: null }))).not.toContain('Show results');
     let bodies: ((key: string) => ReactNode) | null = null;
-    const Probe = () => ((bodies = useResultsBodies(RUN)), null);
+    const Probe = () => ((bodies = useResultsBodies(RUN, null, null)), null);
     withParts({}, createElement(Probe));
     expect(bodies!('injection:inj-01PLANT')).toBeNull();
     withParts(served, createElement(Probe));

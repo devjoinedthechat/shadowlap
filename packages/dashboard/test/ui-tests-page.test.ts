@@ -7,7 +7,7 @@ import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
 import { ApiError, JOB_KINDS, type Client, type TestsView } from '../ui/api.js';
-import type { InconclusiveView, NextStep } from '../ui/types.js';
+import type { CoverageView, InconclusiveView, NextStep } from '../ui/types.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { goldenRowScope } from '../ui/tests/row-scope.js';
@@ -55,7 +55,7 @@ function view(goldens: GoldenSource[]): TestsAnswer {
 const evidenceAsked: string[] = [];
 
 /** `over`: what the app holds besides (its runs, its jobs), and how the read of the goldens answers. */
-function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[], shape: (v: TestsView) => TestsView = (v) => v, over: { app?: Record<string, unknown>; tests?: () => Promise<TestsView>; beside?: ReactNode } = {}) {
+function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[], shape: (v: TestsView) => TestsView = (v) => v, over: { app?: Record<string, unknown>; tests?: () => Promise<TestsView>; beside?: ReactNode; coverage?: CoverageView } = {}) {
   const v = shape(view(goldens));
   const client = {
     tests: over.tests ?? (() => Promise.resolve(v)),
@@ -65,6 +65,8 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
     },
     jobs: () => Promise.resolve([]),
     offers: () => Promise.resolve(null),
+    injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
+    coverage: () => Promise.resolve(over.coverage ?? null),
     startJob: (kind: string, fields: Record<string, unknown>) => {
       started.push({ kind, fields });
       return Promise.resolve({ id: 'j1' });
@@ -368,6 +370,18 @@ describe('Tests\' states, parts and keys', () => {
     expect(none.all('.stepempty .cmdline')).toHaveLength(0);
     // Recording one comes first: the step is the setup, on the Overview.
     expect([none.one('.stepempty .actions a.btn.lime').textContent, none.one('.stepempty .actions a').getAttribute('href')]).toEqual(['Set up this project', '#/']);
+  });
+
+  it('draws Not covered under its empty state where there is something to read, Rescan coverage lime where no step leads and plain beside the empty state’s lime step', async () => {
+    const unread: CoverageView = { scan: null, newRuns: 2, groups: [], uncovered: 0, needsLook: null, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
+    const rescan = (p: Rendered) => p.one('#notcovered > header .btn').className;
+    const plain = await drawn({ coverage: unread });
+    await plain.until('Not covered', () => plain.all('.stepempty').length === 1 && plain.all('#notcovered').length === 1);
+    expect([plain.all('.stepempty .actions .btn.lime').length, rescan(plain)]).toEqual([0, 'btn sm lime']);
+    const runs = [{ runId: '01K5CQ4N7G0000000000000000', startedAt: 3, next: { key: 'pack', label: 'Pack as golden…', command: 'shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', folder: 'goldens/01k5cq4n7g' } }];
+    const led = await drawn({ app: { runs }, coverage: unread });
+    await led.until('the step and Not covered', () => led.all('.stepempty .actions .btn.lime').length === 1 && led.all('#notcovered').length === 1);
+    expect(rescan(led)).toBe('btn sm');
   });
 
   it('offers the newest run its listed step says to pack as Pack <id> as golden…, lime, its command under it, packing it and its test as the run page does', async () => {

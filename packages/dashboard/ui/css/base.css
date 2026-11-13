@@ -340,6 +340,9 @@ h4, h5, h6, caption, figcaption { text-wrap: balance; }
 /* a line the page has just written into a code box (the store setup's "store" line) is marked as a diff marks an added line,
    on the faint ink ground across the box, out through its padding: its ink alone is the box's own */
 pre.codebox .add { display: inline-block; min-width: calc(100% + 28px); margin: 0 -14px; padding: 0 14px; background: var(--add-bg); vertical-align: top; }
+/* code laid out a line each (CodeBox's hang, a config entry): a line too long for the box wraps at its own indent, never at column 0 */
+.codebox.hang { white-space: pre-wrap; overflow-wrap: anywhere; }
+.codebox.hang .cl { display: block; padding-left: var(--i, 0); text-indent: calc(-1 * var(--i, 0)); }
 
 .setfoot { display: flex; gap: 8px; flex-wrap: wrap; }
 

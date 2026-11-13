@@ -49,18 +49,21 @@ afterAll(async () => {
   rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
+/** Runs the CLI; with `events`, as a dashboard job does, its job events read from fd 3. */
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { events?: boolean } = {}): Promise<{ code: number | null; out: string; stdout: string; events: Array<Record<string, unknown>> }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, '--db', db(), ...args], {
       cwd: work,
-      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home'), AGENT_OUTBOX: join(work, 'outbox.jsonl'), ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home'), AGENT_OUTBOX: join(work, 'outbox.jsonl'), ...(o.events ? { SHADOWLAP_EVENTS_FD: '3' } : {}), ...env },
+      stdio: ['ignore', 'pipe', 'pipe', o.events ? 'pipe' : 'ignore'],
     });
     let out = '';
     let stdout = '';
-    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    child.on('exit', (code) => resolve({ code, out, stdout }));
+    let events = '';
+    child.stdout!.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+    child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
+    (child.stdio[3] as NodeJS.ReadableStream | null)?.on('data', (d: Buffer) => (events += d.toString()));
+    child.on('close', (code) => resolve({ code, out, stdout, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) }));
   });
 }
 const config = (tests: Record<string, unknown>) => writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests }, null, 2));
@@ -99,7 +102,7 @@ describe('test --chaos', () => {
     expect((await shadowlap(['pack', recording, 'goldens/forecast'])).code).toBe(0);
     writeFileSync(join(work, 'outbox.jsonl'), '');
 
-    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'chaos.json']);
+    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'chaos.json'], {}, { events: true });
     expect(r.code, r.out).toBe(1);
     const out = report('chaos.json');
     expect(out).toMatchObject({ passed: 5, failed: 1, inconclusive: 0, notApplicable: 0 });
@@ -113,6 +116,12 @@ describe('test --chaos', () => {
     expect(p.malformed).toMatchObject({ verdict: 'failed', passes: 0, attempts: 1 });
     expect(p.malformed.detail).toMatch(/^get_forecast \(#3\) answered malformed JSON: the agent exited with code 1 \(SyntaxError: .*JSON.*\)$/);
     expect(p.malformed.runs[0]).toMatchObject({ passed: false, exitCode: 1, lastLine: expect.stringMatching(/^SyntaxError: /) });
+    // As a dashboard job, it ends on the attempt that proves the preset that failed, the recording and Tests beside it.
+    expect(r.events.filter((e) => e.type === 'link')).toEqual([
+      { type: 'link', label: 'Open proof', href: `#/run/${(p.malformed.runs[0] as { runId: string }).runId}/3` },
+      { type: 'link', label: 'Open recording', href: `#/run/${recording}`, secondary: true },
+      { type: 'link', label: 'Open Tests', href: '#/tests', secondary: true },
+    ]);
     // Every write after a fork is stubbed: nothing reached the outbox.
     expect(readFileSync(join(work, 'outbox.jsonl'), 'utf8')).toBe('');
 
@@ -201,6 +210,13 @@ describe('test --chaos', () => {
     expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0, 1 check passed' });
     expect(p.oversized).toMatchObject({ verdict: 'failed', reason: 'check failed: send_alert called 0 times, but called 1 time' });
     expect(r.stdout).toContain("  checks: send_alert called 0 times (the write limits of the golden's expect)");
+    // Each kept result keeps what judged it, which the dashboard's panel says where the CLI's table does.
+    const store = Store.open(db());
+    try {
+      expect(store.listChaosResults({ sessionId: out.session }).map((x) => x.data?.judge)).toEqual([out.results[0].judge, out.results[0].judge]);
+    } finally {
+      store.close();
+    }
     expect(r.stdout).not.toContain('judged on the agent exiting 0 alone');
 
     // shadowlap show says what an attempt is: which preset played what in where.

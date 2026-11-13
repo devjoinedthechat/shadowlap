@@ -353,3 +353,35 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 }
 /* A narrow phone's column: the odds keep inside it rather than scroll. */
 @container (max-width: 320px) { .godds { font-size: 11px; } .godds th { letter-spacing: 0; } .godds th, .godds td { padding-left: 5px; } }
+
+/* Settings → Tools' Trust table (ToolTrust.tsx): the mark's button shows on the row's hover or focus, and always on a touch screen. */
+.set .tscroll table.t.trusttab { min-width: 0; }
+.tscroll table.t.trusttab td { white-space: normal; }
+table.t.trusttab tbody tr { cursor: default; }
+table.t.trusttab tbody tr:hover td { background: none; box-shadow: none; }
+.trusttab td code { font-size: 12.5px; }
+.trusttab td code.wr { color: var(--k-write); }
+.trusttab td .eff { margin-left: 8px; }
+.trusttab .tafter { font-size: 12.5px; color: var(--dim); }
+.trusttab .tafter.na { color: var(--faint); }
+.trusttab .trust { font-size: 12.5px; color: var(--faint); }
+.trusttab .trust.u { color: var(--ink); font-weight: 500; }
+.trusttab .trust.na { cursor: default; }
+.trusttab td small { display: block; margin-top: 1px; font: 11px var(--mono); color: var(--faint); }
+.trusttab .trustbtn { opacity: 0; }
+.trusttab tr:hover .trustbtn, .trusttab tr:focus-within .trustbtn { opacity: 1; }
+@media (hover: none) { .trusttab .trustbtn { opacity: 1; } }
+.trusttab .btn.tooltest { margin-left: 8px; }
+.trustcfg { margin-top: 12px; }
+.trustcfg .codebox { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .trusttab thead { display: none; }
+  .trusttab tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .trusttab tbody tr:last-child { border-bottom: 0; }
+  .trusttab td, table.t.trusttab tbody tr td { padding: 0; border: 0; }
+  .trusttab td:first-child { margin-bottom: 2px; }
+  .trusttab td.num { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 8px; text-align: left; }
+  .trusttab td.num:empty { display: none; }
+  .trusttab .btn.tooltest { margin-left: 0; }
+  .trusttab td small { overflow-wrap: anywhere; }
+}

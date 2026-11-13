@@ -7,19 +7,23 @@ import { Section } from '../../components/Section.js';
 import { DialogFacts } from '../../components/DialogFacts.js';
 import { Icon } from '../../components/Icon.js';
 import { Term } from '../../components/Term.js';
-import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
+import { tipCard, tipText } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
-import { num, whenShort } from '../../format.js';
+import { num } from '../../format.js';
 import { useLoad } from '../../hooks.js';
 import { useListKeys } from '../../list-keys.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { LoadProblem, Loading, MCP_GONE, TOOLS_GONE, useFolderGone, useSettingsData } from './common.js';
+import { CONFIG_FILE, LoadProblem, Loading, MCP_GONE, SAVING, TOOLS_GONE, useEditor, useFolderGone, useSettingsData } from './common.js';
+import { TrustTable } from './ToolTrust.js';
+import { TestButton } from '../../injection/TestButton.js';
+import { readsWords } from '../../injection/reads-words.js';
 import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, mcpRows, pasteFile, pasteWhere, serverNameFor, type McpRow } from './logic.js';
 
 /**
- * Tools: every tool the recordings called, by what happens to it after a fork (reads run live,
- * writes are blocked or stubbed), the hosts the config records as tools, and the MCP servers:
+ * Tools: every tool the recordings called, in one table by what happens to it after a fork (reads
+ * run live, writes are blocked or stubbed) and its trust, which a read's Mark untrusted or Mark
+ * trusted writes (ToolTrust.tsx), the hosts the config records as tools, and the MCP servers:
  * those the project's client configs list and those calls came through, each with its transport,
  * its command or URL and its tools, with the `shadowlap mcp` line that records one, and under Show
  * the client’s config, folded at first, the config to copy with it in front. With the
@@ -27,17 +31,22 @@ import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, m
  * says so where they would be, rather than that there are none.
  */
 export function ToolsTab() {
-  const { client } = useApp();
+  const app = useApp();
+  const { client } = app;
   const { data, error, reload } = useSettingsData(() => client.settings.tools(), 'settings:tools');
   const [adding, setAdding] = useState(false);
+  const editor = useEditor(data?.config.version ?? null, reload);
   const gone = useFolderGone();
   if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Tools" />;
   const none = !data.live.length && !data.fenced.length;
+  const off = app.actionsOff ?? gone ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   return (
-    <Section className="set" title="Tools" sub="what a fork runs again">
+    <Section className="set" title="Tools" sub="what a fork runs again, and what brings outside text in">
       <div className="pbody">
-        <Copy className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed unless you allow them, so by default a replay never acts on the world twice.</Copy>
+        <Copy className="muted">
+          Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed unless you allow them, so by default a replay never acts on the world twice. A read marked untrusted brings outside text in, and <code>shadowlap injection</code> plants its payloads there.
+        </Copy>
       </div>
       {gone ? (
         <div className="egrp">
@@ -50,10 +59,9 @@ export function ToolsTab() {
           </Copy>
         </div>
       ) : (
-        <>
-          <ToolGroup title="runs live after a fork" tools={data.live} write={false} />
-          <ToolGroup title="blocked or stubbed after a fork" tools={data.fenced} write />
-        </>
+        <div className="egrp">
+          <TrustTable data={data} editor={editor} off={off} version={data.config.version ?? 'absent'} test={(row) => (row.test ? <TestButton test={row.test} sub={`Plants payloads at ${readsWords(row.test.reads)} of ${row.test.whose}`} /> : null)} />
+        </div>
       )}
       {data.http.length && !gone ? (
         <div className="egrp">
@@ -79,35 +87,6 @@ export function ToolsTab() {
       <McpBlock data={data} gone={!!gone} onAdd={() => setAdding(true)} />
       {adding ? <AddServerDialog files={data.mcp.files} onClose={() => setAdding(false)} /> : null}
     </Section>
-  );
-}
-
-function ToolGroup({ title, tools, write }: { title: string; tools: ToolsSettings['live']; write: boolean }) {
-  return (
-    <div className="egrp">
-      <span className="k">{title}</span>
-      {tools.length ? (
-        <div className="tchips">
-          {tools.map((t) => {
-            const rows: TipRow[] = [
-              { label: 'effect', value: t.effect ?? 'none declared: it runs live' },
-              { label: 'calls', value: `${num(t.calls)} in ${num(t.runs)} ${t.runs === 1 ? 'run' : 'runs'}` },
-              { label: 'last', value: whenShort(t.lastAt) },
-            ];
-            if (t.mcp) rows.push({ label: 'from', value: 'mcp.effects in the config' });
-            if (t.changed) rows.push({ label: 'note', value: 'older runs recorded another effect' });
-            return (
-              <span key={t.name} className={`tchip${write ? ' w' : ''}`} data-tip={tipCard(t.name, rows)}>
-                <code>{t.name}</code>
-                <em>{t.effect ?? 'undeclared'}</em>
-              </span>
-            );
-          })}
-        </div>
-      ) : (
-        <Copy className="muted none">{write ? 'No write tools recorded.' : 'Every tool recorded is a write.'}</Copy>
-      )}
-    </div>
   );
 }
 
@@ -137,7 +116,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
     <div className="egrp mcp">
       <span className="k">tools from MCP servers</span>
       <Copy className="muted">
-        Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and <Term k="fenced">fenced</Term> like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise.
+        Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and <Term k="fenced">fenced</Term> like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise. A read whose server sets <code>openWorldHint</code> brings outside text in, so it starts untrusted.
       </Copy>
       {gone ? (
         <Copy className="muted none">{MCP_GONE}</Copy>
