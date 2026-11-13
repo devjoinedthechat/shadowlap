@@ -275,6 +275,10 @@ describe('what each colour may mean', () => {
     expect(value('.eyebrow', 'color')).toBe('var(--faint)');
     for (const s of ['.dotlive', '.glyph.live i', '.st.live i', '.livebtn .pulse']) expect(value(s, 'background'), s).toBe('var(--o-live)');
   });
+
+  it('underlines a link set in a line of grey words, where ink and the grey differ by colour alone: a fix’s about line’s, and the retirement table’s on Migrate’s start', () => {
+    for (const s of ['.ph.fxh .pmeta a.dlink', '.mgstart .mgsrc a.dlink']) expect(final(s, 'text-decoration'), s).toBe('underline');
+  });
 });
 
 describe('lime', () => {
