@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, DECISIONS_ID, goldenWords, type StoredEvent } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, DECISIONS_ID, goldenWords, MIGRATE_ID, type StoredEvent } from '@shadowlap/engine';
 import type { ActivityIcon } from './views.js';
 import { links } from './links.js';
 
@@ -27,13 +27,15 @@ const runs = (d: Record<string, unknown>) => `${Number(d.runs) || 0} run${Number
 /** A preview by its name, lower-cased to run on in a sentence (`model switch to claude-haiku-4-5`), else its change in words. */
 const previewName = (d: Record<string, unknown>) => (typeof d.name === 'string' && d.name ? `${d.name.charAt(0).toLowerCase()}${d.name.slice(1)}` : typeof d.change === 'string' ? d.change : 'a change');
 const flagged = (d: Record<string, unknown>) => (Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : '');
+/** A migration's event opens its report, when its ref is the migration's id. */
+const migrationAt = (e: StoredEvent): { href?: string } => (e.ref && MIGRATE_ID.test(e.ref) ? { href: links.changeSession('migrate', e.ref) } : {});
 /** The labels an event names, as text. */
 const labels = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
   // A session of `shadowlap decisions` or `migrate`, by its name; one kept before events had a name,
   // by its change. One that settled nothing says why, as its page does. A preview opens on its tab
-  // under Changes, at its session; a migration, its run if it has one, until its tab lands.
+  // under Changes, at its session; a migration, at its report under Changes › Migrate.
   [
     'decisions.done',
     (e, d) => {
@@ -44,10 +46,21 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
   ],
   [
     'migrate.done',
-    (_e, d) => {
+    (e, d) => {
+      const at = migrationAt(e);
       const change = typeof d.change === 'string' ? d.change : 'another model';
-      if (typeof d.why === 'string' && d.why) return { kind: 'fork', outcome: 'warn', text: `Migration inconclusive · ${change} on ${runs(d)} · ${d.why}` };
-      return { kind: 'fork', text: `Migration previewed: ${change} on ${runs(d)}${flagged(d)}` };
+      if (typeof d.why === 'string' && d.why) return { kind: 'fork', outcome: 'warn', text: `Migration inconclusive · ${change} on ${runs(d)} · ${d.why}`, ...at };
+      return { kind: 'fork', text: `Migration previewed: ${change} on ${runs(d)}${flagged(d)}`, ...at };
+    },
+  ],
+  // `shadowlap migrate apply`: the switch went into the working tree, with the goldens it left to update.
+  [
+    'migrate.applied',
+    (e, d) => {
+      const from = labels(d.from);
+      const left = labels(d.outdated).length;
+      const to = typeof d.to === 'string' ? d.to : 'another model';
+      return { kind: 'setting', text: `Config change applied · ${from.length ? `${from.join(', ')} → ` : ''}${to}${left ? ` · ${left} golden${left === 1 ? '' : 's'} to update` : ''}`, ...migrationAt(e) };
     },
   ],
   // A session of presets, in the tests' shape coloured by how they came out; on one run, it opens

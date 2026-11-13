@@ -59,12 +59,14 @@ describe('a tab’s title', () => {
     expect(title('#/changes/verdicts/d2e8a1f')).toBe('d2e8a1f · Verdicts · Changes — shadowlap');
     expect(title('#/changes/verdicts/d2e8a1f%2Bdirty')).toBe('d2e8a1f+dirty · Verdicts · Changes — shadowlap');
     expect(title('#/changes/verdicts/d2e8a1f', { unshown: true })).toBe('Verdicts · Changes — shadowlap');
-    // A preview reads as its tab, its cell open or not, and shown or not; a migration's address opens Verdicts until its tab lands.
+    // A preview and a migration read as their tab, a cell open or not, and shown or not.
     expect(title('#/changes/decisions')).toBe('Preview · Changes — shadowlap');
     expect(title('#/changes/decisions/dc-01M5000000000000000000000A')).toBe('Preview · Changes — shadowlap');
     expect(title('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF/17')).toBe('Preview · Changes — shadowlap');
     expect(title('#/changes/decisions/dc-01M5000000000000000000000A', { unshown: true })).toBe('Preview · Changes — shadowlap');
-    expect(title('#/changes/migrate/mg-01M5000000000000000000000B')).toBe('Verdicts · Changes — shadowlap');
+    expect(title('#/changes/migrate')).toBe('Migrate · Changes — shadowlap');
+    expect(title('#/changes/migrate/mg-01M5000000000000000000000B/01M5MXZ7H9ABCDEF/17')).toBe('Migrate · Changes — shadowlap');
+    expect(title('#/changes/migrate/mg-01M5000000000000000000000B', { unshown: true })).toBe('Migrate · Changes — shadowlap');
   });
 
   it('names only the section for a run or a fix the page can’t show, or with the setup in its place, as the crumbs do', () => {

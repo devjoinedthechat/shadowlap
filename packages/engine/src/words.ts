@@ -18,6 +18,9 @@ export function shortRunId(runId: string): string {
 /** A fix id as the list shows it: `fx-` and the first ten characters, which `fix show` takes as a prefix. */
 export const shortFixId = (fixId: string): string => fixId.slice(0, 13);
 
+/** A kept session's id as its lines show it: `mg-` or `dc-` and the first ten characters, which `migrate apply` takes as a prefix. */
+export const shortSessionId = (id: string): string => id.slice(0, 13);
+
 /** A part of a date or a time in two digits: `07`. */
 export const twoDigits = (n: number) => String(n).padStart(2, '0');
 

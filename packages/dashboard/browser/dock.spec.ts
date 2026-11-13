@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, seriousViolations, startJob } from './dashboard.js';
+import { dash, demoId, openPage, RESET_RETRY, seriousViolations, startJob } from './dashboard.js';
 
 /**
  * The job's drawer docked across the content's foot, its chip and pill, and toasts over all of it, in
@@ -216,7 +216,7 @@ test.describe('at 1440', () => {
 
   test('downloads the HTML report from Share on a read-only dashboard, every other copy waiting', async ({ page }) => {
     await page.route(/\/api\/meta(\?.*)?$/, async (route) => {
-      const res = await route.fetch();
+      const res = await route.fetch(RESET_RETRY);
       await route.fulfill({ response: res, json: { ...(await res.json()), readOnly: true } });
     });
     await openPage(page, `/run/${demoId('ticket')}`, 'run');

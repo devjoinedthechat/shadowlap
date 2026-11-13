@@ -34,13 +34,13 @@ export interface ChangesCrumb {
 /**
  * Changes' crumbs: the page itself (`#/changes`, which opens Verdicts, never the tab last shown), then
  * the tab; on a revision's page Verdicts leads back to the list and the revision follows as code, once
- * the page shows it (`unshown` until then: only the tab). A preview reads as its tab, unlinked, never
- * its id. A migration's address reads as Verdicts, which it opens until its tab lands. An exported
- * copy's Compare is a page of its own.
+ * the page shows it (`unshown` until then: only the tab). A preview and a migration read as their
+ * tab, unlinked, never the id. An exported copy's Compare is a page of its own.
  */
 export function changesCrumbs(route: Extract<Route, { page: 'changes' | 'compare' }>, o: { exported: boolean; unshown: boolean }): ChangesCrumb[] {
   if (route.page === 'compare') return o.exported ? [{ label: 'Compare' }] : [{ label: 'Changes', href: href.changes() }, { label: 'Compare', face: 'word' }];
   if (route.tab === 'decisions') return [{ label: 'Changes', href: href.changes() }, { label: 'Preview', face: 'word' }];
+  if (route.tab === 'migrate') return [{ label: 'Changes', href: href.changes() }, { label: 'Migrate', face: 'word' }];
   const rev = route.tab === 'verdicts' ? route.id : null;
   const tab: ChangesCrumb = rev ? { label: 'Verdicts', href: href.changes(), face: 'word' } : { label: 'Verdicts', face: 'word' };
   return [{ label: 'Changes', href: href.changes() }, tab, ...(rev && !o.unshown ? [{ label: rev, face: 'code' as const }] : [])];

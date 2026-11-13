@@ -18,8 +18,8 @@ import type { LookAdvice } from './row.js';
 const KINDS: ReadonlyArray<{ is: (key: string) => boolean; until: string }> = [
   { is: (key) => key === 'coverage', until: 'Until another behaviour has no golden' },
   { is: (key) => key === 'local', until: 'Until another run is only on this machine' },
-  // `retire <model>`. Until a migration's checked line is one of its facts (port/migrate), only a date or a golden brings it back.
-  { is: (key) => /^retire \S+$/.test(key), until: 'Until a new date or golden' },
+  // `retire <model>`: its date, its goldens and, once a migration checked it, that migration's checked line.
+  { is: (key) => /^retire \S+$/.test(key), until: 'Until a new date or golden, or a migration checks it' },
 ];
 
 /** The longest key or fact the dashboard keeps: a model's name, a run's id, a golden's path. */

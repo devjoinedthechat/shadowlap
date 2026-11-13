@@ -77,7 +77,7 @@ function Ending({ row, cleared }: { row: Row; cleared: string }) {
  * `open` is the cell the page shows, by its run and call; a press, or Enter on a row, opens a cell and
  * says whether it was the one shown (`current`), which the page closes.
  */
-export function DecisionMatrix({ session, open, onOpen }: { session: PreviewSession; open: { run: string; call: number } | null; onOpen: (run: string, call: number | null, current: boolean) => void }) {
+export function DecisionMatrix({ session, open, onOpen, compact = false }: { session: PreviewSession; open: { run: string; call: number } | null; onOpen: (run: string, call: number | null, current: boolean) => void; compact?: boolean }) {
   const { view, matrix } = session;
   const box = useRef<HTMLDivElement>(null);
   useFitAbouts(box);
@@ -95,16 +95,9 @@ export function DecisionMatrix({ session, open, onOpen }: { session: PreviewSess
     box: (el) => (el.firstElementChild as HTMLElement | null) ?? el,
   });
   return (
-    <section className="dmx" aria-label="Decisions, a row per run, a cell per model call">
+    <section className={compact ? 'dmx compact' : 'dmx'} aria-label="Decisions, a row per run, a cell per model call">
       <div className="dmg" ref={box}>
-        <div className="dmkey">
-          <MatrixKey main={view.key.main.map(keyEntry)} quiet={view.key.quiet.map(keyEntry)} />
-        </div>
-        <div className="dmh" aria-hidden="true">
-          <span>Run</span>
-          <span>Model calls, in order</span>
-          <span>What changed most</span>
-        </div>
+        {compact ? null : <MatrixHead view={view} />}
         {matrix.map((row) => {
           const mine = open?.run === row.runId;
           const call = topCall(row);
@@ -118,13 +111,40 @@ export function DecisionMatrix({ session, open, onOpen }: { session: PreviewSess
                 {row.about ? <AboutLine about={row.about} className="dmab" /> : null}
               </div>
               <DecisionCells row={row} cols={cols} open={mine ? (open?.call ?? null) : null} onOpen={(c, current) => onOpen(row.runId, c, current)} />
-              <div className="dms">
-                <Ending row={row} cleared={view.cleared} />
-              </div>
+              {compact ? null : (
+                <div className="dms">
+                  <Ending row={row} cleared={view.cleared} />
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+      {compact ? null : <MatrixFoot view={view} />}
+    </section>
+  );
+}
+
+/** The key over a full matrix, and its columns' heads. */
+function MatrixHead({ view }: { view: PreviewSession['view'] }) {
+  return (
+    <>
+      <div className="dmkey">
+        <MatrixKey main={view.key.main.map(keyEntry)} quiet={view.key.quiet.map(keyEntry)} />
+      </div>
+      <div className="dmh" aria-hidden="true">
+        <span>Run</span>
+        <span>Model calls, in order</span>
+        <span>What changed most</span>
+      </div>
+    </>
+  );
+}
+
+/** Under a full matrix: its notes and its receipt. */
+function MatrixFoot({ view }: { view: PreviewSession['view'] }) {
+  return (
+    <>
       {view.warnings.length ? (
         <ul className="dnotes">
           {view.warnings.map((w) => (
@@ -133,6 +153,6 @@ export function DecisionMatrix({ session, open, onOpen }: { session: PreviewSess
         </ul>
       ) : null}
       <Receipt lines={receiptWords(view.receipt, view.verify?.endToEnd ?? null).map((l) => ({ parts: l.parts, tip: l.card ? tipCard(l.card.title, l.card.rows.map(([label, value]) => ({ label, value }))) : null }))} />
-    </section>
+    </>
   );
 }

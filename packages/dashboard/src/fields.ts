@@ -6,3 +6,5 @@
 export const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
 export const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 export const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+/** A list's strings, whatever else it holds left out, and none for what is not a list. */
+export const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter((s) => s !== null) : []);

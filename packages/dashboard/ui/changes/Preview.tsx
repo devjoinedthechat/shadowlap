@@ -1,33 +1,29 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo } from 'react';
+import { Fragment, useEffect, useLayoutEffect } from 'react';
 import { ApiError } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { asWords, Copy, Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
-import { Icon } from '../components/Icon.js';
 import { Link } from '../components/Link.js';
-import { MigrateAsk } from '../components/MigrateAsk.js';
+import { MigrateButton } from '../components/MigrateDialog.js';
 import { NewPreviewMenu, NO_GOLDENS, PreviewWayButtons, usePreviewDialog } from '../components/NewPreviewMenu.js';
-import { Picker } from '../components/Picker.js';
-import { useMenu } from '../components/Popover.js';
 import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { glossed } from '../components/Term.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { forgetPreviewSession, notePreviewSession } from '../changes-tab.js';
-import { nextStep, sessionHint, verdictState } from '../decisions.js';
-import { FixJobButton } from '../fixes/FixJobButton.js';
+import { nextStep, verdictState } from '../decisions.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { PREVIEW_ASK } from '../page-ask.js';
 import { href } from '../route.js';
-import { navigate } from '../router.js';
 import { Unshown } from '../shell/unshown.js';
 import { useApp } from '../state.js';
 import type { Tone } from '../components/Status.js';
-import type { DecisionSessionView, PreviewSession, PreviewView } from '../types.js';
-import { DecisionCellPanel, revealCell } from './DecisionCell.js';
+import type { PreviewSession, PreviewView } from '../types.js';
+import { DecisionCellPanel, openCell, openedCell } from './DecisionCell.js';
 import { moreTip, PreviewVerifyButton, type VerifyRow } from './VerifyAsk.js';
 import { DecisionMatrix } from './DecisionMatrix.js';
+import { SessionPicker } from './SessionPicker.js';
 
 /**
  * Changes › Preview: what a change decides differently at each model call of your recorded runs,
@@ -108,34 +104,16 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
   return (
     <>
       <div className="chbar">
-        <SessionPicker sessions={sessions} shown={session} />
+        <SessionPicker kind="decisions" sessions={sessions} shown={session} />
         <span className="sp" />
         <NewPreviewMenu target={{ goldens: 'all', count: list.data!.goldens }} lime={anotherChange(session.view)} why={list.data!.goldens ? null : NO_GOLDENS} />
       </div>
       <Verdict session={session} />
-      <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell(session.sessionId, r, c, current)} />
+      <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell('decisions', session.sessionId, r, c, current)} />
       {opened ? <DecisionCellPanel key={`${opened.row.runId}:${opened.callNo}`} session={session} row={opened.row} callNo={opened.callNo} /> : null}
       <CodeBox command={session.view.command} className="chcmd" />
     </>
   );
-}
-
-/**
- * A cell opens under the matrix, and pressed again closes, in place of the address as a pick in a page
- * is: Back leaves Preview rather than walking back through every cell opened, and the page keeps its
- * scroll. A cell that opens is brought into view the nearest way, as one from a tall matrix's top row
- * could open below the window.
- */
-function openCell(sessionId: string, run: string, call: number | null, current: boolean): void {
-  if (!current) revealCell();
-  navigate(current ? href.changeSession('decisions', sessionId) : href.changeSession('decisions', sessionId, run, call), true);
-}
-
-/** The cell an address opens: its run's row at its call; a run's address without a call, the call its row ends on, else its first. */
-function openedCell(session: PreviewSession, run: string | null, call: number | null): { row: PreviewSession['matrix'][number]; callNo: number } | null {
-  const row = run ? session.matrix.find((r) => r.runId === run) : undefined;
-  const callNo = call ?? row?.ending.callNo ?? row?.cells[0]?.callNo ?? null;
-  return row && callNo !== null ? { row, callNo } : null;
 }
 
 /** No preview kept: what one is, and the command that makes one; with no goldens, what to pack first. */
@@ -156,58 +134,6 @@ const EVERY_GOLDEN = { goldens: 'all' } as const;
 
 /** Another change is the next step once verify rejected the shown preview's and left nothing to verify or attempt: New preview turns lime. */
 const anotherChange = (v: PreviewSession['view']): boolean => verdictState(v) === 'verified' && v.verdict.word === 'rejected' && !nextStep(v.next);
-
-/** The previews picker: the one shown by its name, then its goldens or runs and when, fitted to the rest; a pick opens it. */
-function SessionPicker({ sessions, shown }: { sessions: readonly DecisionSessionView[]; shown: PreviewSession }) {
-  const menu = useMenu();
-  const id = shown.sessionId;
-  const listed = sessions.find((s) => s.sessionId === id) ?? null;
-  const hint = listed ? sessionHint(listed) : '';
-  return (
-    <span className="pick">
-      <button className="rpick dpick" type="button" aria-haspopup="listbox" aria-expanded={menu.open} aria-label={`Preview: ${shown.view.name}${hint ? `, ${hint}` : ''}`} onClick={(e) => menu.toggle(e.currentTarget)}>
-        <span className="pid">{shown.view.name}</span>
-        <span className="rab">{hint}</span>
-        <Icon name="caret" className="caret" />
-      </button>
-      {menu.anchor ? <SessionList anchor={menu.anchor} sessions={sessions} picked={id} onClose={menu.close} /> : null}
-    </span>
-  );
-}
-
-function SessionList({ anchor, sessions, picked, onClose }: { anchor: HTMLElement; sessions: readonly DecisionSessionView[]; picked: string; onClose: () => void }) {
-  const items = useMemo(
-    () =>
-      sessions.map((s) => {
-        const hint = sessionHint(s, { full: true });
-        return {
-          id: s.sessionId,
-          text: `${s.name} ${s.change} ${hint}`,
-          current: s.sessionId === picked,
-          node: (
-            <>
-              <span className="pid">{s.name}</span>
-              <span className="rab">{hint}</span>
-            </>
-          ),
-        };
-      }),
-    [sessions, picked],
-  );
-  return (
-    <Picker
-      anchor={anchor}
-      label="Previews"
-      placeholder="Filter by model, field or golden"
-      items={items}
-      onClose={onClose}
-      onPick={(sid) => {
-        onClose();
-        if (sid !== picked) navigate(href.changeSession('decisions', sid));
-      }}
-    />
-  );
-}
 
 const VERIFY_TONE: Record<string, Tone> = { accepted: 'ok', rejected: 'err', inconclusive: 'warn' };
 
@@ -286,7 +212,7 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
 const verifyRows = (session: PreviewSession, runs: readonly string[], found: boolean): VerifyRow[] =>
   session.matrix.filter((r) => runs.includes(r.runId)).map((r) => ({ runId: r.runId, golden: r.golden, about: r.about?.text ?? null, verified: found ? r.verified : null }));
 
-/** The one lime next step: Verify the runs left to verify, Run more attempts or Verify again on those verify left open, or Migrate to the model switched to. */
+/** The one lime next step: Verify the runs left to verify, Run more attempts or Verify again on those verify left open, the report of a migration of the same switch, or Migrate to the model switched to. */
 function NextStepButton({ session }: { session: PreviewSession }) {
   const v = session.view;
   const id = session.sessionId;
@@ -309,19 +235,11 @@ function NextStepButton({ session }: { session: PreviewSession }) {
       );
     return <PreviewVerifyButton sessionId={id} change={v.change} rows={verifyRows(session, step.runs, false)} every={step.every} label={step.label} lime tip="Each runs end to end under the change, writes stubbed, until verify’s gate decides" />;
   }
-  const targets = step.goldens.length ? step.goldens : step.runs.map(shortId);
-  const command = `shadowlap migrate --to ${step.to} ${targets.join(' ')}${step.from.map((f) => ` --from ${f}`).join('')}`;
-  return (
-    <FixJobButton
-      kind="migrate"
-      fields={{ to: step.to, ...(step.from.length ? { from: step.from } : {}), ...(step.goldens.length ? { goldens: step.goldens } : { runs: step.runs }) }}
-      label={step.label}
-      verb="migrate"
-      lead
-      tip="The switch checked end to end, ending on the config change and a pull request body"
-      command={command}
-      estimate={null}
-      ask={(start, close) => <MigrateAsk from={step.from} to={step.to} command={command} ok={step.label} onOk={() => start({})} onClose={close} />}
-    />
-  );
+  if (step.kind === 'report')
+    return (
+      <a className="btn lime" href={href.changeSession('migrate', step.sessionId)}>
+        {step.label}
+      </a>
+    );
+  return <MigrateButton s={{ from: step.from, to: step.to, goldens: step.goldens, runs: step.runs }} label={step.label} lime />;
 }

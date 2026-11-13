@@ -275,6 +275,10 @@ describe('what each colour may mean', () => {
     expect(value('.eyebrow', 'color')).toBe('var(--faint)');
     for (const s of ['.dotlive', '.glyph.live i', '.st.live i', '.livebtn .pulse']) expect(value(s, 'background'), s).toBe('var(--o-live)');
   });
+
+  it('underlines a link set in a line of grey words, where ink and the grey differ by colour alone: a fix’s about line’s, and the retirement table’s on Migrate’s start', () => {
+    for (const s of ['.ph.fxh .pmeta a.dlink', '.mgstart .mgsrc a.dlink']) expect(final(s, 'text-decoration'), s).toBe('underline');
+  });
 });
 
 describe('lime', () => {
@@ -451,6 +455,8 @@ describe('amber', () => {
     '.dc.split i.s': 'a split decision cell’s samples of rank 2: a look',
     '.dsd.q2': 'a preview row’s most telling change, of rank 2: a look',
     '.dsy': 'what a preview couldn’t ask or judge: a run it refused, a step that waits on a judge, a warning',
+    '.mgrows .mgleft': 'a golden the switch leaves behind: it diverges on `$.model` until updated',
+    '.mgalso': 'a field What to set says to leave out that the patch can’t: left for the hand',
     '.dsv.y b': 'a preview’s run that verify found inconclusive: its word',
     '.dnotes': 'the warnings under a preview’s matrix: what couldn’t be asked or judged',
     '.dlead .dlv.y b': 'an opened cell’s run that verify found inconclusive: its word',

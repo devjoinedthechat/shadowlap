@@ -4,7 +4,7 @@ import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import type { DivergenceView, TestEvidence } from '../ui/types.js';
-import { dash } from './dashboard.js';
+import { dash, RESET_RETRY } from './dashboard.js';
 
 /** A rule Add normalizer and update adds for a golden, as `newRules` gives it: the `normalize add` arguments. */
 const rule = (field: string): string[] => ['normalize', 'add', '--kind', 'api', '--path', `$.body.${field}`, '--replace', `<${field}>`];
@@ -55,7 +55,7 @@ function reported(): Pick<TestsAnswer, 'rows' | 'failures' | 'reports'> & { atte
  */
 export async function routeTestsFixture(page: Page): Promise<{ gated: string; crash: string; gate: string; diverged: string }> {
   const { origin, token } = dash();
-  const real = (await (await page.request.get(`${origin}/api/tests`, { headers: { 'x-shadowlap-token': token } })).json()) as TestsAnswer;
+  const real = (await (await page.request.get(`${origin}/api/tests`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as TestsAnswer;
   const d = real.divergences[0];
   const gated = real.rows.find((r) => r.last.verdict === 'passed' && r.path !== d?.golden);
   const other = real.rows.find((r) => r.path !== gated?.path && r.path !== d?.golden);

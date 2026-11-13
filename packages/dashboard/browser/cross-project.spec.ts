@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { heldAsk, type HeldAsk } from '../ui/held.js';
 import { parseRoute } from '../ui/route.js';
-import { dash, demoId, openPage, serveDashboard, serverLinks, seriousViolations, type Served } from './dashboard.js';
+import { dash, demoId, openPage, RESET_RETRY, serveDashboard, serverLinks, seriousViolations, type Served } from './dashboard.js';
 
 /**
  * A link into another project, from a second dashboard: one started in the demo's triage-bot, a
@@ -71,7 +71,7 @@ test('every run, fix, pair and preview a link the server writes names is found i
   const { origin, token } = triage();
   for (const [key, ask] of asks) {
     const query = new URLSearchParams([['what', ask.what], ...ask.ids.map((id): [string, string] => ['id', id])]);
-    const res = await request.get(`${origin}/api/projects/holding?${query}`, { headers: { 'x-shadowlap-token': token } });
+    const res = await request.get(`${origin}/api/projects/holding?${query}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY });
     expect(res.status(), key).toBe(200);
     const view = (await res.json()) as { current: { name: string }; held: { project: { name: string }; id: string } | null };
     expect(view.current.name, key).toBe('triage-bot');

@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { CheckView, GoldenRow, TestsView } from '../ui/types.js';
-import { dash, demoId, expectAccessible, openPage } from './dashboard.js';
+import { dash, demoId, expectAccessible, openPage, RESET_RETRY } from './dashboard.js';
 
 /**
  * A golden's checks on Tests, and a run's judge verdicts, in a real browser, wide and on a phone:
@@ -30,7 +30,7 @@ type Step = NonNullable<TestsView['steps']>[string];
 /** Tests as the demo's server answers it. */
 async function realTests(page: Page): Promise<TestsView> {
   const { origin, token } = dash();
-  return (await (await page.request.get(`${origin}/api/tests`, { headers: { 'x-shadowlap-token': token } })).json()) as TestsView;
+  return (await (await page.request.get(`${origin}/api/tests`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as TestsView;
 }
 
 /** The demo golden this file works on, with its checks as the CLI labels them. */
@@ -230,7 +230,7 @@ async function routeChecks(page: Page, checks: { now: (last: number) => CheckVie
   await page.route(
     (url) => url.pathname === `/api/runs/${id}`,
     async (route) => {
-      const res = await route.fetch();
+      const res = await route.fetch(RESET_RETRY);
       const body = (await res.json()) as { calls: Row[] };
       const last = lastModel(body.calls);
       const calls = body.calls.map((c) => (c.callNo === last ? { ...c, scope: JUDGE, agent: JUDGE, reserved: true, judge: { check: 'explains-refund', verdict: 'yes' } } : c));
@@ -238,7 +238,7 @@ async function routeChecks(page: Page, checks: { now: (last: number) => CheckVie
     },
   );
   const { origin, token } = dash();
-  const run = (await (await page.request.get(`${origin}/api/runs/${id}`, { headers: { 'x-shadowlap-token': token } })).json()) as { calls: Row[] };
+  const run = (await (await page.request.get(`${origin}/api/runs/${id}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { calls: Row[] };
   return { id, last: lastModel(run.calls), calls: run.calls.length };
 }
 

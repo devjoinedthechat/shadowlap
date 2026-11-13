@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { issueKey } from '../../src/issue-keys.js';
 import { CopyButton } from '../components/CodeBox.js';
-import { Code, Copy, Words } from '../components/Copy.js';
+import { Copy } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { failedRunsWords } from '../failed-runs.js';
@@ -9,8 +9,9 @@ import { VerdictLine } from '../components/VerdictLine.js';
 import { plural, shortId } from '../format.js';
 import { issueClick } from '../runspage/open-issue.js';
 import { useApp } from '../state.js';
-import type { GoldenReport, GoldenRow, Piece, ReportLine, TestsAnswer } from '../types.js';
+import type { GoldenReport, GoldenRow, ReportLine, TestsAnswer } from '../types.js';
 import { gated, ReportEvidence } from './Evidence.js';
+import { Pieces } from './Pieces.js';
 import { drawsFindCommit } from './lead.js';
 import { ReportParts } from './ReportParts.js';
 import { ReportSteps } from './ReportSteps.js';
@@ -120,7 +121,7 @@ function ReportPanel({ report, row, open, asked, onOpen, view, press }: { report
         <ReportLinks report={report} />
       </header>
       <VerdictLine report word={report.verdict} tone={report.verdict === 'failed' ? 'err' : 'warn'} facts={report.sub.length ? report.sub.join(' · ') : undefined}>
-        <Head pieces={report.head} />
+        <Pieces pieces={report.head} />
       </VerdictLine>
       <ReportParts report={report} row={row} open={open} />
       {press ? <ReportSteps report={report} view={view} press={press} onPress={onOpen} /> : null}
@@ -128,11 +129,6 @@ function ReportPanel({ report, row, open, asked, onOpen, view, press }: { report
       <Printed name={report.name} lines={report.printed} />
     </section>
   );
-}
-
-/** The verdict's sentence, glued as a verdict's words are (a count with its noun), its paths, checks and files as code. */
-function Head({ pieces }: { pieces: readonly Piece[] }) {
-  return <>{pieces.map((p, i) => (typeof p === 'string' ? <Words key={i}>{p}</Words> : <Code key={i}>{p.code}</Code>))}</>;
 }
 
 /**

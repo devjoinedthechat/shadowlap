@@ -1,10 +1,9 @@
-import { useState } from 'react';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import { JOB_KINDS } from '../api.js';
 import { useOfflineLink } from '../components/ActionButton.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
-import { MigrateAsk } from '../components/MigrateAsk.js';
+import { MIGRATE_CARD, MigrateButton } from '../components/MigrateDialog.js';
 import { LEAD_KIND, LEAD_VERB, leadCard } from '../fixes/lead.js';
 import { RowStep } from '../fixes/RowStep.js';
 import { goldenName } from '../format.js';
@@ -28,9 +27,6 @@ import type { LookStep, NeedsLookRow } from '../types.js';
  * issues draw (steps/RunStep.tsx); a fix's row has the step its row on Fixes has (fixes/RowStep.tsx).
  * The dialogs a step asks in load as it first asks: the Overview's script holds none of a fix's page.
  */
-
-/** Migrate to <model>'s card, until the Migrate dialog of Changes words it. */
-export const MIGRATE_SUB = 'Verify runs the agent live from the switched calls, writes stubbed';
 
 /** The job a row's step runs, and what it waits for; null for a link, none, or a step that opens its page instead. */
 export function stepRun(s: LookStep | null): { kind: string; job: Job | null } | null {
@@ -78,7 +74,7 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
     case 'push':
       return { sub: PUSH_LOCAL.sub, command: `$ ${s.command}` };
     case 'migrate':
-      return { sub: MIGRATE_SUB, command: `$ ${s.command}` };
+      return { sub: MIGRATE_CARD, command: `$ ${s.command}` };
     case 'rerun':
       return { sub: s.sub, command: `$ ${s.command}` };
   }
@@ -144,31 +140,22 @@ function GoldenStep({ s, why }: { s: Extract<LookStep, { of: 'more' | 'update' |
   );
 }
 
-/** Push local runs, which bills nothing, and Migrate to <model>, which always asks. */
+/** Push local runs, which bills nothing, and Migrate to <model>, priced, which always asks in Migrate's one dialog. */
 function StoreStep({ s, why }: { s: Extract<LookStep, { of: 'push' | 'migrate' }>; why: string | null }) {
-  const app = useApp();
-  const [post, consent] = usePost(s.of === 'push' ? JOB_KINDS.push : JOB_KINDS.migrate, 'Run command');
-  const [asking, setAsking] = useState(false);
+  if (s.of === 'migrate') return <MigrateButton s={{ from: s.from, to: s.to, goldens: s.goldens }} label={s.label} className="btn sm" />;
+  return <PushStep s={s} why={why} />;
+}
+
+function PushStep({ s, why }: { s: Extract<LookStep, { of: 'push' }>; why: string | null }) {
+  const [post, consent] = usePost(JOB_KINDS.push, 'Run command');
   const words = stepWords(s);
   const card = { tip: s.label, sub: words.sub, command: words.command ?? undefined };
-  if (s.of === 'push') {
-    const push = () => post({ all: true });
-    return (
-      <>
-        <JobButton className="btn sm" why={why} {...card} bills={false} start={push} ask={push}>
-          {s.label}
-        </JobButton>
-        {consent}
-      </>
-    );
-  }
-  const open = () => setAsking(true);
+  const push = () => post({ all: true });
   return (
     <>
-      <JobButton className="btn sm" why={why} {...card} estimate={null} start={open} ask={open}>
+      <JobButton className="btn sm" why={why} {...card} bills={false} start={push} ask={push}>
         {s.label}
       </JobButton>
-      {asking ? <MigrateAsk from={s.from} to={s.to} command={s.command} ok={s.label} onClose={() => setAsking(false)} onOk={() => app.guard(() => post({ to: s.to, from: s.from, goldens: s.goldens }))} /> : null}
       {consent}
     </>
   );

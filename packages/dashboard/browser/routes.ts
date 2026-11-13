@@ -1,6 +1,6 @@
 import { expect, type Page, type Request } from '@playwright/test';
 import { NAME as CRASH, routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
-import { dash, demoId, openPage, seriousViolations, type Served } from './dashboard.js';
+import { dash, demoId, openPage, RESET_RETRY, seriousViolations, type Served } from './dashboard.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
@@ -89,8 +89,7 @@ export const VERDICTS = 'main#view table.vdt tbody tr';
  * `+`, which the token link's `open=` stops at, so the page goes there from Verdicts.
  */
 async function toRevision(page: Page): Promise<void> {
-  const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token } })).json()) as { lead: { key: string } | null };
+  const view = await apiGet<{ lead: { key: string } | null }>(page, 'verdicts');
   if (!view.lead) throw new Error('the demo store has no test session that ran every golden');
   await page.evaluate((key) => {
     location.hash = `#/changes/verdicts/${encodeURIComponent(key)}`;
@@ -111,10 +110,14 @@ interface Previewed {
   cell: string;
   view: string;
 }
+/** The demo dashboard's answer at `/api/<path>`, read with the session's token. */
+async function apiGet<T>(page: Page, path: string): Promise<T> {
+  const { origin, token } = dash();
+  return (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as T;
+}
 /** The demo's preview, a cell of it opened and its run's Decisions view, by the addresses the API gives. */
 export async function previewed(page: Page): Promise<Previewed> {
-  const { origin, token } = dash();
-  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json()) as T;
+  const get = <T>(path: string) => apiGet<T>(page, path);
   const { sessions } = await get<{ sessions: Array<{ kind: string; sessionId: string }> }>('decisions');
   const s = sessions.find((x) => x.kind === 'decisions');
   if (!s) throw new Error('the demo store has no preview');
@@ -123,6 +126,24 @@ export async function previewed(page: Page): Promise<Previewed> {
   if (!runId) throw new Error('the demo’s preview names no run the store holds');
   const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
   return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
+}
+/** Changes' Migrate (port/migrate): a migration's report, drawn with its verdict. */
+export const MIGRATED = 'main#view .mgverdict';
+interface Migrated {
+  id: string;
+  report: string;
+  cell: string;
+}
+/** The demo's migration by the addresses the API gives: its report, and the cell its first change opens (else its first row's first call). */
+export async function migrated(page: Page): Promise<Migrated> {
+  const { sessions } = await apiGet<{ sessions: Array<{ kind: string; sessionId: string; href: string }> }>(page, 'decisions');
+  const s = sessions.find((x) => x.kind === 'migrate');
+  if (!s) throw new Error('the demo store has no migration');
+  const { migration, matrix } = await apiGet<{ migration: { changes: { steps: Array<{ runId: string; callNo: number }> } }; matrix: Array<{ runId: string; cells: Array<{ callNo: number }> }> }>(page, `decisions/${s.sessionId}`);
+  const first = matrix.find((r) => r.cells.length);
+  const cell = migration.changes.steps[0] ?? (first ? { runId: first.runId, callNo: first.cells[0]!.callNo } : null);
+  if (!cell) throw new Error('the demo’s migration has no model call to open');
+  return { id: s.sessionId, report: s.href.slice(1), cell: `/changes/migrate/${s.sessionId}/${cell.runId}/${cell.callNo}` };
 }
 /**
  * The preview at `preview` as if its verify had left its first run open, as the session's read answers
@@ -137,7 +158,7 @@ export async function moreAttempts(page: Page, preview: string): Promise<{ previ
       if (!more.on) return route.continue();
       // Read whole, with the session's cookie, never a 304 the page's cache would answer.
       const headers = Object.fromEntries(Object.entries(await route.request().allHeaders()).filter(([k]) => k !== 'if-none-match'));
-      const res = await route.fetch({ headers });
+      const res = await route.fetch({ headers, ...RESET_RETRY });
       const s = (await res.json()) as { matrix: Array<{ runId: string; verified: unknown }>; view: { next: Record<string, unknown> } };
       const runId = s.matrix[0]!.runId;
       s.matrix[0]!.verified = { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' };
@@ -309,6 +330,92 @@ const previewChange = async (page: Page): Promise<void> => {
   await click(page, `${MENU} [role="menuitem"]`, 'Preview model switch', { shows: DIALOG })();
 };
 
+/** A migration's pull request body shown: once shown, it stays shown on that migration's page. */
+const bodyShown = async (page: Page): Promise<void> => {
+  const body = 'main#view .mgpr button.linkbtn';
+  if ((await page.locator(body).getAttribute('aria-expanded')) !== 'true') await click(page, body, undefined, { shows: 'main#view .mgpr .prbody.md' })();
+};
+/**
+ * Migrate to's menu on a migration's page, and the dialog its first model asks in. The page a state
+ * before opened at the same address isn't loaded anew, so a menu it left open is still open: a press
+ * would close it (or, on a phone, meet its sheet), so the menu is opened only where it is closed.
+ */
+const MIGRATE_TO = `${MENU}.fkm [role="menuitemradio"]`;
+const migrateTo = async (page: Page): Promise<void> => {
+  if (await page.locator(MIGRATE_TO).first().isVisible()) return settled(page);
+  await click(page, 'main#view .chbar button', 'Migrate to', { shows: MIGRATE_TO })();
+};
+const migrateAsk = async (page: Page): Promise<void> => {
+  await migrateTo(page);
+  await click(page, MIGRATE_TO, undefined, { shows: DIALOG })();
+};
+/** A press of the migration's next step, the lime button its verdict offers, and the dialog it asks in. */
+const nextStep = (text: string, shows: string = DIALOG) => (page: Page) => click(page, `${MIGRATED} .actions button`, text, { shows })();
+/** What a migration's read holds that its states lay over. */
+interface MigrationRead {
+  to: string;
+  config: { files: Array<{ path: string }> };
+}
+/** The demo's migration as its read answers, `over` laid on its view, for a state the demo's can't reach. */
+const migrationAs = (over: (m: MigrationRead, id: string) => Record<string, unknown>) => async (page: Page): Promise<void> => {
+  const { id } = await migrated(page);
+  const kept = await apiGet<{ migration: MigrationRead }>(page, `decisions/${id}`);
+  const json = { ...kept, migration: { ...kept.migration, ...over(kept.migration, id) } };
+  await page.route((url) => url.pathname.endsWith(`/api/decisions/${id}`), (route) => route.fulfill({ json }));
+};
+/** The golden the demo's switch leaves behind, at the call its replay diverges on once the change is in. */
+const LEFT = { golden: CHECKED, callNo: 3 };
+/** All clear: Apply config change its next step, leaving that golden behind. */
+const allClear = migrationAs((m, id) => ({ applied: null, next: 'apply', apply: { files: m.config.files.map((f) => f.path), leftOut: null, leftBehind: [LEFT], stays: null, command: `shadowlap migrate apply ${id.slice(0, 13)}` } }));
+/** Applied an hour ago, the golden it left behind waiting: Update goldens its next step. */
+const appliedWaiting = migrationAs((m) => ({
+  word: { text: 'applied', tone: 'ok' },
+  next: 'update',
+  applied: { at: Date.now() - 3_600_000, by: null, outdated: [{ ...LEFT, path: '$.model', waits: true }] },
+  appliedLine: `1 golden to update under ${m.to}: refund-in-limit`,
+}));
+/** Migrate's start, the demo's own with `retiring` in its place. */
+const startAs = (retiring: (model: string) => unknown[]) => async (page: Page): Promise<void> => {
+  const start = await apiGet<{ use: Array<{ model: string }> }>(page, 'migrate/start');
+  const json = { ...start, retiring: retiring(start.use[0]!.model) };
+  await page.route((url) => url.pathname.endsWith('/api/migrate/start'), (route) => route.fulfill({ json }));
+};
+/**
+ * The model the demo's goldens call most, retiring with no migration checked yet: what the bare tab
+ * opens on. An invented notice, as the table that ships has none due for the demo's models.
+ */
+const retiring = startAs((model) => [
+  {
+    provider: 'anthropic',
+    model,
+    platform: 'anthropic',
+    matched: model,
+    deprecated: '2026-10-01',
+    retires: '2027-01-05',
+    earliest: false,
+    regions: null,
+    replacement: 'claude-opus-5',
+    replacements: ['claude-opus-5'],
+    state: 'retiring',
+    days: 53,
+    source: 'https://docs.anthropic.com/en/docs/about-claude/model-deprecations',
+    text: `${model} retires on January 5, 2027.`,
+    goldens: [CHECKED, 'goldens/refund-flow-budget'],
+    scopes: [],
+    platformName: 'the Claude API',
+    owner: 'Anthropic',
+    checked: null,
+    heading: `${model} retires on January 5, 2027`,
+    facts: 'In 53 days, on the Claude API. Anthropic recommends claude-opus-5. Used by 2 goldens: `refund-in-limit` and `refund-flow-budget`.',
+  },
+]);
+/** No model retiring and no migration yet: the bare tab's Switch from and To. */
+const noMigration = async (page: Page): Promise<void> => {
+  await startAs(() => [])(page);
+  const list = await apiGet<Record<string, unknown>>(page, 'decisions?kind=migrate');
+  await page.route((url) => url.pathname.endsWith('/api/decisions') && url.searchParams.get('kind') === 'migrate', (route) => route.fulfill({ json: { ...list, sessions: [] } }));
+};
+
 /** Every route state, for a sweep to show one at a time with `show`. */
 export const ROUTES: readonly RouteState[] = [
   route('/', 'overview'),
@@ -327,7 +434,15 @@ export const ROUTES: readonly RouteState[] = [
   { name: 'a preview’s opened cell', path: async (p) => (await previewed(p)).cell, drawn: CELL },
   { name: 'a run’s Decisions view', path: async (p) => (await previewed(p)).view, drawn: DVIEW },
   { name: 'New preview’s menu on a run’s Decisions view', path: async (p) => (await previewed(p)).view, drawn: DVIEW, then: (p) => newPreview(p, 'main#view .dview .dvhead button') },
-  route('/fixes'),
+  // Migrate: the bare tab (the demo's newest migration, as no model it calls retires), the report with its pull request body, a cell
+  // of its matrix, then Migrate to's menu and the dialog a model in it asks in, closed by the next page.
+  route('/changes/migrate', `main#view :is(.mgstart, ${MIGRATED})`),
+  { name: 'a migration’s report, its pull request body shown', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: bodyShown },
+  { name: 'a migration’s opened cell', path: async (p) => (await migrated(p)).cell, drawn: CELL },
+  { name: 'Migrate to’s menu on a migration', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateTo },
+  { name: 'Migrate’s dialog from Migrate to’s menu', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateAsk },
+  // Drawn by its list: the page waits empty while its code comes, so `main#view` alone could be read before Fixes drew a heading.
+  route('/fixes', 'main#view .pslist'),
   ...STEPS.map((step): RouteState => ({ name: `a fix${step ? ` · ${step.slice(1)}` : ''}`, path: () => `/fixes/${demoId('refundFix')}${step}`, drawn: 'fix' })),
   // A fix's check in the builder, each dialog closed by the next page.
   { name: 'Add check… on a verified fix', path: () => `/fixes/${demoId('refundFix')}`, drawn: 'fix', then: (p) => fixCheck(p, '.cb-kinds') },
@@ -365,6 +480,13 @@ export const ROUTES: readonly RouteState[] = [
   { name: 'Verify a preview’s runs', path: async (p) => (await previewed(p)).preview, drawn: PREVIEW, fixture: asksFirst, then: onVerdict('Verify') },
   { name: 'Preview change on runs', path: () => '/runs', drawn: 'main#view table.runst tbody tr', fixture: asksFirst, then: previewChange },
   { name: 'Run more attempts on a preview', path: async (p) => (await previewed(p)).preview, drawn: PREVIEW, fixture: asksWithMore, then: onVerdict('Run more attempts') },
+  // A migration the demo's can't be: all clear, with Apply config change?; applied, a golden it left behind waiting, with Update goldens
+  // on the page and its dialog; then the bare tab on a retiring model, and with no migration yet, each read routed over the one before.
+  { name: 'Apply config change? on an all-clear migration', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, fixture: allClear, then: nextStep('Apply config change', `${DIALOG} .ondisk:not(.steps) ul.plain`) },
+  { name: 'a migration applied, a golden it left behind waiting', path: async (p) => (await migrated(p)).report, drawn: `${MIGRATED} .actions button.lime`, fixture: appliedWaiting },
+  { name: 'Update goldens from a migration’s page', path: async (p) => (await migrated(p)).report, drawn: `${MIGRATED} .actions button.lime`, fixture: appliedWaiting, then: nextStep('Update goldens') },
+  { name: 'Migrate’s bare tab on a retiring model', path: () => '/changes/migrate', drawn: 'main#view .mgstart', fixture: retiring },
+  { name: 'Migrate’s bare tab with no migration yet', path: () => '/changes/migrate', drawn: 'main#view .mgstart select', fixture: noMigration },
 ];
 
 /** An injection test's finding on the run it tested, and its results in the inspector's place: the matrix of its attempts. */

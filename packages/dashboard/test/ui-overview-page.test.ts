@@ -263,7 +263,7 @@ describe('a retiring model’s row', () => {
     await r!.until('the ask', () => r!.all('.dialog').length === 1);
     expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p > span:not([hidden])')), text(r!.one('.dialog .dcost'))]).toEqual([
       'Migrate claude-sonnet-4-5 to claude-sonnet-5-5',
-      'Asks claude-sonnet-4-5’s calls again under claude-sonnet-5-5 and verifies the runs whose decisions change.',
+      'Asks claude-sonnet-4-5’s calls again under claude-sonnet-5-5, then verifies end to end the runs the preview can’t clear. Migrate in the docs →',
       'Billed by your provider',
     ]);
     expect(text(r!.one('.dialog .cmdline'))).toContain(step.command);

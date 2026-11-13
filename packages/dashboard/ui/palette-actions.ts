@@ -5,9 +5,11 @@ import { knownFixes } from './fixes/data.js';
 import { addPaletteSource, type PaletteContext, paletteSourcesChanged } from './palette-sources.js';
 import { href } from './route.js';
 import { lastRunsHref } from './runs-view.js';
-import { APPLY_ASK, IMPORT_ASK, NORMALIZER_ASK, PREVIEW_ASK, PR_COMMENT_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
+import { migratePaletteRows } from './migrate-command.js';
+import { APPLY_ASK, IMPORT_ASK, MIGRATE_ASK, NORMALIZER_ASK, PREVIEW_ASK, PR_COMMENT_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
 import { SETTINGS_TABS, type SettingsTab } from './pages/settings/tabs.js';
 import type { StoreSetupView } from './store-api.js';
+import type { MigrateRetiring } from './types.js';
 import { knownGoldens, onTestsChanged, prCommentPaletteCommands, testsPaletteCommands } from './tests-palette.js';
 import { onTrainingCountsChange, trainingPalette } from './training.js';
 import { stepWords } from '../src/store-steps.js';
@@ -16,8 +18,9 @@ import { stepWords } from '../src/store-steps.js';
  * The palette's Actions and Tests that belong to pages, listed on a fresh dashboard before any of
  * those pages has opened: the Tests group and Update goldens…, Preview pull request comment, Import
  * capture…, Export pairs… and Score model…, Calibrate, Preview model switch… and Preview changed
- * prompt, the team store's setup, the Settings tabs by what they hold, Apply fix, and Add
- * normalizer… and Add redaction rule…. They load with the palette, so a page's code waits for its
+ * prompt, Migrate <a> to <b> while a model retires, the team store's setup, the Settings tabs by
+ * what they hold, Apply fix, and Add normalizer… and Add redaction rule…. They load with the
+ * palette, so a page's code waits for its
  * page. A row whose dialog lives on its page opens the page and asks there (`page-ask.ts`). Each
  * answers nothing in an exported copy, which runs nothing.
  */
@@ -107,6 +110,44 @@ addPaletteSource(({ app, go }) => {
     { group: 'Actions', label: ACTIONS.previewModelSwitch.label, hint: 'shadowlap decisions goldens/* --model <model>', job: true, run: asks('model') },
     { group: 'Actions', label: ACTIONS.previewChangedPrompt.label, hint: held ?? 'shadowlap decisions goldens/* --from-code --samples 1', job: true, ...(held ? { wait: held } : {}), run: asks('code') },
   ];
+});
+
+// Migrate <a> to <b> for each model the goldens call that retires with a replacement: Migrate opens
+// and asks there, as its start page's button does. What retires is Migrate's own read, kept for the
+// next time and asked again as the palette opens once it is older than RETIRING_FRESH: the palette
+// builds its rows again whenever any source's answer lands, and each read reads the goldens on the
+// pool. Migrate verifies from the working tree, so like Preview changed prompt it waits while a job
+// holds the tree, dimmed, saying why; it is left out on a read-only dashboard.
+let retiringRead: readonly MigrateRetiring[] = [];
+let readingRetiring = false;
+let retiringAt = 0;
+const RETIRING_FRESH = 15_000;
+const retiringKey = (list: readonly MigrateRetiring[]): string => list.map((n) => `${n.model}>${n.replacements[0] ?? ''}:${n.goldens.join(',')}`).join(' ');
+addPaletteSource(({ app, go }) => {
+  if (app.exported || app.actionsOff || !app.hasKind(JOB_KINDS.migrate)) return [];
+  if (!readingRetiring && Date.now() - retiringAt >= RETIRING_FRESH) {
+    readingRetiring = true;
+    retiringAt = Date.now();
+    void app.client.migrateStart().then(
+      (v) => {
+        readingRetiring = false;
+        const was = retiringKey(retiringRead);
+        retiringRead = v.retiring;
+        if (retiringKey(v.retiring) !== was) paletteSourcesChanged();
+      },
+      () => {
+        readingRetiring = false;
+      },
+    );
+  }
+  if (!retiringRead.length) return [];
+  const held = treeWait(app, 'reads', 'migrate');
+  return migratePaletteRows(retiringRead, held, (model) =>
+    app.guard(() => {
+      MIGRATE_ASK.ask(model);
+      go(href.changeSession('migrate'));
+    }),
+  );
 });
 
 // The way to the team store's setup: Set up the team store while the project has none, Continue
