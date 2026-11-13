@@ -53,7 +53,7 @@ export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parseP
 export { CHECK_MARKS, JUDGE_ASKED, JUDGE_READS, RULES_ON_CALLS, andList, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, judgeSourceParts, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
 export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, intoText, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
-export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
+export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, chaosIn, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
 export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
 // A recording judged from what it holds, a judge check by the verdict it recorded: `shadowlap check`'s, and the dashboard's for a run judged by its family's checks.
 export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
@@ -150,7 +150,7 @@ export { messageOf } from './message-of.js';
 // the same way by the CLI, the terminal UI, the dashboard and its pages.
 export { plural, pluralS, shortFixId, shortRunId, shortSessionId, toolFailure, twoDigits } from './words.js';
 export { rollBack } from './sqlite.js';
-export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, expectFlag, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
+export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, expectFlag, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, presetsTarget, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
@@ -262,7 +262,7 @@ export { besidesLine, besidesWords, byHandNote, givenField, migrateCostLines, no
 export { COMMENT_FOOT, commentDecisions, commentHead, commentInjection, commentMarkdown, commentRows, commentVerdict, costPerRunLine, injectionGateLine, JUDGED_IN_RECORDED_STATE_SHORT, PR_DECISIONS_SUFFIX, commentVerdictLine, worstFirst } from './pr-comment.js';
 export type { CommentBase, CommentDecision, CommentDecisionsSource, CommentFix, CommentParts, CommentResult } from './pr-comment.js';
 export { CLEARED, changePct, endToEndWords, tallyCount, tallyParts, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, verifyTallyLine, type VerifiedTally, type VerifyTally } from './verified-words.js';
-export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
+export { ACTIONS, confirmWords, forceLiveLabel, packingBehaviour, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
 export { UNTESTED_WORDS } from './bisect-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,
@@ -283,12 +283,14 @@ export type { AttemptCounts, CountStyle } from './trust-words.js';
 export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ProofParts, ReadReport } from './injection.js';
 export type { InjectionGateData, StoredInjectionResult } from './store.js';
 // Production coverage: imported runs grouped by behaviour (path, writes, outcome), and the goldens that cover each.
-export { GROUP_RUN_IDS, GROUP_SOURCES, OUTCOME_WORDS, behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, hasPlaceholder, inferCommand, nearestGolden, requestMessage, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';
+export { ENDS_ANOTHER_WAY, GROUP_RUN_IDS, GROUP_SOURCES, NOT_PACKED, OUTCOME_WORDS, behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, hasPlaceholder, inferCommand, nearestGolden, nearestThen, notPackedHead, requestMessage, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';
 export type { Behaviour, BehaviourOutcome, CoverageGolden, CoverageGroup, CoverageMember, InferredCommand, NearestGolden } from './coverage.js';
 export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageScan, CoverageScanData, StoredCoverageGroup, StoredCoveragePack } from './store.js';
 // Error-path presets: where each hits a recording and what it answers there.
-export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
+export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, chaosToolChoices, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, presetTotals, resultShape } from './chaos.js';
 export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
+export { JUDGED_FROM, chaosJudge, expectPrefill, gateWords, judgedOnExit, keptGate, keptPresetBound, presetBound, presetProof, presetRule, presetsGate, recordingRule, replayChaosSpec, writeLimits } from './chaos-judge.js';
+export type { ChaosJudge, PresetGate } from './chaos-judge.js';
 export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store.js';
 // Each billed job's estimate before it runs, one helper per kind (A15), and Spending, the rule for when a job asks
 // first, kept in this machine's settings: the dashboard's server works them out, its pages and the terminal UI say them.

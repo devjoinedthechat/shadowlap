@@ -6,12 +6,14 @@ import { JobButton } from '../components/JobButton.js';
 import { MIGRATE_CARD, MigrateButton } from '../components/MigrateDialog.js';
 import { LEAD_KIND, LEAD_VERB, leadCard } from '../fixes/lead.js';
 import { RowStep } from '../fixes/RowStep.js';
-import { goldenName } from '../format.js';
+import { goldenName, shortId } from '../format.js';
 import { PUSH_LOCAL } from '../labels.js';
+import { packCommand } from '../not-covered/model.js';
 import { moreCard } from '../pages/tests-cards.js';
 import { EditCheckStep } from '../run/check-entry.js';
 import { stepCard } from '../run/next-step.js';
 import { sentEstimate } from '../spending.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import { useAsking, usePriced } from '../step-asks.js';
 import { type Job, type LookWait, type Price, RunStep, runStepJob, stepWhy, updateAsk, usePost } from '../steps/RunStep.js';
@@ -48,6 +50,9 @@ export function stepRun(s: LookStep | null): { kind: string; job: Job | null } |
       return { kind: JOB_KINDS.push, job: null };
     case 'migrate':
       return { kind: JOB_KINDS.migrate, job: null };
+    case 'pack':
+      // As Not covered's Pack as golden waits: on the test lane (src/routes/coverage.ts).
+      return { kind: JOB_KINDS.coveragePack, job: { verb: 'pack it', tests: true } };
   }
 }
 
@@ -77,6 +82,8 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
       return { sub: MIGRATE_CARD, command: `$ ${s.command}` };
     case 'rerun':
       return { sub: s.sub, command: `$ ${s.command}` };
+    case 'pack':
+      return { sub: s.fork ? PACK_FORK_SUB : null, command: `$ ${packCommand(s.key, { fork: s.fork })}` };
   }
 }
 
@@ -110,9 +117,44 @@ export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait
     case 'push':
     case 'migrate':
       return <StoreStep s={s} why={why} />;
+    case 'pack':
+      return <PackStep s={s} runId={row.runId} why={why} />;
     default:
       return <GoldenStep s={s} why={why} />;
   }
+}
+
+/** Pack with checks…' card: what the golden it packs does. */
+const PACK_FORK_SUB = 'Asks first: a golden that forks where the agent parts from production, judged by the checks you give';
+
+/**
+ * Pack as golden, or Pack with checks… once the agent no longer does it: Not covered's dialog on the
+ * newest behaviour no golden covers, read with the scan as it opens, its script asked for meanwhile
+ * (a part the served dashboard hands in). Once the pack ends, its drawer's Run test takes the focus,
+ * and the row then packs the next behaviour.
+ */
+function PackStep({ s, runId, why }: { s: Extract<LookStep, { of: 'pack' }>; runId: string | null; why: string | null }) {
+  const app = useApp();
+  const { PackDialog } = useServedParts();
+  const [asking, show] = useAsking();
+  const words = stepWords(s);
+  const sub = words.sub ?? `Asks first: replays ${runId ? shortId(runId) : 'its newest run'} offline with the agent’s command, and packs it when it reproduces`;
+  const open = () =>
+    show(async (close) => {
+      PackDialog?.preload();
+      const view = await app.client.coverage();
+      const group = view?.groups.find((g) => g.key === s.key && !g.covered);
+      if (!group) throw new Error('The last coverage scan no longer has this behaviour without a golden: scan again');
+      return PackDialog ? <PackDialog group={group} fork={s.fork} onClose={close} /> : null;
+    });
+  return (
+    <>
+      <JobButton className="btn sm" why={why} tip={s.label} sub={sub} command={words.command ?? undefined} bills={false} start={open} ask={open}>
+        {s.label}
+      </JobButton>
+      {asking}
+    </>
+  );
 }
 
 /** A golden's step on Tests: Run more attempts, Update golden or Re-run test, its price from Tests' estimates. */

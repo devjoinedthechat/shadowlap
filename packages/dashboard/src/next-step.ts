@@ -36,6 +36,7 @@ import {
   type StoredInjectionResult,
   type TestResult,
   type ToolTrust,
+  presetProof,
 } from '@shadowlap/engine';
 import { actionsFor, lookupRun, noSuchRun, type ActionItem } from './api.js';
 import { chaosMatrices, type ChaosMatrix } from './chaos.js';
@@ -652,14 +653,11 @@ function injectionStep(f: Facts): Decided | null {
 /** A run whose newest presets failed leads with their proof, the first attempt that failed. Presets left inconclusive change nothing: running them again finds the same. */
 function presetStep(f: Facts): Decided | null {
   const m = f.reads.presets(f.row.runId);
-  if (!m) return null;
-  for (const c of m.cells) {
-    if (c.verdict !== 'failed') continue;
-    const kept = c.runs.filter((x) => f.store.getRun(x.runId));
-    const attempt = kept.find((x) => x.verdict === 'failed') ?? kept.find((x) => x.verdict !== 'passed') ?? kept.at(-1);
-    if (attempt) return { key: 'preset-proof', label: ACTIONS.openProof.label, runId: attempt.runId, href: links.run(attempt.runId, c.callNo ?? 1), title: `Opens ${short(attempt.runId)}`, sub: `${c.label} failed · ${c.passes} of ${c.attempts} passed${c.detail ? ` · ${c.detail}` : ''}` };
-  }
-  return null;
+  // The engine's rule, which a presets job's Open proof follows too.
+  const proof = m ? presetProof(m.cells, (runId) => f.store.getRun(runId) !== null) : null;
+  if (!proof) return null;
+  const { cell: c, attempt } = proof;
+  return { key: 'preset-proof', label: ACTIONS.openProof.label, runId: attempt.runId, href: links.run(attempt.runId, c.callNo ?? 1), title: `Opens ${short(attempt.runId)}`, sub: `${c.label} failed · ${c.passes} of ${c.attempts} passed${c.detail ? ` · ${c.detail}` : ''}` };
 }
 
 // ---- a capture its import judged ----

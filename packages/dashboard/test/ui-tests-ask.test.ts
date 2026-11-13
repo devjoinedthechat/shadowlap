@@ -94,6 +94,7 @@ function app(sent: Sent[], watched: Array<Promise<JobView>>, o: { live: boolean;
     jobs: () => Promise.resolve(o.serverJobs ?? []),
     search: () => Promise.resolve({ hits: [] }),
     injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
+    coverage: () => Promise.resolve(null),
     startJob: (kind: string, fields: Record<string, unknown>) => {
       sent.push({ kind, fields });
       if (o.live && (o.again || fields.yes !== CONFIRM)) return Promise.reject(new ApiError(409, WORDS, CONFIRM));

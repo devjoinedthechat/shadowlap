@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useReducer, useRef, useState, type ReactNode
 import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
 import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
-import type { FoundCommit, RunInjection, TestBannerOffer } from '../types.js';
+import type { ChaosMatrix, FoundCommit, RunInjection, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
@@ -28,7 +28,7 @@ import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './f
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
-import { blameTitle, goldenName } from './offers.js';
+import { blameTitle } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 import type { ProofTab } from '../injection/Proof.js';
 import { useServedParts } from '../served-parts.js';
@@ -277,19 +277,20 @@ function RecordingFinding({ s }: { s: Slot }) {
 
 /**
  * An error-path preset's attempt: where it forked, then what was done; the first fact says its verdict.
- * It wraps rather than cut its words; a golden's leads back to its presets on Tests.
+ * It wraps rather than cut its words, and Results → opens the recording with the presets' results.
  */
 function PresetFinding({ b, x, s }: { b: Of<'preset'>; x: Draw; s: Slot }) {
+  const rec = x.run.run.parentRunId;
   return (
     <section className={cls('fork wrap', s)}>
       <span className="bk">forked at</span>
       {b.callNo !== null ? x.call(b.callNo) : null}
       {/* A tally never breaks inside: "attempt 1 of 6". */}
       <span className="why">{wholeTallies(b.why)}</span>
-      {b.golden ? (
+      {rec ? (
         <span className="end">
-          <a className="more" href={href.tests()} title={`${goldenName(b.golden)} on Tests`}>
-            Tests →
+          <a className="more" href={href.run(rec)} onClick={() => openResults(rec, 'presets')}>
+            Results →
           </a>
         </span>
       ) : null}
@@ -622,25 +623,26 @@ function CommitFinding({ c, x, s }: { c: FoundCommit; x: Draw; s: Slot }) {
 /** A finding, as its kind draws it. */
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
   // A kept injection test's finding is handed in where the dashboard runs: a copy keeps no results to draw one from.
-  const { InjectionFinding, CauseFinding } = useServedParts();
+  const { InjectionFinding, CauseFinding, PresetsFinding } = useServedParts();
   if (f.commit) return <CommitFinding c={f.commit} x={x} s={s} />;
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
   if (f.judge) return <JudgeFinding j={f.judge} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
   if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
   if (f.cause) return CauseFinding ? <CauseFinding runId={x.run.run.runId} cause={f.cause} fx={s.fx} more={s.more} onSelect={onSelect} /> : null;
+  if (f.presets) return PresetsFinding ? <PresetsFinding runId={x.run.run.runId} m={f.presets} fx={s.fx} more={s.more} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }
 
 /** The bar, from the findings the page has: drawn by FindingsBar, and alone by Banner. */
-function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null; cause?: CauseView | null }) {
+function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null; cause?: CauseView | null; presets?: ChaosMatrix | null }) {
   const runId = p.run.run.runId;
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const next = nextStepOf(p.run);
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection, cause: p.cause });
+  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection, cause: p.cause, presets: p.presets });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {
@@ -659,10 +661,10 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
 
 /**
  * The run's findings under its header: its own, what its fork did differently from its parent (read
- * once it has ended), what it did not record, its notes, and the injection test kept for it with
- * Find cause's answers.
+ * once it has ended), what it did not record, its notes, the injection test kept for it with Find
+ * cause's answers, and its error-path presets.
  */
-export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null; cause?: CauseView | null }) {
+export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null; cause?: CauseView | null; presets?: ChaosMatrix | null }) {
   const r = p.run.run;
   const differences = useForkDifferences(r.runId, !!r.divergence && !!r.parentRunId && r.status !== 'running');
   return <Findings {...p} differences={differences} />;

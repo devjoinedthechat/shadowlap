@@ -227,6 +227,7 @@ The menu's actions:
 | `a` | Run live from here | any call | `… --diverge-at <n>` |
 | `e` | Repeat 5 times (on a fork, asks first: its attempts run live) | the whole run | `… --repeat 5` |
 | `s` | Replay with writes stubbed | the whole run | `… --writes stub` |
+| `c` | Run error-path presets… (asks first: its attempts run live) | the whole run | `shadowlap replay <run> --chaos` |
 | `b` | Find breaking commit… (asks for a commit where it still worked) | the whole run | `shadowlap bisect <run> --good <commit>` |
 | `r` | Replay | — | `shadowlap replay <run>` |
 | `n` | Add suggested normalizer (the divergence's) | — | `shadowlap normalize add …` |
@@ -239,6 +240,7 @@ Each is named as the dashboard's fork menu names it, in the CLI's verbs: an elli
 
 - **`e` on a replay** runs again from its parent, with the flags that made it, its own command and its `--expect`. Its five attempts run live from where it forks, so it shows the exact command first, and `Enter` runs it. On a recording, which replays offline, it starts at once.
 - **`s` on a replay** runs again from its parent too.
+- **`c` on a clean replay or a test's replay** runs the presets on the recording it came from. It is off on an attempt of the presets or of an injection test, whose recording's presets are the ones to run.
 - **`b` on a run that passed** reads *Find commit that changed it…*, and searches from its own commit.
 
 Each action runs the CLI against the same store and streams its output into a pane. When it created a run, `Enter` opens it. The TUI never reimplements engine behavior: it is a front end to the same commands you'd type.

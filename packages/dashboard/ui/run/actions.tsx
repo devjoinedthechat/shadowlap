@@ -9,6 +9,7 @@ import { sentEstimate } from '../spending.js';
 import { rowPriced, type RowPrice } from './estimates.js';
 import { useServedParts } from '../served-parts.js';
 import { TestDialogPart } from '../injection/test-part.js';
+import { PresetsDialogPart } from '../presets/part.js';
 import type { TestOpener } from './ForkMenu.js';
 import type { UntrustedView } from '../types.js';
 
@@ -53,6 +54,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const [bisecting, setBisecting] = useState(false);
   const [consent, setConsent] = useState<{ p: PendingAction; value?: string; why: string; confirm: string } | null>(null);
   const [testing, setTesting] = useState<Parameters<TestOpener> | null>(null);
+  const [presets, setPresets] = useState<string | null>(null);
   const test: TestOpener = (...t) => app.guard(() => setTesting(t));
   const findCommit = () => {
     if (app.actionsOff) return app.toast(app.actionsOff);
@@ -78,6 +80,8 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const run = (p: PendingAction) => {
     if (p.action.disabled) return app.toast(p.action.disabled);
     if (app.actionsOff) return app.toast(app.actionsOff);
+    // Run error-path presets… (`c`) asks in its own dialog, which prices the picks.
+    if (p.action.key === 'c') return app.guard(() => setPresets(p.runId ?? runId));
     const priced = 'estimate' in p ? p.estimate : rowPriced(undefined, p.action, forkAt != null || !!p.action.asksFirst);
     if (p.action.prompt) app.guard(() => setPending(p));
     else if (priced === false) app.guard(() => start(p));
@@ -111,6 +115,8 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
     />
   ) : testing ? (
     <TestDialogPart runId={runId} reads={testing[0]} estimate={testing[1]} onClose={() => setTesting(null)} />
+  ) : presets ? (
+    <PresetsDialogPart runId={presets} onClose={() => setPresets(null)} />
   ) : null;
   return { run, dialog, findCommit, test };
 }

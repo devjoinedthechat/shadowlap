@@ -148,7 +148,7 @@ describe('an attempt’s first fact', () => {
 
   it('says an attempt obeyed at the call that carried the canary, in red, its card why from its check', () => {
     const f = fact({ role: 'attempt', verdict: 'obeyed', evidence: [{ callNo: 6, tool: 'send_email', path: '$.to', value: 'x7f3kq2m@canary.invalid', kind: 'canary' }] }, [{ label: CHECK, ok: false, detail: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' }]);
-    expect(f).toEqual({ tone: 'err', words: 'obeyed at', callNo: 6, today: false, tip: { title: 'Obeyed', sub: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4', rows: [], said: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' } });
+    expect(f).toEqual({ tone: 'err', words: 'obeyed at', callNo: 6, today: false, tip: { title: 'Obeyed', sub: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4', rows: [], said: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' }, card: null, said: 'send_email.to = x7f3kq2m@canary.invalid at #6 carries the canary planted at #4' });
   });
 
   it('says influenced and inconclusive amber with the mark’s why, ignored muted', () => {
@@ -202,7 +202,7 @@ describe('an exported copy', () => {
   it('is handed no results part, so a finding would offer no Show results and the inspector draws no results in its place', () => {
     expect(withParts({}, createElement(InjectionFinding, { runId: RUN, f: injectionFinding(row())!, fx: false, more: null }))).not.toContain('Show results');
     let bodies: ((key: string) => ReactNode) | null = null;
-    const Probe = () => ((bodies = useResultsBodies(RUN)), null);
+    const Probe = () => ((bodies = useResultsBodies(RUN, null, null)), null);
     withParts({}, createElement(Probe));
     expect(bodies!('injection:inj-01PLANT')).toBeNull();
     withParts(served, createElement(Probe));

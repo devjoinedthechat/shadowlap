@@ -233,7 +233,8 @@ describe('a page of a project with no runs', () => {
 
   it('says on Tests what it will hold, with Set up <project>, and no pack command, which needs a run', async () => {
     const tests = { empty: true, rows: [], diverged: [], commands: { pack: 'shadowlap pack <run> goldens/<name>' } };
-    const state = { ...app({}), runs: [], client: { exported: false, tests: () => Promise.resolve(tests), jobs: () => Promise.resolve([]) } } as unknown as AppState;
+    // Not covered, under the empty state, reads a scan: none, with no run to read.
+    const state = { ...app({}), runs: [], client: { exported: false, tests: () => Promise.resolve(tests), jobs: () => Promise.resolve([]), coverage: () => Promise.resolve(null) } } as unknown as AppState;
     addressBar('#/tests');
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(TestsPage)));
     await r.until('the empty page', () => r!.all('.stepempty').length === 1);

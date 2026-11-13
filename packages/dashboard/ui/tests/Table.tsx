@@ -1,6 +1,6 @@
 import { Fragment, useRef } from 'react';
 import type { FollowedGolden, GoldenRow } from '../api.js';
-import { tipCard, tipText } from '../components/HoverCard.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Checks } from './Checks.js';
 import { rowOpen } from '../components/Table.js';
 import { glossed } from '../components/Term.js';
@@ -13,6 +13,7 @@ import type { TestsAnswer } from '../types.js';
 import { EvidenceBar, EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { ReportRow, ReportToggle, ShowEveryReport, useReportsOpen } from './Report.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
+import { PresetsStrip } from './PresetsStrip.js';
 import { rowHref } from './gate.js';
 import { goldenKeys, goldenRowScope } from './row-scope.js';
 import type { LeadPress } from './Verdict.js';
@@ -68,7 +69,7 @@ export function GoldensTable({ view, press }: { view: TestsAnswer; press?: LeadP
               const reportShown = !!report && reports.isOpen(report.name);
               return (
                 <Fragment key={row.path}>
-                  <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={shows} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} report={report && { shown: reportShown, toggle: () => reports.set(report.name, !reportShown) }} />
+                  <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={shows} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} press={press} report={report && { shown: reportShown, toggle: () => reports.set(report.name, !reportShown) }} />
                   {shows ? <EvidenceRow row={row} g={g} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} step={view.steps?.[row.path] ?? null} /> : null}
                   {report ? <ReportRow report={report} row={row} span={history ? 4 : 3} open={reportShown} asked={reports.asked} onOpen={() => reports.set(report.name, true)} view={view} press={press} /> : null}
                 </Fragment>
@@ -85,7 +86,7 @@ export function GoldensTable({ view, press }: { view: TestsAnswer; press?: LeadP
 /** A golden that didn't pass: its report's state and toggle. */
 type ReportShown = { shown: boolean; toggle: () => void } | undefined;
 
-function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, report }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined; report: ReportShown }) {
+function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, press, report }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined; press: LeadPress | undefined; report: ReportShown }) {
   const source = sourceText(row);
   const last = row.last;
   const stale = changedLine(row);
@@ -113,11 +114,11 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, repo
           </span>
         </span>
         <span className="chk gin">
-          <Checks row={row} cell />
+          <CheckCell row={row} press={press} />
         </span>
       </td>
       <td className="chk gck">
-        <Checks row={row} cell />
+        <CheckCell row={row} press={press} />
       </td>
       {showHistory ? <HistoryCells row={row} /> : null}
       <td className="glast">
@@ -139,7 +140,7 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, repo
         ) : null}
         {/* A golden with a report shows its bar alone: Show report opens its evidence with the report. */}
         {gated(last.gate) && last.gate.attempts ? report ? <EvidenceBar g={last.gate} name={row.name} /> : <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
-        {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
+        {row.presets && last.result === null && !row.error ? <PresetsLine p={row.presets} /> : null}
         {/* Last, under the whole of its last result, as the mock draws it. */}
         {report ? <ReportToggle name={row.name} open={report.shown} onToggle={report.toggle} /> : null}
       </td>
@@ -243,26 +244,34 @@ function LastResult({ row }: { row: GoldenRow }) {
   );
 }
 
+/** A golden's checks in its row (Checks.tsx), with its injection gate under them, then its error-path presets. */
+function CheckCell({ row, press }: { row: GoldenRow; press: LeadPress | undefined }) {
+  return (
+    <>
+      <Checks row={row} cell />
+      <PresetsStrip row={row} press={press} />
+    </>
+  );
+}
+
 type Presets = NonNullable<GoldenRow['presets']>;
 
 /** A golden's presets in the consequence colours: failed red, inconclusive amber, passed quiet. */
 const presetTone = (p: Presets) => (p.verdict === 'failed' ? 'err' : p.verdict === 'inconclusive' ? 'warn' : 'ok');
 
 /**
- * How a golden's error-path presets came out, under its last result, opening the attempt that failed
- * (or couldn't say): the whole line when they are all that ran, else in short with the line on hover.
+ * A golden tested only by its error-path presets: their line under its last result, opening the
+ * attempt that failed (or couldn't say), and that its replay isn't tested yet. Otherwise its presets
+ * are its checks' strip alone (PresetsStrip), which links the same proof.
  */
-function PresetsLine({ p, only }: { p: Presets; only: boolean }) {
-  const count = p.verdict === 'failed' ? p.failed : p.verdict === 'inconclusive' ? p.inconclusive : p.passed;
-  const text = only ? `${p.line} · replay not tested yet` : `presets · ${count} of ${p.ran} ${p.verdict}`;
+function PresetsLine({ p }: { p: Presets }) {
+  const text = `${p.line} · replay not tested yet`;
   return p.runId ? (
-    <a className={`rsub gpre ${presetTone(p)}`} href={href.run(p.runId)} data-tip={only ? undefined : tipText(p.line)} onClick={(e) => e.stopPropagation()}>
+    <a className={`rsub gpre ${presetTone(p)}`} href={href.run(p.runId)} onClick={(e) => e.stopPropagation()}>
       {text}
     </a>
   ) : (
-    <span className={`rsub gpre ${presetTone(p)}`} data-tip={only ? undefined : tipText(p.line)}>
-      {text}
-    </span>
+    <span className={`rsub gpre ${presetTone(p)}`}>{text}</span>
   );
 }
 

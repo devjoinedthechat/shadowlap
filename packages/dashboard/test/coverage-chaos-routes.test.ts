@@ -1,14 +1,16 @@
-import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
+import { keptPresetBound, messageOf, PACK_FORMAT, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import { lineage } from '../src/api.js';
-import { chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
+import { chaosMatrices, chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
 import { coverageLook, coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
+import { MAX_EXPECT } from '../src/expect-field.js';
 import { treeUse } from '../src/worktree.js';
+import type { PresetsPlan } from '../src/presets-plan.js';
 import type { GoldenSource } from '../src/tests.js';
 
 /**
@@ -59,6 +61,16 @@ const jobDone = async (id: string) => {
   }
   throw new Error(`job ${id} never ended`);
 };
+/** How the CLI refuses a check it can't read, which a golden that forks is refused in too. */
+const PARSE_REFUSAL = (() => {
+  try {
+    parseExpect({ tools: { issue_refund: 'twice' } }, '--expect');
+  } catch (err) {
+    return messageOf(err);
+  }
+  throw new Error('parseExpect took a count of "twice"');
+})();
+
 /** The goldens the dashboard is given: the project's one, and any a test adds for a moment. */
 const goldens: GoldenSource[] = [];
 
@@ -128,6 +140,12 @@ describe('production coverage', () => {
   it('serves the last scan: the behaviours no golden covers first, with what Pack one runs', async () => {
     const view = await getJson<CoverageView>('coverage');
     expect(view).toEqual(coverageView(store));
+    // A pooled read, revalidated from the store's counters: asked again while nothing moved, a 304.
+    const asked = await api('coverage');
+    await asked.text();
+    const etag = asked.headers.get('etag') ?? '';
+    expect(etag).toMatch(/^"c/);
+    expect((await fetch(`${dash.url}/api/coverage`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': etag } })).status).toBe(304);
     expect(view.scan).toMatchObject({ scanId: 'S1', runs: 3, uncovered: 1, actor: 'dana@example.com' });
     // Imported after the scan: a scan now would read it.
     expect(view.newRuns).toBe(1);
@@ -137,17 +155,37 @@ describe('production coverage', () => {
       covered: false,
       line: 'lookup_order → issue_refund → send_email · writes issue_refund, send_email · answered',
       ended: 'answered',
-      // The scan's newest run was deleted since: the newest still here opens.
+      // The scan's newest run was deleted since: the newest still here opens, and Seen links only the runs still here.
+      runIds: ['NOT_ANY_MORE', 'C1'],
+      kept: ['C1'],
       runId: 'C1',
       pack: { key: 'aaaa000011112222', args: ['coverage', '--pack', 'aaaa000011112222'], command: ['node', 'agent.mjs', 'B-7'], commandFrom: 'REC1', forkable: true },
       // Why the last --pack didn't pack it, so the panel says so before it offers Pack one again.
-      lastPack: { at: T0 - 500, golden: null, mode: null, reason: 'not-reproduced', why: expect.stringContaining("doesn't reproduce C1"), command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' } },
+      // Who tried it shows only where the store names people: this project's config names no team store.
+      lastPack: { at: T0 - 500, golden: null, mode: null, reason: 'not-reproduced', why: expect.stringContaining("doesn't reproduce C1"), command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' }, by: null },
     });
     expect(covered).toMatchObject({ covered: true, coveredBy: ['goldens/escalate'], pack: null, lastPack: null });
-    // Needs a look's line, in its rows' shape: it opens the newest run of the behaviour still here, as no page lists them yet.
-    expect(view.needsLook).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund → send_email, in prod.har', action: 'Open', href: '#/run/C1', runId: 'C1', fixId: null, at: T0 });
+    // Needs a look's line, in its rows' shape: it opens Tests at Not covered, which lists them, keeping the newest run of the behaviour still here.
+    expect(view.needsLook).toEqual({ kind: 'coverage', icon: 'cap', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund → send_email, in prod.har', action: 'Open', href: '#/tests?at=notcovered', runId: 'C1', fixId: null, at: T0 });
     expect(coverageLook(store)).toEqual(view.needsLook);
     expect(view.commands).toEqual({ scan: ['coverage'], pack: ['coverage', '--pack'] });
+  });
+
+  it('names who tried a pack that couldn\u2019t by the scan --pack made after it, only where the store names people', () => {
+    const s = Store.open(':memory:');
+    const pack = { key: 'aaaa000011112222', golden: null, runId: null, from: 'C1', mode: null, reason: 'not-reproduced' as const, why: 'diverged', command: null };
+    s.saveCoverageScan({ scanId: 'S0', at: 100, runs: 1, groups: 1, uncovered: 1, goldens: 0, actor: 'early@example.com', data: { notPacked: [{ key: 'aaaa000011112222', reason: 'no-command', why: 'x' }] } }, [group({ command: null })]);
+    s.saveCoveragePack({ ...pack, at: 200 });
+    // A scan after the pack that names another behaviour, then the one --pack made, which names this one.
+    s.saveCoverageScan({ scanId: 'S1', at: 210, runs: 1, groups: 1, uncovered: 1, goldens: 0, actor: 'other@example.com', data: { notPacked: [{ key: 'cccc000011112222', reason: 'gone', why: 'x' }] } }, [group({ command: null })]);
+    s.saveCoverageScan({ scanId: 'S2', at: 220, runs: 1, groups: 1, uncovered: 1, goldens: 0, actor: 'dana@example.com', data: { notPacked: [{ key: 'aaaa000011112222', reason: 'not-reproduced', why: 'x' }] } }, [group({ command: null })]);
+    const tried = (shared: boolean) => coverageView(s, { shared }).groups[0]?.lastPack?.by;
+    expect(tried(true)).toBe('dana@example.com');
+    expect(tried(false)).toBeNull();
+    // No scan names it after the pack: nobody, never the scan from before it.
+    s.saveCoveragePack({ ...pack, at: 230 });
+    expect(tried(true)).toBeNull();
+    s.close();
   });
 
   it('says nothing before a scan, and nothing needs a look once every behaviour has a golden', () => {
@@ -157,6 +195,12 @@ describe('production coverage', () => {
     expect(coverageView(empty).needsLook).toBeNull();
     expect(coverageLook(empty)).toBeNull();
     empty.close();
+    // Never scanned: every imported run is one a scan would read; a pack's run, which has a command of its own, is none.
+    const unscanned = Store.open(':memory:');
+    for (const at of [1, 2]) unscanned.createRun({ mode: 'record', command: { argv: ['<no-recorded-command>'], cwd: '.' }, startedAt: at, meta: { covers: ['api'], imported: { at, from: 'prod.har' } } });
+    unscanned.createRun({ mode: 'record', command: { argv: ['node', 'theirs.mjs'], cwd: '.' }, startedAt: 3, meta: { imported: { at: 3, from: '/tmp/packs/theirs' } } });
+    expect(coverageView(unscanned)).toMatchObject({ scan: null, newRuns: 2, groups: [], uncovered: 0, needsLook: null });
+    unscanned.close();
   });
 
   it('builds the jobs that scan again and pack goldens, from a behaviour the scan has and the command as typed', async () => {
@@ -176,7 +220,7 @@ describe('production coverage', () => {
     const fork = await startJob({ kind: 'coverage-pack', key: 'aaaa0000', fork: true, expect: { tools: { issue_refund: 0 } } });
     expect(fork.status, await fork.clone().text()).toBe(202);
     expect(spawned.at(-1)).toEqual(['coverage', '--pack', 'aaaa000011112222', '--fork', '--expect', '{"tools":{"issue_refund":0}}']);
-    expect(coveragePackArgs(store, { key: 'aaaa0000', fork: true, expect: '{"tools":{"escalate":1}}' })).toMatchObject({ args: ['coverage', '--pack', 'aaaa000011112222', '--fork', '--expect', '{"tools":{"escalate":1}}'], title: 'Packing a golden that forks of aaaa0000' });
+    expect(coveragePackArgs(store, { key: 'aaaa0000', fork: true, expect: '{"tools":{"escalate":1}}' })).toMatchObject({ args: ['coverage', '--pack', 'aaaa000011112222', '--fork', '--expect', '{"tools":{"escalate":1}}'], title: 'Packing aaaa0000 with checks' });
     for (const [body, error] of [
       [{ key: 'bbbb0000' }, 'behaviour bbbb000011112222 is covered already, by goldens/escalate'],
       [{ key: 'cccc0000' }, 'the last coverage scan has no behaviour cccc0000: scan again'],
@@ -190,6 +234,7 @@ describe('production coverage', () => {
       [{ key: 'aaaa0000', fork: true, expect: {} }, 'a golden that forks needs the checks that say what the agent must do now, such as {"tools":{"issue_refund":0}}'],
       [{ key: 'aaaa0000', expect: { tools: { issue_refund: 0 } } }, 'expect goes with fork: a golden that replays its capture is judged by the replay itself'],
       [{ key: 'aaaa0000', fork: 'yes' }, 'fork is true, to pack it as a golden that forks'],
+      [{ key: 'aaaa0000', fork: true, expect: { tools: { issue_refund: 'twice' } } }, PARSE_REFUSAL],
     ] as const) {
       expect(coveragePackArgs(store, body)).toEqual({ error });
       const refused = await startJob({ kind: 'coverage-pack', ...body });
@@ -234,8 +279,9 @@ describe('production coverage', () => {
 describe('the activity feed', () => {
   it('words a coverage scan and a presets session', async () => {
     const page = await getJson<{ items: Array<{ kind: string; outcome?: string; text: string; href?: string }> }>('activity?limit=10');
-    expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests' });
-    expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed')).toMatchObject({ kind: 'test', outcome: 'err', href: '#/tests' });
+    expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests?at=notcovered' });
+    // Its totals as the CLI's last line words them: a preset that couldn't apply too.
+    expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed, 1 not applicable')).toMatchObject({ kind: 'test', outcome: 'err', href: '#/tests' });
     // A session on one run, stopped part way: it opens the run, in amber for its inconclusive preset.
     expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'test', outcome: 'warn', href: `#/run/${golden}` });
   });
@@ -272,6 +318,39 @@ describe('error-path presets', () => {
     expect((await api('chaos/runs/NOPE')).status).toBe(404);
     expect(chaosOfRun(store, golden)).toEqual(chaosOfGolden(store, 'goldens/forecast'));
     expect(chaosOfGolden(store, 'goldens/other')).toBeNull();
+  });
+
+  it("serves Run error-path presets…'s plan, a pooled read, for the picks it is asked with", async () => {
+    const plan = await getJson<PresetsPlan>(`chaos/runs/${golden}/plan?presets=429,timeout`);
+    expect(plan).toMatchObject({ target: golden, golden: 'goldens/forecast', runsHere: null });
+    // This recording keeps no call: the engine's words say why no preset can hit one.
+    expect(plan.at).toEqual({ tool: { none: 'the recording makes no tool call' }, model: { none: 'the recording makes no model call' } });
+    expect((await api(`chaos/runs/${golden}/plan?presets=nope`)).status).toBe(400);
+    expect((await api('chaos/runs/NOPE/plan')).status).toBe(404);
+  });
+
+  it("reads whether the repository tracks a golden's pack beside the server, and asks again once git's index changes", async () => {
+    const pack = join(project, 'goldens', 'forecast');
+    mkdirSync(pack, { recursive: true });
+    writeFileSync(join(pack, 'run.json'), JSON.stringify({ format: PACK_FORMAT, runs: [{ runId: golden, command: { argv: ['node', 'sent.mjs'] } }] }));
+    const path = `chaos/runs/${golden}/plan?presets=timeout`;
+    try {
+      // Someone else recorded it, and no repository tracks it: each preset runs that command here.
+      const first = await api(path);
+      const etag = first.headers.get('etag')!;
+      expect(((await first.json()) as PresetsPlan).runsHere).toEqual({ command: 'node sent.mjs', from: "a pack this repository doesn't track", by: null });
+      const again = (tag: string) => fetch(`${dash.url}/api/${path}`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': tag } });
+      expect((await again(etag)).status).toBe(304);
+      // Added to a repository: the tag moves with its index, and the plan asks nothing.
+      execFileSync('git', ['init', '-q'], { cwd: project, stdio: 'ignore' });
+      execFileSync('git', ['add', '-f', '--', 'goldens/forecast/run.json'], { cwd: project, stdio: 'ignore' });
+      const tracked = await again(etag);
+      expect(tracked.status).toBe(200);
+      expect(((await tracked.json()) as PresetsPlan).runsHere).toBeNull();
+    } finally {
+      rmSync(pack, { recursive: true, force: true });
+      rmSync(join(project, '.git'), { recursive: true, force: true });
+    }
   });
 
   it('never gives the CLI a golden whose path would read as one of its options', async () => {
@@ -315,16 +394,44 @@ describe('error-path presets', () => {
       expect(chaosOfRun(s, second)!.cells).toEqual([expect.objectContaining({ sessionId: 'N2', verdict: 'passed', runs: [{ runId: second, verdict: 'passed', passed: true, exitCode: 0, reason: null }] })]);
       // The family marks each attempt by its own session's verdict, so the Forks view keeps the first failed.
       const family = new Map(lineage(s, rec)!.map((n) => [n.runId, n.preset]));
-      expect(family.get(first)).toEqual({ label: 'tool timeout', verdict: 'failed' });
-      expect(family.get(second)).toEqual({ label: 'tool timeout', verdict: 'passed' });
+      expect(family.get(first)).toEqual({ label: 'tool timeout', verdict: 'failed', session: 'N1', callNo: 2, golden: 'goldens/inbox', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, spent: 0 });
+      expect(family.get(second)).toEqual({ label: 'tool timeout', verdict: 'passed', session: 'N2', callNo: 2, golden: 'goldens/inbox', counts: { passed: 1, failed: 0, inconclusive: 0, notApplicable: 0 }, spent: 0 });
       expect(family.get(rec)).toBeUndefined();
       // An attempt whose mark names no session that kept it: found by the result that lists it.
       const lost = s.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'inbox.mjs'], cwd: project }, startedAt: T0 + 200, meta: { chaos: { preset: 'empty', callNo: 2, session: 'GONE', attempt: 1, golden: 'goldens/inbox' } } }).runId;
       s.endRun(lost, 'completed', T0 + 201);
-      s.startChaosSession({ sessionId: 'N3', startedAt: T0 + 200, command: ['shadowlap', 'test', 'goldens/inbox', '--chaos'], presets: ['empty'] });
+      s.startChaosSession({ sessionId: 'N3', startedAt: T0 + 200, command: ['shadowlap', 'test', 'goldens/inbox', '--chaos'], presets: ['empty', 'malformed'] });
       s.addChaosResult({ sessionId: 'N3', runId: rec, golden: 'goldens/inbox', preset: 'empty', verdict: 'passed', callNo: 2, passes: 1, attempts: 1, at: T0 + 202, data: { detail: 'list_inbox (#2) answered with nothing: the agent exited 0', runs: [{ runId: lost, verdict: 'passed', passed: true, exitCode: 0 }] } });
-      expect(chaosOfRun(s, lost)!.cells.map((c) => [c.sessionId, c.preset])).toEqual([['N3', 'empty']]);
-      expect(lineage(s, rec)!.find((n) => n.runId === lost)!.preset).toEqual({ label: 'empty result', verdict: 'passed' });
+      // A preset of that session that couldn't apply: no attempt of its own, but the session's totals count it.
+      s.addChaosResult({ sessionId: 'N3', runId: rec, golden: 'goldens/inbox', preset: 'malformed', verdict: 'not-applicable', callNo: null, passes: 0, attempts: 0, at: T0 + 203, data: { detail: 'no tool result to break', runs: [] } });
+      expect(chaosOfRun(s, lost)!.cells.map((c) => [c.sessionId, c.preset])).toEqual([['N3', 'empty'], ['N3', 'malformed']]);
+      expect(lineage(s, rec)!.find((n) => n.runId === lost)!.preset).toEqual({ label: 'empty result', verdict: 'passed', session: 'N3', callNo: 2, golden: 'goldens/inbox', counts: { passed: 1, failed: 0, inconclusive: 0, notApplicable: 1 }, spent: 0 });
+      // The matrix says what the panel draws: the newest session's command, what judged the attempts
+      // (a result kept before results kept a judge gives its checks with no source), the tool call hit.
+      expect(chaosOfRun(s, rec)).toMatchObject({ command: 'shadowlap test goldens/inbox --chaos', rule: null, judge: { source: null, checks: [] }, spent: 0, upstreamRequests: 0, toolCall: { name: 'list_inbox', callNo: 2 } });
+    } finally {
+      s.close();
+    }
+  });
+
+  it("keeps a matrix's bound, rule, judge and spend, as the CLI kept each result", () => {
+    const s = Store.open(':memory:');
+    try {
+      const rec = s.createRun({ mode: 'record', command: { argv: ['node', 'refund.mjs'], cwd: project }, startedAt: T0 }).runId;
+      s.endRun(rec, 'completed', T0 + 1);
+      s.startChaosSession({ sessionId: 'G1', startedAt: T0 + 2, command: ['shadowlap', 'replay', rec, '--chaos', '--expect', '{"tools":{"issue_refund":0}}'], presets: ['timeout', '429'] });
+      const gate = { good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
+      const judge = { source: '--expect' as const, checks: ['issue_refund called 0 times'] };
+      const runs = (n: number) => Array.from({ length: n }, (_, i) => ({ runId: `A${i}`, verdict: 'passed' as const, passed: true, exitCode: 0 }));
+      s.addChaosResult({ sessionId: 'G1', runId: rec, preset: 'timeout', verdict: 'passed', callNo: 3, passes: 6, attempts: 6, at: T0 + 3, data: { target: { kind: 'tool', name: 'lookup_order' }, runs: runs(6), gate, spent: 0.012, upstreamRequests: 6, judge } });
+      s.addChaosResult({ sessionId: 'G1', runId: rec, preset: '429', verdict: 'inconclusive', callNo: 4, passes: 5, attempts: 8, at: T0 + 4, data: { target: { kind: 'api', name: 'model' }, runs: runs(8), gate, spent: 0.02, upstreamRequests: 9, judge, cutShort: 2 } });
+      const m = chaosOfRun(s, rec)!;
+      expect(m).toMatchObject({ command: `shadowlap replay ${rec} --chaos --expect '{"tools":{"issue_refund":0}}'`, rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', judge: { ...judge, from: '--expect' }, spent: 0.032, upstreamRequests: 15, toolCall: { name: 'lookup_order', callNo: 3 } });
+      expect(m.cells.map((c) => c.bound)).toEqual([keptPresetBound({ gate, verdict: 'passed', reason: null, passes: 6, attempts: 6 }), keptPresetBound({ gate, verdict: 'inconclusive', reason: null, passes: 5, attempts: 8, cutShort: 2 })]);
+      expect(m.cells[0].bound).toMatch(/^rate >= /);
+      expect(m.cells[1].bound).toMatch(/^rate [\d.]+ to [\d.]+ \(95%\)$/);
+      // Every reader gets the same matrix: what Tests and Needs a look read too.
+      expect(chaosMatrices(s)).toEqual([m]);
     } finally {
       s.close();
     }
@@ -353,6 +460,13 @@ describe('error-path presets', () => {
     expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--presets', '429', '--yes']);
     expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: question.confirm })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--yes']);
+    // A run's presets are judged by the checks given, checked as the CLI checks --expect and sent as one line, which a yes covers.
+    expect((await startJob({ kind: 'chaos', runId: golden, expect: '{ "tools": { "issue_refund": "<= 1" } }' })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['replay', golden, '--chaos', '--expect', '{"tools":{"issue_refund":"<= 1"}}']);
+    const judged = (await (await startJob({ kind: 'chaos', runId: packRun, expect: { tools: { escalate: 0 } } })).json()) as { error: string; confirm: string };
+    expect(judged.error).toMatch(/under shadowlap replay \S+ --chaos --expect '\{"tools":\{"escalate":0\}\}'\. Confirm to run it\.$/);
+    expect((await startJob({ kind: 'chaos', runId: packRun, expect: { tools: { escalate: 0 } }, confirmed: judged.confirm })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--expect', '{"tools":{"escalate":0}}', '--yes']);
     for (const [body, error] of [
       [{ golden: 'goldens/none' }, 'no golden goldens/none on disk'],
       [{ runId: capture }, 'A capture has no command. Replay it with yours first; the presets run on that replay.'],
@@ -360,6 +474,11 @@ describe('error-path presets', () => {
       [{}, 'name a golden or a run'],
       [{ golden: 'goldens/forecast', presets: ['flood'] }, 'presets: unknown preset "flood" (expected timeout, empty, malformed, oversized, 429, 500, or all)'],
       [{ golden: 'goldens/forecast', tool: '--online x' }, 'tool is the name of a tool the recording calls'],
+      [{ golden: 'goldens/forecast', expect: '{"tools":{"escalate":0}}' }, "expect goes with a run: a golden's presets are judged by its chaos.expect or the write limits of its expect"],
+      [{ runId: golden, expect: '{"tools":' }, '--expect is JSON, such as {"tools":{"send_email":0}}'],
+      [{ runId: golden, expect: 7 }, 'expect is the checks, as JSON such as {"tools":{"issue_refund":0}}'],
+      [{ runId: golden, expect: '[1]' }, '--expect must be an object'],
+      [{ runId: golden, expect: `{"tools":{"${'x'.repeat(MAX_EXPECT)}":0}}` }, 'those checks are too long'],
     ] as const) {
       const res = await startJob({ kind: 'chaos', ...body });
       expect(res.status, JSON.stringify(body)).toBe(400);

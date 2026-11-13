@@ -42,6 +42,15 @@ export function testRow(runId: string, reads: number, o: { live: boolean; export
   return [{ group: 'This run', label: ACTIONS.runInjectionTest.label, hint: `shadowlap injection ${shortId(runId)}`, match: 'security prompt injection untrusted', job: true, run: o.open }];
 }
 
+/** Run error-path presets…, after Run injection test…: the fork menu's whole-run row, opening their dialog; none where it is off, on a live run or in a copy. */
+export function presetsRow(run: RunDetail, o: { live: boolean; exported: boolean; open: (a: RunDetail['actions'][number]) => void }): PaletteCommand[] {
+  const a = run.actions.find((x) => x.key === 'c' && !x.disabled);
+  if (!a?.command || o.live || o.exported) return [];
+  // `shadowlap replay <recording> --chaos`, the recording by its short id, as the dialog's command names it.
+  const [cli, verb, target = '', ...rest] = a.command.split(' ');
+  return [{ group: 'This run', label: a.label, hint: [cli, verb, shortId(target), ...rest].join(' '), match: 'chaos error path', job: true, run: () => o.open(a) }];
+}
+
 /**
  * This run, in the palette, while its page is open: its next step first, as the header's lime button
  * has it, then what else the page offers, none of them said twice.
@@ -91,6 +100,7 @@ export function useRunCommands(o: {
         },
       });
     items.push(...testRow(runId, o.test?.reads ?? 0, { live, exported, next, open: o.test ? () => now.current.test?.open() : undefined }));
+    items.push(...presetsRow(run, { live, exported, open: (action) => now.current.actions.run({ action, callNo: null }) }));
     // Pack as golden… where another step leads: the header's plain button, pressed as the lead is.
     if (packFolder) items.push({ group: 'This run', label: ACTIONS.packAsGolden.label, hint: packRunCommand(runId, packFolder), match: 'golden keep test', job: true, ...(packWait ? { wait: packWait } : {}), run: () => pressStep(toast, '.rhead [data-fold="pack"]') });
     if (!exported)

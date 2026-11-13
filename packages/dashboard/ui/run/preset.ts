@@ -26,7 +26,7 @@ export interface PresetAttempt {
 }
 
 /** What precedes the outcome in a preset's detail: `list_inbox (#2) timed out` in `list_inbox (#2) timed out: the agent exited 0`. */
-const beforeOutcome = (detail: string): string | null => {
+export const beforeOutcome = (detail: string): string | null => {
   const at = detail.indexOf(': ');
   return at < 0 ? null : detail.slice(0, at).trim() || null;
 };
@@ -74,3 +74,6 @@ export function exitWords(status: string, p: PresetAttempt | null): string | nul
   if (p?.verdict === 'failed') return p.outcome;
   return p?.exitCode !== null && p?.exitCode !== undefined && p.exitCode !== 0 ? `exited ${p.exitCode}` : 'exited with an error';
 }
+
+/** How a recording's presets came out, as their finding weighs them: failed, else inconclusive, else passed. */
+export const presetsVerdict = (n: ChaosMatrix['counts']): 'failed' | 'inconclusive' | 'passed' => (n.failed ? 'failed' : n.inconclusive ? 'inconclusive' : 'passed');

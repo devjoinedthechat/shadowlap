@@ -60,7 +60,12 @@ const BUSY_SHARE = 1 / 2;
  * thread moves the answer through its sockets, which a busy machine stretches as it stretches the
  * rest (a fix's page of 20,000 calls, 2 MB: 17 ms of 240 here, 62 ms under the whole suite).
  */
-const beside = (path: string, t: { busyMs: number; busy: number }) => expect(t.busy, `${path}: the share of the time the server's thread was busy (${t.busyMs.toFixed(0)} ms)`).toBeLessThan(BUSY_SHARE);
+/**
+ * Beside the server: its thread busy under half the time, or, for a read that answers in a few ms
+ * (where the work each request does on the thread is most of it, and the share is noise), under
+ * 10 ms of it, the /api/meta poll's own bound.
+ */
+const beside = (path: string, t: { busyMs: number; busy: number }) => expect(t.busy < BUSY_SHARE || t.busyMs < 10, `${path}: the server's thread was busy ${t.busyMs.toFixed(0)} ms, ${(t.busy * 100).toFixed(0)}% of the time`).toBe(true);
 
 async function ask(d: Dashboard, path: string): Promise<{ status: number; ms: number; bytes: number; body: any }> {
   const t0 = performance.now();
@@ -339,7 +344,7 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
     }
   }, TIMEOUT);
 
-  it('lists the projects, and shows the setup and Training, from what the store says read beside the server', async () => {
+  it('lists the projects, and shows the setup, Training, Fixes and Not covered, from what the store says read beside the server', async () => {
     // A dashboard over projects, as `shadowlap dashboard` serves them, this store the current one's.
     const home = mkdtempSync(join(tmpdir(), 'sl-budget-home-'));
     const folder = join(home, 'support-agent');
@@ -350,13 +355,13 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
     try {
       await ask(d, 'meta');
       await untilWhole(d);
-      for (const path of ['projects', 'setup', 'training']) {
+      for (const path of ['projects', 'setup', 'training', 'fixes', 'coverage']) {
         // Asked once before, so what is measured is an answer, not the thread's first look at the project list and the folders.
         expect((await ask(d, path)).status, path).toBe(200);
         const t = await onServerThread(() => ask(d, path));
         said(`${path} answered in ${t.out.ms.toFixed(0)} ms`, t);
         expect(t.out.status, path).toBe(200);
-        // Each reads every run of the store (to count them, list its recordings, or find its pairs): none of it on the server's thread.
+        // Each reads every run of the store (to count them, list its recordings or its fixes, find its pairs, or count the imported runs no coverage scan has read): none of it on the server's thread.
         beside(path, t);
       }
       // Every run counted: the recording an earlier test made in the store among them, when it ran.

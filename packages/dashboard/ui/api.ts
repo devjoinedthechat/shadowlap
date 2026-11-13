@@ -19,7 +19,7 @@ import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js'
 import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, IssueRunsPage, IssuesPage, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { CompareView, NextStep } from './types.js';
-import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
+import type { ChaosMatrix, ChaosView, CoverageView, PresetsPicks, PresetsPlan } from './types.js';
 import type { InjectionPanelView, InjectionReport, InjectionRow, ReportPreview, RunInjection } from './types.js';
 import type { TemplateSet } from '../../engine/src/injection.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
@@ -308,6 +308,8 @@ export interface Client extends ChangesApi, TestsApi {
   chaos(): Promise<ChaosView | null>;
   /** One run's presets matrix, its recording's for a preset's attempt (`/api/chaos/runs/:id`); null when none ran. */
   runChaos(id: string): Promise<ChaosMatrix | null>;
+  /** Run error-path presets…'s plan for the picks (`/api/chaos/runs/:id/plan`): what they run on, hit, are judged and decided by, the command someone else recorded, and what they bill. */
+  presetsPlan(id: string, picks: PresetsPicks): Promise<PresetsPlan>;
 
   // ---- What a fork did differently, and a fix's attempts grouped by what each did
   /** What a fork did differently from its parent (`/api/runs/:id/differences`); null for a run that isn't a fork of a run in the store. */
@@ -550,13 +552,10 @@ export function createClient(token: string): Client {
     models: () => request<ModelsView>('models'),
     ...changesApi(request),
     // A server without the routes answers 404: nothing to show, rather than an error.
-    coverage: () => request<CoverageView>('coverage').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
-    chaos: () => request<ChaosView>('chaos').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
-    runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
     unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
-    ...longRunReads(request), ...injectionReads(request),
+    ...longRunReads(request), ...injectionReads(request), ...chaosReads(request),
   };
 }
 
@@ -610,6 +609,20 @@ export interface InjectionPlanQuery {
   budget?: number | null | undefined;
   /** Priced as each test session's gate, not as a test. */
   gate?: boolean | undefined;
+}
+
+type ChaosReads = 'coverage' | 'chaos' | 'runChaos' | 'presetsPlan';
+
+/** What the pages read of error-path presets and production coverage (`/api/chaos`, `/api/coverage`): none on a server without them. */
+function chaosReads(request: Request): Pick<Client, ChaosReads> {
+  const id = encodeURIComponent;
+  const none = (err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err));
+  return {
+    coverage: () => request<CoverageView>('coverage').catch(none),
+    chaos: () => request<ChaosView>('chaos').catch(none),
+    runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, none),
+    presetsPlan: (runId, p) => request<PresetsPlan>(`chaos/runs/${id(runId)}/plan?${p.presets ? `presets=${p.presets.join(',')}&` : ''}${p.tool ? `tool=${id(p.tool)}&` : ''}${p.expect ? 'expect=1' : ''}`),
+  };
 }
 
 type InjectionReads = 'injectionRun' | 'injectionResults' | 'injectionResult' | 'injectionPreview' | 'injectionTemplates' | 'injectionEstimate' | 'injectionCauseEstimate' | 'injectionPayloads' | 'injectionSecurity';
@@ -731,6 +744,8 @@ export function createExportedClient(data: StaticPayload): Client {
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
+    // A copy runs no preset, so nothing in it asks what they would hit or bill.
+    presetsPlan: readOnly,
     // Held for a fork whose parent the file holds too; otherwise its run page leaves the panel out.
     forkDifferences: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/differences`] as { differences: ForkDifferences | null } | undefined)?.differences ?? null),
     // A copy replays nothing: what its replay would run for real is the store's to say, and reading it would read the run twice.

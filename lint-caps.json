@@ -24,7 +24,7 @@
       "runBlame": 54
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 92
+      "runPresets": 75
     },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
@@ -49,9 +49,6 @@
     },
     "packages/cli/src/config.ts": {
       "loadConfig": 43
-    },
-    "packages/cli/src/coverage.ts": {
-      "formatCoverage": 34
     },
     "packages/cli/src/decisions-capture.ts": {
       "captureFromCode": 52
@@ -341,7 +338,7 @@
       "runBlame": 250
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 156
+      "runPresets": 153
     },
     "packages/cli/src/commands/data.ts": {
       "register": 207
@@ -381,7 +378,7 @@
       "trainingView": 166
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 165
+      "createClient": 162
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 158

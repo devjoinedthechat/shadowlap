@@ -329,7 +329,7 @@ export interface RunOutcomeWords {
 }
 
 /**
- * What decided a run's status, which its hover says (outcome-tip.ts): a recording in progress, a
+ * What decided a run's status, which its hover says (outcome-card.ts): a recording in progress, a
  * divergence, the checks that judged it, a check that failed or the agent's exit, a check that could
  * not be decided, checks that passed, an interruption, a fork's writes, or nothing.
  */
@@ -411,7 +411,7 @@ export function runOutcome(r: RunLike): RunOutcomeWords {
 
 /**
  * The Runs table's Status: the outcome, in one line. A fork says what came of its writes (`forked · 2
- * writes blocked`); the check a run failed is on its hover (outcome-tip.ts), so a row keeps its height.
+ * writes blocked`); the check a run failed is on its hover (outcome-card.ts), so a row keeps its height.
  */
 export function runStatus(r: RunLike): RunOutcomeWords {
   return runOutcome(r);
