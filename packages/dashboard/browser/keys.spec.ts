@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
 
 /**
  * The keyboard in Chromium over the demo store: the lists' keys on Runs, Esc going back the way you
@@ -441,7 +441,7 @@ test('a job’s end hands the focus to what took its control’s place, however 
   });
   // The run read after the job's end comes late, as a busy read pool's does.
   await page.route(new RegExp(`/api/runs/${run}(\\?.*)?$`), async (route) => {
-    const body = (await (await route.fetch()).json()) as Record<string, unknown>;
+    const body = (await (await route.fetch(RESET_RETRY)).json()) as Record<string, unknown>;
     if (ended) await new Promise((done) => setTimeout(done, 600));
     await route.fulfill({ json: { ...body, ...(ended ? { fix, next: opens } : { fix: { role: 'unblamed', fix: null, blame: null, probe: null, verify: null } }) } });
   });
@@ -469,7 +469,7 @@ test('a menu opened while the page left still owes its focus keeps it: Esc up fr
 
 test('Esc closes a preview’s opened cell before anything else, the focus back on its cell where it was in the cell', async ({ page, request }) => {
   const { origin, token } = dash();
-  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; sessionId: string }> };
+  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { sessions: Array<{ kind: string; sessionId: string }> };
   const s = sessions.find((x) => x.kind === 'decisions');
   expect(s, 'the demo’s preview').toBeTruthy();
   await openPage(page, `/changes/decisions/${s!.sessionId}`, 'main#view .dmx button.dc');

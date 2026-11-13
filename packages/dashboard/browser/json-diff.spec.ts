@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
 
 /**
  * Show diff in the inspector's place (ui/run/RequestDiff.tsx): the request a fork or a diverged test
@@ -30,9 +30,9 @@ async function overflow(page: Page): Promise<{ sideways: number; past: string[] 
 async function userIdReplay(page: Page): Promise<string> {
   const { origin, token } = dash();
   const headers = { 'x-shadowlap-token': token };
-  const { runs } = (await (await page.request.get(`${origin}/api/runs`, { headers })).json()) as { runs: Array<{ runId: string; mode: string; divergence: { type: string } | null }> };
+  const { runs } = (await (await page.request.get(`${origin}/api/runs`, { headers, ...RESET_RETRY })).json()) as { runs: Array<{ runId: string; mode: string; divergence: { type: string } | null }> };
   for (const r of runs.filter((x) => x.mode === 'replay' && x.divergence?.type === 'request_changed')) {
-    const { diff } = (await (await page.request.get(`${origin}/api/runs/${r.runId}/diff`, { headers })).json()) as { diff: { test: boolean; path: string | null } | null };
+    const { diff } = (await (await page.request.get(`${origin}/api/runs/${r.runId}/diff`, { headers, ...RESET_RETRY })).json()) as { diff: { test: boolean; path: string | null } | null };
     if (diff?.test && diff.path === '$.metadata.user_id') return r.runId;
   }
   throw new Error('the demo store has no test replay that diverged on $.metadata.user_id');
@@ -100,7 +100,7 @@ test('a user id that changed is marked whole, one line box at 390, and breaks on
   const id = await userIdReplay(page);
   // The answer as for a golden recorded with a user id of its own, so the value changed rather than came.
   await page.route(new RegExp(`/api/runs/${id}/diff$`), async (route) => {
-    const body = (await (await route.fetch()).json()) as { diff: { was: Record<string, unknown> } };
+    const body = (await (await route.fetch(RESET_RETRY)).json()) as { diff: { was: Record<string, unknown> } };
     body.diff.was = { ...body.diff.was, metadata: { user_id: RECORDED_ID } };
     await route.fulfill({ json: body });
   });
