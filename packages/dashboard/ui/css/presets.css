@@ -1,0 +1,13 @@
+/* Error-path presets: Run error-path presets…'s dialog (presets/PresetsDialog.tsx), its picks in the dialog's rows: the
+   presets as toggle chips, the tool the tool presets hit and where the provider presets hit after it, the checks a run's
+   attempts must pass, typed as JSON in the code font */
+.dialog.cxdlg { width: min(600px, 100%); }
+.cxdlg .dfacts .togchips { margin: 0; }
+.cxat { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--dim); }
+.cxat select.sel { height: 30px; max-width: 100%; border-radius: 8px; border: 1px solid var(--field); background: var(--panel) var(--chev) no-repeat right 10px center / 10px 10px; -webkit-appearance: none; appearance: none; color: var(--ink); font: 12.5px var(--mono); padding: 0 28px 0 10px; outline: none; cursor: pointer; }
+.cxat select.sel:hover { border-color: var(--faint); }
+.cxat select.sel:focus { border-color: var(--accent-line); }
+.cxdlg label.cxj { display: grid; gap: 5px; }
+.cxdlg label.cxj input[type="text"] { font: 12.5px var(--mono); padding: 7px 10px; }
+.cxdlg label.cxj input::placeholder { color: var(--faint); }
+.cxdlg label.cxj small { font-size: 12.5px; color: var(--faint); text-wrap: pretty; }

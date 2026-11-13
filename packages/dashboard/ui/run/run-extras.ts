@@ -28,7 +28,7 @@ export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: n
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
-  const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
+  const presets = useLoad(() => (live ? null : client.runChaos(runId)), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, runId), [presets, runId]);
   const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
@@ -41,5 +41,7 @@ export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: n
   const more = asked === null || !first.current ? 0 : asked - first.current.asked;
   const tested = useLoad(() => (live ? null : client.injectionRun(runId)), `${runId}:injection:${live ? 'live' : 'ended'}`, more).data ?? null;
   const injection = useMemo(() => runInjectionView(tested, results), [tested, results]);
-  return { offers, preset, notes, rescued: rescuedAt(run, parent, forkAt), injection };
+  // The presets' finding is on the recording they ran on, never on an attempt's page, and once one made an attempt.
+  const ran = presets?.runId === runId && presets.counts.passed + presets.counts.failed + presets.counts.inconclusive > 0 ? presets : null;
+  return { offers, preset, presets: ran, notes, rescued: rescuedAt(run, parent, forkAt), injection };
 }

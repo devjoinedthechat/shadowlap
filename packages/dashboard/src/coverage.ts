@@ -1,6 +1,8 @@
-import { checkCommandTemplate, describeBehaviour, messageOf, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
+import { checkCommandTemplate, describeBehaviour, messageOf, NO_COMMAND, OUTCOME_WORDS, packingBehaviour, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
+import { expectArgs } from './expect-field.js';
 import { splitCommandLine } from './settings.js';
 import { links } from './links.js';
+import { answer, type ReadTable } from './read-registry.js';
 
 /**
  * Production coverage as the dashboard shows it: the last `shadowlap coverage` scan, kept in the
@@ -24,16 +26,20 @@ export interface CoverageGroupView {
   /** How it ended, in words. */
   ended: string;
   runs: number;
-  /** Its runs as the scan listed them, newest first; `runId` is the newest still in the store. */
+  /** Its runs as the scan listed them, newest first; `kept`, those still in the store, which Seen links; `runId`, the newest of them. */
   runIds: string[];
+  kept: string[];
   runId: string | null;
   sources: string[];
   firstSeen: number;
   lastSeen: number;
   nearest: StoredCoverageGroup['nearest'];
   packed: StoredCoverageGroup['packed'];
-  /** What `coverage --pack` last made of it: the golden and whether it forks, or why it couldn't pack it. */
-  lastPack: Pick<StoredCoveragePack, 'at' | 'golden' | 'mode' | 'reason' | 'why' | 'command'> | null;
+  /**
+   * What `coverage --pack` last made of it: the golden and whether it forks, or why it couldn't pack
+   * it, and `by`, who tried a pack that couldn't (where the store names people: `shared`), else null.
+   */
+  lastPack: (Pick<StoredCoveragePack, 'at' | 'golden' | 'mode' | 'reason' | 'why' | 'command'> & { by: string | null }) | null;
   /**
    * For a behaviour no golden covers: the job Pack one starts (`coverage-pack` with its key), the
    * command it runs, and the agent's command it would reproduce the capture with: the one a run here
@@ -48,7 +54,7 @@ export interface CoverageGroupView {
 /** The line Needs a look shows while some behaviour has no golden, in its rows' shape. */
 export interface CoverageLook {
   kind: 'coverage';
-  icon: 'rec';
+  icon: 'cap';
   title: string;
   detail: string;
   action: string;
@@ -61,7 +67,7 @@ export interface CoverageLook {
 export interface CoverageView {
   /** The last scan, or null when coverage never ran on this store. */
   scan: CoverageScan | null;
-  /** Imported runs that came in after the scan: a scan now would read them too. */
+  /** Imported runs that came in after the scan (every one, before a first scan): a scan now would read them too. */
   newRuns: number;
   /** Not covered first, as the scan ordered them. */
   groups: CoverageGroupView[];
@@ -88,10 +94,31 @@ function importedSince(store: StoreOf<'readModels'>, at: number): number {
   return Number(row?.n ?? 0);
 }
 
-export function coverageView(store: StoreOf<'recording' | 'readModels' | 'coverage'>): CoverageView {
+/**
+ * Who tried each pack that couldn't pack its behaviour, where the store names people: the actor of
+ * the first scan at or after it whose not-packed list names the behaviour (`--pack` scans again once
+ * it has tried). A scan from before the pack names nobody. Only the scans since the oldest such pack
+ * are read, a row each.
+ */
+function packTriers(store: StoreOf<'coverage'>, packs: readonly StoredCoveragePack[], shared: boolean): Map<string, string> {
+  const failed = packs.filter((p) => p.golden === null);
+  const out = new Map<string, string>();
+  if (!shared || !failed.length) return out;
+  const scans = store.coverageScansSince(Math.min(...failed.map((p) => p.at)));
+  for (const p of failed) {
+    const scan = scans.find((s) => s.at >= p.at && !!s.data?.notPacked?.some((n) => n.key === p.key));
+    if (scan?.actor) out.set(p.key, scan.actor);
+  }
+  return out;
+}
+
+/** The coverage view; `shared`: the store names people (namesTeamStore), so Last tried says who tried a pack. */
+export function coverageView(store: StoreOf<'recording' | 'readModels' | 'coverage'>, o: { shared?: boolean } = {}): CoverageView {
   const scan = store.listCoverageScans(1)[0] ?? null;
   const groups = scan ? store.coverageGroups() : [];
-  const packs = new Map(store.coveragePacks().map((p) => [p.key, p]));
+  const kept = store.coveragePacks();
+  const packs = new Map(kept.map((p) => [p.key, p]));
+  const by = packTriers(store, kept, !!o.shared);
   const views = groups.map((g): CoverageGroupView => {
     const behaviour: Behaviour = { path: g.behaviour.path, writes: g.behaviour.writes, unknown: g.behaviour.unknown, outcome: g.behaviour.outcome as BehaviourOutcome };
     const present = g.runIds.map((id) => store.getRun(id)).filter((r) => r !== null);
@@ -111,34 +138,48 @@ export function coverageView(store: StoreOf<'recording' | 'readModels' | 'covera
       ended: OUTCOME_WORDS[behaviour.outcome] ?? behaviour.outcome,
       runs: g.runs,
       runIds: g.runIds,
+      kept: present.map((r) => r.runId),
       runId: present[0]?.runId ?? null,
       sources: g.sources,
       firstSeen: g.firstSeen,
       lastSeen: g.lastSeen,
       nearest: g.nearest,
       packed: g.packed,
-      lastPack: last ? { at: last.at, golden: last.golden, mode: last.mode, reason: last.reason, why: last.why, command: last.command } : null,
+      lastPack: last ? { at: last.at, golden: last.golden, mode: last.mode, reason: last.reason, why: last.why, command: last.command, by: by.get(last.key) ?? null } : null,
       pack,
     };
   });
   const uncovered = views.filter((g) => !g.covered);
   const newest = [...uncovered].sort((a, b) => b.lastSeen - a.lastSeen)[0];
   const needsLook = newest ? lookOf(uncovered.length, newest, newest.runId, scan!.at) : null;
-  return { scan, newRuns: scan ? importedSince(store, scan.at) : 0, groups: views, uncovered: uncovered.length, needsLook, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
+  // Before a first scan, every imported run is new: Not covered tells nothing to read apart from runs not read yet.
+  return { scan, newRuns: importedSince(store, scan?.at ?? 0), groups: views, uncovered: uncovered.length, needsLook, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
 }
 
 /**
+ * Tests' Not covered, read beside the server (`GET /api/coverage`): it counts the imported runs no
+ * scan has read, a JSON read of every recording no index serves, and reads each behaviour's runs.
+ * Whether the store names people is worked out on the server's thread (namesTeamStore).
+ */
+export type CoverageViewJob = { kind: 'coverage-view'; shared: boolean };
+
+export const COVERAGE_READS: ReadTable<CoverageViewJob> = {
+  'coverage-view': (store, job) => answer(coverageView(store, { shared: job.shared }), { tagged: true }),
+};
+
+/**
  * The line Needs a look shows while some behaviour seen in production has no golden: how many, and
- * the newest of them, which it opens (the run that did it, as no page lists the behaviours yet).
+ * the newest of them; it opens Tests at Not covered, which lists them. `runId` is the newest run of
+ * the newest behaviour still in the store.
  */
 function lookOf(count: number, newest: { path: readonly string[]; sources: readonly string[] }, runId: string | null, at: number): CoverageLook {
   return {
     kind: 'coverage',
-    icon: 'rec',
+    icon: 'cap',
     title: `${plural(count, 'behaviour')} seen in production ${count === 1 ? 'has' : 'have'} no golden`,
     detail: `the newest: ${newest.path.length ? newest.path.slice(0, 3).join(' → ') + (newest.path.length > 3 ? ' → …' : '') : 'no tool calls'}${newest.sources[0] ? `, in ${newest.sources[0]}` : ''}`,
     action: 'Open',
-    href: runId ? links.run(runId) : links.tests(),
+    href: links.tests({ at: 'notcovered' }),
     runId,
     fixId: null,
     at,
@@ -156,20 +197,20 @@ export function coverageLook(store: StoreOf<'recording' | 'coverage'>): Coverage
 
 /**
  * The coverage line, with the key of the newest behaviour no golden covers, which Needs a look keys
- * its row by, and every uncovered behaviour's key, the facts its advice states.
+ * its row by and packs; `forkable` when the last `--pack` of it found the agent no longer does it (it
+ * then packs as a golden that forks, with checks), and `uncovered`, every such behaviour's key, the
+ * facts its advice states.
  */
-export function coverageNewest(store: StoreOf<'recording' | 'coverage'>): { look: CoverageLook; key: string; uncovered: string[] } | null {
+export function coverageNewest(store: StoreOf<'recording' | 'coverage'>): { look: CoverageLook; key: string; forkable: boolean; uncovered: string[] } | null {
   const scan = store.listCoverageScans(1)[0] ?? null;
   if (!scan) return null;
   const uncovered = store.coverageGroups().filter((g) => !g.coveredBy.length);
   const newest = [...uncovered].sort((a, b) => b.lastSeen - a.lastSeen)[0];
   if (!newest) return null;
   const runId = newest.runIds.find((id) => store.getRun(id) !== null) ?? null;
-  return { look: lookOf(uncovered.length, { path: newest.behaviour.path, sources: newest.sources }, runId, scan.at), key: newest.key, uncovered: uncovered.map((g) => g.key) };
+  const forkable = store.coveragePacks().find((p) => p.key === newest.key)?.reason === 'not-reproduced';
+  return { look: lookOf(uncovered.length, { path: newest.behaviour.path, sources: newest.sources }, runId, scan.at), key: newest.key, forkable, uncovered: uncovered.map((g) => g.key) };
 }
-
-/** The longest check JSON a pack request may carry, as the fix jobs take theirs. */
-const MAX_EXPECT = 20_000;
 
 /** What `coverage-pack` runs, checked, and the command it asks about before it runs it. */
 export interface CoveragePackPlan {
@@ -212,12 +253,14 @@ export function coveragePackArgs(store: StoreOf<'coverage'>, req: Record<string,
     if (!keys.length) return { error: 'a golden that forks is packed for one behaviour: name it by its key' };
     const expect = typeof req.expect === 'string' ? safeJson(req.expect) : req.expect;
     if (typeof expect !== 'object' || expect === null || Array.isArray(expect) || !Object.keys(expect).length) return { error: 'a golden that forks needs the checks that say what the agent must do now, such as {"tools":{"issue_refund":0}}' };
-    const text = JSON.stringify(expect);
-    if (text.length > MAX_EXPECT) return { error: 'those checks are too long' };
-    fork.push('--fork', '--expect', text);
+    // Checked as `--expect` is, so a check the CLI would refuse is refused here, in its words.
+    const checked = expectArgs(expect);
+    if ('error' in checked) return checked;
+    fork.push('--fork', ...checked.args);
   } else if (req.expect !== undefined) return { error: 'expect goes with fork: a golden that replays its capture is judged by the replay itself' };
   const args = ['coverage', '--pack', ...keys, ...fork, ...(command.length ? ['--', ...command] : [])];
-  const title = keys.length ? `Packing ${fork.length ? 'a golden that forks' : 'a golden'} of ${keys[0]!.slice(0, 8)}${command.length ? ` with ${quoteArgv(command)}` : ''}` : 'Packing goldens of what no golden covers';
+  // The command shows on the drawer's own line, so the title names only the behaviour.
+  const title = keys.length ? packingBehaviour(keys[0]!.slice(0, 8), fork.length > 0) : 'Packing goldens of what no golden covers';
   return { args, title, command: command.length ? command : null };
 }
 

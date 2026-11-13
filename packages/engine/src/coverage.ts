@@ -177,6 +177,8 @@ export interface NearestGolden {
   differs: { step: number; seen: string | null; golden: string | null } | null;
 }
 
+export { ENDS_ANOTHER_WAY, NOT_PACKED, nearestThen, notPackedHead } from './coverage-words.js';
+
 export interface CoverageGroup {
   key: string;
   behaviour: Behaviour;

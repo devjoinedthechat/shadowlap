@@ -2,6 +2,7 @@ import { ACTIONS, forceLiveLabel } from './action-words.js';
 import { canonicalize } from './canonical.js';
 import { parseExpect } from './checks/parse.js';
 import { checkStatus } from './check-status.js';
+import { runKind } from './classify.js';
 import { literalValue, noLateSystemMessage } from './interventions.js';
 import { isObject } from './is-object.js';
 import { messageOf } from './message-of.js';
@@ -25,8 +26,9 @@ import { normalizeAddArgs } from './volatile.js';
  * HTTP status… and Run live from here; a tool call gets Override result…, Fail with tool error…,
  * Plant instruction… (reads only), Force <tool> live and Run live from here; a recorded user input
  * gets Override user reply… and Run live from here. Then the whole run: Repeat 5 times, Replay with
- * writes stubbed, and in the terminal UI Find breaking commit…. The dashboard's fork menu adds its own
- * row there, Run injection test…, before its Find breaking commit…: the terminal has no injection test.
+ * writes stubbed, Run error-path presets…, and in the terminal UI Find breaking commit…. The
+ * dashboard's fork menu adds its own row there, Run injection test…, before its Find breaking
+ * commit…: the terminal has no injection test.
  */
 
 export interface Action {
@@ -174,7 +176,7 @@ export function terminalActions(run: RunRecord, call: CallRecord | undefined, co
 }
 
 /** What an action that waits for a run still recording says, by its key; every other one is a fork. */
-const WAITS: Record<string, string> = { r: 'replay once the recording finishes', p: 'pack once the recording finishes', b: 'look for the commit once the recording finishes' };
+const WAITS: Record<string, string> = { r: 'replay once the recording finishes', c: 'run the presets once the recording finishes', p: 'pack once the recording finishes', b: 'look for the commit once the recording finishes' };
 
 /**
  * Find breaking commit…: a run that failed is looked for where it started failing, between a commit where
@@ -362,6 +364,35 @@ export function forkCommand(run: RunRecord): string[] {
   return recordedFlags(run)?.some((i) => i.kind === 'command') ? ['--', ...run.command.argv] : [];
 }
 
+/** The recording Run error-path presets… runs on: a clean replay's or a test's comes from its recording, whose presets they are; any other run is its own. */
+export function presetsTarget(run: RunRecord): string {
+  const kind = runKind(run);
+  return (kind === 'clean' || kind === 'test') && run.parentRunId ? run.parentRunId : run.runId;
+}
+
+/**
+ * Run error-path presets… (`replay <run> --chaos`): each preset played in at the call it hits, its
+ * attempts live from there with writes stubbed, so it asks first (the dashboard in its own dialog).
+ * A replay that changed nothing, a clean one or a test's, runs them on the recording it came from,
+ * whose presets they are. Off on an attempt of the presets or of an injection test: the presets to
+ * run are its recording's.
+ */
+function presetsAction(run: RunRecord): Action {
+  const target = presetsTarget(run);
+  const disabled = run.meta?.chaos ? 'A preset’s attempt: run the presets on its recording' : run.meta?.injection ? 'An injection test’s attempt: run the presets on its recording' : null;
+  return {
+    key: 'c',
+    label: ACTIONS.runPresets.label,
+    flag: '--chaos',
+    group: 'run',
+    hint: 'Injects one failure per preset at the call it hits, and judges what the agent does next.',
+    args: ['replay', target, '--chaos'],
+    asksFirst: true,
+    ...(disabled ? { disabled } : {}),
+    opensRun: false,
+  };
+}
+
 function baseActions(run: RunRecord, call: CallRecord | undefined, context: ActionContext): Action[] {
   const id = run.runId;
   const actions: Action[] = [{ key: 'r', label: ACTIONS.replay.label, flag: 'replay', hint: 'Replays the run as recorded: clean if nothing changed, else it names the call where a request first differed.', args: ['replay', id], opensRun: true }];
@@ -399,6 +430,7 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
     args: stubbed ? ['replay', run.parentRunId!, ...stubbed, '--writes', 'stub', ...forkCommand(run)] : ['replay', id, '--writes', 'stub'],
     opensRun: true,
   });
+  actions.push(presetsAction(run));
 
   const hint = run.divergence?.hints?.find((h) => h.normalizer);
   if (hint?.normalizer) {

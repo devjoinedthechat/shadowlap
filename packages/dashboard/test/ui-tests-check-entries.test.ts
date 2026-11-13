@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type StoredCheck } from '@shadowlap/engine';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { ApiError, type Client, type TestsView } from '../ui/api.js';
+import type { CoverageView } from '../ui/types.js';
 import type { ChecksApi, ChecksConfig, GoldenEntry } from '../ui/checks-api.js';
 import { checkPhrases, RemoveCheck } from '../ui/checks/RemoveCheck.js';
 import type { OnShow } from '../ui/components/OnShow.js';
@@ -86,7 +87,7 @@ function fakeBuilder() {
 }
 
 /** Tests with the builder handed in (unless `builder` is null), its view read from `tests`. */
-async function openTests(o: { tests?: () => Promise<TestsView>; builder?: OnShow<BuilderProps> | null; actionsOff?: string | null; checks?: ReturnType<typeof checksStub>; toast?: (...a: unknown[]) => void } = {}) {
+async function openTests(o: { tests?: () => Promise<TestsView>; builder?: OnShow<BuilderProps> | null; actionsOff?: string | null; checks?: ReturnType<typeof checksStub>; toast?: (...a: unknown[]) => void; coverage?: CoverageView | null } = {}) {
   g.location = { hash: '#/tests' };
   const v = view(BEFORE);
   const client = {
@@ -96,8 +97,9 @@ async function openTests(o: { tests?: () => Promise<TestsView>; builder?: OnShow
     offers: () => Promise.resolve(null),
     startJob: () => Promise.resolve({ id: 'j1' }),
     checks: o.checks ?? checksStub(),
-    // Security on Tests reads its goldens' untrusted reads: none here.
+    // What Tests reads under its goldens, Security's untrusted reads and Not covered's scan: none unless given.
     injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
+    coverage: () => Promise.resolve(o.coverage ?? null),
   } as unknown as Client;
   const app = { client, tick: 0, feeds: {}, jobs: [], actionsOff: o.actionsOff ?? null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: o.toast ?? (() => undefined), refresh: () => undefined };
   const page = createElement(TestsPage);
@@ -232,6 +234,13 @@ describe('the step a golden’s checks lead Tests with', () => {
     expect(page.all('.tv .actions button')).toEqual([]);
     const run = runTests(page);
     expect([run.className.includes('lime'), card(run)]).toEqual([true, expect.objectContaining({ t: 'Run tests', s: STALE })]);
+  });
+
+  it('keeps the lime on Run tests where it is the step, Rescan coverage reading plain while runs imported since wait for a scan', async () => {
+    const unscanned: CoverageView = { scan: null, newRuns: 3, groups: [], uncovered: 0, needsLook: null, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
+    const page = await openTests({ tests: stepped({ key: 'run-tests', label: 'Run tests', golden: 'goldens/refunds', gone: [ISSUE], sub: STALE }), coverage: unscanned });
+    await page.until('Not covered', () => page.all('#notcovered > header .btn').length === 1);
+    expect([runTests(page).className, page.one('#notcovered > header .btn').className]).toEqual(['btn lime', 'btn sm']);
   });
 });
 

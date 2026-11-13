@@ -97,6 +97,15 @@ export const revision = (page: Page) => async () => {
   await at(page, '/changes', VERDICTS)();
   await toRevision(page);
 };
+/** Tests › Not covered, drawn: the demo's scan left behaviours no golden covers, the refund HAR's one the agent no longer does. */
+export const NOT_COVERED = 'main#view #notcovered';
+/** The recording the demo's error-path presets ran on, by the matrices the API gives: its page leads with their finding. */
+export const presetsRecording = (page: Page) => async () => {
+  const view = await apiGet<{ matrices: Array<{ runId: string; golden: string | null }> }>(page, 'chaos');
+  const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
+  if (!m) throw new Error('the demo store has no error-path presets');
+  await run(page, m.runId)();
+};
 /** Changes' Preview, drawn with its matrix's cells; an opened cell, drawn with its head; a run's Decisions view, drawn with its session's line. */
 export const PREVIEW = 'main#view .dmx button.dc';
 export const CELL = 'main#view .dcell .dch';

@@ -8,7 +8,7 @@ import { goldenReports, withFailedRuns, withStepHints, type TestsAnswer } from '
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { searchedCommits, type NextStep } from '../next-step.js';
-import { nextStepWork, projectWork } from '../outcome-work.js';
+import { nextStepWork, outcomeWork, projectWork } from '../outcome-work.js';
 import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
@@ -16,6 +16,7 @@ import { goldenExpect } from '../run-offers.js';
 import { namesTeamStore } from './verdicts.js';
 import { writtenEntries } from '../config-tests.js';
 import { withInjectionGates } from '../injection-gates.js';
+import { withPresetsEntries } from '../presets-entries.js';
 import { revertJob } from '../revert-job.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { withJudgeAsks } from '../tests-checks.js';
@@ -284,7 +285,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const { tests } = nextStepWork(ctx);
     // A gate's card shows its entry as the config holds it, read as the check builder reads it.
     const written = (gated: readonly string[]) => (ctx.project ? writtenEntries(ctx.project.path, gated) : new Map<string, unknown>());
-    r.tagged(withInjectionGates(ctx.store, await withSteps(withJudgeAsks(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path), (golden) => goldenExpect(tests, golden))), goldens(), written));
+    // A golden whose tests entry sets its error-path presets offers to run them until they have.
+    r.tagged(withPresetsEntries(withInjectionGates(ctx.store, await withSteps(withJudgeAsks(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path), (golden) => goldenExpect(tests, golden))), goldens(), written), outcomeWork(ctx)));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's

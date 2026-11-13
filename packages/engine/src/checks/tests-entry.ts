@@ -188,7 +188,12 @@ export function parseChaosFields(raw: unknown, where: string, parse: ExpectParse
 export function chaosFor(projectDir: string, key: string | null, parse: ExpectParser = parseExpect): ChaosSpec | false {
   if (key === null) return DEFAULT_CHAOS;
   const data = readConfigFile(projectDir).data;
-  const tests = isObject(data) && isObject(data.tests) ? data.tests : {};
-  const entry = tests[key];
+  return chaosIn(isObject(data) ? data.tests : undefined, key, parse);
+}
+
+/** The `chaos` of tests entry `key` in the config's `tests` as written (a pooled read is handed it read): the defaults without an entry. */
+export function chaosIn(tests: unknown, key: string | null, parse: ExpectParser = parseExpect): ChaosSpec | false {
+  if (key === null) return DEFAULT_CHAOS;
+  const entry = isObject(tests) ? tests[key] : undefined;
   return parseChaosFields(isObject(entry) ? entry.chaos : undefined, `tests["${key}"].chaos`, parse);
 }

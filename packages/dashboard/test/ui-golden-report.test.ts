@@ -234,8 +234,9 @@ async function draw(view: TestsAnswer, hash = '#/tests', parts: ServedParts = {}
     jobs: () => Promise.resolve([]),
     offers: () => Promise.resolve(null),
     startJob: () => Promise.resolve({ id: 'j1' }),
-    // Security on Tests reads its goldens' untrusted reads: none here.
+    // Security on Tests reads its goldens' untrusted reads, and Not covered its last scan: none here.
     injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
+    coverage: () => Promise.resolve(null),
   } as unknown as Client;
   const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: (words: string) => void said.push(words) };
   r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ServedPartsContext.Provider, { value: parts }, createElement(TestsPage))));

@@ -114,6 +114,16 @@ export const ACTIONS = {
   markTrusted: { label: 'Mark trusted' },
   packAsGolden: { label: 'Pack as golden…', doing: 'Packing as golden' },
   packWithGate: { label: 'Pack with injection gate…', doing: 'Packing with injection gate' },
+  // Error-path presets, on a run from the fork menu's whole run or on a golden from Tests: its dialog
+  // picks the presets and the tool they hit.
+  runPresets: { label: 'Run error-path presets…', doing: 'Running error-path presets' },
+  // Tests › Not covered: the imported runs read again; a behaviour no golden covers packed (its dialog
+  // asks for no folder, so no ellipsis), or packed as a golden that forks, judged by the checks it asks
+  // for (each titled by packingBehaviour); then the golden's test, titled as every test is.
+  rescanCoverage: { label: 'Rescan coverage', doing: 'Scanning coverage' },
+  packBehaviour: { label: 'Pack as golden' },
+  packWithChecks: { label: 'Pack with checks…' },
+  runTest: { label: 'Run test' },
   // Runs and Training. Import capture… takes a trace from a store too, which Activity names.
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
@@ -137,6 +147,9 @@ export const ACTIONS = {
   previewPrComment: { label: 'Preview pull request comment' },
   keyboardShortcuts: { label: 'Keyboard shortcuts' },
 } as const satisfies Record<string, ActionWords>;
+
+/** Not covered's pack, by the behaviour's short key, as its job's title: `Packing 3f9a2c1d as golden`, `Packing 3f9a2c1d with checks`. */
+export const packingBehaviour = (key: string, fork: boolean): string => `Packing ${key} ${fork ? 'with checks' : 'as golden'}`;
 
 /** Force <tool> live, at a tool call of the fork menu. */
 export const forceLiveLabel = (tool: string): string => `Force ${tool} live`;

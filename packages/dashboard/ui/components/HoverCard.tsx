@@ -226,7 +226,8 @@ function show(el: HTMLElement, x: number | null, by: By, describes = el): void {
 /**
  * The card that shows, read again from its element. One whose element's card changed while it showed is
  * redrawn: a price that came after the card did, as a run's estimates can on a busy machine, which
- * would otherwise never show on it. One whose element has no card any more goes.
+ * would otherwise never show on it, or a status's, loaded as the focus reached it. One whose element
+ * has no card any more goes.
  */
 function reread(): void {
   if (!shown) return;
@@ -254,8 +255,8 @@ export function hideTip(): void {
 
 // ---- what takes the focus
 
-/** Where the row or the chart is the one stop: a mark in it takes no focus of its own. */
-const NO_STOP = 'tr, [role="row"], .groups, .cbars, .tl-row, .pips';
+/** Where the row or the chart is the one stop: a mark in it takes no focus of its own (Not covered's row: its count and its action). */
+const NO_STOP = 'tr, [role="row"], .groups, .cbars, .tl-row, .pips, .covl > li';
 
 /** What a card says, for a mark with no words of its own to be named by. */
 function tipWords(d: Tip): string {

@@ -38,14 +38,15 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
 /**
  * The one `failed` of the parts that open on a press: Share's menu and the Security report it opens,
  * the fork menu, the header's …, the check menu, Revert's dialog, Run blame's dialogs, New
- * preview's dialogs, the steps' dialogs, Run injection test…'s and Pack with injection gate…'s, a
- * run's action's, Find breaking commit's, a diverged test's, Edit and fork's, Remove project's and
- * Preview pull request comment's, each a `menu` or a `dialog` in the toast's words. The parts drawn
- * in place keep their own: the first bad commit's change box's LoadFailed, the check builder's
- * BuilderLost, Runs › Failed's issues' LoadFailed, the results panel's LoadFailed, Find cause…'s
- * (CauseLost), an injection test's finding's and Find cause's answers' (FindingLost) and the In
- * page's, its page's not-found. The palette and the job's drawer, drawn before any press asks for
- * them, draw nothing.
+ * preview's dialogs, the steps' dialogs, Run injection test…'s, Run error-path presets…'s, Not
+ * covered's pack dialogs and Pack with injection gate…'s, a run's action's, Find breaking commit's,
+ * a diverged test's, Edit and fork's, Remove project's and Preview pull request comment's, each a
+ * `menu` or a `dialog` in the toast's words. The parts drawn in place keep their own: the first bad
+ * commit's change box's LoadFailed, the check builder's BuilderLost, Runs › Failed's issues'
+ * LoadFailed, the injection and the presets results panels' LoadFailed, Find cause…'s (CauseLost),
+ * an injection test's finding's, the presets' finding's and Find cause's answers' (FindingLost) and
+ * the In page's, its page's not-found. The palette and the job's drawer, drawn before any press asks
+ * for them, draw nothing.
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -55,13 +56,14 @@ const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): On
 });
 
 /**
- * In the place of an injection test's finding, or of Find cause's answers, once its script didn't
- * come: LoadFailed's line in the finding's slot of the run's findings bar, rather than nothing, which
- * would hide what the test or the answers found. As the finding would, it hides while the bar is
- * closed under the finding that leads it (`fx`), and where it leads the bar, it keeps the bar's
- * toggle at its end (`more`), so the rest still opens.
+ * In the place of an injection test's finding, a recording's error-path presets' finding or Find
+ * cause's answers, once its script didn't come: LoadFailed's line in the finding's slot of the run's
+ * findings bar, rather than nothing, which would hide what the test, the presets or the answers
+ * found. As the finding would, it hides while the bar is closed under the finding that leads it
+ * (`fx`), and where it leads the bar, it keeps the bar's toggle at its end (`more`), so the rest
+ * still opens.
  */
-function FindingLost({ finding, fx, more }: Pick<InjectionFindingProps, 'fx' | 'more'> & { finding: 'injection' | 'cause' }) {
+function FindingLost({ finding, fx, more }: Pick<InjectionFindingProps, 'fx' | 'more'> & { finding: 'injection' | 'presets' | 'cause' }) {
   return (
     <div className={`banner wrap${fx ? ' fx' : ''}`} data-finding={finding}>
       <LoadFailed what="finding" />
@@ -98,12 +100,14 @@ export const SERVED_PARTS: ServedParts = {
   FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues), { waiting: <IssuesLoading />, failed: <LoadFailed what="view" /> }),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
   TestDialog: onShow(() => import('../injection/TestDialog.js').then((m) => m.TestDialog), failed('dialog', closes)),
+  PresetsDialog: onShow(() => import('../presets/PresetsDialog.js').then((m) => m.PresetsDialog), failed('dialog', closes)),
+  PackDialog: onShow(() => import('../not-covered/PackDialog.js').then((m) => m.PackDialog), failed('dialog', closes)),
   PackWithGate: onShow(() => import('../injection/PackWithGate.js').then((m) => m.PackWithGate), failed('dialog', closes)),
   FindCause: onShow(() => import('../injection/FindCause.js').then((m) => m.FindCause), { failed: (p) => <CauseLost callNo={p.callNo} cause={p.cause} /> }),
   CauseFinding: onShow(() => import('../injection/CauseFinding.js').then((m) => m.CauseFinding), { failed: (p) => <FindingLost finding="cause" fx={p.fx} more={p.more} /> }),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog), failed('dialog', closes)),
   InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding), { failed: (p) => <FindingLost finding="injection" fx={p.fx} more={p.more} /> }),
-  // A line inside an attempt's finding, which the run's page draws: nothing in its place if its script didn't come.
+  PresetsFinding: onShow(() => import('../presets/PresetsFinding.js').then((m) => m.PresetsFinding), { failed: (p) => <FindingLost finding="presets" fx={p.fx} more={p.more} /> }),
   Proof: onShow(() => import('../injection/Proof.js').then((m) => m.Proof)),
   attemptPage: () => import('../injection/AttemptPage.js').then((m) => m.ATTEMPT_PAGE),
   // The matrix's script starts as the panel's comes, so Show results opens on both.
@@ -112,6 +116,14 @@ export const SERVED_PARTS: ServedParts = {
       import('../injection/InjectionResults.js').then((m) => {
         m.preloadMatrix();
         return m.InjectionResults;
+      }),
+    { waiting: <Skeleton what="the results" lines={4} />, failed: <LoadFailed what="panel" /> },
+  ),
+  PresetsResults: onShow(
+    () =>
+      import('../presets/PresetsResults.js').then((m) => {
+        m.preloadMatrix();
+        return m.PresetsResults;
       }),
     { waiting: <Skeleton what="the results" lines={4} />, failed: <LoadFailed what="panel" /> },
   ),

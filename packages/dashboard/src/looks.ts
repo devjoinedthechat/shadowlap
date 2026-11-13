@@ -1,19 +1,17 @@
-import { isObject, sameModel } from '@shadowlap/engine';
+import { ACTIONS, isObject, presetProof, sameModel } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
-import { coverageNewest } from './coverage.js';
 import { links } from './links.js';
-import { adviceOf } from './needs-look/advice.js';
 import type { LookSource, LookWork, NeedsLookRow } from './needs-look/row.js';
 import { retiringModels } from './retirements.js';
 import type { GoldenList, GoldenSource } from './tests.js';
 
 /**
  * What the upgrades found, as lines of Needs a look: error-path presets that failed or couldn't say,
- * a preview of a change that flags runs, and behaviours seen in production that no golden covers (an
- * injection test's lines are needs-look/security.ts'). The CLI keeps each in the store; this reads
+ * and a preview of a change that flags runs (an injection test's lines are needs-look/security.ts',
+ * behaviours no golden covers needs-look/coverage.ts'). The CLI keeps each in the store; this reads
  * what it kept, and each line opens the run that shows it (a preset's failing attempt, a run whose
- * decision changed, a capture of the behaviour), as no page of their own exists yet. Red lines are failures; amber lines need a look or couldn't decide.
+ * decision changed). Red lines are failures; amber lines need a look or couldn't decide.
  */
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const goldenName = (path: string) => path.replace(/^\.\//, '').replace(/^goldens\//, '');
@@ -37,7 +35,10 @@ function presetLooks(store: StoreOf<'recording' | 'chaos'>, goldens: GoldenList)
     if (!p || p.verdict === 'passed') continue;
     const name = m.golden ? goldenName(m.golden) : m.runId.slice(0, 10);
     const runId = p.runId ?? kept(store, m.runId);
-    const row: NeedsLookRow = { key: `attn:presets:${m.golden ?? m.runId}`, group: p.verdict === 'failed' ? 'failing' : 'tests', kind: 'presets', icon: p.verdict === 'failed' ? 'fail' : 'warn', title: `Error-path presets ${p.verdict}: ${name}`, detail: p.line, step: null, href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: m.at };
+    // Open proof, as a run whose presets failed leads with it (next-step.ts presetStep): the engine's pick.
+    const proof = presetProof(m.cells, (id) => kept(store, id) !== null);
+    const step: NeedsLookRow['step'] = proof ? { of: 'link', label: ACTIONS.openProof.label, href: links.run(proof.attempt.runId, proof.cell.callNo ?? 1), attempt: true } : null;
+    const row: NeedsLookRow = { key: `attn:presets:${m.golden ?? m.runId}`, group: p.verdict === 'failed' ? 'failing' : 'tests', kind: 'presets', icon: p.verdict === 'failed' ? 'fail' : 'warn', title: `Error-path presets ${p.verdict}: ${name}`, detail: p.line, step, href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: m.at };
     (p.verdict === 'failed' ? failed : warn).push(row);
   }
   return { failed, warn };
@@ -127,10 +128,8 @@ const presetsRead = new WeakMap<LookWork, ReturnType<typeof presetLooks>>();
 const presetsOf = (w: LookWork) => presetsRead.get(w) ?? (presetsRead.set(w, presetLooks(w.store, w.goldens)), presetsRead.get(w)!);
 
 /*
- * The upgrades' rows, each a source of Needs a look (needs-look/index.ts) in main's words until its
- * own slice takes it: error-path presets that failed under Failing and those left inconclusive under
- * Tests, behaviours no golden covers and previews that flag runs under Tests, injection tests under
- * Security.
+ * The upgrades' rows, each a source of Needs a look (needs-look/index.ts): error-path presets that
+ * failed under Failing and those left inconclusive under Tests, and previews that flag runs under Tests.
  */
 export const presetsFailed: LookSource = {
   id: 'presetsFailed',
@@ -146,23 +145,6 @@ export const presetsUnsure: LookSource = {
   order: 20,
   rows: (w) => presetsOf(w).warn,
   rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() }),
-};
-
-/**
- * `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it,
- * keyed by the newest behaviour no golden covers. Advice: it states every uncovered behaviour, so a
- * golden packed for one keeps it put away, and a behaviour seen since brings it back.
- */
-export const coverage: LookSource = {
-  id: 'coverage',
-  group: 'tests',
-  order: 30,
-  rows: (w) => {
-    const newest = coverageNewest(w.store);
-    if (!newest) return [];
-    const { kind, icon, title, detail, href, runId, fixId, at } = newest.look;
-    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at, advice: adviceOf('coverage', newest.uncovered) }];
-  },
 };
 
 export const decisions: LookSource = {

@@ -161,6 +161,25 @@ describe('an injection job’s end', () => {
   });
 });
 
+describe('the presets’ and coverage’s ends', () => {
+  const presets = (code: number, line: string) => jobHeader({ kind: 'chaos', title: 'Running error-path presets', args: ['replay', 'X', '--chaos'], done: true, code }, [line]);
+  const pack = (code: number, golden: string | null) => jobHeader({ kind: 'coverage-pack', title: 'Packing 3f9a2c1d as golden', args: ['coverage', '--pack', '3f9a2c1d00000000'], done: true, code, result: { pack: [{ key: '3f9a2c1d00000000', golden, reason: golden ? null : 'diverged' }] } }, []);
+
+  it('says the presets’ verdict with no golden tally, and their real code: inconclusive exits 3', () => {
+    expect(presets(1, '1 passed, 2 failed · 5 upstream requests')).toEqual({ title: 'Ran error-path presets', text: 'failed · exit 1', tone: 'err' });
+    expect(presets(3, '2 passed, 0 failed, 1 inconclusive · 3 upstream requests')).toEqual({ title: 'Ran error-path presets', text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(presets(0, '3 passed, 0 failed · 3 upstream requests')).toEqual({ title: 'Ran error-path presets', text: 'passed · exit 0', tone: 'ok' });
+  });
+
+  it('says a scan read, and a pack whether it wrote the golden, never repeating its title', () => {
+    expect(jobHeader({ kind: 'coverage', title: 'Scanning coverage', args: ['coverage'], done: true, code: 0 }, [])).toEqual({ title: 'Scanned coverage', text: 'read · exit 0', tone: 'ok' });
+    expect(pack(0, 'goldens/triage.json')).toEqual({ title: 'Packed 3f9a2c1d as golden', text: 'exit 0', tone: 'ok' });
+    expect(pack(1, null)).toEqual({ title: 'Tried packing 3f9a2c1d as golden', text: 'not packed · exit 1', tone: 'err' });
+    // A pack that never got to report one is the generic words'.
+    expect(jobStatus(done({ kind: 'coverage-pack', title: 'Packing 3f9a2c1d as golden', args: ['coverage', '--pack', 'x'], code: 2 }), ['✗ no such behaviour']).text).not.toMatch(/packed/);
+  });
+});
+
 describe('the drawer’s header', () => {
   it('a preview ends finished, or inconclusive in amber where it settled nothing, and its read of the working tree read', () => {
     const preview = (code: number) => done({ kind: 'decisions', title: 'Previewing model switch', args: ['decisions', 'goldens/refund', '--model', 'claude-haiku-4-5'], code });

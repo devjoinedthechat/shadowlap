@@ -98,7 +98,9 @@ table.gt .chk .ck.injck a.cw:hover { text-decoration: underline; text-decoration
 .gtw .tscroll table.gt td.hist { white-space: nowrap; }
 .gtw table.gt th.gg { width: 210px; }
 .gtw table.gt td.gg { min-width: 150px; }
-.gtw table.gt .gn { display: block; font-size: 13px; color: var(--ink); white-space: nowrap; }
+/* a golden packed from production is named as coverage --pack names it (its first tool, its writes, its key): a long name
+   wraps after a hyphen rather than widen the table past its panel */
+.gtw table.gt .gn { display: block; font-size: 13px; color: var(--ink); white-space: normal; }
 .gtw table.gt .gmeta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; color: var(--faint); font-size: 12px; }
 .gtw table.gt .gmeta .chip { cursor: default; }
 /* where a golden came from stays on one line under its name; its link is quiet, never the loudest text in the row */
@@ -293,6 +295,18 @@ table.sect td.sreads .nw { margin-right: 10px; }
   table.sect td.sreads, table.sect td:nth-child(3) { grid-column: 1 / -1; }
   table.sect td.num { grid-column: 2; grid-row: 1; justify-self: end; }
 }
+/* A golden's error-path presets under its checks (PresetsStrip), as the design draws them: `error-path presets`, which opens the
+   recording with their results, a cell a preset in its verdict's colour (one picture, each cell's card on hover), then the counts,
+   which open the attempt that proves the verdict; before they have run, `not run yet` and Run error-path presets… */
+table.gt .chk .gpstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: 12px; }
+table.gt .chk .gpstrip :is(.gpk, .gpn) { display: inline; flex: none; font-size: 12px; color: var(--faint); text-decoration: none; }
+table.gt .chk .gpstrip a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+table.gt .chk .gpstrip .pcells { display: inline-flex; gap: 3px; }
+.gpstrip .pc { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--cq-muted); }
+.gpstrip .pc.ok { background: var(--cq-lime); }
+.gpstrip .pc.err { background: var(--cq-red); }
+.gpstrip .pc.warn { background: var(--cq-amber); }
+@media (forced-colors: active) { .gpstrip .pc { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; } }
 
 /* A golden's report under its row, the table's full width, its name the row's (a heading for a screen reader, hidden on the
    page); folded, its row takes no room. Its verdict line, then each part under its name in words in the margin (over it on a

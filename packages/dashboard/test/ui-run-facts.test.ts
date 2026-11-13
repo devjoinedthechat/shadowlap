@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { factCard } from '../ui/outcome-card.js';
 import { attemptOutcome } from '../ui/run/banner.js';
 import { outcomeFact } from '../ui/run/metrics.js';
 import type { PresetAttempt } from '../ui/run/preset.js';
@@ -14,7 +15,8 @@ const FORK: RunLike = { runId: '01K8RG00000000000000000002', parentRunId: '01K8R
 const PRESET: PresetAttempt = { label: 'tool timeout', golden: 'goldens/list-inbox', callNo: 2, target: 'list_inbox', verdict: 'failed', attempt: 1, of: 1, played: 'list_inbox (#2) timed out', outcome: 'the agent exited with code 1 (TimeoutError)', exitCode: 1 };
 const fact = (o: Parameters<typeof outcomeFact>[1]) => {
   const f = outcomeFact(FORK, o);
-  return [f.tone, f.words, f.tip?.title ?? null, f.tip?.sub ?? null];
+  const tip = factCard(f);
+  return [f.tone, f.words, tip?.title ?? null, tip?.sub ?? null];
 };
 
 describe('a run’s first fact', () => {

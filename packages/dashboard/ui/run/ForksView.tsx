@@ -14,6 +14,8 @@ import { goldenName } from './offers.js';
 import { useOfflineLink } from '../components/ActionButton.js';
 import { byResult, testedRuns } from '../injection/fork-node.js';
 import { TestNode } from '../injection/TestNode.js';
+import { inPresets, presetSessions } from '../presets/fork-node.js';
+import { PresetsNode } from '../presets/PresetsNode.js';
 import type { InjectionRow } from '../types.js';
 
 /**
@@ -24,6 +26,8 @@ import type { InjectionRow } from '../types.js';
  * test session, and blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
  * Each injection test kept for a run, a gate's and a --clean answer's too, is one node under it, its
  * replays drawn in it (injection/TestNode.tsx); a test whose result is gone stays a `--repeat` bundle.
+ * A session's error-path presets on a recording are one node under it, its attempts drawn in it
+ * (presets/PresetsNode.tsx); an attempt something was made from is a node under it, with what was made.
  */
 
 /**
@@ -63,6 +67,7 @@ export function ForksView({ runId }: { runId: string }) {
   const replays = byResult(nodes);
   // A kept test's replays are drawn in its node, never again as forks or a --repeat's bundle.
   const inTest = (n: LineageNode) => !!n.injection && kept.has(n.injection.result);
+  const presets = presetSessions(nodes);
   const kids = new Map<string | null, LineageNode[]>();
   const ids = new Set(nodes.map((n) => n.runId));
   for (const n of nodes) {
@@ -75,9 +80,6 @@ export function ForksView({ runId }: { runId: string }) {
     const here = n.runId === runId || n.runId.startsWith(runId);
     // The kind, unless the about line says it already ("clean replay").
     const said = n.about && !line.err && line.text.startsWith(`${n.about.text} · `) ? n.about.text.length + 3 : 0;
-    // A preset's attempt that failed or couldn't say, by the verdict of the session that decided it
-    // (the lineage carries it, an earlier session's too): its run alone reads as a healthy fork.
-    const presetWord = !line.err && n.preset && n.preset.verdict !== 'passed' ? n.preset.verdict : null;
     return (
       <a key={n.runId} className={`fnode${here ? ' here' : ''}`} href={href.run(n.runId, n.divergence?.callNo ?? null)}>
         <RunIcon run={r} className="" />
@@ -89,12 +91,6 @@ export function ForksView({ runId }: { runId: string }) {
           </span>
           <span className="f2 block">
             {line.err ? <em>{line.err}</em> : null}
-            {presetWord ? (
-              <>
-                <em className={presetWord === 'inconclusive' ? 'inc' : undefined}>{`preset ${presetWord}`}</em>
-                {' · '}
-              </>
-            ) : null}
             {line.text.slice(said)}
           </span>
           {n.checks ? (
@@ -119,7 +115,7 @@ export function ForksView({ runId }: { runId: string }) {
   };
   const ruleOf = (b: FixBundle): string | null => once(b.rule);
   const family = (parent: string | null): ReactNode => {
-    const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId) && !inTest(n)).sort((a, b) => a.startedAt - b.startedAt);
+    const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId) && !inTest(n) && !inPresets(n)).sort((a, b) => a.startedAt - b.startedAt);
     // The fork blame rescued a run with is one of its attempts, but it shows as a fork of its own.
     const repeated = (n: LineageNode) => !!n.repeat && !fixes.rescued.has(n.runId);
     const groups = new Map<string, LineageNode[]>();
@@ -148,6 +144,17 @@ export function ForksView({ runId }: { runId: string }) {
     // The run's kept injection tests, after its forks and bundles, oldest first as they are.
     const own = rows.filter((r) => r.runId === parent).sort((a, b) => a.at - b.at);
     for (const r of own) items.push(<TestNode key={r.resultId} row={r} runs={replays.get(r.resultId) ?? []} current={runId} rule={once(r.rule)} />);
+    // Its error-path presets, a session's attempts a node, oldest first; under it, an attempt something
+    // was made from (a fork, a Repeat, a fix's bundle, a test) with what was made of it.
+    for (const attempts of (parent && presets.get(parent)) || []) {
+      const key = `presets:${attempts[0]!.preset.session}`;
+      items.push(<PresetsNode key={key} attempts={attempts} current={runId} />);
+      const made = attempts.flatMap((a) => {
+        const sub = family(a.runId);
+        return sub ? [node(a), <Fragment key={`${a.runId}:kids`}>{sub}</Fragment>] : [];
+      });
+      if (made.length) items.push(<div key={`${key}:made`} className="fkids">{made}</div>);
+    }
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };

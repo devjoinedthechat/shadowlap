@@ -1,8 +1,9 @@
 import { tipCard } from './HoverCard.js';
 
-/** A chip a dialog picks with: its id, and its title and text for the card on hover. */
+/** A chip a dialog picks with: its id, the words it shows where they aren't its id (a preset's label), and its title and text for the card on hover. */
 export interface ToggleChip {
   id: string;
+  label?: string | undefined;
   title?: string | undefined;
   text?: string | undefined;
 }
@@ -18,7 +19,7 @@ export function ToggleChips({ chips, picked, onToggle, labelledBy }: { chips: re
     <div className="chips togchips" role="group" aria-labelledby={labelledBy}>
       {chips.map((c) => (
         <button key={c.id} type="button" aria-pressed={picked.includes(c.id)} {...(c.title ? { 'data-tip': tipCard(c.title, [], c.text) } : {})} onClick={() => onToggle(c.id)}>
-          {c.id}
+          {c.label ?? c.id}
         </button>
       ))}
     </div>

@@ -87,10 +87,14 @@ export const failedBy = (c: Pick<CallLike, 'origin' | 'status' | 'error'>): Fail
 /**
  * A failed model call's note, as the inspector leads with it (CallNote, which then says what its
  * view shows) and Compare's opened row says it: its word, then why, in parts, the flag Shadowlap
- * answered with as code (`--fail-at 19=529` where the fork's flag is one) and the attempts it took.
+ * answered with as code (`--fail-at 19=529` where the fork's flag is one) and the attempts it took;
+ * an error-path preset's attempt, the preset that played in (`played`).
  */
-export function failureNote(c: Pick<CallLike, 'status' | 'error' | 'attempts'>, by: FailedBy, flag: string | null): { word: string; why: Array<string | { code: string }> } {
-  if (by === 'injected') return { word: 'Never sent.', why: [`Shadowlap answered with HTTP ${c.status ?? '?'} (`, { code: flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at' }, `)${c.attempts ? `, ${c.attempts + 1} attempts` : ''}.`] };
+export function failureNote(c: Pick<CallLike, 'status' | 'error' | 'attempts'>, by: FailedBy, flag: string | null, played: string | null = null): { word: string; why: Array<string | { code: string }> } {
+  const tries = c.attempts ? `, ${c.attempts + 1} attempts` : '';
+  // An error-path preset's attempt names its preset, in place of the flag.
+  if (by === 'injected' && played) return { word: 'Never sent.', why: [`The ${played} preset answered with HTTP ${c.status ?? '?'}${tries}.`] };
+  if (by === 'injected') return { word: 'Never sent.', why: [`Shadowlap answered with HTTP ${c.status ?? '?'} (`, { code: flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at' }, `)${tries}.`] };
   if (by === 'offline') return { word: 'Refused.', why: [`The replay is offline and this request is not in the recording, so it got HTTP ${c.status ?? '?'}.`] };
   return { word: 'Failed.', why: [failedWhy(c)] };
 }

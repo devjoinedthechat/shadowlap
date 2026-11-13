@@ -3,6 +3,7 @@ import { applyDeltas } from '../../../engine/src/deltas.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
 import type { Block, CallDetail, CallRow, Delta, RunNote } from '../api.js';
 import type { RunInjection } from '../types.js';
+import type { PresetAttempt } from './preset.js';
 import { Conversation, useFormatJson } from '../components/Conversation.js';
 import { Org, Seg } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
@@ -70,14 +71,20 @@ export interface InspectorProps {
   check?: CheckEntry | undefined;
   /** Find cause… after it, on a write after an untrusted read (injection/FindCause.tsx, a part none in a copy). */
   cause?: CauseView | null | undefined;
+  /** An error-path preset's attempt: the preset its notes name at the call it played in at (run/preset.ts). */
+  preset?: PresetAttempt | null | undefined;
 }
 
-export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection, check, cause }: InspectorProps) {
+/** The preset that played in at a call of its attempt, which the notes name in place of --fail-at's; null at any other call. */
+const playedAt = (p: PresetAttempt | null | undefined, callNo: number): string | null => (p?.callNo === callNo ? p.label : null);
+
+export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection, check, cause, preset }: InspectorProps) {
   const { FindCause } = useServedParts();
   const page = useAttemptPage(injection);
   const marks = useMemo(() => (page ? page.attemptMarks(injection) : NO_MARKS), [page, injection]);
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
+  const played = playedAt(preset, call.callNo);
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
   // A model call's model, then its tokens and latency: a long model id gives way, the numbers stay in view.
   const rest = call.kind === 'api' ? [tokensText(call), call.origin === 'replayed' || call.latencyMs === null ? null : dur(call.latencyMs)].filter(Boolean).join(' · ') : '';
@@ -123,7 +130,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
       <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} />
       <div className="ibody" id="ibody" key={`${runId}:${call.callNo}:${tab}`} role="tabpanel" aria-labelledby={`itab-${tab}`} tabIndex={-1}>
         <MarksContext.Provider value={marks}>
-          {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} flag={flag ?? null} />}
+          {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} played={played} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} played={played} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} flag={flag ?? null} played={played} />}
         </MarksContext.Provider>
       </div>
     </section>
@@ -132,7 +139,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
 
 // ---------------------------------------------------------------------------------------------- conversation
 
-function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; change: InspectorProps['change']; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
+function ConversationTab({ detail, calls, change, flag, played, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; change: InspectorProps['change']; flag: string | null; played: string | null; onSelect?: ((n: number) => void) | undefined }) {
   const c = detail.call;
   const [format] = useFormatJson();
   const { mark } = useContext(MarksContext);
@@ -154,7 +161,7 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
   const which = k && conversations > 1 ? ` · conversation ${num(k)} of ${num(conversations)}` : '';
   // Which call each message came from, when the server names the tool calls' ids.
   const from = detail.conversation ? turnCalls(detail.conversation.turns, calls) : undefined;
-  return <Conversation detail={detail} from={from} which={which} change={change} note={<CallNote c={c} flag={flag} />} />;
+  return <Conversation detail={detail} from={from} which={which} change={change} note={<CallNote c={c} flag={flag} played={played} />} />;
 }
 
 /** A failed model call's words in each place, by who answered it. */
@@ -171,10 +178,10 @@ function answeredBy(c: CallDetail['call']): FailedBy | null {
  * What happened to a call that ended in an error, over its conversation: the verdict on a line of its own in its colour
  * (Never sent., Refused., Failed.), then why, a plain line over a hairline as the mock draws it.
  */
-export function CallNote({ c, flag }: { c: CallDetail['call']; flag: string | null }) {
+export function CallNote({ c, flag, played = null }: { c: CallDetail['call']; flag: string | null; played?: string | null }) {
   if (c.outcome !== 'error') return null;
   const by = failedBy(c);
-  const note = failureNote(c, by, flag);
+  const note = failureNote(c, by, flag, played);
   return (
     <div className={`inote ${by === 'injected' ? 'inj' : 'err'}`}>
       <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))} {SHOWN[by]}
@@ -219,13 +226,13 @@ function blocksText(blocks: Block[]): { think: string; text: string } {
 
 const SPEEDS = [1, 2, 4, 0] as const;
 
-function ResponseTab({ detail }: { detail: CallDetail }) {
+function ResponseTab({ detail, played }: { detail: CallDetail; played: string | null }) {
   const c = detail.call;
   const [raw, setRaw] = useState(false);
   const marks = useContext(MarksContext);
   if (c.kind !== 'api') {
     const result = detail.result as { result?: unknown; error?: { name?: string; message?: string } } | null;
-    const head = marks.head(c.callNo) ?? (c.origin === 'blocked' ? (c.effect === 'read' ? 'Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:' : 'Blocked: a write tool after the fork, so the agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:');
+    const head = marks.head(c.callNo) ?? (played ? `Played in by the ${played} preset${result?.error ? `: ${c.name} didn’t run, and the agent got this error:` : ', in place of the recorded result:'}` : c.origin === 'blocked' ? (c.effect === 'read' ? 'Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:' : 'Blocked: a write tool after the fork, so the agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:');
     return (
       <>
         <div className="ibar">
@@ -391,13 +398,16 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 // ---------------------------------------------------------------------------------------------- details
 
 /** Details' Origin and Outcome: what made the call, an overridden one by the flag that did, and who answered a failed one. */
-function originRows(c: CallDetail['call'], flag: string | null): Array<[string, ReactNode]> {
+function originRows(c: CallDetail['call'], flag: string | null, played: string | null): Array<[string, ReactNode]> {
   const origin = originOf(c);
   const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
-  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>answered by Shadowlap with --fail-at</small></> : over ? <>{c.origin} <small>{over}</small></> : c.origin;
+  // The preset a call was played in by, said once for its Origin and its Outcome.
+  const pre = played && `by the ${played} preset`;
+  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>{pre || 'answered by Shadowlap with --fail-at'}</small></> : over || (origin === 'over' && pre) ? <>{c.origin} <small>{pre || over}</small></> : c.origin;
   const http = c.status ? ` · HTTP ${c.status}` : '';
   const by = answeredBy(c);
-  const outcome = c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${http}` : <>error{http}{by ? <small> {OUTCOME_BY[by]}</small> : null}</>;
+  const said = pre ? `${pre}${c.kind === 'api' ? ', never sent' : '; the tool didn’t run'}` : by && OUTCOME_BY[by];
+  const outcome = c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${http}` : <>error{http}{said ? <small> {said}</small> : null}</>;
   return [['Origin', made], ['Outcome', outcome]];
 }
 
@@ -420,9 +430,9 @@ function spendRows(c: CallDetail['call']): Array<[string, ReactNode]> {
   return rows;
 }
 
-function DetailsTab({ runId, detail, models, flag }: { runId: string; detail: CallDetail; models?: Readonly<Record<string, string>> | undefined; flag: string | null }) {
+function DetailsTab({ runId, detail, models, flag, played }: { runId: string; detail: CallDetail; models?: Readonly<Record<string, string>> | undefined; flag: string | null; played: string | null }) {
   const c = detail.call;
-  const rows: Array<[string, ReactNode]> = originRows(c, flag);
+  const rows: Array<[string, ReactNode]> = originRows(c, flag, played);
   if (c.effect) rows.push(['Effect', c.effect]);
   if (c.scope) rows.push(['Scope', c.scope]);
   if (c.agent && (c.agent !== c.scope || c.spawnedBy)) rows.push(['Agent', c.spawnedBy ? <>{c.agent}<small> started by #{c.spawnedBy}</small></> : c.agent]);
