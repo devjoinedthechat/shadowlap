@@ -6,8 +6,8 @@ import type { PreviewNext } from '../src/decision-view.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { gateRuleOf } from '../src/verdict.js';
 import { ARTICLES, SMALL } from '../ui/typeset.js';
-import type { DecisionSessionDetail, TestsView } from '../ui/types.js';
-import { dash, demoId, RESET_RETRY, serveDashboard, sideways, type Served } from './dashboard.js';
+import type { DecisionSessionDetail, NextStep, TestsView } from '../ui/types.js';
+import { dash, demoId, patched, RESET_RETRY, serveDashboard, sideways, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
 import { asksFirst, at, cardStates, click, DIALOG, dialogWalk, escape, fixes, injectionRoutes, menu, overlayStates, press, PREVIEW, previewed, ROUTES, run, runs, settled, show, type RouteState, type State } from './routes.js';
 import { routeTestsFixture } from './tests-fixture.js';
@@ -289,6 +289,27 @@ async function routeHeldElsewhere(page: Page): Promise<void> {
 /** The page that says another project holds what the link names, drawn once the holding read has answered. */
 const HELD = 'main#view .ph .eyebrow:has-text("in another project")';
 
+/**
+ * A run whose injection test showed too little to say, so its one next step is Re-run injection
+ * test, which asks with what it bills (B6): the demo keeps no such test. Its price as the engine words
+ * a re-run's (injectionAgainEstimate), a part a phone's line can't hold whole at 360.
+ */
+async function routeInjectionAgain(page: Page, runId: string): Promise<void> {
+  const next: NextStep = {
+    key: 'injection-again',
+    label: 'Re-run injection test',
+    runId,
+    job: { repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false },
+    command: `shadowlap injection ${runId.slice(0, 10)} --templates system-notice --repeat 2`,
+    sub: 'It showed too little to say: no model read it',
+    estimate: { kind: 'injection', usd: 3.11, ceiling: false, note: 'as the last test’s 72 attempts and 6 clean replays', parts: ['live from each read, writes stubbed'] },
+  };
+  await page.route(
+    (url) => url.pathname === `/api/runs/${runId}`,
+    (route) => patched<object>(route, (run) => ({ ...run, next })),
+  );
+}
+
 /** What the demo can't draw, by answers routed for the page's life: last. */
 const unshown = (page: Page): Step[] => [
   ['Tests with a history gate’s rule', async () => {
@@ -305,6 +326,16 @@ const unshown = (page: Page): Step[] => [
     await at(page, '/changes/migrate/mg-01M5000000000000000000000Z', HELD)();
   }, true],
   ['a preview another project holds', at(page, '/changes/decisions/dc-01M5000000000000000000000Z', HELD), true],
+  ['a run whose injection test showed too little', async () => {
+    await routeInjectionAgain(page, id('chat'));
+    await run(page, id('chat'))();
+  }],
+  ['Re-run injection test’s ask, its price a part wider than a phone’s line', async () => {
+    // a step that isn't there says so soon: there is no waiting it out
+    await page.locator('.rhead .actions button', { hasText: 'Re-run injection test' }).waitFor({ timeout: 20_000 });
+    await click(page, '.rhead .actions button', 'Re-run injection test', { shows: `${DIALOG} .dcost` })();
+  }, true],
+  ['Re-run injection test’s ask closed', escape(page)],
 ];
 
 /** A demo run's id by its name. */
@@ -407,7 +438,7 @@ for (const width of WIDTHS) {
   test(`every run of the demo, and every view of a few more, at ${width}px breaks lines only where the rules allow`, async ({ page }) => {
     expect(await walk(page, width, runSteps(page))).toEqual([]);
   });
-  test(`every fix’s steps, a history gate’s rule, Migrate’s one ask and a session another project holds at ${width}px break lines only where the rules allow`, async ({ page }) => {
+  test(`every fix’s steps, a history gate’s rule, Migrate’s one ask, a session another project holds and Re-run injection test’s ask at ${width}px break lines only where the rules allow`, async ({ page }) => {
     await asksFirst(page);
     expect(await walk(page, width, [...fixSteps(page), ...unshown(page)])).toEqual([]);
   });
