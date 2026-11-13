@@ -184,7 +184,7 @@ describe('the decision read models', () => {
 });
 
 describe('the decision routes', () => {
-  it('lists the sessions newest first, with the goldens\' models that retire', async () => {
+  it('lists the sessions newest first, and leaves the goldens\' models that retire to their own read', async () => {
     const res = await api(dash, 'decisions');
     expect(res.status).toBe(200);
     expect(res.headers.get('etag')).toBeTruthy();
@@ -194,7 +194,8 @@ describe('the decision routes', () => {
       ['mg-01M5000000000000000000000B', 'migrate', 1, 1, '#/changes/migrate/mg-01M5000000000000000000000B'],
       ['dc-01M5000000000000000000000A', 'decisions', 2, 2, '#/changes/decisions/dc-01M5000000000000000000000A'],
     ]);
-    expect(view.retirements.notices.map((n) => n.model)).toEqual(['claude-sonnet-4-5-20250929']);
+    // Reading every golden's calls belongs on the pool: GET /api/retirements and Migrate's start read have them.
+    expect('retirements' in view).toBe(false);
     const only = (await (await api(dash, 'decisions?kind=decisions')).json()) as DecisionsListView;
     expect(only.sessions.map((s) => s.kind)).toEqual(['decisions']);
     expect((await api(dash, 'decisions?kind=other')).status).toBe(400);
@@ -215,17 +216,30 @@ describe('the decision routes', () => {
     expect(retirements.notices.map((n) => n.model)).toEqual(['claude-sonnet-4-5-20250929']);
   });
 
+  it('reads what the working tree sends the runs as a job of its own, offline, titled as the CLI says it', async () => {
+    const read = await startJob(dash, { kind: 'decisions-read', goldens: ['goldens/refund'], runs: [failed], scope: 'billing' });
+    expect(read.status).toBe(202);
+    expect(await read.json()).toMatchObject({ kind: 'decisions-read', title: 'Reading what your working tree sends' });
+    expect(spawned.at(-1)).toEqual(['decisions', failed, 'goldens/refund', '--scope', 'billing', '--from-code', '--dry-run']);
+    expect((await startJob(dash, { kind: 'decisions-read' })).status).toBe(400);
+  });
+
   it('builds the decisions job from what the page names, and refuses what it cannot check', async () => {
     const asked = await startJob(dash, { kind: 'decisions', goldens: ['goldens/refund'], runs: [failed], model: 'claude-sonnet-5-5', set: { temperature: 0 }, samples: 3 });
     expect(asked.status).toBe(202);
+    // Titled by the way it previews, in the engine's words: a model wherever one is named, the fields only where none is.
+    expect(await asked.json()).toMatchObject({ kind: 'decisions', title: 'Previewing model switch' });
     expect(spawned.at(-1)).toEqual(['decisions', failed, 'goldens/refund', '--model', 'claude-sonnet-5-5', '--set', 'temperature=0', '--samples', '3']);
     // One sample is asked for as such: left out, the CLI would ask 3 under the change and 3 as recorded.
     expect((await startJob(dash, { kind: 'decisions', runs: [failed], model: 'claude-sonnet-5-5', samples: 1 })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', failed, '--model', 'claude-sonnet-5-5', '--samples', '1']);
     const fromCode = await startJob(dash, { kind: 'decisions', goldens: 'all', fromCode: true, thenVerify: true });
     expect(fromCode.status).toBe(202);
+    expect(await fromCode.json()).toMatchObject({ title: 'Previewing changed prompt' });
     // None given: the CLI's own, six requests a step.
     expect(spawned.at(-1)).toEqual(['decisions', 'goldens/refund', '--from-code', '--then-verify']);
+    const fields = await startJob(dash, { kind: 'decisions', runs: [failed], set: { temperature: 0 } });
+    expect(await fields.json()).toMatchObject({ title: 'Previewing field change' });
     for (const [body, error] of [
       [{ kind: 'decisions', goldens: ['goldens/refund'] }, 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree'],
       [{ kind: 'decisions', model: 'claude-sonnet-5-5' }, 'name the runs or goldens to ask again: runs, goldens, or goldens "all"'],
@@ -251,10 +265,15 @@ describe('the decision routes', () => {
 
   it("verifies the runs a session flagged with decisions --verify, which judges each by its golden's own checks", async () => {
     // The CLI reads each golden's checks and each run's role itself: one verify per set of checks, whatever the goldens are.
-    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', runId: refunded })).status).toBe(202);
+    const one = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', runId: refunded });
+    expect(one.status).toBe(202);
+    // Titled by the run it takes, or how many: the drawer's words while it runs.
+    expect(await one.json()).toMatchObject({ kind: 'decisions-verify', title: `Verifying ${refunded.slice(0, 10)}` });
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A', refunded]);
     // A bare yes says yes to no question: none of the session's runs is someone else's, so nothing is asked, nor passed on.
-    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', yes: true })).status).toBe(202);
+    const every = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', yes: true });
+    expect(every.status).toBe(202);
+    expect(await every.json()).toMatchObject({ title: 'Verifying 2 runs' });
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A']);
     expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B' })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'mg-01M5000000000000000000000B']);
@@ -281,16 +300,27 @@ describe('the decision routes', () => {
     }
   });
 
-  it("leaves each run it verifies to verify's own gate: no job gives a count or a gate of its own", async () => {
+  it("leaves each run it verifies to verify's own gate unless Run more attempts raises a limit: no job gives a count, or a gate of its own", async () => {
     const jobs = [
       { kind: 'decisions', goldens: 'all', model: 'claude-sonnet-5-5', thenVerify: true },
       { kind: 'migrate', to: 'claude-haiku-4-5' },
       { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A' },
       { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B' },
     ];
+    await jobsEnded(dash);
     for (const body of jobs) {
       expect((await startJob(dash, body)).status, JSON.stringify(body)).toBe(202);
-      expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive'].includes(a)), JSON.stringify(body)).toEqual([]);
+      expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive', '--kept-max'].includes(a)), JSON.stringify(body)).toEqual([]);
+    }
+    // Run more attempts raises only the limits: a failing run's attempts, the gate's other figures as the session's verify had them (its defaults here), and a good run's pairs.
+    const more = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', max: 160, keptMax: 400 });
+    expect(more.status).toBe(202);
+    expect(((await more.json()) as { title: string }).title).toBe('Running more attempts');
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A', '--gate', '{"max":160}', '--kept-max', '400']);
+    for (const [bad, said] of [[{ max: 0 }, 'max is the most attempts a run takes, a whole number up to 1000'], [{ max: 1001 }, 'max is the most attempts'], [{ keptMax: 2.5 }, 'keptMax is the most pairs a good run takes']] as const) {
+      const r = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', ...bad });
+      expect(r.status, JSON.stringify(bad)).toBe(400);
+      expect(((await r.json()) as { error: string }).error).toContain(said);
     }
   });
 

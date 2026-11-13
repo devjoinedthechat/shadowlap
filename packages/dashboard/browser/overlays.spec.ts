@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { GLOSSARY } from '../ui/glossary.js';
-import { demoId, focusedLabel, openPage, seriousViolations } from './dashboard.js';
+import { demoId, focusedLabel, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 
 /**
@@ -35,7 +35,7 @@ const twoProjects = (page: Page) =>
     const headers = { ...route.request().headers() };
     delete headers['if-none-match'];
     try {
-      const res = await route.fetch({ headers });
+      const res = await route.fetch({ headers, ...RESET_RETRY });
       const view = (await res.json()) as { items: Array<Record<string, unknown>> };
       const first = { ...view.items[0], removable: true };
       await route.fulfill({ response: res, json: { ...view, items: [first, { ...first, id: 'research', name: 'research', current: false, detail: 'setting up' }] } });

@@ -14,7 +14,8 @@ export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fix
 export type { FixLead } from '../src/fix-lead.js';
 export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
-export type { InjectionRow, RunInjection, ToolTrustRow } from '../src/injection.js';
+export type { InjectionRow, RunInjection } from '../src/injection.js';
+export type { ToolTrustRow } from '../src/tool-trust.js';
 // What a run's page draws of them: a result's panel (its matrix's reads, payloads and cells), an attempt's plant, a report's preview.
 export type { AttemptPlant, InjectionCellView, InjectionPanelView } from '../src/injection-view.js';
 export type { ReportPreview } from '../src/injection-report.js';
@@ -551,6 +552,10 @@ export type { CellOpen, Toned } from '../src/decision-cells.js';
 export type { PreviewCounts, PreviewKeyEntry, PreviewNext, PreviewReceipt, PreviewRowFacts, PreviewSession, PreviewVerify, PreviewView } from '../src/decision-view.js';
 export type { DecisionChange, DecisionRun, DecisionStep, DecisionsReport, DecisionView } from '../../engine/src/decisions.js';
 export type { RetirementNotice } from '../../engine/src/model-retirements.js';
+// Changes › Migrate: what its bare tab opens on, and a migration worded whole for its page.
+export type { MigrateRetiring, MigrateStartView, MigrateUse } from '../src/migrate-start.js';
+export type { MigrateApplyOffer, MigrateChange, MigratePass, MigrateView } from '../src/migrate-view.js';
+export type { AppliedGolden, AppliedState } from '../src/migrate-applied.js';
 /** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws and its `view`, worded on the server. */
 export type DecisionSessionDetail = import('../src/decision-view.js').PreviewSession;
 /** A run's decisions under each session that asked it again, newest first. */

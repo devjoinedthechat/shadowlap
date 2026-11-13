@@ -1,5 +1,5 @@
 import { InvalidArgumentError } from 'commander';
-import { ACTIONS, describeBaselineRule, describeGate, dimLines, formatVerify, KEPT_DEFAULTS, SPRT_DEFAULTS, type ReadPolicy, type RunRecord, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { ACTIONS, describeBaselineRule, describeGate, dimLines, formatVerify, GATE_MAX_ATTEMPTS, KEPT_DEFAULTS, SPRT_DEFAULTS, type ReadPolicy, type RunRecord, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -44,6 +44,7 @@ export interface VerifyCommandFlags {
   timeout?: number;
   failFast?: boolean;
   margin?: number;
+  keptMax?: number;
   baseline?: 'paired' | 'history';
   base?: string;
   build?: string;
@@ -80,7 +81,7 @@ export async function verifyRuns(opts: GlobalOpts, command: string[], flags: Ver
   const report = await runVerify({
     opts,
     runs,
-    settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from?.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec: expect?.spec ?? null, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool ?? [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)], ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}) },
+    settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from?.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec: expect?.spec ?? null, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool ?? [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)], ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}), ...(flags.keptMax !== undefined ? { keptMax: flags.keptMax } : {}) },
     log,
   }).finally(() => progress.done());
   reportVerify(opts, report, request, command, flags);
@@ -96,7 +97,8 @@ function parseVerify(flags: VerifyCommandFlags): VerifyRequest {
   if (flags.from?.length && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
   const source = flags.baseline ?? loadConfig(process.cwd()).verify?.baseline ?? 'paired';
   if (source === 'history' && (flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('--base and --build check out the code a paired baseline runs at: give them without --baseline history');
-  if (!rule.gate && (flags.margin !== undefined || flags.baseline !== undefined || flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('a fixed count (--attempts, --passes) judges every run on its own: --margin, --baseline, --base and --build are for the gate, which keeps a good run against its baseline');
+  if (!rule.gate && (flags.margin !== undefined || flags.keptMax !== undefined || flags.baseline !== undefined || flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('a fixed count (--attempts, --passes) judges every run on its own: --margin, --kept-max, --baseline, --base and --build are for the gate, which keeps a good run against its baseline');
+  if (flags.keptMax !== undefined && (flags.keptMax < 1 || flags.keptMax > GATE_MAX_ATTEMPTS)) throw new InvalidArgumentError(`--kept-max is a whole number from 1 to ${GATE_MAX_ATTEMPTS}`);
   if (source === 'history') return { rule, expect, fields, baseline: { source: 'history' } };
   const found = resolveBase(process.cwd(), { base: flags.base, fields: Object.keys(fields).length > 0, build: flags.build ?? null });
   // A commit named that isn't one is a mistake; a working tree with nothing to compare is not.
@@ -134,7 +136,7 @@ function chooseRuns(opts: GlobalOpts, flags: VerifyCommandFlags): Map<string, { 
  * What the verification will do, said before it starts: the runs by role, how each decides, and how a
  * good run that forks is kept, each dim line fit to a terminal `columns` wide (null: a pipe or a file).
  */
-export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'baseline'>, runs: ReadonlyArray<{ role: VerifyRole }>, flags: Pick<VerifyCommandFlags, 'writes' | 'budget' | 'margin'>, columns: number | null): string[] {
+export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'baseline'>, runs: ReadonlyArray<{ role: VerifyRole }>, flags: Pick<VerifyCommandFlags, 'writes' | 'budget' | 'margin' | 'keptMax'>, columns: number | null): string[] {
   const n = (role: VerifyRole) => runs.filter((r) => r.role === role).length;
   const counts = [n('target') ? `${n('target')} to fix` : '', n('holdout') ? `${n('holdout')} held out` : '', n('good') ? `${n('good')} to keep` : ''].filter(Boolean).join(', ');
   const decides = rule.gate ? `each run's gate: ${describeGate(rule.gate)}` : `a run passes at ${rule.needed} of ${rule.attempts} attempts`;
@@ -142,7 +144,7 @@ export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'bas
   // How a good run that forks is kept: against its baseline, or, when there is none, by its gate alone.
   if (rule.gate && n('good')) {
     const margin = flags.margin ?? loadConfig(process.cwd()).verify?.margin ?? KEPT_DEFAULTS.margin;
-    const max = loadConfig(process.cwd()).verify?.max ?? KEPT_DEFAULTS.max;
+    const max = flags.keptMax ?? loadConfig(process.cwd()).verify?.max ?? KEPT_DEFAULTS.max;
     if (baseline.source === 'none') lines.push(...dimLines(p, '  ', `a good run that forks: by its gate on its own, as ${baseline.why}`, columns));
     else lines.push(...dimLines(p, '  ', `a good run that forks: ${describeBaselineRule({ margin, risk: rule.gate.risk, max, source: baseline.source, revision: baseline.source === 'paired' ? (baseline.base.revision ? baseline.base.label : 'the working tree, without the change') : null })}`, columns));
   }
@@ -155,7 +157,7 @@ export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'bas
  * as text or JSON, what its attempts ran unrecorded, its job's links, and its status.
  */
 function reportVerify(opts: GlobalOpts, report: VerifyReport, { rule, expect, fields }: VerifyRequest, command: string[], flags: VerifyCommandFlags): void {
-  const step: VerifyFlags = { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool ?? [], failFast: !!flags.failFast, margin: flags.margin, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null };
+  const step: VerifyFlags = { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool ?? [], failFast: !!flags.failFast, margin: flags.margin, keptMax: flags.keptMax, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null };
   const line = verifyCommand({ fixes: flags.fixes, holdout: flags.holdout, keeps: flags.keeps }, step);
   // Its flags kept apart from the line, which is only shown: Fixes runs it again from them.
   const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line, rerun: verifyRerun(step) });

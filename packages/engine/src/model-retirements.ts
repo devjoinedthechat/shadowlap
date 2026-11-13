@@ -295,6 +295,15 @@ export function retiredFields(provider: string | null | undefined, model: string
   return out;
 }
 
+/**
+ * Why `model` refuses a field, in the table's words, with the page's owner: `claude-opus-4-7 is among
+ * Claude Opus 4.7 and later, where temperature is not accepted (Anthropic)`. The CLI's remedy note
+ * and a preview's field change say it from here, so the two never word one rule two ways.
+ */
+export function fieldRetirementWords(model: string, f: { rule: FieldRetirement }): string {
+  return `${model} is among ${f.rule.appliesTo}, where ${f.rule.says} (${retirementTable().platforms[f.rule.platform].owner})`;
+}
+
 const PLATFORMS: readonly RetirementPlatform[] = ['anthropic', 'openai', 'gemini', 'vertex', 'bedrock'];
 
 /** The table's own checks, for its test: every platform named, every row dated and sourced, every rule complete. */

@@ -70,6 +70,22 @@ describe('how a job ends, in the words of its kind', () => {
     expect(endToast(verify(0, 'accepted'), [])).toBe('Verified · accepted · exit 0');
   });
 
+  it('a migration says what verify found, as Verdicts words it, and Apply config change says Apply fix’s words', () => {
+    const migrate = (code: number, verdict: string) => done({ kind: 'migrate', title: 'Migrating to gpt-5', args: ['migrate', '--to', 'gpt-5'], code, result: { kind: 'migrate', passes: { verdict, runs: [] } } });
+    expect(jobStatus(migrate(0, 'accepted'), [])).toEqual({ text: 'accepted · exit 0', tone: 'ok' });
+    expect(jobStatus(migrate(0, 'not-run'), [])).toEqual({ text: 'nothing to verify · exit 0', tone: '' });
+    expect(jobStatus(migrate(1, 'rejected'), [])).toEqual({ text: 'rejected · exit 1', tone: 'err' });
+    expect(jobStatus(migrate(3, 'incomplete'), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(endToast(migrate(0, 'accepted'), [])).toBe('Migrated to gpt-5 · accepted · exit 0');
+    expect(endToast(migrate(1, 'rejected'), [])).toBe('Tried migrating to gpt-5 · rejected · exit 1');
+    const apply = (code: number, result: unknown) => done({ kind: 'migrate-apply', title: 'Applying config change', args: ['migrate', 'apply', 'mg-1'], code, result });
+    const left = [{ golden: 'refund', callNo: 2, path: '$.model' }];
+    expect(jobStatus(apply(0, { status: 'applied', outdated: left }), [])).toEqual({ text: 'applied · 1 golden to update · exit 0', tone: 'warn' });
+    expect(jobStatus(apply(0, { status: 'applied', outdated: [] }), [])).toEqual({ text: 'applied · exit 0', tone: 'ok' });
+    expect(jobStatus(apply(0, { status: 'already-applied', outdated: [] }), [])).toEqual({ text: 'applied already · exit 0', tone: 'ok' });
+    expect(endToast(apply(0, { status: 'applied', outdated: left }), [])).toBe('Applied config change · 1 golden to update · exit 0');
+  });
+
   it('a repeat says whether its attempts took one path, and a planted instruction no more than that it replayed', () => {
     const repeat = (report: unknown, code = 0, more: string[] = []) => done({ args: ['replay', 'X', '--repeat', '5', ...more], title: 'Repeating', code, result: { report } });
     const runs = (n: number) => Array.from({ length: n }, (_, i) => `r${i}`);
@@ -165,6 +181,24 @@ describe('the presets’ and coverage’s ends', () => {
 });
 
 describe('the drawer’s header', () => {
+  it('a preview ends finished, or inconclusive in amber where it settled nothing, and its read of the working tree read', () => {
+    const preview = (code: number) => done({ kind: 'decisions', title: 'Previewing model switch', args: ['decisions', 'goldens/refund', '--model', 'claude-haiku-4-5'], code });
+    expect(jobStatus(preview(0), [])).toEqual({ text: 'finished · exit 0', tone: 'ok' });
+    expect(jobStatus(preview(3), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    // Its past-tense title says it finished: the toast doesn't say it twice.
+    expect(endToast(preview(0), [])).toBe('Previewed model switch · exit 0');
+    const read = done({ kind: 'decisions-read', title: 'Reading what your working tree sends', args: ['decisions', 'goldens/refund', '--from-code', '--dry-run'], code: 0 });
+    expect(jobStatus(read, [])).toEqual({ text: 'read · exit 0', tone: 'ok' });
+  });
+
+  it('a session’s verify says the verdict the session answers, one it left open inconclusive', () => {
+    const verify = (code: number, verdict: string) => done({ kind: 'decisions-verify', title: 'Verifying 2 runs', args: ['decisions', '--verify', 'dc-01M5'], code, result: { kind: 'decisions-verify', verify: { verdict } } });
+    expect(jobStatus(verify(0, 'accepted'), [])).toEqual({ text: 'accepted · exit 0', tone: 'ok' });
+    expect(jobStatus(verify(1, 'rejected'), [])).toEqual({ text: 'rejected · exit 1', tone: 'err' });
+    expect(jobStatus(verify(3, 'incomplete'), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(endToast(verify(1, 'rejected'), [])).toBe('Checked 2 runs · rejected · exit 1');
+  });
+
   it('runs in the -ing form, and ends in the past tense its toast leads with', () => {
     const replay = { args: ['replay', 'X'], done: false, code: null };
     expect(jobHeader(replay, [])).toEqual({ title: 'Replaying', text: 'running', tone: '' });

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { type Estimate, hasRecordedCommand, injectionEstimate, packRecording, type Price, type RunRecord, type Store, type StoredInjectionResult, type ToolTrust, untrustedView, type UntrustedView } from '@shadowlap/engine';
-import { injectionLine, resultGate, toolTrust, type ToolTrustRow } from './injection.js';
+import { injectionLine, resultGate } from './injection.js';
+import { toolTrust, type ToolTrustRow } from './tool-trust.js';
 import { defaultPayloads } from './injection-plan.js';
 import { goldenName } from './needs-look/row.js';
 import { estimateOf, pricingOf } from './pricing.js';
@@ -168,7 +169,7 @@ export async function toolTests(store: Store, names: readonly string[], security
 /** Tests' Security, read beside the server. */
 export type SecurityJob = { kind: 'injection-security' } & InjectionReadInput;
 
-/** Settings → Tools' store reads (tool-reads.ts), each tool's trust (injection.ts toolTrust), and the run each untrusted read's test runs on. */
+/** Settings → Tools' store reads (tool-reads.ts), each tool's trust (tool-trust.ts toolTrust), and the run each untrusted read's test runs on. */
 export type ToolsReadJob = { kind: 'tools-read' } & InjectionReadInput;
 
 /** What Settings → Tools reads of the store in one pooled job. */

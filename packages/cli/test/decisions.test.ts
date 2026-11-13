@@ -39,18 +39,21 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, dir: string = cwd): Promise<{ code: number | null; out: string; stdout: string }> {
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, dir: string = cwd): Promise<{ code: number | null; out: string; stdout: string; events: Array<Record<string, unknown>> }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], {
       cwd: dir,
       env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(cwd, 'home'), ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
     });
     let out = '';
     let stdout = '';
-    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    child.on('exit', (code) => resolve({ code, out, stdout }));
+    // A job's events, when SHADOWLAP_EVENTS_FD names the pipe, as the dashboard reads them.
+    let events = '';
+    child.stdout!.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+    child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
+    (child.stdio[3] as NodeJS.ReadableStream).on('data', (d: Buffer) => (events += d.toString()));
+    child.on('close', (code) => resolve({ code, out, stdout, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) }));
   });
 }
 
@@ -303,6 +306,52 @@ describe('shadowlap decisions', () => {
     }
   }, 180_000);
 
+  it('reads what the working tree sends with --dry-run, and stops there: nothing asked, no session kept; a preview it keeps leads to Open preview', async () => {
+    const runId = await record();
+    const noEmail = { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' };
+    const sessions = () => {
+      const store = Store.open(db);
+      try {
+        return store.listDecisionSessions({ limit: 10_000 }).length;
+      } finally {
+        store.close();
+      }
+    };
+    const before = sessions();
+    const r = await shadowlap(['decisions', runId, '--from-code', '--dry-run', '--json'], noEmail);
+    expect(r.code, r.out).toBe(0);
+    const read = json<{ kind: string; fromCode: { calls: number; instructions: { before: string; after: string } | null }; runs: Array<{ runId: string; golden: string | null; changed: number[]; refused: string | null }>; nothing: string | null; scope: string | null }>(r);
+    expect(read.kind).toBe('decisions-read');
+    // A call changed, so the preview has something to ask.
+    expect(read.nothing).toBeNull();
+    expect(read.fromCode.calls).toBeGreaterThan(0);
+    expect(read.fromCode.instructions!.after).toContain('Do not email the summary.');
+    // Every model call of the run sends the working tree's prompt, each counted once.
+    expect(read.runs).toEqual([{ runId, golden: null, changed: expect.arrayContaining([expect.any(Number)]), refused: null }]);
+    expect(read.runs[0].changed).toHaveLength(read.fromCode.calls);
+    // The prompt is named by the first changed call's scope, null where that call has none.
+    const calls = Store.open(db);
+    try {
+      const first = calls.getCalls(runId).find((c) => c.callNo === read.runs[0].changed[0])!;
+      expect(read.scope).toBe(typeof first.meta.scope === 'string' && first.meta.scope ? first.meta.scope : null);
+    } finally {
+      calls.close();
+    }
+    expect(sessions()).toBe(before);
+    const asks = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--dry-run'], noEmail);
+    expect(asks.code).toBe(2);
+    expect(asks.out).toContain('--dry-run reads what --from-code reads, and stops there: give it with --from-code alone');
+    // It keeps no preview, so none with a test session either.
+    const withSession = await shadowlap(['decisions', runId, '--from-code', '--dry-run', '--test-session', 'S-1'], noEmail);
+    expect(withSession.code).toBe(2);
+    expect(withSession.out).toContain('--dry-run reads what --from-code reads, and stops there: give it with --from-code alone');
+    expect(sessions()).toBe(before);
+    // A preview it keeps is where its job's drawer goes next.
+    const kept = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--samples', '1', '--json'], { ...noEmail, SHADOWLAP_EVENTS_FD: '3' });
+    expect(kept.code, kept.out).toBe(0);
+    expect(kept.events.filter((e) => e.type === 'link')).toEqual([{ type: 'link', label: 'Open preview', href: `#/changes/decisions/${json<DecisionsReport>(kept).decisionsId!}` }]);
+  }, 180_000);
+
   it("verifies through verify's own gate unless a fixed count is given, and --gate changes its figures", async () => {
     const runId = await record();
     const noEmail = { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' };
@@ -320,6 +369,24 @@ describe('shadowlap decisions', () => {
     const out = json<{ verify: NonNullable<DecisionsReport['verify']> }>(again);
     expect(out.verify.runs).toMatchObject([{ runId, outcome: 'kept', passes: 2, attempts: 2 }]);
     expect(out.verify.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)} --gate '{"bad":0.1,"max":4}'`]);
+    // A good run's pairs given apart from the failing runs' limit, kept in the command that verifies the same way again; the event names the session.
+    const pairs = await shadowlap(['decisions', '--verify', report.decisionsId!, '--gate', '{"bad":0.1,"max":4}', '--kept-max', '3', '--json'], noEmail);
+    expect(pairs.code, pairs.out).toBe(0);
+    expect(json<{ verify: NonNullable<DecisionsReport['verify']> }>(pairs).verify.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)} --gate '{"bad":0.1,"max":4}' --kept-max 3`]);
+    const events = Store.open(db);
+    try {
+      // With the session's name and the runs it verified, which the feed words it by.
+      expect(events.listEvents({ kinds: ['verify.accepted'] })[0]).toMatchObject({ data: { session: report.decisionsId, name: 'Changed prompt and tools', runs: 1, outcomes: ['kept'] } });
+    } finally {
+      events.close();
+    }
+    const loose = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--kept-max', '3'], noEmail);
+    expect(loose.code).toBe(2);
+    expect(loose.out).toContain('--kept-max is for --verify');
+    // A good run's pairs with a fixed count is refused, as verify refuses it.
+    const counted = await shadowlap(['decisions', '--verify', report.decisionsId!, '--attempts', '3', '--kept-max', '3'], noEmail);
+    expect(counted.code).toBe(2);
+    expect(counted.out).toContain('a fixed count (--attempts, --passes) judges every run on its own: --kept-max is for the gate');
     // A gate and a count at once is refused, as verify refuses it; so is either without a verify to decide.
     const both = await shadowlap(['decisions', '--verify', report.decisionsId!, '--gate', '{"bad":0.1}', '--attempts', '3'], noEmail);
     expect(both.code).toBe(2);

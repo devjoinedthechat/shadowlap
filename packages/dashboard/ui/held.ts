@@ -19,9 +19,9 @@ export interface HeldAsk {
 
 /**
  * What the route names that another project may hold: a run (any of its calls or views), a fix (any
- * step), Compare's runs, the ones the address gives, or a preview on its own tab (at any run or cell).
- * Null for a page that names nothing of its own: a revision is every project's, and a migration's
- * address opens Verdicts until its tab lands.
+ * step), Compare's runs, the ones the address gives, or a preview or a migration on its own tab (at
+ * any run or cell), the kind the tab's. Null for a page that names nothing of its own: a revision is
+ * every project's.
  */
 export function heldAsk(route: Route): HeldAsk | null {
   switch (route.page) {
@@ -34,7 +34,8 @@ export function heldAsk(route: Route): HeldAsk | null {
       return ids.length ? { what: 'run', ids } : null;
     }
     case 'changes':
-      return route.tab === 'decisions' && route.id ? { what: 'preview', ids: [route.id] } : null;
+      if (!route.id || route.tab === 'verdicts') return null;
+      return { what: route.tab === 'migrate' ? 'migration' : 'preview', ids: [route.id] };
     default:
       return null;
   }

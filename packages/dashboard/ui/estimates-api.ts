@@ -1,9 +1,37 @@
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import type { DecisionEstimates, FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+import type { MigrateEstimateView } from '../src/migrate-estimate.js';
+import type { ModelChoicesView } from '../src/model-listing.js';
+import type { PreviewEstimates } from '../src/preview-estimate.js';
+import { typedValue } from '../src/decisions-argv.js';
 import type { Request } from './settings-api.js';
 
 export type { DecisionEstimates, FixEstimates, GoldenEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+export type { MigrateEstimateView } from '../src/migrate-estimate.js';
+export type { ModelChoicesView } from '../src/model-listing.js';
+export type { PreviewEstimates } from '../src/preview-estimate.js';
+
+/** A new preview as its dialogs name it: its targets (every golden, or runs by id) and its change, or none for each way's card. */
+export interface PreviewQuery {
+  goldens?: 'all';
+  runs?: readonly string[];
+  model?: string | null;
+  /** Each field to set and its value as typed: sent as JSON where it parses, as the job takes it. */
+  set?: ReadonlyArray<readonly [string, string]>;
+  from?: readonly string[];
+  scope?: string | null;
+  samples?: number | null;
+  fromCode?: boolean;
+  /** With `fromCode`: each run's calls the working tree changes, by its id, as the dialog's read of it named them; priced once named. */
+  changed?: Readonly<Record<string, readonly number[]>>;
+}
+
+/** Run more attempts' raised limits: a failing run's attempts (the gate's max) and a good run's pairs. */
+export interface MoreLimits {
+  max?: number | null;
+  keptMax?: number | null;
+}
 
 /** Spending as the server says it: the threshold (0, Always ask; null, Never ask), whether it was set, and what in its file was ignored. */
 export interface SpendingView {
@@ -35,9 +63,15 @@ export interface EstimatesApi {
   fixEstimates(fixId: string, model?: string | null): Promise<FixEstimates>;
   /** Run tests' and each golden's, with Update goldens…' for `update` together where it names goldens. */
   testsEstimates(update?: readonly string[]): Promise<TestsEstimates>;
-  /** What a kept preview's Verify bills: on every run it could not clear, or on those `runIds` name (the runs no verify took yet). */
-  decisionEstimates(sessionId: string, runIds?: readonly string[]): Promise<DecisionEstimates>;
+  /** What a kept preview's Verify bills: on every run it could not clear, or on those `runIds` name (the runs no verify took yet); at Run more attempts' limits where given. */
+  decisionEstimates(sessionId: string, runIds?: readonly string[], limits?: MoreLimits): Promise<DecisionEstimates>;
+  /** What a new preview asks and bills (`POST /api/decisions/estimates`, which changes nothing); each way's card while it names no change. */
+  previewEstimates(p: PreviewQuery): Promise<PreviewEstimates>;
+  /** The models a preview's field offers beside the runs' own (`GET /api/model-choices`). It asks providers, so it can take a second. */
+  modelChoices(): Promise<ModelChoicesView>;
   bisectEstimate(q: BisectQuery): Promise<Estimate>;
+  /** What Migrate to `to` bills on the goldens named (every golden for none), switching from `from`, and the newest preview of that switch. */
+  migrateEstimate(to: string, from: readonly string[], goldens: readonly string[]): Promise<MigrateEstimateView>;
 }
 
 export function estimatesApi(request: Request): EstimatesApi {
@@ -52,12 +86,37 @@ export function estimatesApi(request: Request): EstimatesApi {
     runEstimates: (runId, at, model) => request(`runs/${q(runId)}/estimates${query({ at, model })}`),
     fixEstimates: (fixId, model) => request(`fixes/${q(fixId)}/estimates${query({ model })}`),
     testsEstimates: (update) => request(`tests/estimates${update?.length ? `?${update.map((p) => `update=${q(p)}`).join('&')}` : ''}`),
-    decisionEstimates: (sessionId, runIds) => request(`decisions/${q(sessionId)}/estimates${runIds?.length ? `?${runIds.map((id) => `runId=${q(id)}`).join('&')}` : ''}`),
+    decisionEstimates: (sessionId, runIds, limits) => {
+      const parts = [...(runIds ?? []).map((id) => `runId=${q(id)}`), ...(limits?.max ? [`max=${limits.max}`] : []), ...(limits?.keptMax ? [`keptMax=${limits.keptMax}`] : [])];
+      return request(`decisions/${q(sessionId)}/estimates${parts.length ? `?${parts.join('&')}` : ''}`);
+    },
+    previewEstimates: (p) => request('decisions/estimates', { method: 'POST', body: JSON.stringify(previewBody(p)) }),
+    migrateEstimate: (to, from, goldens) => request(`migrate/estimate?${[`to=${q(to)}`, ...from.map((m) => `from=${q(m)}`), ...goldens.map((g) => `golden=${q(g)}`)].join('&')}`),
+    modelChoices: () => request('model-choices'),
     bisectEstimate: (b) => request<{ estimate: Estimate }>(`estimates/bisect${query({ runId: b.runId, golden: b.golden, good: b.good, bad: b.bad })}`).then((r) => r.estimate),
+  };
+}
+
+/**
+ * A new preview's request, as `POST /api/decisions/estimates` reads it: the job's own fields, each
+ * typed value as JSON where it parses (decisions-argv.ts), and in a body, so the 500 runs one
+ * preview takes fit where a query's header would not.
+ */
+export function previewBody(p: PreviewQuery): Record<string, unknown> {
+  return {
+    ...(p.goldens === 'all' ? { goldens: 'all' } : {}),
+    ...(p.runs ? { runs: [...p.runs] } : {}),
+    ...(p.model ? { model: p.model } : {}),
+    ...(p.set?.length ? { set: Object.fromEntries(p.set.map(([field, value]) => [field, typedValue(value)])) } : {}),
+    ...(p.from?.length ? { from: [...p.from] } : {}),
+    ...(p.scope ? { scope: p.scope } : {}),
+    ...(typeof p.samples === 'number' ? { samples: p.samples } : {}),
+    ...(p.fromCode ? { fromCode: true } : {}),
+    ...(p.fromCode && p.changed ? { changed: p.changed } : {}),
   };
 }
 
 /** An exported copy runs no job, so it prices none and keeps no Spending: every call says so. */
 export function noEstimates(refuse: () => Promise<never>): EstimatesApi {
-  return { spending: refuse, setSpending: refuse, runEstimates: refuse, fixEstimates: refuse, testsEstimates: refuse, decisionEstimates: refuse, bisectEstimate: refuse };
+  return { spending: refuse, setSpending: refuse, runEstimates: refuse, fixEstimates: refuse, testsEstimates: refuse, decisionEstimates: refuse, previewEstimates: refuse, modelChoices: refuse, bisectEstimate: refuse, migrateEstimate: refuse };
 }

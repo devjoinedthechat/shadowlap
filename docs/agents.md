@@ -188,6 +188,7 @@ the change, and runs no tool.
 | See what is being fixed | `shadowlap fix ls --json`, `shadowlap fix show <fix> --json` | Each failure blame opened a fix for ([fields](./cli.md#fix)) |
 | Hand over a verified fix | `shadowlap fix apply <fix> --json` | The patch applied, the recordings copied into the goldens, and whether they pass ([details](./cli.md#fix)) |
 | Switch the agent to another model | `shadowlap migrate --to <model> --json` | The changed decisions, whether each run still passes, a run's cost before and after, and the patch to the project's files ([fields](./cli.md#migrate)) |
+| Hand over a model switch | `shadowlap migrate apply <id> --json` | The config change applied, and each golden that now diverges on `$.model`, with the command that re-records it ([fields](./cli.md#migrate-apply)) |
 | Check whether text the agent reads can steer it | `shadowlap injection <run> --json` | Each untrusted read with each payload: obeyed, influenced, ignored or inconclusive (with why) ([details](./injection.md)) |
 
 - **`blame`** also shows what the model answered at that call, in the recording and in the fork that

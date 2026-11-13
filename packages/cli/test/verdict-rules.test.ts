@@ -60,7 +60,7 @@ describe("a preview's rule", () => {
 describe("a migration's rule", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  const pass = (verdict: MigrateRunPass['verdict'], verified: boolean): MigrateRunPass => ({ runId: '01A', golden: null, verdict, outcome: verified ? 'kept' : 'unchanged', verified, tally: null });
+  const pass = (verdict: MigrateRunPass['verdict'], verified: boolean): MigrateRunPass => ({ runId: '01A', golden: null, verdict, outcome: verified ? 'kept' : 'unchanged', verified, tally: null, diverges: null });
   /** What migrate prints and exits with: why it settles nothing, with --inconclusive warn. */
   const exits = (r: MigrateReport): { status: number; why: string | null } => {
     const written: string[] = [];

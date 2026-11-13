@@ -98,6 +98,35 @@ test('x picks a row and the bar comes; Delete takes the run off the table and th
   await expect(page.locator('.toast')).toContainText('Restored');
 });
 
+test('with Push and Preview change both on the bar every action stays in view: on one line from 921 px, and wrapped under the count below, at 721 px too', async ({ page }) => {
+  // A team store as this machine would know one, so the bar offers Push too.
+  const url = 's3://northwind-agent-runs/support-agent';
+  const store = { url, key: url, configured: url, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', account: null, region: null, name: 'northwind-agent-runs/support-agent', pushedAt: null, pulledAt: null, syncedAt: null, inStore: 0, onlyLocal: 0, localRuns: [], localAttempts: 0, queued: 0, check: null };
+  await page.route('**/api/store', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { store, you: 'maya@example.com' } }) : route.continue()));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const row = page.locator('main#view table.runst tbody tr:not(.wspace)').first();
+  await row.locator('a.rowa').focus();
+  await page.keyboard.press('x');
+  const bar = page.locator('.bulkbar');
+  await expect(bar.locator('button', { hasText: /^Push/ })).toBeVisible();
+  await expect(bar.locator('button', { hasText: 'Preview change' })).toBeVisible();
+  // Every action whole inside the bar, with nothing to scroll to: one line wide, wrapped under the count when narrower.
+  const reach = () => bar.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const inView = [...el.querySelectorAll('button')].every((b) => {
+      const r = b.getBoundingClientRect();
+      return r.left >= box.left - 0.5 && r.right <= box.right + 0.5 && r.right <= innerWidth;
+    });
+    return { wrap: getComputedStyle(el).flexWrap, fits: el.scrollWidth <= el.clientWidth, inView };
+  });
+  expect(await reach()).toEqual({ wrap: 'nowrap', fits: true, inView: true });
+  await page.setViewportSize({ width: 921, height: 900 });
+  await expect.poll(reach).toEqual({ wrap: 'nowrap', fits: true, inView: true });
+  await page.setViewportSize({ width: 721, height: 900 });
+  await expect.poll(reach).toEqual({ wrap: 'wrap', fits: true, inView: true });
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -155,4 +184,60 @@ test('Enter makes the words a step that Back undoes with them; the nav’s Runs 
   await page.locator('.side-k a', { hasText: 'all' }).click();
   await expect.poll(() => hash(page)).toBe('#/runs');
   await expect(page.locator('main#view .tbar .chips button[aria-pressed="true"]')).toHaveText(/^All/);
+});
+
+test('a view a chip commits stays where the reader scrolls as its rows come, not where the page was as it was committed', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await openPage(page, '/runs?types=recording', 'main#view table.runst tbody tr');
+  const rows = page.locator('main#view table.runst tbody tr');
+  const pane = page.locator('main#view .page');
+  // Every run's rows held until the reader has scrolled.
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(/\/api\/runs\/page\?(?!.*types=)/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.locator('main#view .tbar .chips button', { hasText: /^All/ }).click();
+  await expect.poll(() => hash(page)).toBe('#/runs');
+  const before = await rows.count();
+  const y = await pane.evaluate((el) => {
+    el.scrollTop = 200;
+    return el.scrollTop;
+  });
+  expect(y).toBe(200);
+  release();
+  await expect.poll(() => rows.count()).toBeGreaterThan(before);
+  // A place given back comes as the rows land and again a tick later.
+  await page.waitForTimeout(300);
+  expect(await pane.evaluate((el) => el.scrollTop)).toBe(y);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('Back and Forward take each view of Runs to where it was left, after a scroll on the view they leave', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const rows = page.locator('main#view table.runst tbody tr');
+  const pane = page.locator('main#view .page');
+  const scrolledTo = (to: number) =>
+    pane.evaluate((el, y) => {
+      el.scrollTop = y;
+      return el.scrollTop;
+    }, to);
+  const every = await rows.count();
+  expect(await scrolledTo(300)).toBe(300);
+  // Pressed where it is, the chips not scrolled into view first, so every run is left at 300.
+  await page.locator('main#view .tbar .chips button', { hasText: /^Recordings/ }).dispatchEvent('click');
+  await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
+  await expect.poll(() => rows.count()).toBeLessThan(every);
+  await page.waitForTimeout(300);
+  expect(await scrolledTo(100)).toBe(100);
+  await page.goBack();
+  await expect.poll(() => hash(page)).toBe('#/runs');
+  await expect.poll(() => rows.count()).toBe(every);
+  await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(300);
+  await page.goForward();
+  await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
+  await expect.poll(() => rows.count()).toBeLessThan(every);
+  await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(100);
 });

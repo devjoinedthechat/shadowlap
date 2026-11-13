@@ -74,7 +74,7 @@ export function palettePlaceholder(o: { exported: boolean; actions: boolean; off
  * training data asks for first, then what runs the agent, and Keyboard shortcuts last. An action not
  * named here goes before Keyboard shortcuts, in the order it was added.
  */
-export const ACTION_ORDER: readonly string[] = [ACTIONS.updateGoldens.label, ACTIONS.exportPairs.label, ACTIONS.scoreModel.label, ACTIONS.runTests.label, ACTIONS.importCapture.label, ACTIONS.calibrate.label];
+export const ACTION_ORDER: readonly string[] = [ACTIONS.updateGoldens.label, ACTIONS.exportPairs.label, ACTIONS.scoreModel.label, ACTIONS.runTests.label, ACTIONS.importCapture.label, ACTIONS.calibrate.label, ACTIONS.previewModelSwitch.label, ACTIONS.previewChangedPrompt.label];
 
 /** Where an action sits in its group: its place in ACTION_ORDER, then unnamed actions, then Keyboard shortcuts. */
 export function actionRank(label: string): number {

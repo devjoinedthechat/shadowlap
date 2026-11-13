@@ -1,8 +1,9 @@
-import { ACTIONS, isObject, presetProof } from '@shadowlap/engine';
+import { ACTIONS, isObject, presetProof, sameModel } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
 import { links } from './links.js';
 import type { LookSource, LookWork, NeedsLookRow } from './needs-look/row.js';
+import { retiringModels } from './retirements.js';
 import type { GoldenList, GoldenSource } from './tests.js';
 
 /**
@@ -63,9 +64,10 @@ function flaggedOf(data: Record<string, unknown>): string[] {
  * settled it (a migration of a model a preview flagged runs under, whose verify accepted them,
  * settles the preview); one that flagged it again is that session's line. A session with flagged runs
  * left is a line, opening the first still in the store at the first call whose decision most of its
- * samples changed: a preview's on its cell on Preview, a migration's on the run's page.
+ * samples changed, on its cell: a preview's on Preview, a migration's on Migrate. A migration from a
+ * model that retires has none: the retire row stands for it.
  */
-function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>): NeedsLookRow[] {
+function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>, retiring: (from: readonly string[]) => boolean = () => false): NeedsLookRow[] {
   const sessions = store.listDecisionSessions({ limit: 50 });
   if (!sessions.length) return [];
   // The runs each session asked again, without reading their reports.
@@ -91,6 +93,8 @@ function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>)
     if (!full || (flagged.length ? !open.length : newer)) continue;
     const verdict = verifiedAs(full.data);
     if (verdict === 'accepted') continue;
+    // A migration from a model that retires: the retire row stands for it, and says how it came out. Its runs still settle older previews of the change.
+    if (s.kind === 'migrate' && retiring(Array.isArray(full.data.from) ? full.data.from.filter((m): m is string => typeof m === 'string') : [])) continue;
     const n = open.length || s.flagged;
     // The first flagged run still here, at the first call whose decision most of its samples changed.
     const first = open.find((id) => kept(store, id)) ?? null;
@@ -109,8 +113,8 @@ function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>)
       title: `${plural(n, 'run decides', 'runs decide')} differently under ${s.change}`,
       detail: `${s.kind === 'migrate' ? 'a migration' : 'a preview'}: a write, stop or judged change · ${state}`,
       step: null,
-      // A preview's line opens its cell on Preview (a gone run's, the session); a migration's opens the run until its tab draws one.
-      href: s.kind === 'decisions' ? links.changeSession('decisions', s.sessionId, first, callNo ?? null) : first ? links.run(first, callNo) : links.runs(),
+      // A line opens its cell on Preview or Migrate (a gone run's, the session).
+      href: links.changeSession(s.kind, s.sessionId, first, callNo ?? null),
       runId: first,
       fixId: null,
       at: s.at,
@@ -147,7 +151,10 @@ export const decisions: LookSource = {
   id: 'decisions',
   group: 'tests',
   order: 40,
-  rows: (w) => decisionLooks(w.store),
+  rows: (w) => {
+    const retiring = retiringModels(w.store, w.goldens.filter((g): g is GoldenSource => typeof g !== 'string'), w.now).map((n) => n.model);
+    return decisionLooks(w.store, (from) => from.some((m) => retiring.some((r) => sameModel(m, r) || sameModel(r, m))));
+  },
   rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more preview')} of a change to look at`, detail: 'each on its run, under Runs', href: links.runs() }),
 };
 

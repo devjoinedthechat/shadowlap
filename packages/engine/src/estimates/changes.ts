@@ -31,9 +31,12 @@ export interface PreviewChange {
   from: readonly string[] | null;
   /**
    * `--from-code`: the prompt and tools in the working tree. Which calls they change is known only
-   * once the preview has replayed the working tree offline, so it has no estimate before it runs.
+   * once the working tree has been replayed offline: `changed` names them, and without it there is no
+   * estimate before the preview runs.
    */
   fromCode?: boolean;
+  /** With `fromCode`: each run's calls the working tree changes, by number, in `runs`' order, as its offline replay (`decisions --from-code --dry-run`) named them. */
+  changed?: ReadonlyArray<readonly number[]>;
 }
 
 export interface PreviewOptions {
@@ -63,27 +66,45 @@ function switchedTo(c: PricedCall, from: readonly string[] | null, model: string
 }
 
 /**
+ * The calls a preview asks again, as decisions plans them: the agent's that it may ask (in `scope`,
+ * their request and answer kept), made with a model the change switches from (any, without `from`),
+ * of a family the switch can carry; and how many it leaves for being of another family.
+ */
+export function previewAsks(runs: ReadonlyArray<readonly PricedCall[]>, change: PreviewChange, scope?: string | null): { asked: PricedCall[]; otherFamily: number } {
+  const from = change.from?.length ? change.from : null;
+  const asked: PricedCall[] = [];
+  let otherFamily = 0;
+  runs.forEach((calls, i) => {
+    // A working tree's change asks only the calls its offline replay found changed.
+    const only = change.fromCode && change.changed ? new Set(change.changed[i] ?? []) : null;
+    for (const c of calls) {
+      if (!askable(c, scope) || (from && !from.some((m) => sameModel(c.model, m))) || (only && !only.has(c.callNo))) continue;
+      if (sameFamily(c, change.model ?? null)) asked.push(c);
+      else otherFamily++;
+    }
+  });
+  return { asked, otherFamily };
+}
+
+/** Why a switch asks nothing: `model` takes another family's requests than the calls it switches, as a preview's estimate and its dialog say. */
+export const otherFamilyWords = (model: string): string => `${model} is of another family than the calls it switches, so none can be asked again: verify that switch instead`;
+
+/**
  * A preview's estimate: each call the change touches asked `samples` times at the asked model's price,
  * and the control arm as often at the recorded one's (`≈$0.18 · about 1,224 requests, half as
- * recorded`). Free when no call of the runs is made with a model it switches from; none for a change
- * of the working tree's prompt, until its offline replay has named the calls it changes.
+ * recorded`). Free when no call of the runs is made with a model it switches from; for a change of
+ * the working tree's prompt, the calls its offline replay named (`changed`), and none until it has.
  */
 export function previewEstimate(runs: ReadonlyArray<readonly PricedCall[]>, change: PreviewChange, o: PreviewOptions = {}): Estimate {
-  if (change.fromCode) return noEstimate('preview', 'which calls the working tree changes is known once the preview has replayed it offline');
+  if (change.fromCode && !change.changed) return noEstimate('preview', 'which calls the working tree changes is known once the preview has replayed it offline');
   const samples = o.samples ?? PREVIEW_SAMPLES;
   const control = o.control ?? samples >= CONTROL_MIN_SAMPLES;
+  const { asked: calls, otherFamily } = previewAsks(runs, change, o.scope);
   const from = change.from?.length ? change.from : null;
   let usd = 0;
-  let asked = 0;
-  let otherFamily = 0;
+  const asked = calls.length;
   const missing = { unpriced: [] as string[], uncounted: [] as number[] };
-  for (const c of runs.flat()) {
-    if (!askable(c, o.scope) || (from && !from.some((m) => sameModel(c.model, m)))) continue;
-    if (!sameFamily(c, change.model ?? null)) {
-      otherFamily++;
-      continue;
-    }
-    asked++;
+  for (const c of calls) {
     if (!c.usage) {
       missing.uncounted.push(c.callNo);
       continue;
@@ -100,7 +121,7 @@ export function previewEstimate(runs: ReadonlyArray<readonly PricedCall[]>, chan
   }
   if (missing.unpriced.length || missing.uncounted.length) return noEstimate('preview', noPriceWords(missing));
   if (!asked) {
-    const why = otherFamily ? `${change.model!} is of another family than the calls it switches, so none can be asked again: verify that switch instead` : from ? `no call of the runs is made with ${from.join(' or ')}` : 'no model call of the runs to ask';
+    const why = otherFamily ? otherFamilyWords(change.model!) : from ? `no call of the runs is made with ${from.join(' or ')}` : 'no model call of the runs to ask';
     return { kind: 'preview', usd: 0, ceiling: false, parts: [why] };
   }
   const requests = asked * samples * (control ? 2 : 1);

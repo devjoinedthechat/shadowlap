@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, type MouseEvent } from 'react';
+import { ActionButton } from '../components/ActionButton.js';
 import { Conversation, useChange } from '../components/Conversation.js';
 import { Decision } from '../components/Decision.js';
 import { Icon } from '../components/Icon.js';
@@ -10,10 +11,12 @@ import { focusQuiet, pageUp } from '../focus-manager.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { glueBound } from '../matrix.js';
+import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { CellOpen, DecisionCell, DecisionRun, DecisionStep, PreviewSession, Toned } from '../types.js';
+import { CLEARED_RUN, GONE_RUN, PreviewVerifyButton, VERIFY_THIS_RUN_TIP } from './VerifyAsk.js';
 
 /**
  * A preview's cell, opened (`#/changes/decisions/<session>/<run>/<call>`): its most consequential
@@ -37,6 +40,24 @@ let reveal = false;
 export const revealCell = (): void => {
   reveal = true;
 };
+
+/**
+ * A cell opens under the matrix, and pressed again closes, in place of the address as a pick in a page
+ * is: Back leaves Preview rather than walking back through every cell opened, and the page keeps its
+ * scroll. A cell that opens is brought into view the nearest way, as one from a tall matrix's top row
+ * could open below the window.
+ */
+export function openCell(kind: 'decisions' | 'migrate', sessionId: string, run: string, call: number | null, current: boolean): void {
+  if (!current) revealCell();
+  navigate(current ? href.changeSession(kind, sessionId) : href.changeSession(kind, sessionId, run, call), true);
+}
+
+/** The cell an address opens: its run's row at its call; a run's address without a call, the call its row ends on, else its first. */
+export function openedCell(session: PreviewSession, run: string | null, call: number | null): { row: PreviewSession['matrix'][number]; callNo: number } | null {
+  const row = run ? session.matrix.find((r) => r.runId === run) : undefined;
+  const callNo = call ?? row?.ending.callNo ?? row?.cells[0]?.callNo ?? null;
+  return row && callNo !== null ? { row, callNo } : null;
+}
 
 /**
  * An opened cell closes by Esc or its ×, back to its session's page in place of the address (as the
@@ -66,7 +87,7 @@ const plainPress = (e: MouseEvent): boolean => e.button === 0 && !e.metaKey && !
 
 export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSession; row: Row; callNo: number }) {
   const cell = row.cells.find((c) => c.callNo === callNo) ?? null;
-  const close = href.changeSession('decisions', session.sessionId);
+  const close = href.changeSession(session.kind, session.sessionId);
   const shut = useCellClose(close);
   useEffect(() => {
     if (!reveal) return;
@@ -86,6 +107,7 @@ export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSe
         {step?.scope ? <span className="scopetag">{step.scope}</span> : null}
         <span className="sp" />
         <span className="dacts">
+          <CellVerify session={session} row={row} />
           {row.inStore ? (
             <a className="btn" href={runLink}>
               Open run
@@ -111,6 +133,29 @@ export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSe
       {cell && row.inStore ? <CellConversation row={row} callNo={callNo} /> : null}
     </section>
   );
+}
+
+/**
+ * Verify this run, before Open run: plain, on a run the preview left to verify that verify hasn't
+ * taken; waiting, with why, on one the preview cleared or one gone from the store; none once verify
+ * took it, nor on a migration, which Changes never verifies from here.
+ */
+function CellVerify({ session, row }: { session: PreviewSession; row: Row }) {
+  if (session.kind !== 'decisions' || row.verified) return null;
+  const label = ACTIONS.verifyThisRun.label;
+  if (!row.toVerify)
+    return (
+      <ActionButton className="btn" why={CLEARED_RUN.why} tip={CLEARED_RUN.tip}>
+        {label}
+      </ActionButton>
+    );
+  if (!row.inStore)
+    return (
+      <ActionButton className="btn" why={GONE_RUN} tip={VERIFY_THIS_RUN_TIP}>
+        {label}
+      </ActionButton>
+    );
+  return <PreviewVerifyButton sessionId={session.sessionId} change={session.view.change} rows={[{ runId: row.runId, golden: row.golden, about: row.about?.text ?? null, verified: null }]} label={label} one tip={VERIFY_THIS_RUN_TIP} />;
 }
 
 function CellBody({ session, row, cell, step }: { session: PreviewSession; row: Row; cell: DecisionCell; step: DecisionStep | null }) {
@@ -210,7 +255,7 @@ function RangeLine({ session, row, callNo }: { session: PreviewSession; row: Row
       {others.map((x, i) => (
         <Fragment key={x.callNo}>
           {i ? ', ' : null}
-          <Link href={href.changeSession('decisions', session.sessionId, row.runId, x.callNo)}>
+          <Link href={href.changeSession(session.kind, session.sessionId, row.runId, x.callNo)}>
             #{x.callNo}
           </Link>{' '}
           <span className="dlm">rank {x.rank}</span>

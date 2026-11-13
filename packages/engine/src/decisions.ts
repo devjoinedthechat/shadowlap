@@ -7,6 +7,7 @@ import { isReservedScope } from './judge-scope.js';
 import { aboutUsd, formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import type { Footprint } from './verify.js';
+import type { VerifyTally } from './verified-words.js';
 import { plain } from './report.js';
 import { normalizeResponse } from './responses.js';
 import { safeLine, safeText } from './text.js';
@@ -803,9 +804,12 @@ export interface DecisionsVerify {
    * condition it could not read), which stopped it, inconclusive: that attempt, among `attempts`,
    * neither passed nor failed, and there is no bound. Null otherwise, absent from sessions kept
    * before it was. A good run kept against its own baseline has the baseline's tally (`baseline`),
-   * its bound is the drop's (`drop <= 0.07 (95%)`), and its rule the baseline test's.
+   * its bound is the drop's (`drop <= 0.07 (95%)`), and its rule the baseline test's. `parts` is its
+   * tally in verify's own parts (`verifyTally`: what it counted, why an attempt stopped it, the
+   * attempts the provider cut short, the bound), which every report words it from (`tallyParts`);
+   * absent from sessions kept before it was.
    */
-  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null; undecided?: string | null; rule?: string | null; baseline?: { passes: number; attempts: number } }>;
+  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null; undecided?: string | null; rule?: string | null; baseline?: { passes: number; attempts: number }; parts?: VerifyTally | null }>;
   /**
    * The rule its runs were decided by, said once: `gate: tells 90%+ from 70%- at <= 5% risk, up to
    * 80 attempts`, or a fixed count's `4 of 5 attempts must pass`. Null when a session's runs were
@@ -979,6 +983,9 @@ export interface DecisionsHeadline {
   asked: boolean;
 }
 
+/** What a preview says where it has nothing to ask, as its headline says it: the CLI's report, and a read of what `--from-code` sends, say it in these words. */
+export const NOTHING_TO_ASK = { lead: 'Nothing to ask', untouched: ': the change leaves every request as recorded', noCalls: ': the runs hold no model call' } as const;
+
 /**
  * The headline of a report, from its counts, the runs it flags and its runs: their refusals, and the
  * steps of those it flags, which say whether a write, a stop or a judge flagged them. A run refused
@@ -998,7 +1005,7 @@ export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'>
   if (!asked) {
     if (unasked) return head('!', unasked);
     if (r.counts.notAsked) return head('!', 'No step was answered', '', ' (the warnings say why)');
-    return head('✓', 'Nothing to ask', '', r.counts.untouched ? ': the change leaves every request as recorded' : ': the runs hold no model call');
+    return head('✓', NOTHING_TO_ASK.lead, '', r.counts.untouched ? NOTHING_TO_ASK.untouched : NOTHING_TO_ASK.noCalls);
   }
   if (r.flagged.length) return head('✗', `${r.flagged.length} of ${of}`, ` ${flaggedFor(r)}`);
   if (changed) return head('!', 'No write and no stop changes', '', `: ${changed} decision${changed === 1 ? ' differs' : 's differ'} in reads or text`);
@@ -1071,6 +1078,18 @@ export function migrateUnsettled(r: { stopReason: string | null; passes: Migrate
   if (r.passes.verdict === 'incomplete') return 'verify did not settle every run it took';
   const open = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
   return open ? `${open} run${open === 1 ? ' is' : 's are'} inconclusive` : null;
+}
+
+/**
+ * Why verify can't test the change as migrate asked it, or null: a field the requests must leave
+ * out, or send under another name, is no request field `--set` can give, and verify runs the agent's
+ * code, which still sends it, so the new model would refuse every attempt. The code changes first.
+ */
+export function codeChangeNeeded(remedies: readonly DecisionRemedy[], to: string | null): string | null {
+  const unsendable = remedies.filter((r) => r.renamedTo !== null || (r.leftOut && r.value === null));
+  if (!unsendable.length) return null;
+  const what = unsendable.map((r) => (r.renamedTo ? `send ${r.renamedTo} in place of ${r.field}` : `leave ${r.field} out`)).join(' and ');
+  return `verify runs your agent's code, which ${to ? `${to} refuses as it stands` : 'the new model refuses'}: ${what} in your agent's requests (What to set), then verify`;
 }
 
 /** A request field as a change sets it, as `--set` takes it: `temperature=0`, `stop="1"` for a string that reads as JSON. */

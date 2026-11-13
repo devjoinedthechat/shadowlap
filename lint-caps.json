@@ -26,9 +26,6 @@
     "packages/cli/src/chaos.ts": {
       "runPresets": 75
     },
-    "packages/cli/src/commands/changes.ts": {
-      "register > action(\"decisions\")": 42
-    },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
     },
@@ -66,7 +63,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 68
+      "applyFix": 64
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64
@@ -83,9 +80,6 @@
     "packages/cli/src/injection.ts": {
       "cleanInjection": 56,
       "formatPlant": 44
-    },
-    "packages/cli/src/migrate.ts": {
-      "formatMigrate": 31
     },
     "packages/cli/src/otel.ts": {
       "runToOtlp": 59
@@ -148,9 +142,6 @@
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
     },
-    "packages/dashboard/src/fix-verify-step.ts": {
-      "verifyMore": 41
-    },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35
     },
@@ -176,9 +167,6 @@
     },
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
-    },
-    "packages/dashboard/ui/fixes/model.ts": {
-      "fixJobStatus": 37
     },
     "packages/dashboard/ui/normalize.ts": {
       "normalizeRunDetail": 36
@@ -352,9 +340,6 @@
     "packages/cli/src/chaos.ts": {
       "runPresets": 153
     },
-    "packages/cli/src/commands/changes.ts": {
-      "register": 176
-    },
     "packages/cli/src/commands/data.ts": {
       "register": 207
     },
@@ -462,7 +447,7 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/decisions.ts": 1082,
+    "packages/cli/src/decisions.ts": 1077,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,

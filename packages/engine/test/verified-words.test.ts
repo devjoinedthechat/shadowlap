@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decisionStepState, emptyCounts, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, minorityChange, minorityNotes, samplesWords, stepsAsked, unchangedRunWords, unsettledWords, WITHIN_VARIATION, withinVariationLine, type DecisionChange, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
-import { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords } from '../src/verified-words.js';
+import { CLEARED, changePct, endToEndWords, tallyCount, tallyParts, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifyTally } from '../src/verified-words.js';
 
 type Step = Pick<DecisionStep, 'rank' | 'majority' | 'control' | 'sampled' | 'samples' | 'error'>;
 const step = (o: Partial<Step> = {}): Step => ({ rank: null, majority: null, sampled: null, control: null, error: null, samples: { asked: 3, answered: 3, changed: 0, ranks: [0, 0, 0] }, ...o });
@@ -106,13 +106,26 @@ describe('the line under a preview’s verdict', () => {
 });
 
 describe('how verify found the runs it took', () => {
-  it('tallies a run, an attempt it could not judge apart, and a good run against its baseline', () => {
-    expect(tallyWords({ passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' })).toBe(' · 12 of 12 · rate >= 0.76 (95%)');
-    expect(tallyWords({ passes: 2, attempts: 3, undecided: 'the judge could not answer' })).toBe(' · 2 of 2, attempt 3 not judged');
-    expect(tallyWords({ passes: 38, attempts: 38, bound: 'drop <= 0.10 (95%)', baseline: { passes: 38, attempts: 38 } })).toBe(' · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)');
+  it('tallies a run in verify’s words: an attempt it could not judge apart, and a good run against its baseline', () => {
+    // A session kept before the parts: its figures read in verify's words.
+    expect(tallyWords({ passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' })).toBe(' · 12 of 12 passed · rate >= 0.76 (95%)');
+    expect(tallyWords({ passes: 2, attempts: 3, undecided: 'the judge could not answer' })).toBe(' · 2 of 2 passed, attempt 3 not judged');
+    expect(tallyWords({ passes: 0, attempts: 1, undecided: 'the judge could not answer' })).toBe(' · attempt 1 not judged');
+    expect(tallyWords({ passes: 38, attempts: 38, bound: 'drop <= 0.10 (95%)', baseline: { passes: 38, attempts: 38 } })).toBe(' · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)');
     expect(tallyWords(null)).toBe('');
-    expect(verifiedWords({ verdict: 'passed', outcome: 'kept', tally: { passes: 4, attempts: 4 } })).toBe('kept, verified · 4 of 4');
+    expect(tallyCount({ passes: 64, attempts: 80, bound: 'rate >= 0.6 (95%)' })).toBe('64 of 80 passed');
+    expect(tallyCount({ passes: 2, attempts: 3, undecided: 'the judge could not answer' })).toBe('2 of 2 passed, attempt 3 not judged');
+    expect(tallyCount(null)).toBe('');
+    expect(verifiedWords({ verdict: 'passed', outcome: 'kept', tally: { passes: 4, attempts: 4 } })).toBe('kept, verified · 4 of 4 passed');
     expect(verifiedWords({ verdict: 'inconclusive', outcome: 'inconclusive', tally: null })).toBe('verified');
+    // One kept with verify's parts says what only they hold: a provider that stayed unavailable, attempts it cut short, a clean replay.
+    const parts = (o: Partial<VerifyTally>): VerifyTally => ({ tally: null, undecided: null, cutShort: null, bound: null, ...o });
+    expect(tallyWords({ passes: 2, attempts: 4, undecided: 'the provider stayed unavailable', parts: parts({ tally: '2 of 3 passed', undecided: 'the provider unavailable' }) })).toBe(' · 2 of 3 passed, the provider unavailable');
+    const cut = parts({ tally: '17 of 18 passed', cutShort: '1 cut short by the provider, counted against either verdict', bound: 'rate >= 0.60 (95%)' });
+    expect(tallyWords({ passes: 17, attempts: 18, bound: 'rate >= 0.60 (95%)', parts: cut })).toBe(' · 17 of 18 passed (1 cut short by the provider, counted against either verdict) · rate >= 0.60 (95%)');
+    expect(tallyCount({ passes: 17, attempts: 18, parts: cut })).toBe('17 of 18 passed (1 cut short by the provider, counted against either verdict)');
+    expect(tallyCount({ passes: 1, attempts: 1, parts: parts({ tally: 'clean replay' }) })).toBe('clean replay');
+    expect(tallyParts({ passes: 38, attempts: 38, bound: 'drop <= 0.10 (95%)', baseline: { passes: 38, attempts: 38 } })).toEqual(parts({ tally: '38 of 38 passed, baseline 38 of 38', bound: 'drop <= 0.10 (95%)' }));
   });
 
   it('counts the runs verified end to end, and says what they cost a run end to end', () => {

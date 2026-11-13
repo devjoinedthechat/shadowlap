@@ -1,7 +1,7 @@
-import { createServer, request, type Server, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer, request, type ClientRequest, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo, Socket } from 'node:net';
 import { gzipSync } from 'node:zlib';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { requestUpstream, Sidecar } from '../src/server.js';
 
@@ -87,6 +87,75 @@ describe('requestUpstream', () => {
     });
     const res = await requestUpstream(url, 'GET', {}, null);
     await expect(res.text()).rejects.toThrow();
+  });
+
+  it('sends a request once more, on a new connection, when the upstream closed the one kept from the last call as it went out', async () => {
+    // An upstream that closes a kept connection as the next request arrives on it, as its keep-alive timer can.
+    const served = new WeakSet<Socket>();
+    const bodies: string[] = [];
+    let connections = 0;
+    const url = await serve((req, res) => {
+      let body = '';
+      req.on('data', (d) => (body += d));
+      req.on('end', () => {
+        bodies.push(body);
+        if (served.has(req.socket)) return req.socket.resetAndDestroy();
+        served.add(req.socket);
+        res.end(`answer ${bodies.length}`);
+      });
+    });
+    server!.on('connection', () => connections++);
+    expect(await (await requestUpstream(`${url}/v1/messages`, 'POST', {}, Buffer.from('{"n":1}'))).text()).toBe('answer 1');
+    const res = await requestUpstream(`${url}/v1/messages`, 'POST', {}, Buffer.from('{"n":2}'));
+    expect(await res.text()).toBe('answer 3');
+    // The second call went out twice, its body whole each time: on the kept connection, then on a new one.
+    expect(bodies).toEqual(['{"n":1}', '{"n":2}', '{"n":2}']);
+    expect(connections).toBe(2);
+  });
+
+  it('passes on any other reset: of a new connection, of the one it sent again on, or of a request ended at this end', async () => {
+    // What the upstream does with each request, in order; it holds a request it has no step for.
+    const steps = ['reset', 'answer', 'reset', 'reset', 'answer'];
+    let requests = 0;
+    const url = await serve((req, res) => {
+      const step = steps[requests++];
+      if (step === 'answer') res.end('answered');
+      else if (step === 'reset') req.socket.resetAndDestroy();
+    });
+    // A connection of its own: the upstream took the request up, so its reset is the upstream's.
+    await expect(requestUpstream(url, 'GET', {}, null)).rejects.toMatchObject({ code: 'ECONNRESET' });
+    expect(requests).toBe(1);
+    // A kept connection, then the new one it was sent again on: once more, no further.
+    expect(await (await requestUpstream(url, 'GET', {}, null)).text()).toBe('answered');
+    await expect(requestUpstream(url, 'GET', {}, null)).rejects.toMatchObject({ code: 'ECONNRESET' });
+    expect(requests).toBe(4);
+    // A kept connection's request ended here, as Sidecar.close ends one: its socket hang up is no reason to send it again.
+    expect(await (await requestUpstream(url, 'GET', {}, null)).text()).toBe('answered');
+    const inFlight = new Set<ClientRequest>();
+    const ended = requestUpstream(url, 'GET', {}, null, inFlight);
+    await vi.waitFor(() => expect(requests).toBe(6));
+    for (const req of inFlight) req.destroy();
+    await expect(ended).rejects.toThrow(/socket hang up/);
+    expect(requests).toBe(6);
+  });
+
+  it('passes on a reset of a kept connection that came well after the request went out, as a slow call the upstream took up', async () => {
+    // Only the clock is faked: the requests go over the network as ever.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let requests = 0;
+      const url = await serve((req, res) => {
+        if (++requests === 1) return res.end('answered');
+        // The upstream had the call six seconds, then lost it before any answer.
+        vi.setSystemTime(Date.now() + 6_000);
+        req.socket.resetAndDestroy();
+      });
+      expect(await (await requestUpstream(url, 'POST', {}, Buffer.from('{"n":1}'))).text()).toBe('answered');
+      await expect(requestUpstream(url, 'POST', {}, Buffer.from('{"n":2}'))).rejects.toMatchObject({ code: 'ECONNRESET' });
+      expect(requests).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

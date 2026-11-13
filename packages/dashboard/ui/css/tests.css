@@ -353,6 +353,8 @@ table.gt span.gev small { font-size: inherit; }
 .rpska > span { min-height: 24px; font-size: var(--fs-quiet); }
 /* what followed a request, apart from its diff; alone where the divergence kept no changes */
 .rpx .rpdiff + .rperrw.q { margin-top: 10px; }
+/* the cause of a request a migration's switch changed, under its diff and over what followed */
+.rpx .rpdiff + p.rpcause, .rpx p.rpcause + .rperrw.q { margin-top: 8px; }
 .diffpanel.rpdiff { padding: 0; border: 0; background: none; gap: 8px; }
 /* An injection gate's attempts in the results' key, every entry quiet; its box the matrix's, so the key's columns follow its width. */
 .rpx .rpmx { container: matrix / inline-size; }

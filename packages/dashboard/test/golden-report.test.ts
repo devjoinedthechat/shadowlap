@@ -68,6 +68,14 @@ describe('a divergence', () => {
     expect(report.printed.map((l) => l.tone)).toEqual(['no', '', 'del', 'add']);
     expect(report.printed[0]).toEqual({ text: '✗ refund: diverged at call 3 (api POST /v1/messages)', tone: 'no' });
   });
+
+  it('says a replay that stopped before its recording did ended early, as the CLI says it, and how far it got', () => {
+    const early = { type: 'ended_early' as const, callNo: 11, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 10, recorded: 30 };
+    const { report } = world('refund', (run, _s, store) => (store.endRun(run, 'completed', 30), { ok: false, failure: 'diverged', reason: 'ended early at call 11 (api POST /v1/messages): 10 of 30 recorded calls replayed', data: { mode: 'replay', calls: { total: 10, replayed: 10, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { ...early, text: '' } } }), { divergence: early });
+    expect(report.head).toEqual(['Ended early at call 11']);
+    expect(report.parts).toEqual([{ kind: 'replay', recorded: 30, replayed: 10, stop: 11, words: '10 of 30 recorded calls replayed, then it stopped · 0 upstream requests' }]);
+    expect(report.hint).toEqual({ key: 'bisect' });
+  });
 });
 
 describe('a divergence’s request', () => {
@@ -113,6 +121,36 @@ describe('a divergence’s request', () => {
     // Every request matched, but the agent exited 0 before the recording ended: it never made call 3, and nothing followed.
     const early = world('refund', (run, _s, store) => (store.endRun(run, 'completed', 30), keptNone('ended_early', 3, 'ended early at call 3 (api POST /v1/messages): 2 of 3 recorded calls replayed')), { divergence: { type: 'ended_early', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, recorded: 3 } });
     expect(early.report.parts.map((p) => p.kind)).toEqual(['replay']);
+  });
+});
+
+describe('a golden an applied migration left waiting', () => {
+  const MIGRATION = 'mg-01M5000000000000000000000C';
+  /** A replay of a golden recorded before the switch: its request changed at call `callNo` on `$.model`. */
+  const onModel = (callNo: number): ReturnType<Parameters<typeof world>[1]> => ({ ok: false, failure: 'diverged', reason: `diverged at call ${callNo} (api POST /v1/messages)`, data: { mode: 'replay', calls: { total: callNo, replayed: callNo - 1, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type: 'request_changed', callNo, kind: 'api', name: 'POST /v1/messages', replayedBefore: callNo - 1, diff: [{ path: '$.model', op: 'changed', before: 'claude-sonnet-4-5', after: 'claude-sonnet-5-5' }], text: '✗ Request changed' } } });
+  const at = (callNo: number) => ({ divergence: { type: 'request_changed' as const, callNo, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: callNo - 1, recorded: 30 } });
+  /** The migration from claude-sonnet-4-5 to claude-sonnet-5-5 as `migrate --json` keeps it, applied where `left` says, leaving `goldens/<left.golden>` waiting at its call. */
+  const migrated = (store: Store, left: { golden: string; callNo: number } | null) => {
+    store.putDecisionSession({ sessionId: MIGRATION, kind: 'migrate', at: 1, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data: { migrateId: MIGRATION, kind: 'migrate', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5' }, runs: [] });
+    if (left) store.setMigrationApplied(MIGRATION, { at: 2, by: null, outdated: [{ golden: `goldens/${left.golden}`, callNo: left.callNo, path: '$.model' }] });
+  };
+  const requestOf = (report: GoldenReport) => report.parts.find((p) => p.kind === 'request');
+
+  it('names the migration whose config change switched its model on its Request’s line, its id opening it, and says only why Update golden leads', () => {
+    const { report } = world('refund', (_run, _s, store) => (migrated(store, { golden: 'refund', callNo: 3 }), onModel(3)), at(3));
+    const cause = (requestOf(report) as Extract<GoldenReport['parts'][number], { kind: 'request' }>).cause!;
+    expect(text(cause)).toBe('The config change of migration `mg-01M5000000` switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.');
+    expect(cause.filter((p) => typeof p !== 'string')).toEqual([{ code: 'mg-01M5000000', href: links.changeSession('migrate', MIGRATION) }]);
+    expect(report.hint).toEqual({ key: 'switch' });
+    // The verdict's sentence says what changed, as for any divergence: the cause is the Request line's alone.
+    expect(text(report.head)).toBe('Diverged at call 3: `$.model` changed');
+  });
+
+  it('says no switch for a divergence the migration doesn’t explain: another call, another golden, or a migration not applied', () => {
+    for (const left of [{ golden: 'refund', callNo: 1 }, { golden: 'escalate', callNo: 3 }, null]) {
+      const { report } = world('refund', (_run, _s, store) => (migrated(store, left), onModel(3)), at(3));
+      expect([requestOf(report), report.hint]).toEqual([expect.not.objectContaining({ cause: expect.anything() }), { key: 'bisect' }]);
+    }
   });
 });
 
@@ -389,6 +427,25 @@ describe('Failed runs →', () => {
     expect(page.total).toBe(3);
     const issue = page.issues.find((x) => x.key === key);
     expect([issue?.count, issue?.runs?.map((x) => x.runId)]).toEqual([link.count, link.ids]);
+    store.close();
+  });
+
+  it('leaves out a replay a closed fix lists, which Failed holds under that fix’s issue, never its golden’s', async () => {
+    const store = Store.open(':memory:');
+    const rec = addRun(store, { startedAt: 1_000, calls: 'rr' });
+    const replay = (at: number) => addRun(store, { parent: rec, startedAt: at, calls: 'r', argv: ['python', 'refund_agent.py'], status: 'failed', meta: { test: { golden: 'goldens/refund', session: 's' } } });
+    const [listed, own] = [replay(2_000), replay(3_000)];
+    const fixId = 'fx-01K8RG0000000000000000000B';
+    store.insertFix({ fixId, title: 'Refunds issued twice', labels: [], check: { expect: {}, key: `check:${fixId}`, oracle: [], text: 'issue_refund called at most 1 time' }, status: 'applied', openedAt: 1_500, verifiedAt: null, appliedAt: 4_000, data: {} });
+    store.addFixLink(fixId, 'failing', listed, 2_500);
+    const runs = JSON.parse((await runJob(store, { kind: 'tests-failed-runs', goldens: ['goldens/refund'], outcome: null }, { whole: true })).body) as Record<string, { count: number; ids: string[] }>;
+    expect(runs).toEqual({ 'goldens/refund': { count: 1, ids: [own] } });
+    // The golden's issue under Failed holds what the link counts; the listed replay is the fix's.
+    const key = issueKey.golden('goldens/refund');
+    const page = JSON.parse((await runJob(store, { kind: 'runs-issues', options: { q: 'type:test refund' }, outcome: null, next: null, open: [key] }, { whole: true })).body) as IssuesPage;
+    const issue = page.issues.find((x) => x.key === key);
+    expect([issue?.count, issue?.runs?.map((x) => x.runId)]).toEqual([1, [own]]);
+    expect(page.issues.find((x) => x.key === issueKey.fix(fixId))?.count).toBe(1);
     store.close();
   });
 

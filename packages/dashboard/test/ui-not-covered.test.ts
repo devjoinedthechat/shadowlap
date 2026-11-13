@@ -72,16 +72,21 @@ describe('Rescan coverage in the palette', () => {
     r = null;
   });
 
-  it('lists just before Preview pull request comment, as the design orders the actions', async () => {
+  it('lists just after Migrate <a> to <b> and just before Preview pull request comment, as the design orders the actions', async () => {
     const session = { id: 'ts-01M5000000000000000000000A', command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: 1, endedAt: 2, passed: 1, failed: 0, inconclusive: 0 } as TestsSessionView;
     const tested = { rows: [], diverged: [], verdict: { state: 'passing', failing: 0, inconclusive: 0, passing: 1, untested: 0, title: 'every golden passed', first: null, session, since: [] } } as unknown as TestsView;
     // The goldens as last listed have a session, so the palette previews its pull request comment.
     keepTests(tested);
-    const client = { search: async () => ({ hits: [] }), runsPage: async () => ({ runs: [], total: 0, next: null, chipCounts: {} }), jobs: async () => [], startJob: () => Promise.resolve({ id: 'j1' }), tests: async () => tested };
-    r = await render(createElement(AppContext.Provider, { value: app({ client } as unknown as Partial<AppState>) }, createElement(Palette, { route: OVERVIEW })));
-    const labels = r.all('.palit').map((el) => el.querySelector('.pl')!.textContent);
-    expect(labels.indexOf('Rescan coverage')).toBeGreaterThan(-1);
-    expect(labels.indexOf('Rescan coverage')).toBe(labels.indexOf('Preview pull request comment') - 1);
+    // A model the goldens call retires, so the palette offers its migration once Migrate's read lands.
+    const start = { goldens: 1, use: [], retiring: [{ model: 'claude-sonnet-4-5', replacements: ['claude-sonnet-5-5'], goldens: ['refund-flow'] }] };
+    const client = { search: async () => ({ hits: [] }), runsPage: async () => ({ runs: [], total: 0, next: null, chipCounts: {} }), jobs: async () => [], startJob: () => Promise.resolve({ id: 'j1' }), tests: async () => tested, migrateStart: async () => start };
+    const hasKind = (k: string) => k === JOB_KINDS.coverage || k === JOB_KINDS.migrate;
+    r = await render(createElement(AppContext.Provider, { value: app({ client, hasKind } as unknown as Partial<AppState>) }, createElement(Palette, { route: OVERVIEW })));
+    const MIGRATE = 'Migrate claude-sonnet-4-5 to claude-sonnet-5-5';
+    const labels = () => r!.all('.palit').map((el) => el.querySelector('.pl')!.textContent);
+    await r.until('the palette offers the migration', () => labels().includes(MIGRATE));
+    expect(labels().indexOf('Rescan coverage')).toBe(labels().indexOf(MIGRATE) + 1);
+    expect(labels().indexOf('Rescan coverage')).toBe(labels().indexOf('Preview pull request comment') - 1);
     keepTests({ ...tested, verdict: null });
   });
 });

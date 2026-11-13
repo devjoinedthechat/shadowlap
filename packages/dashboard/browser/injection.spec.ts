@@ -230,7 +230,7 @@ test("Tests' report of the golden its gate failed draws its proof as the attempt
   await openPage(page, '/tests', 'main#view table tbody tr', here());
   await openReport(page, 'research');
   const report = page.locator('main#view section[id="report-research"]');
-  const calls = report.locator('.injline button.pbn');
+  const calls = report.locator('.injline a.pbn');
   await expect(calls.first()).toBeVisible();
   await report.getByRole('button', { name: 'Security report' }).click();
   const dialog = page.getByRole('dialog');
@@ -239,7 +239,8 @@ test("Tests' report of the golden its gate failed draws its proof as the attempt
   await expectAccessible(page);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();
-  // A call the proof names opens the attempt there.
+  // A call the proof names is a link to the attempt there, so it opens in a new tab too.
+  await expect(calls.last()).toHaveAttribute('href', /^#\/run\/[0-9A-Z]{26}\/\d+$/);
   await calls.last().click();
   await page.waitForSelector('main#view .rhead .rnm', { state: 'visible' });
   await expect(page.locator('main#view .rhead .ebk')).toHaveText('injection attempt');

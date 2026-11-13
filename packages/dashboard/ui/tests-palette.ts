@@ -44,6 +44,9 @@ export function onTestsChanged(on: () => void): () => void {
   };
 }
 
+/** How many goldens were last listed: the palette's preview rows show while there are any. */
+export const knownGoldens = (): number => known?.rows.length ?? 0;
+
 /** The goldens as last listed, from the Tests page or the palette's own load. */
 export function keepTests(view: TestsView): void {
   const before = paletteKey(known);

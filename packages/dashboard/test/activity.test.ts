@@ -157,6 +157,33 @@ describe('the activity feed', () => {
     expect(activity(store).items.find((i) => i.at === 7700)).toMatchObject({ kind: 'train', text: 'Frobbed w-1', href: '#/training' });
   });
 
+  it('words a kept preview’s verify by its session’s name and how each run came out, opening the preview, and a migration’s as a fix’s', () => {
+    const store = Store.open(':memory:');
+    try {
+      const session = 'dc-01M5000000000000000000000V';
+      const name = 'Model switch to claude-haiku-4-5';
+      recordEvent(store, { kind: 'verify.accepted', ref: 'v-1', data: { verifyId: 'v-1', fixes: [], counts: [], reasons: [], session, name, runs: 2, outcomes: ['fixed', 'kept'] }, at: 100 });
+      recordEvent(store, { kind: 'verify.accepted', ref: 'v-0', data: { verifyId: 'v-0', fixes: [], counts: [], reasons: [], session, name, runs: 2, outcomes: ['kept', 'kept'] }, at: 90 });
+      recordEvent(store, { kind: 'verify.rejected', ref: 'v-2', data: { verifyId: 'v-2', fixes: [], counts: [], reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed'], session, name, runs: 2, outcomes: ['kept', 'broken'] }, at: 110 });
+      recordEvent(store, { kind: 'verify.rejected', ref: 'v-5', data: { verifyId: 'v-5', fixes: [], counts: [], reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed'], session, name, runs: 1 }, at: 105 });
+      recordEvent(store, { kind: 'verify.incomplete', ref: 'v-3', data: { verifyId: 'v-3', fixes: [], counts: [], reasons: ['target run 01K5CQ2E8M inconclusive: 80 attempts left it open'], session, name, runs: 1 }, at: 120 });
+      recordEvent(store, { kind: 'verify.accepted', ref: 'v-4', data: { verifyId: 'v-4', fixes: [], counts: [], reasons: [], session: 'mg-01M5000000000000000000000V' }, at: 130 });
+      const said = activity(store, { limit: 10 }).items.map((i: ActivityItem) => [i.text, i.href]);
+      const href = `#/changes/decisions/${session}`;
+      expect(said).toEqual([
+        ['Verify accepted · v-4', expect.any(String)],
+        [`Verify inconclusive · ${name}: target run 01K5CQ2E8M inconclusive: 80 attempts left it open`, href],
+        [`Verify rejected the change · ${name}: 1 broken, 1 kept`, href],
+        // An event that kept no outcomes says why verify rejected it.
+        [`Verify rejected the change · ${name}: breaks a good run`, href],
+        [`Verified · ${name}: 1 fixed, 1 kept`, href],
+        [`Verified · ${name}: 2 kept`, href],
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
   it('pages back in time without gaps or repeats, a full page at a time', () => {
     const seen: string[] = [];
     let before: string | undefined;

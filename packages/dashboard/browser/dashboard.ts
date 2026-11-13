@@ -30,6 +30,15 @@ export function demoId(name: string): string {
   return id;
 }
 
+/**
+ * For a read through Playwright's own client (page.request, the request fixture, route.fetch()): sent
+ * once more, on a new connection, when the one it reused was closed as it went out. That client keeps
+ * a connection alive with no timeout of its own, so it ignores the dashboard's `Keep-Alive: timeout=5`,
+ * and Node closes an idle connection about a second after that: a read sent then meets a reset
+ * (`read ECONNRESET`). A browser sends such a request again, and this does the same.
+ */
+export const RESET_RETRY = { maxRetries: 1 } as const;
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
@@ -55,7 +64,10 @@ export interface Served {
  */
 export async function serveDashboard(demo: string, project: string): Promise<Served & { stop: () => Promise<void> }> {
   const port = await freePort();
-  const env = { ...process.env, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
+  // No provider's key reaches the dashboard a test drives, so listing the models a switch can take, or
+  // anything else it does, never asks a real provider.
+  const keyless = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/_(API_KEY|AUTH_TOKEN)$/.test(k)));
+  const env = { ...keyless, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
   const child = spawn(process.execPath, [cli, 'dashboard', '--no-open', '--port', String(port)], { cwd: join(demo, project), env, stdio: ['ignore', 'ignore', 'pipe'] });
   const link = await new Promise<string>((resolve, reject) => {
     let said = '';
@@ -94,7 +106,7 @@ export async function serveDashboard(demo: string, project: string): Promise<Ser
 /** Every link (`#/…`) the shared dashboard's answers write, read from the pages' reads that name runs, fixes and the rest. */
 export async function serverLinks(request: APIRequestContext): Promise<Set<string>> {
   const { origin, token } = dash();
-  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
+  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json();
   const fix = demoId('refundFix');
   const answers = await Promise.all(['summary?tz=UTC', 'activity?limit=200', 'fixes', `fixes/${fix}`, `fixes/${fix}/groups`, 'training', 'tests', `runs/${demoId('override')}/differences`, 'setup', 'projects', 'decisions', `runs/${demoId('refundBug')}/decisions`].map(get));
   const links = new Set<string>();

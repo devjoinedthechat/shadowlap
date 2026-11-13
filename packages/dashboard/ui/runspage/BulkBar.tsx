@@ -21,6 +21,7 @@ import { guardedWayOn, useApp } from '../state.js';
 import type { JobView } from '../types.js';
 import { bulkToast, datasetOff, deleteFacts, deleteLead, inBatches, joinLabelled, labelCommands, labelSuggestions, named, packCommand, packOff, rmCommand } from './bulk.js';
 import { useDeleteRuns } from './delete-runs.js';
+import { PreviewChange } from './PreviewChange.js';
 import { ActionButton } from '../components/ActionButton.js';
 
 /**
@@ -69,7 +70,7 @@ function useBulkHeight(): RefObject<HTMLDivElement | null> {
 }
 
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
-  const { client, toast, guard, hasKind, watchJob, runs: inMemory } = useApp();
+  const { client, toast, guard, hasKind, watchJob, runs: inMemory, exported } = useApp();
   const bar = useBulkHeight();
   useRetoast(bar);
   const startDelete = useDeleteRuns();
@@ -125,6 +126,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
             {BULK.dataset}
           </ActionButton>
         ) : null}
+        {!exported && hasKind(JOB_KINDS.decisions) ? <PreviewChange picked={runs.map((r) => r.runId)} ended={endedIds} /> : null}
         <button
           className="btn sm"
           type="button"

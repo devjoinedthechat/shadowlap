@@ -6,6 +6,7 @@ import { askDiff } from '../run/diff-answers.js';
 import { useApp } from '../state.js';
 import type { Followed, ReportPart } from '../types.js';
 import { FoldedLines } from './ErrorPart.js';
+import { Pieces } from './Pieces.js';
 
 /**
  * A divergence's Request part: its request on both sides as Show diff draws it on a run, by the same
@@ -14,12 +15,19 @@ import { FoldedLines } from './ErrorPart.js';
  * gone, the changes its result kept, with no notes. At its foot, in grey, what followed from it, so it
  * never reads as a second fault: the offline 503 the agent exited on, Show message opening its body.
  * A divergence that kept no changes, as a run offers no Show diff for it, draws what followed alone.
+ * Where an applied migration left the golden waiting, its cause under the diff, in the server's words:
+ * the migration whose config change switched its model, its id opening its report.
  */
 export function RequestPart({ p, open, id }: { p: Extract<ReportPart, { kind: 'request' }>; open: boolean; id: string }) {
   const diff = p.runId ? <Asked runId={p.runId} callNo={p.callNo} /> : p.bodies ? <Kept p={p} bodies={p.bodies} /> : null;
   return (
     <>
       {open && diff ? <div className="diffpanel jdp rpdiff">{diff}</div> : null}
+      {p.cause ? (
+        <p className="rpc rpcause">
+          <Pieces pieces={p.cause} />
+        </p>
+      ) : null}
       {p.followed ? <FollowedLine f={p.followed} id={id} /> : null}
     </>
   );

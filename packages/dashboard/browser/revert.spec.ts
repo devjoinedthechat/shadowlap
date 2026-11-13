@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { parseTraceback } from '@shadowlap/engine';
 import type { FailureView, FixDetail, FoundCommit, GoldenReport, NextStep, TestsAnswer } from '../ui/types.js';
-import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { demoId, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
 import { openReport } from './tests-fixture.js';
 
 /**
@@ -16,6 +16,9 @@ import { openReport } from './tests-fixture.js';
  * A revert's drawer reads Reverting, then Reverted where git reverted, its status not saying
  * reverted again, or Tried reverting where git refused.
  */
+
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 const DIALOG = '[role="dialog"][aria-modal="true"]';
 const REV = '9a3c5e0';
@@ -55,7 +58,7 @@ const step = (runId: string) =>
 /** The server's answer to the request, changed by `patch`: asked whole (never a 304 with no body to change). */
 async function patched<T>(route: Route, patch: (body: T) => unknown): Promise<void> {
   const headers = Object.fromEntries(Object.entries(route.request().headers()).filter(([k]) => k !== 'if-none-match' && k !== 'if-modified-since'));
-  const res = await route.fetch({ headers });
+  const res = await route.fetch({ headers, ...RESET_RETRY });
   const text = await res.text();
   await route.fulfill(text ? { response: res, json: patch(JSON.parse(text) as T) } : { response: res });
 }

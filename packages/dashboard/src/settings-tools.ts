@@ -1,5 +1,5 @@
 import { isObject, parseToolTrust, type Effect, type ToolTrust, type TrustSource } from '@shadowlap/engine';
-import { toolTrust, type ToolTrustRow } from './injection.js';
+import { toolTrust, type ToolTrustRow } from './tool-trust.js';
 import type { ToolsRead, ToolTest } from './injection-security.js';
 import { toolReads, type ToolReads } from './tool-reads.js';
 import { trustLine } from './tool-trust.js';
@@ -21,7 +21,7 @@ export interface ToolRow {
   changed: boolean;
   /** Its effect comes from `mcp.effects` in the config. */
   mcp: boolean;
-  /** Its trust: the config's `tools`, else what its calls were recorded with, else trusted (injection.ts toolTrust). */
+  /** Its trust: the config's `tools`, else what its calls were recorded with, else trusted (tool-trust.ts toolTrust). */
   trust: 'trusted' | 'untrusted';
   from: TrustSource | null;
   /** Where the mark comes from, in the Trust column's words; null for a tool trusted by default. */

@@ -411,7 +411,7 @@ describe('one name for each action, and its forms', () => {
   });
 
   it('is the name each place offers it by: the palette, Share, the drawer and the server’s job titles', () => {
-    expect(ACTION_ORDER).toEqual(['Update goldens', 'Export pairs…', 'Score model…', 'Run tests', 'Import capture…', 'Calibrate']);
+    expect(ACTION_ORDER).toEqual(['Update goldens', 'Export pairs…', 'Score model…', 'Run tests', 'Import capture…', 'Calibrate', 'Preview model switch…', 'Preview changed prompt']);
     expect(runTestsJob([{ path: 'goldens/a' } as GoldenSource], {})).toMatchObject({ title: ACTIONS.runTests.doing });
     expect(shareItems({ can: () => true, team: null }).map((i) => i.label)).toEqual([ACTIONS.exportHtml.label, ACTIONS.pack.label, ACTIONS.exportDataset.label, ACTIONS.exportTrace.label, ACTIONS.exportHar.label]);
     expect(jobTitle({ args: ['bisect', 'R', '--good', 'x'], done: false, code: null })).toBe('Finding breaking commit');

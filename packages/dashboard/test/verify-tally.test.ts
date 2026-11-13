@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { describeBaselineRule, formatVerify, gateResult, outcomeOf, plain, recordBlame, recordVerdict, Store, verifyTally, verifyTallyLine, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
+import { describeBaselineRule, emptyCounts, formatVerify, gateResult, outcomeOf, plain, recordBlame, recordVerdict, Store, tallyParts, verifyTally, verifyTallyLine, type DecisionRun, type DecisionsVerify, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
+import { verifyLines } from '../../cli/src/commands/changes.js';
 import { verifyJson } from '../../cli/src/commands/fix-report.js';
 import { entryOf } from '../../cli/src/decisions-verify-runs.js';
 import { formatFixDetail } from '../../cli/src/fix-format.js';
+import { formatMigrate, passesOf, type MigrateReport } from '../../cli/src/migrate.js';
 import { settledLine } from '../../cli/src/verify.js';
 import { blameReport, EXPECT } from '../../engine/test/fix-fixtures.js';
 import { fixDetail, type FixDetail } from '../src/fixes.js';
@@ -13,8 +15,9 @@ import { attempt, GATE, passing, reportOf, tallyCases, verifiedRun } from './ver
  * A run verify took reads the same wherever it shows: the line `shadowlap verify` prints for it, the
  * dashboard's verdict line and parts, `fix show --json`'s verify rows, and in the CLI `fix show`'s
  * rows, verify's line as the run settles, verify --json's sentence for a run kept against its
- * baseline and the decisions report's bound all build from the engine's parts (`verifyTally`), for
- * each kind of run (verify-tally-cases.ts). Where a stored report's figures give no bound, each says
+ * baseline, the decisions report's bound and parts, `decisions`' verify lines and `migrate`'s What
+ * still passes all build from the engine's parts (`verifyTally`), for each kind of run
+ * (verify-tally-cases.ts). Where a stored report's figures give no bound, each says
  * the tally alone, and none throws.
  */
 
@@ -57,6 +60,25 @@ function keptSentence(report: VerifyReport, x: VerifiedRun): string {
 
 /** The rule a report's good runs were kept by, as verify --json's sentence ends on it. */
 const keptRule = (report: VerifyReport) => describeBaselineRule({ ...report.kept!, revision: report.kept!.label ?? report.kept!.revision ?? null });
+
+/** A migration with only what migrate's report reads to word What still passes: its runs, as verify found them. */
+function migration(passes: MigrateReport['passes']['runs'], verify: DecisionsVerify): MigrateReport {
+  return {
+    from: ['claude-old'],
+    to: 'claude-new',
+    migrateId: null,
+    decisions: { runs: passes.map((x) => ({ runId: x.runId })), counts: emptyCounts(), verify, cost: { unknownModels: [] } },
+    changes: { runs: passes.length, flagged: 0, steps: [] },
+    passes: { verdict: 'accepted', runs: passes },
+    costs: { perRun: { before: null, after: null }, total: { before: null, after: null }, tokensPerRun: { before: 0, after: 0 }, checking: { decisions: 0, judge: 0, verify: 0 } },
+    set: { flags: [], fields: [], given: {}, byHand: [] },
+    configChange: null,
+    retirements: [],
+    notes: [],
+    warnings: [],
+    files: null,
+  } as unknown as MigrateReport;
+}
 
 /** A verify row's parts joined as verify's line joins them. */
 const joined = (row: { tally: string; cutShort: string | null; bound: string | null }) => `${row.tally}${row.cutShort ? ` (${row.cutShort})` : ''}${row.bound ? ` · ${row.bound}` : ''}`;
@@ -124,6 +146,27 @@ describe('a verified run’s tally', () => {
     // Only a run kept against its baseline has a sentence of its own: the gate's says the others.
     const kept = cases.filter((c) => c.run.baseline);
     expect(kept.map((c) => keptSentence(report, c.run))).toEqual(kept.map((c) => `kept · ${c.line} · ${keptRule(report)}`));
+  });
+
+  it('reads the same in decisions’ verify lines and migrate’s report, and a session kept before the parts in verify’s words from its figures', () => {
+    const cases = tallyCases(store);
+    const report = reportOf(cases.map((c) => c.run));
+    const entries = cases.map((c) => entryOf(report, 'the rule')(c.run));
+    const verify: DecisionsVerify = { verdict: 'accepted', verifyIds: [], runs: entries, rule: 'the rule', commands: [], spent: 0, upstreamRequests: 0, reasons: [] };
+    const lines = verifyLines(verify, null).replace(/\x1b\[[0-9;]*m/g, '').split('\n');
+    const runs = cases.map((c) => ({ runId: c.run.runId, golden: null, decisions: [] }) as unknown as DecisionRun);
+    const migrated = formatMigrate(migration(passesOf(runs, [], verify, () => true), verify)).replace(/\x1b\[[0-9;]*m/g, '').split('\n');
+    const rowOf = (rows: string[], c: (typeof cases)[number]) => rows.find((l) => l.includes(c.run.runId.slice(0, 10)))!;
+    for (const [i, c] of cases.entries()) {
+      expect(entries[i].parts, c.kind).toEqual(c.parts);
+      expect(rowOf(lines, c).trim().split(/ {2,}/)[2], c.kind).toBe(c.line);
+      expect(rowOf(migrated, c).split('verified · ')[1], c.kind).toBe(c.line);
+      // Kept before the parts: the same words from the figures it kept, but for what only the parts hold.
+      const { parts: _parts, ...old } = entries[i];
+      const onlyParts = c.parts.cutShort || c.parts.undecided === 'the provider unavailable' || c.parts.tally === 'clean replay';
+      if (!onlyParts) expect(verifyTallyLine(tallyParts(old)), c.kind).toBe(c.line);
+      expect(verifyTallyLine(tallyParts(old)), c.kind).not.toMatch(/^\d+ of \d+(,| ·|$)/);
+    }
   });
 
   it('is the tally alone in the CLI too where a stored report’s figures give no bound, never a throw', () => {

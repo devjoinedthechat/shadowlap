@@ -1,5 +1,5 @@
 import type { Request } from './settings-api.js';
-import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView, VerdictRevision, VerdictsKind, VerdictsView } from './types.js';
+import type { DecisionSessionDetail, DecisionsListView, MigrateStartView, RetirementsView, RunDecisionsView, VerdictRevision, VerdictsKind, VerdictsView } from './types.js';
 
 /**
  * What Changes reads from the server: the decision diff (`/api/decisions`, `shadowlap decisions` and
@@ -15,6 +15,8 @@ export interface ChangesApi {
   runDecisions(runId: string): Promise<RunDecisionsView>;
   /** The models the goldens use that retire, by the table that ships with Shadowlap. */
   retirements(): Promise<RetirementsView>;
+  /** What Migrate opens on (`GET /api/migrate/start`, a pooled read): the goldens' retiring models, worded, each with the migration that checked it, and the models the goldens call. */
+  migrateStart(): Promise<MigrateStartView>;
   /** Verdicts: the changes of a chip, newest first, `limit` at most, each chip's count, and the newest revision's verdict. */
   verdicts(kind: VerdictsKind, limit: number): Promise<VerdictsView>;
   /** A revision's page, by its key (`no-revision` for none): its goldens as that session judged them, and the previews asked at it. */
@@ -32,6 +34,7 @@ export function changesApi(request: Request): ChangesApi {
     decisionSession: (sessionId) => request<DecisionSessionDetail>(`decisions/${id(sessionId)}`),
     runDecisions: (runId) => request<RunDecisionsView>(`runs/${id(runId)}/decisions`),
     retirements: () => request<RetirementsView>('retirements'),
+    migrateStart: () => request<MigrateStartView>('migrate/start'),
     verdicts: (kind, limit) => request<VerdictsView>(`verdicts?kind=${kind}&limit=${limit}`),
     verdictRevision: (rev) => request<VerdictRevision>(`verdicts/${id(rev)}`),
   };
