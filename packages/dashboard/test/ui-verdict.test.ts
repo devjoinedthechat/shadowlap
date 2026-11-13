@@ -159,7 +159,7 @@ describe('Tests’ Last result', () => {
   }
 
   function page(v: TestsView) {
-    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]) } as unknown as Client;
+    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]), injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }) } as unknown as Client;
     const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined };
     return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage));
   }

@@ -39,8 +39,11 @@ import { modeOf, type GoldenSource } from './tests.js';
  * as `shadowlap test` checks the file, the whole of `tests` with it, and refused in its words.
  */
 
-/** The keys of a golden's entry a write sets: its checks. Every other key keeps its value and its place. */
+/** The keys of a golden's entry the check builder's write sets: its checks. Every other key keeps its value and its place. */
 export const ENTRY_KEYS = ['expect'] as const;
+/** The key Pack with injection gate…'s write sets, once the golden is packed: its gate (a job's step, never the route's). */
+export const GATE_KEYS = ['injection'] as const;
+type EntryKey = (typeof ENTRY_KEYS)[number] | (typeof GATE_KEYS)[number];
 
 /** A short print of each top-level key's value and each entry's under `tests`, as a read saw them: a write sends them back. */
 export interface ConfigPrints {
@@ -131,8 +134,13 @@ export function printsOf(raw: unknown): ConfigPrints | null {
 
 /** The refusal of a write to a file that changed since the page read it, naming what changed when the page sent what it read. */
 export function changedWords(read: ConfigPrints | null, file: ConfigFile): string {
+  return `${changedOnDisk(read, file)}. It shows your change against the file as it is now; nothing was changed.`;
+}
+
+/** That the file changed since the page read it, and what changed, as far as the read's prints tell. */
+export function changedOnDisk(read: ConfigPrints | null, file: ConfigFile): string {
   const names = read ? changedSince(read, configPrints(file.data)) : [];
-  return `${CONFIG_FILE} changed on disk since this page read it${names.length ? `: ${andList(names)}` : ''}. It shows your change against the file as it is now; nothing was changed.`;
+  return `${CONFIG_FILE} changed on disk since this page read it${names.length ? `: ${andList(names)}` : ''}`;
 }
 
 /** The keys under `tests` that name recordings: every key but the session's own settings. */
@@ -214,7 +222,7 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
 }
 
 /** A golden's entry as a write sets it: the keys it names, `null` taking one out. */
-export type EntryEdit = Partial<Record<(typeof ENTRY_KEYS)[number], unknown>>;
+export type EntryEdit = Partial<Record<EntryKey, unknown>>;
 
 /** What a write of a golden's entry did: the key it wrote, the file's version after, the checks' labels it added and removed. */
 export interface TestsWritten {
@@ -254,10 +262,12 @@ function without(a: readonly string[], b: readonly string[]): string[] {
  * entry, it adds `tests["<golden>"]`; with a pattern's, an exact entry for the golden with the
  * pattern's other keys, since an exact key wins and the pattern stays for its other goldens. The
  * whole of `tests` is checked as `shadowlap test` checks it, and refused with its words (RuleError);
- * `expect` is the version the page read (ConfigConflictError when the file is no longer that).
+ * `expect` is the version the page read (ConfigConflictError when the file is no longer that);
+ * `keys`, the keys it may set (the check builder's, ENTRY_KEYS, unless named).
  */
-export function writeTestsEntry(dir: string, golden: string, edit: EntryEdit, o: { expect: string; wait?: number }): TestsWritten {
-  const { file, result, changed } = editConfigFile(dir, o, (data) => {
+export function writeTestsEntry(dir: string, golden: string, edit: EntryEdit, o: { expect: string; wait?: number; keys?: readonly EntryKey[] }): TestsWritten {
+  const keys: readonly EntryKey[] = o.keys ?? ENTRY_KEYS;
+  const { file, result, changed } = editConfigFile(dir, { expect: o.expect, ...(o.wait === undefined ? {} : { wait: o.wait }) }, (data) => {
     if (data.tests === undefined) data.tests = {};
     const tests = data.tests;
     if (!isObject(tests)) {
@@ -268,7 +278,7 @@ export function writeTestsEntry(dir: string, golden: string, edit: EntryEdit, o:
     const key = found !== null && !found.includes('*') ? found : golden;
     const was: unknown = found !== null ? tests[found] : undefined;
     const next: Record<string, unknown> = isObject(was) ? structuredClone(was) : {};
-    for (const k of ENTRY_KEYS) {
+    for (const k of keys) {
       if (!(k in edit)) continue;
       if (edit[k] === null) delete next[k];
       else next[k] = edit[k];
@@ -278,12 +288,17 @@ export function writeTestsEntry(dir: string, golden: string, edit: EntryEdit, o:
     const prior = { key, entry: key === found ? structuredClone(was) : undefined };
     return { key, added: without(labelsOf(next), labelsOf(was)), removed: without(labelsOf(was), labelsOf(next)), prior };
   });
-  return { ...result, version: file.version, changed, event: entryEvent(golden, result, changed) };
+  // A gate written says so (`gate`): the feed words it apart from a check's labels.
+  const gate = keys.includes('injection') && edit.injection !== undefined && edit.injection !== null ? { gate: edit.injection } : {};
+  return { ...result, version: file.version, changed, event: entryEvent(golden, result, changed, gate) };
 }
 
-/** A write of a golden's checks in the activity feed, as `checks.changed` with the labels it added and removed; none for a write that changed nothing. */
-const entryEvent = (golden: string, r: { key: string; added: string[]; removed: string[] }, changed: boolean): ConfigEvent | null =>
-  changed ? { kind: 'checks.changed', ref: golden, data: { key: r.key, added: r.added, removed: r.removed } } : null;
+/**
+ * A write of a golden's checks in the activity feed, as `checks.changed` with the labels it added and
+ * removed, and the gate it wrote (`gate`); none for a write that changed nothing.
+ */
+const entryEvent = (golden: string, r: { key: string; added: string[]; removed: string[] }, changed: boolean, gate: { gate?: unknown } = {}): ConfigEvent | null =>
+  changed ? { kind: 'checks.changed', ref: golden, data: { key: r.key, added: r.added, removed: r.removed, ...gate } } : null;
 
 /**
  * Undo of a write of `golden`'s entry: puts back the entry as that write found it (`prior`, which the

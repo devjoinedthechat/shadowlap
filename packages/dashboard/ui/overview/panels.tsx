@@ -5,7 +5,7 @@ import { Id } from '../components/Id.js';
 import { EventIcon, RunIcon } from '../components/RunIcon.js';
 import { Section } from '../components/Section.js';
 import { EmptyLine, ErrorState } from '../components/States.js';
-import { MiniStrip } from '../components/Strip.js';
+import { MiniStrip } from '../components/MiniStrip.js';
 import { ruleTip } from '../components/Verdict.js';
 import { clock, num, plural, shortId, whenShort } from '../format.js';
 import { ORIGIN_NAME } from '../origins.js';

@@ -33,7 +33,7 @@ import type { PresetAttempt } from './preset.js';
 import type { ProofTab } from '../injection/Proof.js';
 import { useServedParts } from '../served-parts.js';
 import { openResults } from './panel-state.js';
-import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
+import type { CauseView, InjectionFinding as InjectionFindingView } from '../injection/model.js';
 import { warmDiff } from './InspectorPanel.js';
 
 /**
@@ -622,24 +622,25 @@ function CommitFinding({ c, x, s }: { c: FoundCommit; x: Draw; s: Slot }) {
 /** A finding, as its kind draws it. */
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
   // A kept injection test's finding is handed in where the dashboard runs: a copy keeps no results to draw one from.
-  const { InjectionFinding } = useServedParts();
+  const { InjectionFinding, CauseFinding } = useServedParts();
   if (f.commit) return <CommitFinding c={f.commit} x={x} s={s} />;
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
   if (f.judge) return <JudgeFinding j={f.judge} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
   if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
+  if (f.cause) return CauseFinding ? <CauseFinding runId={x.run.run.runId} cause={f.cause} fx={s.fx} more={s.more} onSelect={onSelect} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }
 
 /** The bar, from the findings the page has: drawn by FindingsBar, and alone by Banner. */
-function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null }) {
+function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null; cause?: CauseView | null }) {
   const runId = p.run.run.runId;
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const next = nextStepOf(p.run);
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection });
+  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection, cause: p.cause });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {
@@ -658,9 +659,10 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
 
 /**
  * The run's findings under its header: its own, what its fork did differently from its parent (read
- * once it has ended), what it did not record, its notes, and the injection test kept for it.
+ * once it has ended), what it did not record, its notes, and the injection test kept for it with
+ * Find cause's answers.
  */
-export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null }) {
+export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null; cause?: CauseView | null }) {
   const r = p.run.run;
   const differences = useForkDifferences(r.runId, !!r.divergence && !!r.parentRunId && r.status !== 'running');
   return <Findings {...p} differences={differences} />;

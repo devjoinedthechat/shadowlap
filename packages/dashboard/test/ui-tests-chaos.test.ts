@@ -36,6 +36,7 @@ function view(chaosRunning: TestsView['chaosRunning']): TestsView {
 let ended = false;
 let asked = 0;
 const client = {
+  injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
   tests: () => {
     asked++;
     return Promise.resolve(view(ended ? null : PRESETS));

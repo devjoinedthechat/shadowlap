@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect } from 'react';
 import { useLatest } from '../hooks.js';
+import { onAddressMove } from '../router.js';
+import { runsView } from './query.js';
 
 /**
  * Where each view of Runs was left, by its address, so Back, the crumbs and the nav's Runs land on
@@ -38,10 +40,15 @@ export function forgetScroll(href: string): void {
 export function useKeptScroll(href: string, ready: boolean): void {
   const at = useLatest(href);
   useEffect(() => {
-    // The address has moved (Back, Forward, a link, a commit), the page not yet: `at` is the view left.
-    const on = () => keepScroll(at.current);
-    window.addEventListener('hashchange', on);
-    return () => window.removeEventListener('hashchange', on);
+    // The address has moved (Back, Forward, a link, a commit), heard before the route it brings is
+    // drawn: the view kept is the one the old address names, as `href` may already be the view landed
+    // on (a commit's words, typed in its place, show it). An event the page sends itself has no old
+    // address: then `at`, the view still drawn, is the one left. One given without its origin is read
+    // against the page's, so it can't throw in the router's handler and keep the route from being drawn.
+    return onAddressMove((e) => {
+      const was = e.oldURL ? runsView(new URL(e.oldURL, location.href).hash) : at.current;
+      if (was !== null) keepScroll(was);
+    });
   }, [at]);
   // The page going, by a row, a link or the nav: still drawn as it was.
   useLayoutEffect(() => () => keepScroll(at.current), [at]);

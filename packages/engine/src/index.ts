@@ -150,7 +150,7 @@ export { messageOf } from './message-of.js';
 // the same way by the CLI, the terminal UI, the dashboard and its pages.
 export { plural, pluralS, shortFixId, shortRunId, shortSessionId, toolFailure, twoDigits } from './words.js';
 export { rollBack } from './sqlite.js';
-export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
+export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, expectFlag, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
@@ -275,9 +275,10 @@ export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlat
 export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store.js';
 // Injection tests: trust, payloads and their canaries, what an attempt wrote, and --clean's neutral
 // result (shadowlap injection, and the dashboard's read model of its results).
-export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, baselineWrites, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, isWrite, keepingCanaries, keepingRunCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, previewKeepingCanaries, proofLine, proofParts, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, untrustedView, writeBaseline, writeRecurs, writesFrom } from './injection.js';
+export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, baselineWrites, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, cleanTally, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, isWrite, keepingCanaries, keepingRunCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, previewKeepingCanaries, proofLine, proofParts, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, untrustedView, writeBaseline, writeRecurs, writesFrom } from './injection.js';
 export type { Canary, CanaryForm, CanaryHit, InjectionEntry, InjectionVerdict, Payload, PayloadShape, PayloadTemplate, TemplateSet, ToolTrust, TrustSource, UntrustedRead, UntrustedView, VerdictCounts, WriteBaseline, WriteSeen } from './injection.js';
 export { baselineWritesWords, EVERY_WRITE_AGAIN, GATE_TOO_LITTLE, goneWords, injectionCountParts, injectionCountsLine, injectionTally, TRUST_FROM } from './trust-words.js';
+export { proofCall, proofOf } from './injection-proof.js';
 export type { AttemptCounts, CountStyle } from './trust-words.js';
 export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ProofParts, ReadReport } from './injection.js';
 export type { InjectionGateData, StoredInjectionResult } from './store.js';

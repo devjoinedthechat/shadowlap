@@ -20,15 +20,32 @@ export interface InjectionFinding {
   golden: string | null;
 }
 
+/** Find cause… on a recorded run, as the server words it: each live write after an untrusted read, the run's untrusted reads a model call reads, its `--clean` answers, causes first, and the gate's rule. */
+export interface CauseView {
+  facts: RunInjection['cause'];
+  answers: RunInjection['answers'];
+  rule: string | null;
+  reads: readonly UntrustedView[];
+}
+
 /** What the page has of the run's injection tests, with nothing to draw until the read comes. */
 export interface RunInjectionView {
   /** The reads a model call reads, by their call: a read no model call follows brought no text in. */
   untrusted: ReadonlyMap<number, UntrustedView>;
   finding: InjectionFinding | null;
   attempt: RunInjection['attempt'];
+  /** Find cause… and what it answered: null where the run has neither. */
+  cause: CauseView | null;
 }
 
-export const NO_INJECTION: RunInjectionView = { untrusted: new Map(), finding: null, attempt: null };
+export const NO_INJECTION: RunInjectionView = { untrusted: new Map(), finding: null, attempt: null, cause: null };
+
+/** The run's Find cause…, where it has a write to ask about or an answer to show. */
+function causeView(read: RunInjection): CauseView | null {
+  const facts = read.cause ?? [];
+  const answers = read.answers ?? [];
+  return facts.length || answers.length ? { facts, answers, rule: read.rule, reads: read.untrusted.filter((u) => u.readAt !== null) } : null;
+}
 
 /** The result a run's finding shows, and Share's Security report saves: its newest plant test that has ended. */
 export const shownResult = (results: readonly InjectionRow[]): InjectionRow | null => results.find((r) => r.mode === 'plant' && !r.running && r.gate !== null) ?? null;
@@ -44,7 +61,7 @@ export function injectionFinding(r: InjectionRow): InjectionFinding | null {
 export function runInjectionView(read: RunInjection | null, results: readonly InjectionRow[] | null): RunInjectionView {
   if (!read && !results) return NO_INJECTION;
   const row = shownResult(results ?? read?.results ?? []);
-  return { untrusted: new Map((read?.untrusted ?? []).filter((u) => u.readAt !== null).map((u) => [u.callNo, u])), finding: row && injectionFinding(row), attempt: read?.attempt ?? null };
+  return { untrusted: new Map((read?.untrusted ?? []).filter((u) => u.readAt !== null).map((u) => [u.callNo, u])), finding: row && injectionFinding(row), attempt: read?.attempt ?? null, cause: read ? causeView(read) : null };
 }
 
 /** What an injection test's replay's first fact says (run/metrics.ts): its own record's role and verdict, and what the read adds. */

@@ -16,10 +16,12 @@ import { navigate } from '../router.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
 import { divergedAsk, gateAgainAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
-import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
+import { useTestsEstimates, type Price } from '../tests-estimates.js';
+import { estimatesKey, runPrice, updatesPrice } from '../tests-prices.js';
 import { keepTests } from '../tests-palette.js';
 import { CheckEntriesOf, useCheckEntries } from '../tests/check-entries.js';
 import { CiSections } from '../tests/Sections.js';
+import { SecurityPanel } from '../injection/SecurityPanel.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
 import { GoldensTable } from '../tests/Table.js';
@@ -173,6 +175,7 @@ export function TestsPage() {
         <GoldensTable view={view} press={press} />
       </CheckEntriesOf.Provider>
       {checks.node}
+      <SecurityPanel />
       <CiSections view={view} />
       {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts); several goldens' normalizer and update is the update this dialog asks about. */}
       {open?.kind === 'update' ? (

@@ -81,9 +81,13 @@ export type JobEnd = 'ok' | 'ran' | 'not';
  * title of several steps is judged by its last, the one its status is about, as a step runs only once
  * the one before it succeeded: `Packed and tested · 1 failed`, `Added normalizer and re-ran · 1
  * failed`. Otherwise it leads with what ran, the rest of the title as it was: `Tried importing
- * capture`, `Searched for breaking commit`. A title with no -ing word stays as it is.
+ * capture`, `Searched for breaking commit`. A title with no -ing word stays as it is, and one with a
+ * colon is judged by its words before it: `Searched for cause: testing #4`, whatever the answer.
  */
 export function doneWords(title: string, end: JobEnd, status = ''): string {
+  // A title that says what it does after a colon (`Finding cause: testing #4`) is judged by its words before it, the rest kept.
+  const colon = title.indexOf(': ');
+  if (colon > 0) return `${doneWords(title.slice(0, colon), end, status)}${title.slice(colon)}`;
   const words = title.replace(/…$/, '').split(' ');
   const first = words[0] ?? '';
   const ing = (w: string): string => `${w.charAt(0).toUpperCase()}${w.slice(1)}`;

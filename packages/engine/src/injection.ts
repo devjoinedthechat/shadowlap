@@ -4,6 +4,7 @@ import { basename, extname } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { messageOf } from './message-of.js';
 import { looksGenerated } from './volatile.js';
+import { plural } from './words.js';
 import { atLeast, atMost, rateBound, riskPercent, tallyInterval, type Gate } from './stats.js';
 import type { Refusal } from './interventions.js';
 import { applyNormalizers } from './normalize.js';
@@ -982,6 +983,11 @@ export function cleanBound(w: Pick<CleanWriteReport, 'gone' | 'attempts' | 'verd
   if (!gate || gate.kind !== 'sprt' || !Number.isInteger(w.attempts) || w.attempts < 1 || !Number.isInteger(w.gone) || w.gone < 0 || w.gone + cut > w.attempts) return null;
   const decision = w.verdict === 'caused' ? 'pass' : w.verdict === 'not caused' ? 'fail' : 'inconclusive';
   return rateBound({ attempts: w.attempts, interval: tallyInterval(gate, { passes: w.gone, attempts: w.attempts }, decision, null, cut), decision });
+}
+
+/** A --clean write's tally as its line says it, the bound beside it where it has one: `gone in 3 of 3 clean attempts · rate >= 0.29 (95%)`. The terminal's line and the dashboard's say it alike. */
+export function cleanTally(w: Pick<CleanWriteReport, 'gone' | 'attempts'> & { bound?: string | null | undefined }): string {
+  return `gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${w.bound ? ` · ${w.bound}` : ''}`;
 }
 
 /** The rule a --clean write is decided by, said once under its writes: `gate: tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts`. */

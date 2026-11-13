@@ -5,6 +5,7 @@ import { basename, relative, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
+import { stepDone, type JobStep } from './job-step.js';
 import { isLink } from './links.js';
 import type { JobEstimate, JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
 import { gitLine, isGitStep, leftConflicts, spawnGit, type GitOutcome, type GitStep } from './job-git.js';
@@ -134,6 +135,11 @@ export interface JobBuild {
    */
   then?: string[][];
   /**
+   * A step the server runs between two of the job's commands, such as Pack with injection gate…'s
+   * write of the golden's tests entry once it is packed (job-step's JobStep).
+   */
+  step?: JobStep;
+  /**
    * A git command to run first, in the job's folder (job-git.ts): Revert's `git revert --no-commit`.
    * Built on the server from what the store holds, like the arguments; the CLI's commands run only
    * once it exits 0. Its job holds the working tree as a writer.
@@ -218,7 +224,8 @@ export interface JobBuildContext {
    * A file the browser sent with `POST /api/uploads`, claimed for this job: its path, or null for
    * an unknown id. It is deleted when the job ends.
    */
-  upload: (uploadId: unknown) => { path: string; name: string; original?: string | null; bytes: number } | null;
+  /** An upload the job claims; `named`, moved into a folder of its own under the name it arrived with (uploads.ts). */
+  upload: (uploadId: unknown, o?: { named?: boolean }) => { path: string; name: string; original?: string | null; bytes: number } | null;
 }
 
 export interface JobKind {
@@ -231,7 +238,7 @@ export interface JobKind {
 /** Where uploads come from (`uploads.ts`): claimed by a job's builder, released when it fails, discarded when the job ends. */
 export interface UploadSource {
   /** `project`: the one the job runs in; an upload that arrived in another is refused (an HttpError). */
-  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null): { path: string; name: string; original?: string | null; bytes: number } | null;
+  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null, o?: { named?: boolean }): { path: string; name: string; original?: string | null; bytes: number } | null;
   release(jobId: string): void;
   discard(jobId: string): void;
 }
@@ -258,6 +265,8 @@ const DRAIN_MS = 2000;
 
 /** What a job is about, as its builder says: the run, the fix, and whether it makes a run to open. */
 const subjectOf = (built: JobBuild): Pick<Job, 'runId' | 'fixId' | 'opensRun'> => ({ runId: built.runId ?? null, fixId: built.fixId ?? null, opensRun: built.opensRun ?? false });
+/** A job's server step, until it has run, and how many of its commands have started. */
+const stepOf = (built: JobBuild): Pick<Job, 'step' | 'ran'> => ({ step: built.step ?? null, ran: 0 });
 
 interface Job {
   id: string;
@@ -271,6 +280,9 @@ interface Job {
   treeAt: string | null;
   /** Commands still to run after the one running now (`JobBuild.then`). */
   rest: string[][];
+  /** Its server step, until it has run (`JobBuild.step`), and the commands started so far, which say when it is due. */
+  step: JobStep | null;
+  ran: number;
   /** Its git step, until it has started (`JobBuild.git`), and what it left once it has ended. */
   git: GitStep | null;
   gitOutcome: GitOutcome | null;
@@ -490,7 +502,7 @@ export class JobManager {
         store: place.store,
         project: place.project,
         projectId: place.projectId,
-        upload: (uploadId) => uploads?.claim(uploadId, id, place.project) ?? null,
+        upload: (uploadId, o) => uploads?.claim(uploadId, id, place.project, o) ?? null,
       });
     } catch (err) {
       uploads?.release(id);
@@ -519,6 +531,7 @@ export class JobManager {
       estimate: shownEstimate(req.estimate),
       ...set,
       rest: (built.then ?? []).map((a) => [...a]),
+      ...stepOf(built),
       git: built.git ? { ...built.git, args: [...built.git.args] } : null,
       gitOutcome: null,
       ...subjectOf(built),
@@ -548,7 +561,7 @@ export class JobManager {
     this.evict();
     this.version++;
     if (job.git) this.runGit(job, spawnCli, job.git);
-    else this.runCommand(job, spawnCli, job.args);
+    else this.runNext(job, spawnCli, job.args, false);
     if (job.child && built.started) {
       try {
         built.started();
@@ -596,8 +609,9 @@ export class JobManager {
 
   /**
    * Runs a job's git step first (`JobBuild.git`), in its folder, its lines as git prints them: once
-   * it exits 0, its `ok` line, then the job's CLI commands, each shown as `$ shadowlap …`. Otherwise
-   * the job ends with git's exit code, with what git left in the tree asked of git (`GitOutcome`).
+   * it exits 0, its `ok` line, then the job's CLI commands, each shown as `$ shadowlap …` and each
+   * after any server step due before it (`runNext`). Otherwise the job ends with git's exit code,
+   * with what git left in the tree asked of git (`GitOutcome`).
    */
   private runGit(job: Job, spawnCli: SpawnCli, step: GitStep): void {
     job.git = null;
@@ -624,9 +638,7 @@ export class JobManager {
       if (code === 0 && !job.stopping && !this.closed) {
         job.gitOutcome = 'done';
         this.push(job, step.ok);
-        this.push(job, `$ ${commandLine(job.args)}`);
-        this.version++;
-        this.runCommand(job, spawnCli, job.args);
+        this.runNext(job, spawnCli, job.args, true);
         return;
       }
       // Stopped once git had done its part: the commands after it never ran, so it did not finish.
@@ -643,12 +655,41 @@ export class JobManager {
   }
 
   /**
+   * Starts a job's next command (`shown`: with its `$ shadowlap …` line), its server step first when
+   * one is due before it (`JobBuild.step`).
+   */
+  private runNext(job: Job, spawnCli: SpawnCli, args: string[], shown: boolean): void {
+    const step = job.step?.before === job.ran ? job.step : null;
+    if (step) {
+      job.step = null;
+      void this.runStep(job, spawnCli, step, args);
+      return;
+    }
+    if (shown) this.push(job, `$ ${commandLine(args)}`);
+    this.version++;
+    this.runCommand(job, spawnCli, args);
+  }
+
+  /** Runs a job's server step, its lines as it words them: one that refuses ends the job there, and so does a stop asked for meanwhile. */
+  private async runStep(job: Job, spawnCli: SpawnCli, step: JobStep, args: string[]): Promise<void> {
+    const done = await stepDone(step);
+    for (const line of done.lines) this.push(job, line);
+    if (done.code !== undefined) return this.finish(job, done.code);
+    if (job.stopping || this.closed) {
+      this.push(job, `(stopped before ${commandLine(args)})`);
+      return this.finish(job, null);
+    }
+    this.runNext(job, spawnCli, args, true);
+  }
+
+  /**
    * Runs one command of a job, in its folder, against its project's store, with its environment.
    * When it exits 0 and the job has commands left (`JobBuild.then`), the next one starts, unless the
    * job was asked to stop or the dashboard is stopping; otherwise the job ends with this command's
    * exit code.
    */
   private runCommand(job: Job, spawnCli: SpawnCli, args: string[]): void {
+    job.ran++;
     let child: ChildProcess;
     try {
       child = spawnCli(args, { events: true, ...(job.cwd ? { cwd: job.cwd } : {}), ...(job.place.dbPath ? { dbPath: job.place.dbPath } : {}), ...(Object.keys(job.env).length ? { env: job.env } : {}) });
@@ -675,9 +716,7 @@ export class JobManager {
       flushEvents();
       const next = job.rest.shift();
       if (next && code === 0 && !job.stopping && !this.closed) {
-        this.push(job, `$ ${commandLine(next)}`);
-        this.version++;
-        this.runCommand(job, spawnCli, next);
+        this.runNext(job, spawnCli, next, true);
         return;
       }
       // Stopped between two commands: the ones after it never ran, so it did not finish.

@@ -3,7 +3,7 @@ import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
 import { lostRange } from '../../../engine/src/run-verdicts.js';
 import { num } from '../format.js';
 import { personName } from '../person.js';
-import type { BlameView, CallRow, CheckView, InjectionMark, LineageNode, RunDetail, RunListItem } from '../types.js';
+import type { BlameView, CallRow, CheckView, InjectionMark, RunDetail } from '../types.js';
 import { href } from '../route.js';
 import { countChecks, type RunLike, type RunType } from '../runs.js';
 import type { AttemptInput } from './banner.js';
@@ -181,40 +181,6 @@ export function pulledSpender(r: Pick<RunDetail['run'], 'mode' | 'meta'>): strin
 }
 
 /**
- * A run of a family (the Forks view, Provenance's lineage) as the lists see it: with its state as the
- * server's lineage gives it, the run list's own (its kind, outcome and whether it failed, an
- * interrupted run's status), for an attempt the lists leave out too; from an older server that sends
- * none, the run list's when the run is listed. So its icon and line say what Runs and the sidebar
- * say; never another run's.
- */
-export function lineageRunLike(n: LineageNode, listed: RunListItem | undefined): RunLike {
-  // The lineage's own state when it has one; else the list's.
-  const s = n.outcome !== undefined ? { status: n.status, kind: n.kind ?? null, outcome: n.outcome, failed: n.failed } : listed ? { status: listed.status, kind: listed.kind ?? null, outcome: listed.outcome ?? null, failed: listed.failed } : null;
-  return {
-    runId: n.runId,
-    parentRunId: n.parentRunId,
-    mode: n.mode,
-    status: s?.status ?? n.status,
-    divergence: n.divergence,
-    command: listed?.command ?? '',
-    codeVersion: listed?.codeVersion ?? null,
-    startedAt: n.startedAt,
-    calls: n.calls,
-    spent: n.spent,
-    saved: n.saved,
-    captured: listed?.captured ?? 0,
-    imported: listed?.imported ?? false,
-    covers: listed?.covers ?? null,
-    source: listed?.source ?? null,
-    labels: listed?.labels ?? [],
-    origins: n.origins ?? listed?.origins ?? null,
-    test: n.test ?? listed?.test ?? null,
-    checks: n.checks,
-    ...(s ? { kind: s.kind, outcome: s.outcome, ...(typeof s.failed === 'boolean' ? { failed: s.failed } : {}) } : {}),
-  };
-}
-
-/**
  * A model as the run page names it in every view: the id without its date stamp (`claude-opus-5`).
  * A call row carries the short name (`opus-5`), which the run's `models` maps; a full id (what a
  * conversation's request named, Provenance's record) is named the same way. Without the map (an older
@@ -292,4 +258,4 @@ export function checksOf(d: Pick<RunDetail, 'checks'> & { run: { meta?: RunDetai
   return (d.run.meta?.checks ?? []).map((c) => ({ label: c.label, ok: c.ok, ...(typeof c.status === 'string' && ['passed', 'failed', 'inconclusive', 'not-applicable'].includes(c.status) ? { status: c.status } : {}) }));
 }
 
-export { callDetail, callTitle, conversationLink, modelCalls, originOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike, type TimelineRow, type Turn } from './calls.js';
+export { callDetail, callTitle, conversationLink, modelCalls, originOf, resultLine, timeOf, tokensText, turnCalls, type CallLike } from './calls.js';
