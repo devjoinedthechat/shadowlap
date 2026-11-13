@@ -39,14 +39,19 @@ export async function sweep(page: Page, states: State[]): Promise<string[]> {
   return found;
 }
 
-/** The page's requests to the dashboard's API still out: what a view shows comes with them. */
+/**
+ * The page's requests to the dashboard still out: to its API, as what a view shows comes with them,
+ * and for its own scripts, as a page whose code comes in a part of its own asks for what it shows only
+ * once that part has come.
+ */
 const inFlight = new WeakMap<Page, Set<Request>>();
 export function apiRequests(page: Page): Set<Request> {
   let open = inFlight.get(page);
   if (!open) {
     const out = new Set<Request>();
     page.on('request', (r) => {
-      if (new URL(r.url()).pathname.startsWith('/api/')) out.add(r);
+      const path = new URL(r.url()).pathname;
+      if (path.startsWith('/api/') || (r.resourceType() === 'script' && path.startsWith('/assets/'))) out.add(r);
     });
     page.on('requestfinished', (r) => out.delete(r));
     page.on('requestfailed', (r) => out.delete(r));
@@ -58,17 +63,21 @@ export function apiRequests(page: Page): Set<Request> {
 
 /**
  * A state swept once it has settled, never after a time that a loaded machine can outrun: what it
- * shows is up (`shows`), or what it closed is gone (`hides`); none of the page's requests to the API
- * is still out, as what a view shows comes with them; and two frames have been drawn since, so axe
- * reads what the step changed.
+ * shows is up (`shows`), or what it closed is gone (`hides`); none of the page's requests to the
+ * dashboard is still out (apiRequests); and two frames have been drawn since with none sent, so axe
+ * reads what the step changed. A page whose part came in asks for its data as it draws, so the frames
+ * are drawn again until no request goes out in them: Training read as settled with its part 508 ms in
+ * coming, before it had asked for anything, and showed no heading yet.
  */
 export async function settled(page: Page, o: { shows?: string; hides?: string } = {}): Promise<void> {
   const open = apiRequests(page);
   if (o.shows) await page.waitForSelector(o.shows, { state: 'visible' });
   if (o.hides) await page.waitForSelector(o.hides, { state: 'detached' });
-  // Polled from here, where the requests are seen: a request still out after a minute fails the sweep, naming it.
-  await expect.poll(() => [...open].map((r) => new URL(r.url()).pathname), { message: "the page's requests to the API to come back", timeout: 60_000, intervals: [25] }).toEqual([]);
-  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  do {
+    // Polled from here, where the requests are seen: a request still out after a minute fails the sweep, naming it.
+    await expect.poll(() => [...open].map((r) => new URL(r.url()).pathname), { message: "the page's requests to the dashboard to come back", timeout: 60_000, intervals: [25] }).toEqual([]);
+    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  } while (open.size > 0);
 }
 
 /** A dialog on top, the palette's and the shortcuts' included, and a menu open. */
