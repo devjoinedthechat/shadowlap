@@ -68,6 +68,14 @@ describe('a divergence', () => {
     expect(report.printed.map((l) => l.tone)).toEqual(['no', '', 'del', 'add']);
     expect(report.printed[0]).toEqual({ text: '✗ refund: diverged at call 3 (api POST /v1/messages)', tone: 'no' });
   });
+
+  it('says a replay that stopped before its recording did ended early, as the CLI says it, and how far it got', () => {
+    const early = { type: 'ended_early' as const, callNo: 11, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 10, recorded: 30 };
+    const { report } = world('refund', (run, _s, store) => (store.endRun(run, 'completed', 30), { ok: false, failure: 'diverged', reason: 'ended early at call 11 (api POST /v1/messages): 10 of 30 recorded calls replayed', data: { mode: 'replay', calls: { total: 10, replayed: 10, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { ...early, text: '' } } }), { divergence: early });
+    expect(report.head).toEqual(['Ended early at call 11']);
+    expect(report.parts).toEqual([{ kind: 'replay', recorded: 30, replayed: 10, stop: 11, words: '10 of 30 recorded calls replayed, then it stopped · 0 upstream requests' }]);
+    expect(report.hint).toEqual({ key: 'bisect' });
+  });
 });
 
 describe('a divergence’s request', () => {

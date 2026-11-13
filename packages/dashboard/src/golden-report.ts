@@ -169,8 +169,13 @@ function recordedCalls({ i, recording, replay }: From): number | null {
   return last > 0 ? last : null;
 }
 
-/** A divergence's sentence: the call, then what changed there, its path as code and what it looks like; a second path after `and`. */
+/**
+ * A divergence's sentence: the call, then what changed there, its path as code and what it looks
+ * like; a second path after `and`. A replay that stopped before its recording did changed no
+ * request: it ended early at the first call it never made, as the CLI's line says.
+ */
 function divergenceHead(r: TestResult, d: NonNullable<ReturnType<typeof divergenceOf>>, normalizers: TestsNormalizers): Piece[] {
+  if (d.type === 'ended_early') return [`Ended early at call ${d.callNo}`];
   const cause = causeOf(r, d, normalizers) ?? d.diff?.[0]?.path ?? null;
   if (!cause) return [`Diverged at call ${d.callNo}`];
   const looks = (path: string) => r.data?.divergence?.volatile?.values.find((v) => v.path === path)?.looks ?? null;
@@ -292,7 +297,8 @@ function divergenceParts(f: From, d: DivergenceView): Built {
   if (!div) return { head: [`Diverged at call ${d.callNo}`], sub: [upstream(r)], parts: [], hint: divergenceHint(d) };
   const parts: ReportPart[] = [];
   const recorded = div.callNo > 1 ? recordedCalls(f) : null;
-  if (recorded) parts.push({ kind: 'replay', recorded, replayed: div.replayedBefore, stop: div.callNo, words: dot(`${div.replayedBefore} of ${recorded} recorded calls replayed, then call ${div.callNo} diverged`, upstream(r)) });
+  const then = div.type === 'ended_early' ? 'it stopped' : `call ${div.callNo} diverged`;
+  if (recorded) parts.push({ kind: 'replay', recorded, replayed: div.replayedBefore, stop: div.callNo, words: dot(`${div.replayedBefore} of ${recorded} recorded calls replayed, then ${then}`, upstream(r)) });
   const request = requestPart(f, div);
   if (request) parts.push(request);
   return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint: divergenceHint(d) };
