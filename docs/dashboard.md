@@ -1486,13 +1486,13 @@ Each golden that failed or is inconclusive has a report, folded under its row at
 
 A report reads, top to bottom:
 
-1. **Its verdict**: the word in its colour, then what happened in one sentence, such as *Diverged at call 1: `$.metadata.user_id` changed, a UUID*, with a grey line under it.
+1. **Its verdict**: the word in its colour, then what happened in one sentence, such as *Diverged at call 1: `$.metadata.user_id` changed, a UUID*, with a grey line under it. A replay that stopped before its recording did reads *Ended early at call 11*, as the CLI says it.
 2. **Its parts**, each named in its margin, as listed below.
 3. **Its steps**: the golden's own step, plain, then what else it offers. **⌘K** on its row presses them while it is folded, and a press opens it.
 4. **Its hint**: one sentence of why. What each button does, and what it costs, is its hover.
 5. **Show as printed**, at its foot, as [below](#a-report-as-printed).
 
-Its header holds **Open run**, or **Open failing attempt** for a golden run more than once. Unless its step is a fix, **Failed runs →** comes before it where the golden has failed replays, how many and which on hover. It opens the golden's [issue](#failed-as-issues) on Runs › Failed, its runs shown.
+Its header holds **Open run**, or **Open failing attempt** for a golden run more than once. Unless its step is a fix, **Failed runs →** comes before it where the golden has failed replays, how many and which on hover. It opens the golden's [issue](#failed-as-issues) on Runs › Failed, its runs shown, and counts the runs that issue holds. A replay a fix lists, open or closed, is under that fix's issue, so it isn't counted.
 
 Its parts come in this order, each where it has something to say:
 
@@ -1514,7 +1514,7 @@ Its parts come in this order, each where it has something to say:
 - **Error** reads Python and Node tracebacks as their runtimes print them, anything else by its last line that says something. **Show traceback** opens the agent's last lines as the store kept them.
 - **Attempts** past 24 fold behind the caret that ends the Gate's line. Those a session carried over come first, with a hairline where this one took over.
 
-**An injection gate's report** draws its **Proof** as the attempt's finding draws it, each call it names opening the attempt there, on the tab that shows it. Its header opens that attempt as **Open proof**, or **Open attempt** where it showed too little to say. Its **Attempts** follow: how many obeyed, were influenced, were inconclusive or ignored the planted text, where it was planted, and the command that writes every attempt's proof. Its steps add **Security report**, which opens Share's [dialog](#actions-on-a-run) for the gate's kept result.
+**An injection gate's report** draws its **Proof** as the attempt's finding draws it. Each call it names is a link to the attempt there, on the tab that shows it, so it can also open in another browser tab. Its header opens that attempt as **Open proof**, or **Open attempt** where it showed too little to say. Its **Attempts** follow: how many obeyed, were influenced, were inconclusive or ignored the planted text, where it was planted, and the command that writes every attempt's proof. Its steps add **Security report**, which opens Share's [dialog](#actions-on-a-run) for the gate's kept result.
 
 **A golden its checks lead.** One whose checks changed since its last test offers **Run tests** alone, as more attempts or a search for a commit would judge checks the config no longer holds. Its hint says that Run tests judges them as the config holds them. One whose own recording fails a check added since leads with **Edit check…**, and its hint says to edit the check, or to update the golden if the agent should do what the check asks.
 
