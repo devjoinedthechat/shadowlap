@@ -178,6 +178,7 @@
     // These render a run's page and Runs: where a run opens, its key, its notes, its calls grouped, and Runs from its address.
     "packages/dashboard/test/ui-run-open.test.ts",
     "packages/dashboard/test/ui-runs-url.test.ts",
+    "packages/dashboard/test/ui-runs-scroll.test.ts",
     "packages/dashboard/test/ui-issues.test.ts",
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",

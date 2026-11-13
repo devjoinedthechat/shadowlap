@@ -37,6 +37,9 @@ export function runsHref(f: RunsFilterRead): string {
 /** Every run, as `#/runs` alone shows them. */
 export const ALL_RUNS: RunsFilterRead = runsFilter();
 
+/** A view of Runs as the page writes it, or null for another page's address. */
+export const runsView = (hash: string | null): string | null => (hash && /^#\/runs\/?(\?|$)/.test(hash) ? runsHref(runsLinkQuery(hash) ?? ALL_RUNS) : null);
+
 /**
  * The instants a range of the viewer's days spans, for the table's request: the first day's start,
  * and the start of the day after the last, in the browser's time zone, the one the calendar's days
