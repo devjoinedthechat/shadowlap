@@ -436,7 +436,8 @@ export const ROUTES: readonly RouteState[] = [
   { name: 'a migration’s opened cell', path: async (p) => (await migrated(p)).cell, drawn: CELL },
   { name: 'Migrate to’s menu on a migration', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateTo },
   { name: 'Migrate’s dialog from Migrate to’s menu', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateAsk },
-  route('/fixes'),
+  // Drawn by its list: the page waits empty while its code comes, so `main#view` alone could be read before Fixes drew a heading.
+  route('/fixes', 'main#view .pslist'),
   ...STEPS.map((step): RouteState => ({ name: `a fix${step ? ` · ${step.slice(1)}` : ''}`, path: () => `/fixes/${demoId('refundFix')}${step}`, drawn: 'fix' })),
   // A fix's check in the builder, each dialog closed by the next page.
   { name: 'Add check… on a verified fix', path: () => `/fixes/${demoId('refundFix')}`, drawn: 'fix', then: (p) => fixCheck(p, '.cb-kinds') },
