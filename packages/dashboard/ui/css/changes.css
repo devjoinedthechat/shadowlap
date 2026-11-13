@@ -191,6 +191,10 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 .djudge b.y { color: var(--cq-amber); }
 .dcell .dspend { margin: 14px 0 0; color: var(--faint); font-size: 12px; line-height: 1.55; text-wrap: pretty; }
 .dconv { padding: 14px 18px 6px; border-top: 1px solid var(--line); }
+/* At 340px and under an opened cell's conversation sets each message's role over it: inside the cell's inset, the run page's
+   64px role column left 176px at 320, and a short tool call's arguments, kept whole, ran past their box (the mock keeps two
+   columns at every width; browser/line-breaks.spec.ts). */
+@media (max-width: 340px) { .dconv .msg { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
 @media (max-width: 760px) { .dpair { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
 /* A new preview's dialogs (changes/NewPreview.tsx): the working tree's system prompt with its change
    marked, its labels at the dialog's own .k size, and the line under a field change's fields. */

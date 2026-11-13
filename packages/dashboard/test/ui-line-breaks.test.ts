@@ -75,6 +75,11 @@ describe('the stylesheet', () => {
     expect([values('.ihead .scopetag', 'min-width'), values('.ihead .scopetag', 'overflow'), values('.ihead .scopetag', 'text-overflow')]).toEqual([['0'], ['hidden'], ['ellipsis']]);
   });
 
+  it('sets an opened cell’s messages each under its role at 340px and under, so a short tool call’s arguments kept whole fit inside the cell', () => {
+    const stacked = rules.filter((x) => x.selectors.includes('.dconv .msg') && x.conditions.some((c) => /max-width:\s*340px/.test(c)));
+    expect(stacked.flatMap((x) => x.decls)).toContainEqual(['grid-template-columns', 'minmax(0, 1fr)']);
+  });
+
   it('stacks a key and value list at 340px and under', () => {
     const stacked = rules.filter((x) => x.selectors.includes('.kvs') && x.conditions.some((c) => /max-width:\s*340px/.test(c)));
     expect(stacked.flatMap((x) => x.decls)).toContainEqual(['grid-template-columns', 'minmax(0, 1fr)']);
