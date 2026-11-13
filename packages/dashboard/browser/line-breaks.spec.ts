@@ -1,6 +1,7 @@
 import { rmSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { BASELINE_DEFAULTS, gateResult } from '@shadowlap/engine';
+import type { HoldingView } from '../src/cross-project.js';
 import type { PreviewNext } from '../src/decision-view.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { gateRuleOf } from '../src/verdict.js';
@@ -65,7 +66,9 @@ function measure(rules: Rules): string[] {
   const SKIP = '.sr, [hidden], pre, svg, script, style, textarea, input, select, [data-about], [data-fit], .say, .dsay, .msg .txt, .think, .pat, .jbox, .rawsse, table.ledger';
   const FREE = 'ts-w.ts-long:not(.whole), code.ts-cb:not(.whole), .carg:not(.whole), ts-w.ts-free';
   const NOWRAP = 'code.rnm, ts-w:not(.ts-long):not(.ts-free), ts-w.ts-long.whole, .nw, code.ts-code, .carg.whole, .cf, .cmdp';
-  const LEAD = 'main#view .ph h1, main#view .ph p, [role="dialog"] header h3, [role="dialog"] header p, .stepempty h2, .stepempty p, .sec h2, ol.setup .sb > h2, ol.setup .sb > p:not(.fieldnote)';
+  // A field's note isn't a lead: the model field's note under Migrate's form says why a provider couldn't be listed, as Setup's
+  // field notes say theirs, and holds what failed as the server said it, kept as written.
+  const LEAD = 'main#view .ph h1, main#view .ph p, [role="dialog"] header h3, [role="dialog"] header p, .stepempty h2, .stepempty p:not(.dlgnote), .sec h2, ol.setup .sb > h2, ol.setup .sb > p:not(.fieldnote)';
   // A field's own label words beside its control: a form's label over its input, select or textarea, a Settings row's name.
   const LABELS = '.form label, .setrow b[id$="-name"]';
   const FIXED = '.pnote, .palnote, .toast, .dfacts, .ondisk.steps';
@@ -267,6 +270,25 @@ async function routeMigrateNext(page: Page): Promise<string> {
   return preview;
 }
 
+/**
+ * A link into another project (pages/Elsewhere.tsx): the demo's triage-bot named as holding any
+ * session the address names that support-agent's store doesn't, as a second project's store would.
+ */
+async function routeHeldElsewhere(page: Page): Promise<void> {
+  await page.route(
+    (url) => url.pathname === '/api/projects/holding',
+    async (route) => {
+      const res = await route.fetch(RESET_RETRY);
+      const real = (await res.json()) as HoldingView;
+      const id = new URL(route.request().url()).searchParams.get('id') ?? '';
+      return route.fulfill({ response: res, json: { ...real, held: real.held ?? { project: { id: 'triage-bot', name: 'triage-bot' }, id } } });
+    },
+  );
+}
+
+/** The page that says another project holds what the link names, drawn once the holding read has answered. */
+const HELD = 'main#view .ph .eyebrow:has-text("in another project")';
+
 /** What the demo can't draw, by answers routed for the page's life: last. */
 const unshown = (page: Page): Step[] => [
   ['Tests with a history gate’s rule', async () => {
@@ -278,6 +300,11 @@ const unshown = (page: Page): Step[] => [
   }],
   ['Migrate’s one ask', click(page, 'main#view button', 'Migrate to', { shows: DIALOG }), true],
   ['Migrate’s one ask closed', escape(page)],
+  ['a migration another project holds', async () => {
+    await routeHeldElsewhere(page);
+    await at(page, '/changes/migrate/mg-01M5000000000000000000000Z', HELD)();
+  }, true],
+  ['a preview another project holds', at(page, '/changes/decisions/dc-01M5000000000000000000000Z', HELD), true],
 ];
 
 /** A demo run's id by its name. */
@@ -380,7 +407,7 @@ for (const width of WIDTHS) {
   test(`every run of the demo, and every view of a few more, at ${width}px breaks lines only where the rules allow`, async ({ page }) => {
     expect(await walk(page, width, runSteps(page))).toEqual([]);
   });
-  test(`every fix’s steps, a history gate’s rule and Migrate’s one ask at ${width}px break lines only where the rules allow`, async ({ page }) => {
+  test(`every fix’s steps, a history gate’s rule, Migrate’s one ask and a session another project holds at ${width}px break lines only where the rules allow`, async ({ page }) => {
     await asksFirst(page);
     expect(await walk(page, width, [...fixSteps(page), ...unshown(page)])).toEqual([]);
   });
