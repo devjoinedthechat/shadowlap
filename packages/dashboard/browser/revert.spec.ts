@@ -1,24 +1,29 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import type { FailureView, FixDetail, FoundCommit, NextStep, TestsView } from '../ui/types.js';
+import { parseTraceback } from '@shadowlap/engine';
+import type { FailureView, FixDetail, FoundCommit, GoldenReport, NextStep, TestsAnswer } from '../ui/types.js';
 import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { openReport } from './tests-fixture.js';
 
 /**
  * Revert, once Find breaking commit named a crash's first bad commit, on invented data routed over the
  * demo's answers (the demo store has no crashed golden): on a crash's run page the commit's finding
  * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
- * in editor and Run blame plain; on Tests the change sits under the commit's card and Revert leads the
- * verdict; on the crash's fix its Blame step shows the commit, its change and where to look, and
- * Revert leads its head with Open in editor beside it and no Find breaking commit. Each has no
- * serious axe violation at 1440 and 390 with the change open, nor has Revert's
- * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
- * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
- * git refused.
+ * in editor and Run blame plain; on Tests the change sits under the commit in the crash's report and
+ * Revert leads the verdict; on the crash's fix its Blame step shows the commit, its change, the
+ * exception the agent died of and where to look, and Revert leads its head with Open in editor
+ * beside it and no Find breaking commit. Each has no serious axe violation at 1440 and 390 with the
+ * change open, nor has Revert's dialog, whose code box of the change undone keeps to its width.
+ * A revert's drawer reads Reverting, then Reverted where git reverted, its status not saying
+ * reverted again, or Tried reverting where git refused.
  */
 
 const DIALOG = '[role="dialog"][aria-modal="true"]';
 const REV = '9a3c5e0';
 const GOLDEN = 'goldens/refund-flow';
+const NAME = 'refund-flow';
 const HUNK = '@@ -10,4 +10,4 @@ def refund(order):\n     total = order["amount"]\n-    limit = policy.limit(order)\n+    limit = policy.limit()\n     return min(total, limit)\n';
+/** What the crashed agent printed last, as its result keeps it: its report and its fix's Blame step read the exception from it. */
+const OUTPUT = 'Traceback (most recent call last):\n  File "agent/refund.py", line 12, in refund\nTypeError: limit() missing 1 required positional argument: \'order\'';
 const FOUND: FoundCommit = {
   rev: REV,
   subject: 'Read the refund limit once per session',
@@ -84,7 +89,7 @@ async function routeCrashFix(page: Page): Promise<string> {
       status: 'open',
       lead: { key: 'revert', label: 'Revert', command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`, use: 'writes', runId: run, step: step(run) },
       actions: { ...d.actions, blameAgain: null, blameStronger: { argv: ['blame', run], command: `shadowlap blame ${run} --model <model>`, attempts: 8, spent: 0, pulled: null, left: [] } },
-      blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false } },
+      blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false, error: { error: parseTraceback(OUTPUT)!, file: 'agent/refund.py', lines: OUTPUT.split('\n') } } },
     })),
   );
   return fix;
@@ -96,17 +101,15 @@ async function routeTests(page: Page): Promise<void> {
   const run = demoId('ticket');
   await page.route(
     (url) => url.pathname === '/api/tests',
-    (route) => (route.request().method() !== 'GET' ? route.continue() : patched<TestsView>(route, (real) => {
+    (route) => (route.request().method() !== 'GET' ? route.continue() : patched<TestsAnswer>(route, (real) => {
       const row = real.rows.find((r) => r.path !== real.divergences[0]?.golden) ?? real.rows[0]!;
       const crash: FailureView = {
         golden: GOLDEN,
-        name: row.name,
+        name: NAME,
         runId: run,
         failure: 'exit',
         reason: 'the agent exited with code 1',
         checks: null,
-        details: null,
-        output: 'Traceback (most recent call last):\n  File "agent/refund.py", line 12, in refund\nTypeError: limit() missing 1 required positional argument: \'order\'',
         blocked: null,
         bisect: null,
         found: FOUND,
@@ -114,13 +117,27 @@ async function routeTests(page: Page): Promise<void> {
         revisions: [],
         unreadable: null,
       } as unknown as FailureView;
+      // Its report as GET /api/tests builds it for such a crash (golden-report.ts): its exception, then its first bad commit.
+      const report: GoldenReport = {
+        golden: GOLDEN,
+        name: NAME,
+        verdict: 'failed',
+        head: ['The agent exited with code 1 after its last call'],
+        sub: [],
+        parts: [{ kind: 'error', error: parseTraceback(OUTPUT)!, file: 'agent/refund.py', lines: OUTPUT.split('\n') }, { kind: 'commit', found: FOUND }],
+        open: { label: 'Open run', href: `#/run/${run}` },
+        failedRuns: null,
+        hint: { key: 'crash' },
+        printed: [{ text: `✗ ${NAME}: ${crash.reason}`, tone: 'no' }, ...OUTPUT.split('\n').map((text) => ({ text: `    │ ${text}`, tone: 'dim' as const }))],
+      };
       const view = {
         ...real,
-        rows: real.rows.map((r) => (r.path === row.path ? { ...r, path: GOLDEN } : r)),
+        rows: real.rows.map((r) => (r.path === row.path ? { ...r, path: GOLDEN, name: NAME } : r)),
         failures: [crash, ...real.failures],
-        verdict: real.verdict ? { ...real.verdict, state: 'failing', first: { golden: GOLDEN, name: row.name, reason: crash.reason, runId: run } } : real.verdict,
+        verdict: real.verdict ? { ...real.verdict, state: 'failing', first: { golden: GOLDEN, name: NAME, reason: crash.reason, runId: run } } : real.verdict,
         steps: { ...(real.steps ?? {}), [GOLDEN]: step(run) },
-      } as TestsView;
+        reports: { ...Object.fromEntries(Object.entries(real.reports ?? {}).filter(([golden]) => golden !== row.path)), [GOLDEN]: report },
+      } as TestsAnswer;
       return view;
     })),
   );
@@ -171,6 +188,10 @@ for (const [width, height] of [
     await expect(line.locator('b')).toHaveText(FOUND.subject);
     await expect(page.locator('#view .bisect.fxbis + .codewrap.bisectdiff')).toContainText('agent/refund.py');
     await expect(page.locator('#view .fxnote')).toHaveText(`The agent stopped part way from ${REV} on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.`);
+    // Under As recorded, the exception the agent died of where its code raised it, its traceback folded until found.
+    const error = page.locator('#view .rperrw');
+    await expect(error.locator('p.rperr')).toContainText("TypeError: limit() missing 1 required positional argument: 'order' in agent/refund.py, line 12, in refund");
+    await expect(error.locator('pre.report.tail')).toHaveAttribute('hidden', 'until-found');
     const lead = page.locator('.ph .actions .btn.lime[data-next="revert"]');
     await expect(lead).toHaveText('Revert');
     await expect(lead).toHaveAttribute('data-at', String(FOUND.at));
@@ -207,8 +228,9 @@ for (const [width, height] of [
   test(`at ${width}×${height} Tests shows the commit's change under its card and leads with Revert, passing axe`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await routeTests(page);
-    await openPage(page, '/tests', 'main#view .bisectdiff');
-    // The demo's own divergence keeps its commit's change too; the crash's is the invented one.
+    await openPage(page, '/tests', 'main#view table.gt');
+    // The crash's report, folded under its row: open, the change sits under its first bad commit.
+    await openReport(page, NAME);
     await expect(page.locator('#view .bisectdiff', { hasText: 'agent/refund.py' })).toBeVisible();
     await expect(page.locator('#view .btn.lime', { hasText: /^Revert$/ }).first()).toBeVisible();
     await expect(page.locator('#view')).toContainText('The agent stopped part way at the commit above: revert it or fix the code, then run the tests.');

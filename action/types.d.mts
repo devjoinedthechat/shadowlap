@@ -1,8 +1,11 @@
 // The shapes the GitHub Action (action/*.mjs, plain JavaScript) works with, which its JSDoc names
 // with `@import` and action/tsconfig.json checks the code against. The report it reads is the CLI's
 // own (`shadowlap test --json`, PackResult in packages/cli/src/test-report.ts).
-import type { RepairReport } from '@shadowlap/engine';
+import type { CommentDecisionsSource, RepairReport } from '@shadowlap/engine';
 import type { PackResult, TestReport } from 'shadowlap';
+
+/** The pull request comment's parts and words, as the engine's pr-comment.ts has them (comment.mjs is its copy). */
+export type { CommentDecision, CommentDecisionsSource, CommentParts, CommentResult, DecisionView, InjectionGateData } from '@shadowlap/engine';
 
 /** The token the action speaks to GitHub with, where it came from, and whether GitHub starts workflows for what it does with it. */
 export interface GitHubAuth {
@@ -219,3 +222,26 @@ export interface HistoryPlan {
  * made may lack what was added since.
  */
 export type RepairJson = Partial<RepairReport> & { fixes?: Array<{ fixId?: unknown } | null>; error?: { message?: string } };
+
+/**
+ * What the decisions input asks of `shadowlap decisions --from-code` for the comment (decisions.mjs):
+ * whether it is on, the CLI, the store the test ran with (`--db`, null for the project's own), the
+ * recordings, the CLI's environment, the working directory and the folder its report goes to.
+ */
+export interface DecisionsAsk {
+  on: boolean;
+  cli: string;
+  db: string | null;
+  packs: string[];
+  env: NodeJS.ProcessEnv;
+  cwd: string;
+  out: string;
+  log?: (line: string) => void;
+}
+
+/**
+ * `shadowlap decisions --from-code --json` as the action reads it: the engine's DecisionsReport, of
+ * which the comment reads its counts, the runs it flags and each run's steps (CommentDecisionsSource),
+ * or the error a refusal prints in its place.
+ */
+export type DecisionsJson = Partial<CommentDecisionsSource> & { outcome?: string; error?: { message?: string } };

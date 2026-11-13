@@ -65,8 +65,6 @@ export interface NeedsLookRow {
   about?: RunAbout | null;
   /** A golden's name, as Tests says it, which its rule's hover is headed with. */
   name?: string;
-  /** A golden's report on Tests (`report-<name>`), which its row scrolls to. */
-  report?: string;
   /** The failed runs nobody has blamed: the issue on Runs › Failed of the newest, which the row opens (issues.ts); null where Failed doesn't count it. */
   issue?: string | null;
   /** Advice, which its owner may put away (Dismiss); none on a failure. */
@@ -119,7 +117,7 @@ export interface LookWork {
   fixes: NeedsLookItem[];
   /** Goldens failing now, newest first (`failingTests`). */
   failing: FailingTest[];
-  /** The step of each failing golden's kept run, by its path: undefined where its record can't be read. */
+  /** The step of each failed golden's kept run, and of each inconclusive one's whose checks changed since, by its path: undefined where its record can't be read. */
   steps: Map<string, NextStep | null | undefined>;
   /** The goldens each open fix holds, by fix id. */
   held: Map<string, HeldGolden[]>;

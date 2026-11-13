@@ -39,6 +39,7 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  * - `verify.accepted`, `verify.rejected`, `verify.incomplete` (it settled nothing): ref the fix
  *   (its verdict's id when it is no fix's); data { verifyId, fixes, counts, code, reasons }
  * - `fix.applied`: ref the fix; data { title }
+ * - `fix.check`: ref the fix, given another check (`shadowlap fix check`); data { title, check, previous }: the words of the check and of the one before it
  * - `pairs.exported`: ref the file; data { count }; `model.scored`: ref the model; data { model, tasks, mean }
  * - `project.added`, `project.removed`: ref the project; data { path, name, again? }
  * - `project.setup`: data { name, stage: 'done', skipped } from a setup, { name, config: 'created' } from init

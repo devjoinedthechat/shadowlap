@@ -89,11 +89,13 @@ export const SHAPES = {
   repairCandidate: { page: 'repair.md', section: 'JSON', grows: true, fields: ['id', 'source', 'strategy', 'why', 'surface', 'file', 'offset', 'before', 'after', 'size', 'state', 'reason', 'verify'] },
   repairOutput: { page: 'repair.md', section: 'JSON', grows: true, fields: ['dir', 'patch', 'report', 'goldens', 'applied', 'branch', 'pr'] },
   fixList: { section: 'fix', grows: true, fields: ['fixes', 'counts'] },
-  fixRow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'failed', 'failing', 'good', 'steps', 'source', 'openedAt', 'verifiedAt', 'appliedAt', 'broken', 'attempts', 'spent'] },
+  fixRow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'judge', 'failed', 'failing', 'good', 'steps', 'source', 'openedAt', 'verifiedAt', 'appliedAt', 'broken', 'attempts', 'spent'] },
   fixCounts: { section: 'fix', grows: true, fields: ['all', 'open', 'verified'] },
-  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr', 'lead'] },
+  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'judge', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'left', 'guard', 'fixedRun', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr', 'lead'] },
   fixApply: { section: 'fix', grows: true, fields: ['fixId', 'status', 'again', 'patch', 'repairId', 'goldens', 'tests'] },
   fixPr: { section: 'fix', grows: true, fields: ['fixId', 'pr'] },
+  fixCheck: { section: 'fix', fields: ['fixId', 'status', 'check', 'previous', 'runs', 'left', 'uncounted', 'next'] },
+  fixCheckRun: { section: 'fix', list: 'Each of its runs', fields: ['runId', 'role', 'outcome', 'na', 'why', 'checks'] },
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
   // Preview a change: decisions' report, which the dashboard reads as it is, and migrate's.
   decisions: { section: 'decisions', grows: true, fields: ['decisionsId', 'kind', 'at', 'change', 'command', 'samples', 'runs', 'counts', 'flagged', 'cost', 'tokens', 'retirements', 'notes', 'warnings', 'verify', 'judge', 'remedies', 'stopReason'] },
@@ -119,7 +121,7 @@ export const SHAPES = {
   migrateConfigChange: { section: 'migrate', grows: true, fields: ['files', 'patch', 'review'] },
   migrateError: { section: 'migrate', fields: ['kind', 'outcome', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
-  test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'inconclusive', 'interrupted', 'results'] },
+  test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'inconclusive', 'interrupted', 'results', 'costPerRun'] },
   testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'verdict', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'gate', 'expect', 'updated', 'judge', 'injection'] },
   // A golden's gate in test's report: its figures, then what it made of the attempts (test-gate.test.ts holds them).
   testGate: { section: 'test', grows: true, fields: ['kind', 'good', 'bad', 'risk', 'max', 'decision', 'passes', 'attempts', 'outcomes', 'interval', 'passK', 'evidence', 'clean', 'sentence'] },

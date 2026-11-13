@@ -7,6 +7,9 @@ import { dash, demoId, openPage, seriousViolations, startJob } from './dashboard
  * routes, so nothing runs: `end` says how the job the page follows ended.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
 
 /** j along Runs with a drawer docked: each row it brings into view stops above the drawer, and once one is picked, above the bulk bar over it. */

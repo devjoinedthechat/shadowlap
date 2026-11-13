@@ -14,6 +14,7 @@ import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { isFailed, runType } from '../runs.js';
+import type { ForkWait } from '../scopes.js';
 import { labelSuggestions } from '../runspage/run-words.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -28,7 +29,7 @@ import { checksOf, runDuration, runKindWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share-steps.js';
 // The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
 import './share-link.js';
-import { ActionButton, useWhenFree } from '../components/ActionButton.js';
+import { ActionButton, useWhenFree, type ActionButtonProps } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
 import { useServedParts, type ForkMenuProps, type ShareMenuProps } from '../served-parts.js';
@@ -62,10 +63,12 @@ function ForkMenuPart(props: ForkMenuProps) {
  * the eyebrow. The next step is the server's (src/next-step.ts); every other action stays, plain. No
  * chip says how the run stands: its first fact does.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, check, onAction, onFindCommit, onTest, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged, untrusted }: {
+export function RunHeader({ run, call, selected, forkWait, rescued, offers, forkMenu, check, onAction, onFindCommit, onTest, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged, untrusted }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
+  /** Why no fork starts at the selected call, the page's (scopes.ts `judgeForkWait`): its Fork then reads Fork, waits and says why. */
+  forkWait?: ForkWait | null;
   /** The fork blame rescued a run with: a fork of its own, as its eyebrow says, though blame made it as a probe. */
   rescued: boolean;
   offers: RunOffers | null;
@@ -99,6 +102,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, chec
   const like = runLikeOf(run);
   const type = runType(like);
   const live = r.status === 'running';
+  const fork = forkHead(selected, live, forkWait);
   const share = useMenu();
   // Its script loads as the pointer or the focus reaches Share, so the menu opens at once; the fork
   // menu's as they reach Fork at #n (or a row's fork button, CallsView.tsx).
@@ -213,9 +217,9 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, chec
             <PlainPackAsGolden run={run} offers={offers} next={next} judged={judged} />
             <RevertEditorButton step={next} offers={offers} />
             <BlameBesideButton runId={r.runId} step={next} />
-            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} why={live ? 'Fork once the recording finishes' : null} disabled={!live && selected === null} {...cardUnlessIdle(selected === null, 'Each change in the menu shows the flag it runs')} onPointerEnter={preloadFork} onFocus={preloadFork} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
+            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} {...fork.props} onPointerEnter={preloadFork} onFocus={preloadFork} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
               <Icon name="fork" />
-              Fork at #{selected ?? '–'}
+              {fork.label}
               <Icon name="caret" className="caret" />
             </ActionButton>
             {lead}
@@ -274,6 +278,16 @@ const fitWorkUnder = (head: HTMLElement) => fitWork(head.closest<HTMLElement>('.
  * and a focus, which a disabled button's title never reaches from the keyboard or a touch screen.
  */
 const cardUnlessIdle = (idle: boolean, card: string) => (idle ? {} : { 'data-tip': tipText(card) });
+
+/**
+ * The head's Fork: at the selected call, with a card; none picked, it waits; while the run records,
+ * it says why. At a call no fork starts at (`wait`, a judge's), it reads Fork, waits and says why, as
+ * the design draws it.
+ */
+function forkHead(selected: number | null, live: boolean, wait: ForkWait | null | undefined): { label: string; props: Pick<ActionButtonProps, 'why' | 'whyTip' | 'tip' | 'disabled'> & { 'data-tip'?: string } } {
+  if (wait && !live) return { label: 'Fork', props: { why: wait.why, whyTip: wait.card, tip: 'Fork' } };
+  return { label: `Fork at #${selected ?? '–'}`, props: { why: live ? 'Fork once the recording finishes' : null, disabled: !live && selected === null, ...cardUnlessIdle(selected === null, 'Each change in the menu shows the flag it runs') } };
+}
 
 /**
  * A label's ×: the label goes at once, the focus to Add label where the × had it, and the toast's Undo

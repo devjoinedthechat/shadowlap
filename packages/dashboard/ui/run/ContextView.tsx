@@ -5,6 +5,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, usedCache, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
+import { AgentCallsNote } from './agent-note.js';
 import { inputTicks, outputTop, tickLabel } from './context-axis.js';
 import { useWindow } from './window-hook.js';
 
@@ -60,7 +61,19 @@ const TABLE_ROWS = { keyOf: (c: CallRow) => c.callNo, shapeOf: () => 'row', esti
 /** The table's heads for the parts of a call's input: Cache read, Cache creation, Uncached. */
 const HEADS = Object.fromEntries(Object.entries(INPUT_PARTS).map(([k, part]) => [k, `${part.charAt(0).toUpperCase()}${part.slice(1)}`])) as Record<keyof typeof INPUT_PARTS, string>;
 
-export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail; calls: CallRow[]; selected: number | null; onSelect: (n: number) => void }) {
+type ContextProps = { run: RunDetail; calls: CallRow[]; selected: number | null; onSelect: (n: number) => void };
+
+/** Context, of the agent's calls alone under the judge's chip (`agentOnly`), which it says first. */
+export function ContextView({ agentOnly, ...p }: ContextProps & { agentOnly?: boolean }) {
+  return (
+    <>
+      {agentOnly ? <AgentCallsNote /> : null}
+      <ContextBody {...p} />
+    </>
+  );
+}
+
+function ContextBody({ run, calls, selected, onSelect }: ContextProps) {
   const [table, setTableState] = useState(asTable);
   const setTable = (t: boolean) => {
     asTable = t;

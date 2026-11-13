@@ -1,5 +1,6 @@
 import { JOB_KINDS } from '../api.js';
 import type { Fact } from '../components/Facts.js';
+import { failedRunsWords } from '../failed-runs.js';
 import { cents } from '../format.js';
 import { exitWords } from '../outcome-tip.js';
 import type { FailedCheck, FixesView, FixesViewRow, FixRow, JobListItem, StepKey, UnblamedRow } from '../types.js';
@@ -67,9 +68,7 @@ export function ciCard(f: Pick<FixesViewRow, 'pr'>): string {
  */
 export function failingCard(f: Pick<FixesViewRow, 'failing' | 'failingIds'> & { failedCheck?: FailedCheck | null }): { title: string; text: string } {
   const n = f.failedCheck?.count ?? f.failing;
-  const shown = f.failedCheck?.ids ?? f.failingIds;
-  const ids = shown.join(', ') + (n > shown.length ? ` and ${n - shown.length} more` : '');
-  return { title: `${n} run${s(n)} failed its check`, text: `${shown.length ? `${ids}. ` : ''}${n === 1 ? 'Opens it' : 'Opens them'} on Runs, under Failed` };
+  return { title: `${n} run${s(n)} failed its check`, text: failedRunsWords(f.failedCheck?.ids ?? f.failingIds, n) };
 }
 
 /** A step's cell: its word, and its state, `busy` while a job of the fix's runs it. */

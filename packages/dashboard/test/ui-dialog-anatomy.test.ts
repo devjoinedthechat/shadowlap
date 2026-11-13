@@ -8,6 +8,7 @@ import { UpdateGoldenDialog } from '../ui/components/UpdateGolden.js';
 import { DOCS, docsHref, type DocKey } from '../ui/docs-links.js';
 import { ApplyDialog, PatchDialog, RenameFixDialog, RepairDialog, StrongerDialog } from '../ui/fixes/FixPage.js';
 import { CheckDialog } from '../ui/fixes/CheckDialog.js';
+import { PrCommentDialog } from '../ui/ci/PrCommentDialog.js';
 import { RunBlameButton } from '../ui/fixes/RunBlame.js';
 import { updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
 import { stopAsk } from '../ui/jobs.js';
@@ -50,7 +51,7 @@ import { maskFirst } from '../ui/update-plan.js';
  */
 
 /** What opens a dialog's title: an action's verb, as every button starts. */
-const VERB = /^(Add|Apply|Delete|Download|Edit and fork|Export|Fail|Find|Finish|Force|Free|Import|Inject|Mark|Override|Pack|Plant|Record|Remove|Rename|Repeat|Replace|Replay|Re-run|Run|Score|Show|Stop|Switch|Update|Use)\b/;
+const VERB = /^(Add|Apply|Delete|Download|Edit and fork|Export|Fail|Find|Finish|Force|Free|Import|Inject|Mark|Override|Pack|Plant|Preview|Record|Remove|Rename|Repeat|Replace|Replay|Re-run|Run|Score|Show|Stop|Switch|Update|Use)\b/;
 
 interface Expect {
   title: string | RegExp;
@@ -731,6 +732,13 @@ describe('Settings’ and the shell’s dialogs', () => {
     const page = await open(createElement(StopJobDialog, { ask, onOk: () => undefined, ...closes }));
     holds(page, { title: 'Stop repair', doc: 'jobs', first: CANCEL, ok: 'Stop repair', tone: 'plain' });
     expect(page.one('.dlg-cancel').textContent).toBe('Keep it running');
+  });
+});
+
+describe('Settings → CI’s dialog', () => {
+  it('Preview pull request comment: Close, then Copy Markdown, plain, which copies and keeps it open', async () => {
+    const preview = { session: { id: 'ts-1', revision: 'd2e8a1f', at: Date.now() }, head: '1 of 1 golden passed', rows: [{ verdict: 'passed', golden: 'goldens/refund-flow', line: 'passed · replayed clean' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### Shadowlap: 1 of 1 golden passed\n' };
+    holds(await open(createElement(PrCommentDialog, { preview, ...closes }), appWith({ feeds: {} })), { title: 'Preview pull request comment', doc: 'prComment', first: CANCEL, ok: 'Copy Markdown', tone: 'plain' });
   });
 });
 

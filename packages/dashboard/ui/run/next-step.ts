@@ -42,6 +42,7 @@ const STEP_JOBS: Partial<Record<NextStep['key'], StepJob>> = {
   'update-golden': { verb: 'update it', tests: true },
   'rerun-test': { verb: 'run it again', tests: true },
   'gate-again': { verb: 'run it again', tests: true },
+  'run-tests': { verb: 'run the tests', tests: true },
   bisect: { verb: 'find the breaking commit', tests: true },
   revert: { verb: 'revert it', tests: true, use: 'writes' },
   blame: { verb: 'blame', tests: false },

@@ -5,9 +5,9 @@ import { demoId, expectAccessible, openPage } from './dashboard.js';
  * The check builder in a real browser, wide and as a phone's sheet: Add check… first in a tool
  * call's row menu and on the inspector's summary line, never in the head's Fork menu or a model
  * call's; the check menu at the call; each kind built; a refusal in parseExpect's words, Save off
- * with it; the scrim ignored; Esc closing a builder as it opened and asking once a rule changed; and
- * Save's 409, 400 and success answered by page.route, so nothing is written to the demo every test
- * shares.
+ * with it; the scrim ignored; Esc closing a builder as it opened and asking once a rule changed;
+ * Suggested above The change, a rule taken with Use rule and a failed read with Retry; and Save's
+ * 409, 400 and success answered by page.route, so nothing is written to the demo every test shares.
  */
 
 const DIALOG = '[role="dialog"][aria-modal="true"]';
@@ -39,6 +39,17 @@ async function openBuilder(page: Page, link: Locator, pick: string): Promise<Loc
 
 /** The rule being built, as its row in the golden's checks reads it. */
 const building = (dialog: Locator) => dialog.locator('.cb-units li.on .cb-ul');
+
+const SUGGEST = /\/api\/checks\/suggestions$/;
+/** Suggestions as the engine answers them, each labelled as checkLabels labels it, so the builder's own labels leave a used one out. */
+const SUGGESTIONS = [
+  { shape: 'value', expect: { calls: [{ tool: 'issue_refund', args: { amount: { '<=': '@get_policy.result.limit' } } }] }, label: 'every issue_refund call: amount <= get_policy.result.limit' },
+  { shape: 'when', expect: { when: [{ if: { tool: 'lookup_order', result: { amount: { '>': 100 } } }, then: { tools: { issue_refund: 0 } } }] }, label: 'when lookup_order has result.amount > 100: issue_refund called 0 times' },
+  { shape: 'order', expect: { calls: [{ tool: 'send_email', after: 'issue_refund' }] }, label: 'every send_email call: after issue_refund' },
+] as const;
+const labelsOf = (from: number) => SUGGESTIONS.slice(from).map((s) => s.label);
+/** The section, by its head: its buttons are named within it, as a golden's checks have an Add rule of their own. */
+const suggested = (dialog: Locator) => dialog.locator('section.cb-sec', { has: dialog.page().locator('.k', { hasText: /^Suggested$/ }) });
 
 test('Add check… comes first in a tool call’s row menu and on the inspector’s line, never in the head’s Fork menu or a model call’s', async ({ page }) => {
   await openPage(page, `/run/${demoId('refundBug')}`, 'run');
@@ -195,5 +206,51 @@ for (const [width, height] of SIZES) {
     await expect(page.locator('.toast')).toContainText(`Saved to shadowlap.config.json · ${path}`);
     await expect(link).toBeFocused();
     await page.unroute(WRITE);
+  });
+
+  test(`at ${width}px Suggested shows rules that fail the recording and none of its good runs above The change: Use rule takes one in place of the rule built, its row goes with the focus on the next, and a failed read says so with Retry`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const run = demoId('refundBug');
+    const asked: Array<{ have?: string[] }> = [];
+    let failing = false;
+    await page.route(SUGGEST, (route) => {
+      asked.push(route.request().postDataJSON() as { have?: string[] });
+      if (failing) return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the read beside the server stopped' }) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ runId: run, goods: ['01K5CQ1AAAAAAAAAAAAAAAAAAA', '01K5CQ2BBBBBBBBBBBBBBBBBBB'], suggestions: SUGGESTIONS }) });
+    });
+    const link = await atTheCall(page);
+    const dialog = await openBuilder(page, link, 'Never call issue_refund');
+    const section = suggested(dialog);
+    const rules = section.locator('li.cb-sug code');
+    await expect(rules).toHaveText(labelsOf(0));
+    await expect(section.locator('.cb-sub')).toHaveText(`each fails ${run.slice(0, 10)} and none of your 2 good runs`);
+    // Asked from the call, with the labels the builder holds: the golden's checks and the rule being built.
+    expect(asked[0]).toEqual({ run, at: 6, have: expect.arrayContaining(['issue_refund called 0 times', 'escalate called 1 time']) });
+    // Between the recordings judged and The change, which stays the builder's last section.
+    await expect(dialog.locator('.cb-sec').last()).toContainText('shadowlap.config.json');
+    await expectAccessible(page);
+    // Use rule puts the first in place of the rule being built, nothing saved: its row goes, the focus on the rule in its place.
+    await section.locator('li.cb-sug').first().getByRole('button', { name: 'Use rule' }).click();
+    await expect(building(dialog)).toHaveText(SUGGESTIONS[0].label);
+    await expect(rules).toHaveText(labelsOf(1));
+    await expect(section.locator('li.cb-sug').first().getByRole('button', { name: 'Use rule' })).toBeFocused();
+    // Asked again with it among the labels the builder holds.
+    await expect.poll(() => asked.at(-1)?.have).toContain(SUGGESTIONS[0].label);
+    await expectAccessible(page);
+    // A failed read, the first included, says so in the section with Retry, which reads it again.
+    await page.keyboard.press('Escape');
+    await dialog.locator('.dlg-discard').click();
+    await expect(dialog).toHaveCount(0);
+    failing = true;
+    // Opened again, the same dialog: its locators find it.
+    await openBuilder(page, link, 'Never call issue_refund');
+    await expect(section.locator('.loaderr')).toContainText('the read beside the server stopped');
+    await expect(rules).toHaveCount(0);
+    await expectAccessible(page);
+    failing = false;
+    await section.getByRole('button', { name: 'Retry' }).click();
+    await expect(rules).toHaveText(labelsOf(0));
+    await expect(section.locator('.loaderr')).toHaveCount(0);
+    await page.unroute(SUGGEST);
   });
 }

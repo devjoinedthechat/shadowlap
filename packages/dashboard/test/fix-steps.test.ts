@@ -304,9 +304,14 @@ describe('each step’s verdict line', () => {
     const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
     recordRepair(store, { repairId: 'repair-none', dir: '.shadowlap/repairs/repair-none', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
     const none = detail(fix.fixId).repair!;
-    expect(none.line).toEqual({ word: 'rejected', tone: 'err', head: ['The gate accepted none of the 1 candidate tried'], finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the prompt yourself and verify it.' });
+    expect(none.line).toEqual({ word: 'rejected', tone: 'err', head: ['The gate accepted none of the 1 candidate tried'], finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.' });
     expect(none.again).toBeNull();
     expect(none.rule).toMatch(/^each at \d+ of \d+ attempts/);
+    // One that stopped after trying candidates is stopped, in amber, headed by why it stopped, and spent the
+    // same way: its way on is a change of the check or the prompt.
+    const stopped = { ...repairReport({ targets: [run], accepted: false }), outcome: 'stopped' as const, why: 'its budget of $0.50 ran out after the first candidate' };
+    recordRepair(store, { repairId: 'repair-stopped', dir: '.shadowlap/repairs/repair-stopped', report: stopped, expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
+    expect(detail(fix.fixId).repair!.line).toEqual({ word: 'stopped', tone: 'warn', head: ['Its budget of $0.50 ran out after the first candidate'], finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.' });
   });
 });
 

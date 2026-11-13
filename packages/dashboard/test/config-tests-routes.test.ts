@@ -176,6 +176,43 @@ describe('a golden’s entry written back', () => {
     expect(JSON.parse(file())).toEqual({ tests: { 'goldens/refund-*': { fork: true, repeat: 2, expect: { tools: { send_email: 0 } } }, 'goldens/refund-late': { fork: true, repeat: 2, expect: check } } });
   });
 
+  it('undoes a write by the was its answer gave, against the version it left: the entry back, then nothing for a was used or unknown', async () => {
+    const rec = recording(AGENT, REFUND);
+    goldens = [golden('goldens/refund', rec)];
+    const was = { tools: { send_email: 0, issue_refund: 0 } };
+    writeConfig({ tests: { 'goldens/refund': { fork: true, expect: was } } });
+    const { version, read: prints } = await read(rec);
+    const removed = (await (await send('PUT', 'checks/tests', { golden: 'goldens/refund', version, read: prints, entry: { expect: { tools: { issue_refund: 0 } } } })).json()) as { was: string };
+    expect(removed.was).toMatch(/^[0-9a-f-]{36}$/);
+    const undone = await send('POST', 'checks/tests/undo', { was: removed.was, version: 'anything the page sends' });
+    expect(undone.status).toBe(200);
+    expect(await undone.json()).toMatchObject({ key: 'goldens/refund', added: ['send_email called 0 times'], removed: [], changed: true });
+    expect(JSON.parse(file())).toEqual({ tests: { 'goldens/refund': { fork: true, expect: was } } });
+    const feed = (await get<{ items: Array<{ text: string }> }>('activity')).items.map((e) => e.text);
+    expect(feed.filter((t) => /^Checks? (added|removed)/.test(t))).toEqual(['Check added · refund: send_email called 0 times', 'Check removed · refund: send_email called 0 times']);
+    for (const again of [removed.was, 'no-such-write']) expect((await send('POST', 'checks/tests/undo', { was: again })).status).toBe(404);
+  });
+
+  it('refuses an Undo once the file changed by hand since the write, keeping the edit, and deletes the entry a pattern golden was given', async () => {
+    const rec = recording(AGENT, REFUND);
+    goldens = [golden('goldens/refund-late', rec)];
+    const tests = { 'goldens/refund-*': { repeat: 2, expect: { tools: { send_email: 0 } } } };
+    writeConfig({ tests });
+    let { version, read: prints } = await read(rec);
+    const first = (await (await send('PUT', 'checks/tests', { golden: 'goldens/refund-late', version, read: prints, entry: { expect: null } })).json()) as { was: string };
+    writeConfig({ ...JSON.parse(file()), prices: {} });
+    const refused = await send('POST', 'checks/tests/undo', { was: first.was });
+    expect(refused.status).toBe(409);
+    expect(await error(refused)).toBe('shadowlap.config.json changed on disk since this change was saved, and Undo would write over that: nothing was changed.');
+    expect(JSON.parse(file())).toMatchObject({ prices: {} });
+    writeConfig({ tests });
+    ({ version, read: prints } = await read(rec));
+    const second = (await (await send('PUT', 'checks/tests', { golden: 'goldens/refund-late', version, read: prints, entry: { expect: null } })).json()) as { was: string };
+    expect(Object.keys(JSON.parse(file()).tests)).toEqual(['goldens/refund-*', 'goldens/refund-late']);
+    expect((await send('POST', 'checks/tests/undo', { was: second.was })).status).toBe(200);
+    expect(JSON.parse(file())).toEqual({ tests });
+  });
+
   it('refuses a file changed since the page read it, naming what changed, and changes nothing', async () => {
     const rec = recording(AGENT, REFUND);
     goldens = [golden('goldens/refund', rec), golden('goldens/other', rec)];

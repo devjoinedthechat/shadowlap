@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { pullRequestJob } from '@shadowlap/remote';
+import type { TestSessionPullRequest } from '@shadowlap/engine';
+import { pullRequestJob, type PullRequestJob } from '@shadowlap/remote';
 
 /**
  * Where a test session runs, for a gate against history: the branch it tests, whether it runs for a
@@ -21,6 +22,8 @@ export interface SessionSource {
   baselineBranch: string | null;
   /** Where `baselineBranch` came from, as a note says it. */
   from: 'config' | 'pull request' | 'GitHub' | 'GitLab' | 'Buildkite' | 'git' | null;
+  /** The pull or merge request CI named (pullRequestJob), read once with the rest: the session keeps it (sessionPullRequest). */
+  job: PullRequestJob | null;
 }
 
 export interface SourceOptions {
@@ -104,7 +107,22 @@ export function sessionSource(o: SourceOptions): SessionSource {
     if (detected) from = 'git';
   }
   const configured = set(o.configured ?? undefined);
-  return { branch, pullRequest, baselineBranch: configured ?? detected, from: configured ? 'config' : from };
+  return { branch, pullRequest, baselineBranch: configured ?? detected, from: configured ? 'config' : from, job };
+}
+
+/**
+ * The pull request a session runs for, as the test history keeps it: its number, and its page where
+ * GitHub Actions runs the job for it and names its server and repository; null for none. GitLab's
+ * merge requests and SHADOWLAP_PR, which wins over GitHub's variables, keep their number and no page.
+ * A Buildkite pull request counts as one for the baseline, but CI names none, so its session keeps none.
+ */
+export function sessionPullRequest(job: PullRequestJob | null, env: NodeJS.ProcessEnv = process.env): Omit<TestSessionPullRequest, 'state' | 'at'> | null {
+  if (!job) return null;
+  const number = job.number === null ? null : Number(job.number);
+  const server = set(env.GITHUB_SERVER_URL)?.replace(/\/+$/, '');
+  const repository = set(env.GITHUB_REPOSITORY);
+  const github = job.source.startsWith('GitHub Actions (');
+  return { number, url: github && number !== null && server && repository ? `${server}/${repository}/pull/${number}` : null, source: job.source };
 }
 
 /** What `test` says under a golden whose gate against history has no baseline branch to take sessions from. */

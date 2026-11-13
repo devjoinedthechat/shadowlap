@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon.js';
 import { approx, callName, kindShort, num, plural } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
-import { agentOf } from '../scopes.js';
+import { agentOf, forksAt } from '../scopes.js';
 import type { CallIndex } from '../recorded.js';
 import { cssVars } from '../dom.js';
 import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js';
@@ -23,7 +23,8 @@ import type { UntrustedView } from '../types.js';
 /**
  * Calls: #, call, origin, tokens, time. A tool's result sits on a second line under it. A replayed
  * call's time is its recorded duration, in grey: the replay did not wait for it. Each row has a fork
- * button, shown on hover and on the selected row. Only the rows in view and a screenful either side
+ * button, shown on hover and on the selected row, but a judge's, which no fork starts at (scopes.ts
+ * forksAt) and which reads by its check and verdict. Only the rows in view and a screenful either side
  * are drawn (window-hook.ts), so a run of 50,000 calls opens and moves as one of fifty does. A call
  * whose page isn't read yet (paging.ts) is a row with its number and origin, and coming into view
  * asks for its page (`onNeed`).
@@ -518,7 +519,7 @@ const Row = memo(function Row({
         {t.text}
       </td>
       <td className="rowact">
-        {canFork ? (
+        {canFork && forksAt(c) ? (
           <ActionButton
             aria-haspopup="menu"
             aria-expanded="false"

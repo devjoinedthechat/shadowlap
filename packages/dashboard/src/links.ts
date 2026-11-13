@@ -13,7 +13,8 @@
  *   #/changes/migrate[/<id>[/<run>[/<call>]]]     Changes: a migration (`shadowlap migrate`), a run's row, a cell
  *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a row of theirs, by its place
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
- *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/setup/store
+ *   #/tests[?report=<name>]              Tests, a golden's report open
+ *   #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/setup/store
  *   #/settings/ci?gate=<kind>            Settings → CI with Gates on a kind (`sprt` or `baseline`), which it reads once
  */
 
@@ -229,7 +230,8 @@ export const links = {
   compare: (a?: string | null, b?: string | null, call?: number | null): string => (a ? `#/compare/${enc(a)}${b ? `/${enc(b)}${call ? `/${call}` : ''}` : ''}` : '#/compare'),
   /** Fixes, a fix, one of its steps (`blame`, `repair`, `verify`), and a verdict of its Verify step. */
   fixes: (id?: string | null, step?: string | null, sub?: string | null): string => `#/fixes${id ? `/${enc(id)}${step ? `/${enc(step)}${sub ? `/${enc(sub)}` : ''}` : ''}` : ''}`,
-  tests: (): string => '#/tests',
+  /** Tests, with a golden's report open and in view (`report`, its name): read once, then left out of the address. */
+  tests: (o: { report?: string | null } = {}): string => (o.report ? `#/tests?report=${enc(o.report)}` : '#/tests'),
   training: (tab?: 'pairs' | 'tasks'): string => (tab === 'tasks' ? '#/training/tasks' : '#/training'),
   /** Settings, at a tab (`matching`, `redaction`, `alerts` for CI, `agents`, `tools`, `project`, `store`). */
   /** A tab, and for CI the gate kind Gates opens on (a rule under Tests' table links there): the engine's `sprt` or `baseline`. */

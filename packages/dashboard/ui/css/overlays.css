@@ -75,7 +75,8 @@
 @media (max-width: 380px) { .dialog .dfacts > div.wide { grid-template-columns: minmax(0, 1fr); } }
 /* ruled blocks that meet share one rule, never two hairlines a gap apart: the facts after What happens's steps, facts after facts, and a golden's advice after its row */
 .dialog .ondisk.steps + .dfacts, .dialog .dfacts + .dfacts { margin-top: 0; border-top: 0; }
-.dialog .dfacts:has(+ .dfacts) { margin-bottom: 0; }
+.dialog .dfacts:has(+ .dfacts), .dialog .dfacts:has(+ .prc) { margin-bottom: 0; }
+.dialog .dfacts + .prc { border-top: 0; }
 .dialog .rmp + .advise { margin-top: 0; border-top: 0; }
 .dialog .dwarn { margin: 0 0 12px; font-size: 13px; font-weight: 500; color: var(--cq-amber); text-wrap: pretty; }
 .dialog .dwarn.red { color: var(--err); }
@@ -137,8 +138,9 @@
 @media (forced-colors: active) { .dialog > .db .dcost.stuck { box-shadow: none; border-top: 1px solid CanvasText; } }
 .dvrows p { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0 0 8px; }
 .dvrows .dvr { color: var(--faint); font-size: 12.5px; }
-.dialog .k { font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
-.dialog .k::first-letter { text-transform: uppercase; }
+/* a dialog's field labels, a fix's run's role in the check builder among them: sentence case in the UI face, never small caps */
+.dialog :is(.k, .cb-role) { font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.dialog :is(.k, .cb-role)::first-letter { text-transform: uppercase; }
 /* Esc or the scrim on a dialog with edits: the footer asks first */
 .dlgask { margin-right: auto; color: var(--dim); font-size: var(--fs-body); }
 /* On a phone a modal is a sheet from the foot of the screen: full width, rounded at the top, its footer above the home

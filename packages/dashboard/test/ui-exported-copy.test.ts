@@ -216,16 +216,38 @@ describe('an exported copy', () => {
     expect(loadersOf(/\bOtelDialog\.js['"]/)).toEqual(['run/ShareMenu.tsx']);
   });
 
-  it('never opens the check builder or Run blame’s dialogs: the served entry alone loads them, and a copy offers no Add check… at a tool call', async () => {
+  it('offers no Add check… at a tool call, in its inspector or its row, as only the served dashboard hands a page the check menu and the builder', async () => {
+    await open([forkId, runId], `#/run/${runId}/4`);
+    await r!.until('the tool call’s inspector, with its summary line', () => r!.all('section.insp[aria-label="Call 4"] .isumrow .isum').length === 1);
+    expect(r!.one('section.insp[aria-label="Call 4"] .ct').textContent).toBe('search_web');
+    expect(r!.all('[data-act="ckmenu"]')).toHaveLength(0);
+    expect(r!.all('[role="menu"]')).toHaveLength(0);
+  });
+
+  it('never opens the check menu, the check builder or Run blame’s dialogs: the served entry alone loads them, and a copy offers no Add check… at a tool call', async () => {
     // The page's code that loads their scripts: the parts the served entry hands in, which a copy's
     // entry never does, so the copy's script holds none of ui/checks/ (HEAVY in test/ui-bundle-size.test.ts)
-    // nor Run blame's dialogs. A copy draws no Run blame: its one next step is Compare (test/next-step.test.ts).
+    // nor the check menu or Run blame's dialogs. A copy draws no Run blame: its one next step is Compare (test/next-step.test.ts).
+    expect(loadersOf(/\bCheckMenu\.js['"]/)).toEqual(['pages/served.tsx']);
     expect(loadersOf(/\bchecks\/Builder\.js['"]/)).toEqual(['pages/served.tsx']);
     expect(loadersOf(/\bRunBlameAsks\.js['"]/)).toEqual(['pages/served.tsx']);
     // At a tool call of a finished recording, where the served dashboard offers it on the inspector.
     await open([forkId, runId], `#/run/${forkId}/4`);
     await r!.until('the call’s inspector', () => r!.all('.insp').length === 1);
     expect(r!.all('[data-act="ckmenu"]')).toHaveLength(0);
+  });
+
+  it('never opens Preview pull request comment: only Settings → CI and a revision’s page under Changes show it, which a copy sends to its runs, and its client refuses the read', async () => {
+    // The module that loads the dialog's script, and the pages that show it: none a copy routes to.
+    const ui = fileURLToPath(new URL('../ui/', import.meta.url));
+    const importing = (re: RegExp) =>
+      readdirSync(ui, { recursive: true, encoding: 'utf8' })
+        .filter((f) => /\.tsx?$/.test(f) && re.test(readFileSync(join(ui, f), 'utf8')))
+        .map((f) => f.split(sep).join('/'))
+        .sort();
+    expect(importing(/\bPrCommentDialog\.js['"]/)).toEqual(['ci/comment-parts.tsx']);
+    expect(importing(/\bcomment-parts\.js['"]/)).toEqual(['changes/RevisionPage.tsx', 'ci/PrCommentDialog.tsx', 'pages/settings/Ci.tsx']);
+    await expect(createExportedClient(exported([runId])).settings.prComment()).rejects.toThrow();
   });
 
   it('lists its runs, and only those', async () => {

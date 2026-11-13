@@ -289,6 +289,7 @@ describe('lime', () => {
     '.attempts span i': 'an attempt that passed',
     '.attempts a i': 'an attempt that passed',
     '.st.ok i': 'a run that came out well',
+    '.banner.jv .jvw b.ok': 'a judge’s verdict on the run that passed: its ✓',
     '.evl .ed.end.ok': 'the last point of a gate’s evidence line that passed',
     '.st.ok': 'a status that passed: its word, in passed’s colour as its dot is',
     '.vw.ok': 'a verdict line’s word: passed',
@@ -302,6 +303,7 @@ describe('lime', () => {
     'td.hist i.meter.pass b': 'a golden that passed at a revision: the share of its attempts that passed',
     '.gtw .gstrip i.meter.pass': 'a golden that passed at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.passed .cm': 'a check that passed',
+    '.rpck .ck.passed .cm': 'a check that passed, in a golden’s report as in its row',
     '.checks': 'a fork’s checks, passed',
     '.callrow .ok .cn': 'a probe that rescued the run',
     '.callrow .ok .pl': 'a probe that rescued the run',
@@ -322,6 +324,8 @@ describe('lime', () => {
     '.dsv.ok b': 'a preview’s run that verify kept passing or fixed: its word',
     '.dlead .dlv.ok b': 'an opened cell’s run that verify kept passing or fixed: its word',
     '.djudge b.ok': 'a judge check that passed',
+    '.prc-g li.pass i': 'the pull request comment’s mark, drawn, of a golden that passed',
+    '.prc-i.pass i': 'the pull request comment’s mark, drawn, of an injection gate that passed',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -402,6 +406,7 @@ describe('amber', () => {
     'td.hist i.meter.inc b': 'a golden inconclusive at a revision: the share of its attempts that passed',
     '.gtw .gstrip i.meter.inc': 'a golden inconclusive at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.inconclusive .cm': 'a check that couldn’t decide',
+    '.rpck .ck.inconclusive .cm': 'a check that couldn’t decide, in a golden’s report as in its row',
     'table.gt td.glast .gpre.warn': 'a golden whose last test needs a look',
     'pre.report .y': 'a report’s inconclusive line',
     '.drawer .st2.warn': 'a job that ended needing a look',
@@ -439,6 +444,7 @@ describe('amber', () => {
     '.cb-units li.bad .cb-ul code': 'a rule the check builder refuses, in the engine’s words: Save waits until it is fixed',
     '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',
+    '.cb-row.y .cb-d': 'a fix’s run the check being built would change for it: a failing run it passes, a good one it fails, or one it can’t settle',
     '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
     '.injdlg .injfile small.err': 'a payload file Run injection test… can’t read, so the test plants none of it: a look before pressing',
     'i.dg.s': 'a preview key’s swatch for a change of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
@@ -454,6 +460,11 @@ describe('amber', () => {
     '.drk.q2': 'a change of rank 2’s label: a look',
     '.dside.q2': 'an opened cell’s decision now, of rank 2: its edge, a look',
     '.djudge b.y': 'a judge check that couldn’t decide',
+    '.prc b.inc': 'the pull request comment’s decisions, drawn, where only reads or text changed or no step was asked: their mark, a look',
+    '.prc-g li.inc i': 'the pull request comment’s mark, drawn, of a golden that couldn’t decide',
+    '.prc-i.inc i': 'the pull request comment’s mark, drawn, of an injection gate that couldn’t decide',
+    '.prc-rk.r2': 'a step of rank 2’s label in the pull request comment’s decisions: a look, as the design ranks them',
+    '.vdflag': 'a session whose pull request merged though it failed or couldn’t decide',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {

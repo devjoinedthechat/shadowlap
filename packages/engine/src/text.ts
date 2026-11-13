@@ -25,6 +25,45 @@ export function safeLine(s: string): string {
   return safeText(s).replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
 }
 
+/** A recorded string's characters escaped for a terminal line: its controls (safeLine), and each `##[`, which a CI runner reads as a workflow command anywhere in a line it logs, written `#\x23[`. */
+export function escapedInLine(s: string): string {
+  return safeLine(s).replace(/##\[/g, '#\\x23[');
+}
+
+/**
+ * A `::` that starts a line, white space before it or not, ahead of a command's name: a GitHub runner
+ * reads that line as a workflow command (`::add-mask::`, `::stop-commands::`). IPv6's `::1` is none.
+ */
+const LEADING_COMMAND = /^(\s*)::(?=[A-Za-z])/;
+
+/**
+ * A recorded string for one terminal line: its control characters and each `##[` escaped
+ * (escapedInLine), and a leading `::` before a command's name written `:\x3a`, as it may start the
+ * line it is printed in.
+ */
+export function safe(s: string): string {
+  return escapedInLine(s).replace(LEADING_COMMAND, '$1:\\x3a');
+}
+
+/**
+ * Recorded text of several lines for a terminal and a CI log alike: each of its lines (a bare CR ends
+ * one too) after `prefix`, escaped as a recorded string is, and the `::` of a line that would start
+ * a workflow command written `:\x3a`. Behind a prefix that already keeps a line from starting one
+ * (the bar what an agent printed is shown behind), its text is left as it was printed.
+ */
+export function safeLines(text: string, prefix: string): string {
+  return `${text
+    .split(/\r\n|\r|\n/)
+    .map((l) => (prefix + escapedInLine(l)).replace(LEADING_COMMAND, '$1:\\x3a'))
+    .join('\n')}\n`;
+}
+
+/** The last `lines` lines of what an agent printed, as `shadowlap test` prints them under a golden that failed; null for none. */
+export function outputTail(output: string, lines = 20): string | null {
+  const t = output.trim();
+  return t ? t.split('\n').slice(-lines).join('\n') : null;
+}
+
 /** A hidden character as ANSI-C quotes write it: `\x1b` for ASCII, `\u202e` beyond it, `\U` and up to eight digits past U+FFFF. */
 function ansiEscape(ch: string): string {
   const code = ch.codePointAt(0)!;

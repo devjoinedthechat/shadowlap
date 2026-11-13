@@ -1,6 +1,7 @@
 import { Fragment, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Chips } from '../components/bits.js';
 import { Words } from '../components/Copy.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Link } from '../components/Link.js';
 import { EmptyLine, EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Status } from '../components/Status.js';
@@ -16,7 +17,7 @@ import { useApp } from '../state.js';
 import type { SessionVerdict, VerdictRow, VerdictsKind, VerdictsView } from '../types.js';
 import { knownFixes } from '../fixes/data.js';
 import { fixRowScope } from '../fixes/row-scope.js';
-import { chipEmpty, kindLine, leadFacts, leadIsOpen, moreLimit, rowTone, titledByRevision, VERDICT_CHIPS, VERDICTS_STEP, verdictHref, type LinePart } from './model.js';
+import { chipEmpty, flagLine, kindLine, leadFacts, leadIsOpen, moreLimit, rowTone, titledByRevision, VERDICT_CHIPS, VERDICTS_STEP, verdictHref, type LinePart } from './model.js';
 
 /**
  * Changes › Verdicts: every change checked before it shipped, and the verdict it got, one row each,
@@ -132,7 +133,7 @@ function Rows({ view, chip, limit, moreFailed, onMore }: { view: VerdictsView; c
       {moreFailed ?? (next !== null ? <ShowMore shown={view.rows.length} total={view.counts[chip]} onMore={() => onMore(next)} /> : view.more ? <p className="muted vdlocal">Older changes than these aren’t listed.</p> : null)}
       {view.shared ? null : (
         <p className="muted vdlocal">
-          This machine’s test sessions only: CI’s show here once it pushes them to a team store.{' '}
+          This machine’s test sessions only.{' '}
           <Link href={href.settings('store')} to>
             Team store
           </Link>
@@ -183,7 +184,11 @@ function KindLine({ parts }: { parts: readonly LinePart[] }) {
   );
 }
 
-/** A change: what it is and how it was checked, what moved, its verdict in its command's words, and when. One that leads nowhere yet (a preview's) is still. */
+/**
+ * A change: what it is and how it was checked, what moved, its verdict in its command's words, and
+ * when. One that leads nowhere yet (a preview's) is still. A session whose pull request merged though
+ * it didn't pass is flagged in amber under its verdict, its card saying what shipped.
+ */
 function Row({ row, focused }: { row: VerdictRow; focused: boolean }) {
   const to = verdictHref(row);
   const title = titledByRevision(row) ? <code>{row.title}</code> : <Words>{row.title}</Words>;
@@ -213,6 +218,11 @@ function Row({ row, focused }: { row: VerdictRow; focused: boolean }) {
       <td className="vdv">
         <Status tone={rowTone(row.tone)}>{row.word}</Status>
         <span className="rsub">{row.line}</span>
+        {row.kind === 'session' && row.flag ? (
+          <span className="rsub vdflag" tabIndex={0} data-tip={tipCard(row.flag, [], flagLine(row))}>
+            {row.flag}
+          </span>
+        ) : null}
       </td>
       <td className="hide-sm vdw">{minuteStamp(row.at)}</td>
     </tr>

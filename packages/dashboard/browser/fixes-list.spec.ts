@@ -8,6 +8,9 @@ import { demoId, openPage } from './dashboard.js';
  * ends, and no sideways scroll at a phone's or a tablet's width.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 /** A row as drawn: the bars drawn while the list loads are rows too, with no key. */
 const ROWS = 'main#view .pslist .psrow[data-rowkey]';
 const openFixes = (page: Page) => openPage(page, '/fixes', ROWS);
@@ -95,7 +98,7 @@ for (const width of [1440, 390])
 test('a job started from a row’s next step hands the focus to that row’s step when it ends', async ({ page }) => {
   const email = demoId('emailFix');
   let fixId = '';
-  const again = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null };
+  const again = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
   // The list as the server answers it, the fix's step Run blame again; no estimate, so the step asks.
   await page.route(/\/api\/fixes(\?.*)?$/, async (route) => {
     const body = (await (await route.fetch()).json()) as { fixes: Array<{ fixId: string }> };
