@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { gateResult, type SprtGate } from '../../engine/src/stats.js';
 import { goldenHint } from '../ui/goldens.js';
-import { keepTests, loadTests, onTestsChanged, testsPaletteCommands, type TestsPaletteApp } from '../ui/tests-palette.js';
-import type { GateResultView, GoldenRow, TestsView } from '../ui/types.js';
+import { keepTests, loadTests, onTestsChanged, prCommentPaletteCommands, testsPaletteCommands, type TestsPaletteApp } from '../ui/tests-palette.js';
+import type { GateResultView, GoldenRow, TestsSessionView, TestsView } from '../ui/types.js';
 
 /**
  * The palette's Tests group from any page, without a browser: the source answers with what it has,
@@ -131,5 +131,28 @@ describe('the palette\'s Tests group', () => {
     const s = stand({ answer: view(['goldens/limit-two']), exported: true });
     expect(testsPaletteCommands(s.app, s.go, { update: true })).toEqual([]);
     expect(s.loads()).toBe(0);
+  });
+});
+
+describe('the palette\'s Preview pull request comment', () => {
+  const session = { id: 'ts-01M5000000000000000000000A', command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: 1, endedAt: 2, passed: 1, failed: 1, inconclusive: 0 } as TestsSessionView;
+  const tested = (v: TestsView): TestsView => ({ ...v, verdict: { state: 'failing', failing: 1, inconclusive: 0, passing: 1, untested: 0, title: 'limit-two diverged at call 1', first: null, session, since: [] } });
+
+  it('lists the preview once the goldens have a session, on a read-only dashboard too, opening Settings → CI with its ask', () => {
+    keepTests(view([]));
+    const s = stand({ answer: view([]) });
+    let asked = 0;
+    // No session yet: nothing to preview.
+    expect(prCommentPaletteCommands(s.app, s.go, () => asked++)).toEqual([]);
+    keepTests(tested(view([])));
+    const readOnly = stand({ answer: view([]), actionsOff: 'this dashboard is read-only' });
+    const entries = prCommentPaletteCommands(readOnly.app, readOnly.go, () => asked++);
+    expect(entries.map((e) => [e.group, e.label, e.hint, e.job ?? false])).toEqual([['Actions', 'Preview pull request comment', 'from the last test session', false]]);
+    // It asks Settings → CI for its dialog, then opens the tab; it starts nothing, so no guard.
+    entries[0].run();
+    expect([asked, readOnly.went, readOnly.guarded]).toEqual([1, ['#/settings/ci'], []]);
+    // An exported copy previews nothing.
+    expect(prCommentPaletteCommands(stand({ answer: view([]), exported: true }).app, s.go, () => asked++)).toEqual([]);
+    keepTests(view([]));
   });
 });

@@ -1689,6 +1689,7 @@ AzureOpenAI SDKs do; without it, nothing is sent.
 | `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope | — |
 | `--then-verify` | Then run [`verify`](#verify) on the runs a preview can't clear ([which](./decisions.md#then-verify)) | — |
 | `--verify <session>` | Ask nothing: verify the runs a kept session could not clear (below) | — |
+| `--test-session <id>` | With `--from-code`: keep the preview with this test session, as its pull request comment's decisions (below) | — |
 | `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify) | Verify's |
 | `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent | — |
 | `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long | A model request waits ten minutes, as the official SDKs do |
@@ -1715,6 +1716,10 @@ More on some of them:
 - **`--verify`**: it verifies the runs a kept session could not clear (its `dc-…` or `mg-…` id, or a prefix of
   it), or those of them named after it, as `--then-verify` verifies them, under the session's change.
   It keeps what verify finds in the session. The dashboard runs it as its `decisions-verify` job.
+- **`--test-session`**: the GitHub Action's `decisions: true` gives it the session `test` just ran, so
+  the [pull request comment](./ci.md#decisions-in-the-comment) lists the decisions the branch changes,
+  and Settings → CI's preview shows them. A session the store has no record of is refused before
+  anything is asked.
 - **`--gate` and the rest**: each run is decided by verify's gate, unless `--attempts` or `--passes`
   gives a fixed count.
 - **`--yes`**: it runs the recorded command of a run imported from someone's pack (`--from-code`,
@@ -2326,7 +2331,7 @@ That verdict is inconclusive, and `--inconclusive warn` lets it through.
 ### Test report as JSON
 
 `--json <file>` writes a JSON report: the session, counts and, per pack, the result and the kind of
-failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results }`,
+failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results, costPerRun }`,
 and `suite` with a gated golden:
 
 | Field | Meaning |
@@ -2336,6 +2341,7 @@ and `suite` with a gated golden:
 | `inconclusive` | The inconclusive packs, either way (below) |
 | `interrupted` | Whether a signal stopped the session; `results` has the goldens that finished before it |
 | `results` | One result per pack (below) |
+| `costPerRun` | What a run costs live, in USD: `before` as recorded, `after` as replayed here, the mean over goldens that ran whole; null without a price |
 | `suite` | With a gated golden: the session's one risk, and how it was split (below) |
 
 An inconclusive pack counts as failed, or as passed when it only warns: under `--inconclusive warn`, or,

@@ -539,6 +539,8 @@ export interface TestRunView {
 }
 /** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
 export type { CiListRow, CiSession, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
+/** `GET /api/ci/comment`: the pull request comment as the Action would post it, from the newest session that ran every golden. */
+export type { PrCommentPreview } from '../src/pr-comment-preview.js';
 
 // ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
@@ -555,6 +557,8 @@ export type DecisionSessionDetail = import('../src/decision-view.js').PreviewSes
 export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
 // Changes › Verdicts (`/api/verdicts`): every change checked, and the verdict it got.
 export type { PreviewVerdict, SessionVerdict, VerdictGolden, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerdictWord, VerifyVerdict } from '../src/verdicts.js';
+export type { KeptCost, KeptDecisions, KeptInjection, SessionCommentParts, VerdictFlag, VerdictPullRequest } from '../src/session-comment.js';
+export type { CommentDecision } from '../../engine/src/pr-comment.js';
 
 // ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
 export type { CodeChange } from '../src/compare.js';

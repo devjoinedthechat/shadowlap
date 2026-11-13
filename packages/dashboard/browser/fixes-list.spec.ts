@@ -8,6 +8,9 @@ import { demoId, openPage } from './dashboard.js';
  * ends, and no sideways scroll at a phone's or a tablet's width.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 /** A row as drawn: the bars drawn while the list loads are rows too, with no key. */
 const ROWS = 'main#view .pslist .psrow[data-rowkey]';
 const openFixes = (page: Page) => openPage(page, '/fixes', ROWS);

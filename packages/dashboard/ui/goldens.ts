@@ -374,6 +374,7 @@ export function testsPalette(view: TestsView | null, o: { update: boolean }): Te
 export function ciQuery(o: Partial<CiWorkflowOptions> = {}): string {
   const q = new URLSearchParams();
   if (o.comment !== undefined) q.set('comment', o.comment ? 'on' : 'off');
+  if (o.decisions !== undefined) q.set('decisions', o.decisions ? 'on' : 'off');
   if (o.fix !== undefined) q.set('fix', o.fix ? 'on' : 'off');
   if (o.alerts !== undefined) q.set('alerts', o.alerts ? 'on' : 'off');
   if (o.budget !== undefined) q.set('budget', o.budget);

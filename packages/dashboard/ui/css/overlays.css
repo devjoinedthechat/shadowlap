@@ -76,7 +76,8 @@
 @media (max-width: 380px) { .dialog .dfacts > div.wide { grid-template-columns: minmax(0, 1fr); } }
 /* ruled blocks that meet share one rule, never two hairlines a gap apart: the facts after What happens's steps, facts after facts, and a golden's advice after its row */
 .dialog .ondisk.steps + .dfacts, .dialog .dfacts + .dfacts { margin-top: 0; border-top: 0; }
-.dialog .dfacts:has(+ .dfacts) { margin-bottom: 0; }
+.dialog .dfacts:has(+ .dfacts), .dialog .dfacts:has(+ .prc) { margin-bottom: 0; }
+.dialog .dfacts + .prc { border-top: 0; }
 .dialog .rmp + .advise { margin-top: 0; border-top: 0; }
 .dialog .dwarn { margin: 0 0 12px; font-size: 13px; font-weight: 500; color: var(--cq-amber); text-wrap: pretty; }
 .dialog .dwarn.red { color: var(--err); }

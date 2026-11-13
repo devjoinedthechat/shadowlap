@@ -3,6 +3,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
 import { byRule, commandIsImported, decisionsUnsettled, fieldValue, formatDecisions, hasRecordedCommand, migrateBreaks, migrateUnsettled, SPRT_DEFAULTS, unsettledReason, unsettledRun, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
+import { keepDecisionsPart, testSessionFlag, testSessionKnown } from '../decisions-test-session.js';
 import { verifySession } from '../decisions-verify.js';
 import { goldenConsented } from '../golden-consent.js';
 import { attemptRule, parseFields, readExpectJson } from './fix-flags.js';
@@ -100,6 +101,14 @@ export function decisionsInconclusive(r: DecisionsReport): string | null {
   return decisionsUnsettled({ stopReason: r.stopReason, flagged: r.flagged, toVerify: r.toVerify, runs: r.runs.map(unsettledRun), verify: r.verify });
 }
 
+/** `decisions`' flags, as commander gives them. */
+type DecisionsFlags = { model?: string; fromCode?: boolean; set?: string[]; from?: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; verify?: string; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean; testSession?: string };
+
+/** What `decisions` asks under: the change, how many samples and at once, and what stops it. */
+function decisionsSettings(flags: DecisionsFlags, o: Pick<DecisionsSettings, 'model' | 'fields' | 'from' | 'timeoutMs' | 'argv' | 'thenVerify'>): DecisionsSettings {
+  return { ...o, fromCode: !!flags.fromCode, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, scope: flags.scope ?? null, remedies: false, guard: flags.guard };
+}
+
 export function register(program: Command): void {
   program.commandsGroup('Preview a change:');
 
@@ -127,8 +136,9 @@ export function register(program: Command): void {
     .option('--inconclusive <mode>', 'what an inconclusive result does to the exit status: fail (3) or warn (0, with a warning)', parseChoice(['fail', 'warn'] as const), 'fail')
     .option('--guard <mode>', 'with --then-verify or --verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
+    .option('--test-session <id>', "with --from-code: keep the preview with this test session, as its pull request comment's decisions (the GitHub Action's decisions: true)")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
-    .action(async (given: string[], flags: { model?: string; fromCode?: boolean; set?: string[]; from?: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; verify?: string; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (given: string[], flags: DecisionsFlags) => {
       const opts = program.opts<GlobalOpts>();
       const { specs, argv } = splitCommand(program, given);
       // Verify's own rule: its gate, unless a fixed count is given.
@@ -137,6 +147,7 @@ export function register(program: Command): void {
       const log = (line: string) => process.stderr.write(`${line}\n`);
       const timeoutMs = flags.timeout === undefined ? null : flags.timeout * 1000;
       const thenVerify = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect };
+      const keepIn = testSessionFlag(flags);
 
       if (flags.verify !== undefined) {
         // The runs a kept session could not clear, verified: nothing is asked again.
@@ -164,6 +175,7 @@ export function register(program: Command): void {
       let targets: DecisionTarget[];
       try {
         targets = resolveTargets(store, specs, process.cwd());
+        testSessionKnown(store, keepIn);
       } catch (err) {
         store.close();
         return failed(err, flags.json, 'decisions');
@@ -174,25 +186,12 @@ export function register(program: Command): void {
           process.exitCode = EXIT.usage;
           return;
         }
-        const settings: DecisionsSettings = {
-          model,
-          fields,
-          from,
-          fromCode: !!flags.fromCode,
-          samples: flags.samples,
-          concurrency: flags.concurrency,
-          budget: flags.budget ?? null,
-          timeoutMs,
-          scope: flags.scope ?? null,
-          remedies: false,
-          guard: flags.guard,
-          argv,
-          thenVerify: flags.thenVerify ? thenVerify : null,
-        };
+        const settings = decisionsSettings(flags, { model, fields, from, timeoutMs, argv, thenVerify: flags.thenVerify ? thenVerify : null });
         const command = decisionsCommand(specs, settings, { concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, expect: expect?.json ?? null, attempts: flags.attempts, passes: flags.passes, gate: rule.gate, writes: flags.writes, guard: flags.guard, inconclusive: flags.inconclusive });
         log(`${p.yellow('⑂')} Asking the model calls of ${targets.length} run${targets.length === 1 ? '' : 's'} again under ${[flags.fromCode ? 'the prompt and tools in your working tree' : '', model ? `the model ${model}` : '', Object.keys(fields).length ? Object.entries(fields).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ') : ''].filter(Boolean).join(' and ')}`);
         log(p.dim(`  ${flags.samples} sample${flags.samples === 1 ? '' : 's'} per call, ${flags.concurrency} at once · no tool runs${flags.budget ? ` · budget $${flags.budget.toFixed(2)}` : ''}`));
         const report = await runDecisions({ opts, targets, settings, command, log });
+        keepDecisionsPart(opts, keepIn, report);
         if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
         else process.stdout.write('\n' + formatDecisions(report, p) + '\n' + (report.verify ? verifyLines(report.verify, null) : ''));
         emitDecisions(report);

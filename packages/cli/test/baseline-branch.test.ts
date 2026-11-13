@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sessionSource } from '../src/baseline-branch.js';
+import { sessionPullRequest, sessionSource } from '../src/baseline-branch.js';
 import { parseTests, parseTestSettings } from '../src/checks.js';
 
 /**
@@ -21,7 +21,7 @@ const event = (payload: unknown) => () => JSON.stringify(payload);
 describe('sessionSource', () => {
   it('reads a push on GitHub Actions: the branch pushed, and the default branch from the event', () => {
     const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_REF_NAME: 'main', GITHUB_EVENT_PATH: '/event.json' };
-    expect(sessionSource({ cwd: '.', env, git: git({ origin: null }), readFile: event({ repository: { default_branch: 'main' } }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'GitHub' });
+    expect(sessionSource({ cwd: '.', env, git: git({ origin: null }), readFile: event({ repository: { default_branch: 'main' } }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'GitHub', job: null });
     // A push to another branch: its own sessions are no baseline, the default branch's are.
     expect(sessionSource({ cwd: '.', env: { ...env, GITHUB_REF: 'refs/heads/dev', GITHUB_REF_NAME: 'dev' }, git: git({ origin: null }), readFile: event({ repository: { default_branch: 'main' } }) })).toMatchObject({ branch: 'dev', pullRequest: false, baselineBranch: 'main' });
     // A tag is no branch.
@@ -30,7 +30,7 @@ describe('sessionSource', () => {
 
   it('reads a pull request on GitHub Actions: its head branch, never a baseline, against its base branch', () => {
     const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/7/merge', GITHUB_REF_NAME: '7/merge', GITHUB_HEAD_REF: 'fix-refunds', GITHUB_BASE_REF: 'main', GITHUB_EVENT_PATH: '/event.json' };
-    expect(sessionSource({ cwd: '.', env, git: git(), readFile: event({ pull_request: { number: 7 }, repository: { default_branch: 'main' } }) })).toEqual({ branch: 'fix-refunds', pullRequest: true, baselineBranch: 'main', from: 'pull request' });
+    expect(sessionSource({ cwd: '.', env, git: git(), readFile: event({ pull_request: { number: 7 }, repository: { default_branch: 'main' } }) })).toEqual({ branch: 'fix-refunds', pullRequest: true, baselineBranch: 'main', from: 'pull request', job: { number: '7', source: 'GitHub Actions (pull_request)' } });
     // Into a release branch: that branch's sessions are its baseline.
     expect(sessionSource({ cwd: '.', env: { ...env, GITHUB_BASE_REF: 'release-1' }, git: git(), readFile: event({ repository: { default_branch: 'main' } }) }).baselineBranch).toBe('release-1');
     // pull_request_target runs on the base branch's ref, for a pull request all the same.
@@ -38,22 +38,22 @@ describe('sessionSource', () => {
   });
 
   it('reads GitLab and Buildkite, merge requests and pull requests included', () => {
-    expect(sessionSource({ cwd: '.', env: { GITLAB_CI: 'true', CI_COMMIT_BRANCH: 'main', CI_DEFAULT_BRANCH: 'main' }, git: git({ origin: null }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'GitLab' });
+    expect(sessionSource({ cwd: '.', env: { GITLAB_CI: 'true', CI_COMMIT_BRANCH: 'main', CI_DEFAULT_BRANCH: 'main' }, git: git({ origin: null }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'GitLab', job: null });
     expect(sessionSource({ cwd: '.', env: { GITLAB_CI: 'true', CI_PIPELINE_SOURCE: 'merge_request_event', CI_MERGE_REQUEST_IID: '12', CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: 'fix', CI_MERGE_REQUEST_TARGET_BRANCH_NAME: 'main', CI_DEFAULT_BRANCH: 'main' }, git: git() })).toMatchObject({ branch: 'fix', pullRequest: true, baselineBranch: 'main' });
-    expect(sessionSource({ cwd: '.', env: { BUILDKITE: 'true', BUILDKITE_BRANCH: 'main', BUILDKITE_PULL_REQUEST: 'false', BUILDKITE_PIPELINE_DEFAULT_BRANCH: 'main' }, git: git({ origin: null }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'Buildkite' });
+    expect(sessionSource({ cwd: '.', env: { BUILDKITE: 'true', BUILDKITE_BRANCH: 'main', BUILDKITE_PULL_REQUEST: 'false', BUILDKITE_PIPELINE_DEFAULT_BRANCH: 'main' }, git: git({ origin: null }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'Buildkite', job: null });
     expect(sessionSource({ cwd: '.', env: { BUILDKITE: 'true', BUILDKITE_BRANCH: 'fix', BUILDKITE_PULL_REQUEST: '42', BUILDKITE_PULL_REQUEST_BASE_BRANCH: 'main' }, git: git() })).toMatchObject({ branch: 'fix', pullRequest: true, baselineBranch: 'main' });
   });
 
   it('reads git outside CI: the branch checked out, and origin/HEAD', () => {
-    expect(sessionSource({ cwd: '.', env: {}, git: git({ branch: 'main' }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'git' });
+    expect(sessionSource({ cwd: '.', env: {}, git: git({ branch: 'main' }) })).toEqual({ branch: 'main', pullRequest: false, baselineBranch: 'main', from: 'git', job: null });
     // A detached checkout, and a clone with no origin/HEAD: nothing to tell, and no baseline.
-    expect(sessionSource({ cwd: '.', env: {}, git: git({ branch: null, origin: null }) })).toEqual({ branch: null, pullRequest: false, baselineBranch: null, from: null });
+    expect(sessionSource({ cwd: '.', env: {}, git: git({ branch: null, origin: null }) })).toEqual({ branch: null, pullRequest: false, baselineBranch: null, from: null, job: null });
     // SHADOWLAP_PR marks a pull request's job in any CI, or none.
     expect(sessionSource({ cwd: '.', env: { SHADOWLAP_PR: '9' }, git: git({ branch: 'main' }) }).pullRequest).toBe(true);
   });
 
   it('takes the baseline branch from the config over everything else', () => {
-    expect(sessionSource({ cwd: '.', env: { GITLAB_CI: 'true', CI_COMMIT_BRANCH: 'trunk', CI_DEFAULT_BRANCH: 'main' }, configured: 'trunk', git: git() })).toEqual({ branch: 'trunk', pullRequest: false, baselineBranch: 'trunk', from: 'config' });
+    expect(sessionSource({ cwd: '.', env: { GITLAB_CI: 'true', CI_COMMIT_BRANCH: 'trunk', CI_DEFAULT_BRANCH: 'main' }, configured: 'trunk', git: git() })).toEqual({ branch: 'trunk', pullRequest: false, baselineBranch: 'trunk', from: 'config', job: null });
     expect(sessionSource({ cwd: '.', env: {}, configured: 'develop', git: git({ branch: 'develop', origin: null }) })).toMatchObject({ baselineBranch: 'develop', from: 'config' });
   });
 });
@@ -71,5 +71,27 @@ describe('the session settings under tests', () => {
     expect(() => parseTests({ suiteRisk: '5%' })).toThrow('tests.suiteRisk must be a number');
     expect(() => parseTests({ baselineBranch: '' })).toThrow('tests.baselineBranch must be a branch name, such as "main"');
     expect(() => parseTests({ baselineBranch: 'my branch' })).toThrow('tests.baselineBranch must be a branch name');
+  });
+});
+
+describe('sessionPullRequest', () => {
+  const ON_PR = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/12/merge', GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' };
+  const kept = (env: NodeJS.ProcessEnv) => sessionPullRequest(sessionSource({ cwd: '.', env, git: git(), readFile: event({}) }).job, env);
+
+  it("keeps a pull request's number and its page, as GitHub Actions names them", () => {
+    expect(kept(ON_PR)).toEqual({ number: 12, url: 'https://github.test/northwind/agent/pull/12', source: 'GitHub Actions (pull_request)' });
+    // Without the server or the repository, no page.
+    expect(kept({ ...ON_PR, GITHUB_REPOSITORY: '' })).toEqual({ number: 12, url: null, source: 'GitHub Actions (pull_request)' });
+  });
+
+  it('keeps the number alone where no page can be told, and none outside a pull request', () => {
+    // SHADOWLAP_PR wins over GitHub's variables, so its job keeps no page.
+    expect(kept({ ...ON_PR, SHADOWLAP_PR: '31' })).toEqual({ number: 31, url: null, source: 'SHADOWLAP_PR' });
+    expect(kept({ GITLAB_CI: 'true', CI_PIPELINE_SOURCE: 'merge_request_event', CI_MERGE_REQUEST_IID: '8' })).toEqual({ number: 8, url: null, source: 'a GitLab merge request pipeline' });
+    expect(kept({ ...ON_PR, GITHUB_REF: 'refs/heads/fix' })).toEqual({ number: null, url: null, source: 'GitHub Actions (pull_request)' });
+    // A Buildkite pull request is one for the baseline, but CI names none to keep.
+    expect(kept({ BUILDKITE: 'true', BUILDKITE_BRANCH: 'fix', BUILDKITE_PULL_REQUEST: '5' })).toBeNull();
+    expect(kept({ GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' })).toBeNull();
+    expect(kept({})).toBeNull();
   });
 });

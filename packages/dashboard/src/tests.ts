@@ -863,16 +863,6 @@ function fullSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[])
   return { sessions, whole: whole.length ? whole : sessions };
 }
 
-/**
- * The session Tests' verdict line names (the newest that ran every golden, else the newest with a
- * result), as the screen counts it, inconclusive goldens apart; null before the first. Settings →
- * CI's line under Your workflow names it without a team store.
- */
-export function lastFullSession(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): TestsSessionView | null {
-  const shown = fullSessions(store, goldens).whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null;
-  return shown ? sessionView(store, shown) : null;
-}
-
 /** Results newest first, grouped by golden. */
 function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
   const out = new Map<string, TestResult[]>();
