@@ -394,7 +394,9 @@ describe('Settings → CI: the pull request comment', () => {
     ]);
     // The comment as GitHub shows it: the heading's tally, each golden worst first with its mark, the decisions, the cost, the injection gate and the job summary's line.
     const prc = dialog.querySelector('.prc')!;
-    expect(prc.querySelector('h4')!.textContent).toBe('Shadowlap: 1 of 2 goldens passed · 1 failed');
+    // Its tally glued as the mock's is, a count with its noun.
+    expect(plain(prc.querySelector('h4')!)).toBe('Shadowlap: 1 of 2 goldens passed · 1 failed');
+    expect(prc.querySelector('h4')!.textContent).toContain('2\u00a0goldens');
     expect(prc.querySelectorAll('.prc-g li').map((li) => [li.getAttribute('class'), li.querySelector('i')!.textContent, li.querySelector('code')!.textContent, plain(li.querySelector('span')!)])).toEqual([
       ['fail', '✗', 'goldens/refund-over-limit', 'failed · diverged at call 3 · $.messages[2].content'],
       ['pass', '✓', 'goldens/refund-flow-budget', 'passed · replayed clean'],

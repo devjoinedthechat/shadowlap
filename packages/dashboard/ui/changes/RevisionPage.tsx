@@ -1,9 +1,10 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../api.js';
 import { DecisionSteps } from '../ci/comment-parts.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { Words } from '../components/Copy.js';
+import { Code, Words } from '../components/Copy.js';
+import { DotNodes } from '../components/DotParts.js';
 import { Link } from '../components/Link.js';
 import { Section } from '../components/Section.js';
 import { EmptyLine, ErrorState, failedRead, Skeleton } from '../components/States.js';
@@ -86,23 +87,7 @@ function Verdict({ page }: { page: VerdictRevision }) {
     <VerdictLine
       word={row.word}
       tone={rowTone(row.tone)}
-      facts={
-        <>
-          {row.revision ? <code>{row.revision}</code> : 'no revision'}
-          {leadFacts(row, minuteStamp(row.at), { pr: true }).map((f, i) => (
-            <Fragment key={i}>
-              {' · '}
-              <Words glued={false}>{f}</Words>
-            </Fragment>
-          ))}
-          {row.flag ? (
-            <>
-              {' · '}
-              <span className="vdflag nw">{row.flag}</span>
-            </>
-          ) : null}
-        </>
-      }
+      facts={<DotNodes parts={verdictFacts(row)} max={24} />}
       actions={
         <>
           {page.latest ? <PreviewComment /> : null}
@@ -115,12 +100,23 @@ function Verdict({ page }: { page: VerdictRevision }) {
       <span className="nw">{row.line}</span>
       {lead ? (
         <>
-          {' · '}
+          {'\u00a0· '}
           <span className="nw">{lead.name}</span> <Words>{lead.note}</Words>
         </>
       ) : null}
     </VerdictLine>
   );
+}
+
+/**
+ * The verdict's facts, each dot kept with the part before it: the revision, the change, its pull
+ * request, who and when, then the flag. A part longer than a phone's line holds wraps inside, its
+ * dot kept with its last word.
+ */
+function verdictFacts(row: VerdictRevision['row']): Array<{ text: string; node: ReactNode }> {
+  const revision = row.revision ? { text: row.revision, node: <code>{row.revision}</code> } : { text: 'no revision', node: 'no revision' };
+  const facts = leadFacts(row, minuteStamp(row.at), { pr: true }).map((f) => ({ text: f, node: <Words glued={false}>{f}</Words> }));
+  return [revision, ...facts, ...(row.flag ? [{ text: row.flag, node: <span className="vdflag">{row.flag}</span> }] : [])];
 }
 
 /** Preview pull request comment, on the newest revision's page: the comment the newest session that ran every golden gives, this one. Its dialog comes from the served parts, as Settings → CI's does. */
@@ -173,10 +169,11 @@ function OnThePullRequest({ comment }: { comment: SessionCommentParts }) {
             <Fragment key={i.golden}>
               <dt>Injection</dt>
               <dd>
-                <Status tone={statusTone(i.verdict)}>{i.verdict}</Status> <code>{goldenName(i.golden)}</code>
+                {/* the golden's name whole, as its line holds it; on a phone a count's limit wraps inside it */}
+                <Status tone={statusTone(i.verdict)}>{i.verdict}</Status> <Code>{goldenName(i.golden)}</Code>
                 {i.tally ? (
                   <span className="rsub">
-                    <DotLine text={i.tally} max={40} />
+                    <DotLine text={i.tally} max={24} soft={40} />
                   </span>
                 ) : null}
               </dd>

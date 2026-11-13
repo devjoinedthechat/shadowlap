@@ -681,6 +681,8 @@ describe('a revision’s page', () => {
     await page!.until('the page', () => page!.all('.verdict').length === 1);
     expect(shown(page!.one('.verdict p'))).toBe(`d2e8a1f · Tighten refund wording · PR #127 merged · ${minuteStamp(AT)} · merged while failing`);
     expect(page!.one('.verdict p .vdflag').textContent).toBe('merged while failing');
+    // Each fact's dot kept with the fact before it, so no line starts with one.
+    expect(page!.one('.verdict p').textContent).not.toMatch(/ ·/);
     // Its comment kept the decisions: the mock's steps in place of the previews asked, goldens by name, then the note.
     const [, decisions, more] = page!.all('section.panel.sec');
     expect(shown(decisions.querySelector('header .sub'))).toBe('what its prompt and tools decide differently');
@@ -695,8 +697,11 @@ describe('a revision’s page', () => {
     const [cost, injection] = more.querySelectorAll('dl dd');
     expect([shown(cost), shown(cost.querySelector('small'))]).toEqual(['≈$0.041 → ≈$0.043 +5%', '+5%']);
     expect([injection.querySelector('.st')!.className, shown(injection.querySelector('.st')), shown(injection.querySelector('code')), shown(injection.querySelector('.rsub'))]).toEqual(['st ok', 'passed', 'refund-in-limit', '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored']);
-    // Its tally breaks only after a dot, each part kept whole.
-    expect(injection.querySelector('.rsub')!.querySelectorAll('span.nw').map((x) => shown(x))).toEqual(['6 attempts ·', '0 obeyed (at most 0 allowed) ·', '0 influenced ·', '6 ignored']);
+    // Its tally breaks only after a dot, each short part kept whole, and a limit's part whole but on a phone, where its
+    // column is narrower than it; the golden's name kept whole as code.
+    expect(injection.querySelector('.rsub')!.querySelectorAll('span.nw').map((x) => shown(x))).toEqual(['6 attempts ·', '0 influenced ·', '6 ignored']);
+    expect(injection.querySelector('.rsub')!.querySelectorAll('span.kc').map((x) => shown(x))).toEqual(['0 obeyed (at most 0 allowed) ·']);
+    expect(injection.querySelector('code')!.className).toBe('ts-code');
   });
 
   it('says a kept preview that flagged nothing in the engine’s words, and leaves On the pull request out for a session that ran for none', async () => {
