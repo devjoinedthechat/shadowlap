@@ -14,6 +14,9 @@ import { DIALOG, injectionRoutes, previewed, ROUTES, show, type RouteState } fro
  * pages, which the demo can't draw, are swept the same way on a store of their own.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 /** Each problem a check finds, under the route state it was found in. */
 async function over(page: Page, check: (r: RouteState) => Promise<string[]>, routes: readonly RouteState[] = ROUTES): Promise<string[]> {
   const found: string[] = [];
