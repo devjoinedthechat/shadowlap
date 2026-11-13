@@ -1,4 +1,4 @@
-import { checkStatus, judgeLabel, judgeSourceParts, parseExpect, testResultVerdict, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { checkStatus, judgeLabel, judgeOverAttempts, judgeSourceParts, parseExpect, testResultVerdict, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import type { GoldenSource, TestsView, UnjudgedCheck } from './tests.js';
 
 /*
@@ -69,29 +69,30 @@ export interface JudgedParts {
 
 /**
  * For a result of more than one attempt: of the attempts that judged each check (it passed, failed or
- * couldn't be decided there), how many passed it, by label. Each attempt's run keeps its checks. Null
- * for a single attempt, when a run is gone, or for a result that carried attempts over from an earlier
- * session (`test --continue`): its `attempts` are this session's alone, and pruning keeps only some of
- * the carried ones' runs. A tally missing an attempt would claim too much.
+ * couldn't be decided there), how many passed it, by label, and a judge check's results where it got a
+ * verdict (`judged`). Each attempt's run keeps its checks. Null for a single attempt, when a run is
+ * gone, or for a result that carried attempts over from an earlier session (`test --continue`): its
+ * `attempts` are this session's alone, and pruning keeps only some of the carried ones' runs. A tally
+ * missing an attempt would claim too much.
  */
-function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, { passed: number; of: number }> | null {
+function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, { passed: number; of: number; judged: StoredCheck[] }> | null {
   const runs = r.data?.attempts?.runs ?? [];
   if (runs.length < 2 || r.data?.continued) return null;
-  const out = new Map<string, { passed: number; of: number }>();
+  const out = new Map<string, { passed: number; of: number; judged: StoredCheck[] }>();
   for (const id of runs) {
     const run = store.getRun(id);
     if (!run) return null;
     const seen = new Set<string>();
     for (const c of run.meta?.checks ?? []) {
-      // A label once per attempt; a check that did not apply there says nothing either way.
+      // A label once per attempt; a check that did not apply there (a judge that attempt didn't ask too) says nothing either way.
       if (seen.has(c.label)) continue;
       seen.add(c.label);
       const status = checkStatus(c);
       if (status === 'not-applicable') continue;
-      const t = out.get(c.label) ?? { passed: 0, of: 0 };
-      t.of++;
-      if (status === 'passed') t.passed++;
-      out.set(c.label, t);
+      const t = out.get(c.label) ?? { passed: 0, of: 0, judged: [] };
+      // Pushed onto the one list, never copied: a judge check over a thousand attempts costs one pass.
+      if (c.judge?.verdict) t.judged.push(c);
+      out.set(c.label, { passed: t.passed + (status === 'passed' ? 1 : 0), of: t.of + 1, judged: t.judged });
     }
   }
   return out;
@@ -115,10 +116,12 @@ export function heldVerdict(why: string): Pick<UnjudgedCheck, 'held' | 'changed'
 
 /**
  * How many attempts a judge check was asked live in, and what that cost: the result's judge summary
- * (every attempt) when it is the result's only judge check and every judge model in it has a price;
- * else, for a result of one attempt, the check's own call. Null for a verdict from the recording,
- * which is free, and when the cost isn't known. The one place Tests counts a judge's asks, the row's
- * and the report's alike, so asking judges only where an attempt passed its other checks changes it here.
+ * (every attempt that asked it: a golden that may fork asks only where an attempt passed its other
+ * checks) when it is the result's only judge check and every judge model in it has a price; else, for
+ * a result of one attempt, the check's own call. `c` is the check as the attempts that asked it came
+ * out (`judgeOverAttempts`). Null for a verdict from the recording, which is free, for a check no
+ * attempt asked, and when the cost isn't known. The one place Tests counts a judge's asks, the row's
+ * and the report's alike.
  */
 export function judgeAsked(r: TestResult, c: StoredCheck): { cost: number; asked: number } | null {
   if (c.source !== 'live' || !c.judge) return null;
@@ -146,8 +149,10 @@ function judgeOf(r: TestResult, c: StoredCheck, live: GoldenCheck['live']): Gold
  * A golden's checks with how its last result came out on each: the status the attempt it shows kept
  * for it (the CLI judges a diverged replay's checks too, and fails what it didn't do), where a judge's
  * verdict came from and what asking it live cost, and over several attempts, how many passed it. A
- * check the result didn't judge has no status, as none has before the golden's first result: one added
- * since (the result judged the golden's checks of then), or one whose golden couldn't run.
+ * judge check the shown attempt didn't ask, another check having failed there, reads as the attempts
+ * that asked it came out (`judgeOverAttempts`). A check the result didn't judge has no status, as none
+ * has before the golden's first result: one added since (the result judged the golden's checks of
+ * then), or one whose golden couldn't run.
  */
 export function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r: TestResult | null, addedAt: (label: string) => number | null = () => null): GoldenCheck[] {
   const kept = r?.data?.checks ?? [];
@@ -162,10 +167,10 @@ export function goldenChecks(store: StoreOf<'recording'>, labels: readonly strin
       return { label, status: null, added: ran, addedAt: at !== null && at > r!.at ? at : null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null };
     }
     used.add(i);
-    const c = kept[i]!;
     const tally = tallies?.get(label);
+    const c = judgeOverAttempts(kept[i]!, tally?.judged ?? []);
     const live = judgeAsked(r!, c);
-    return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live, attempts: tally && tally.of > 1 ? tally : null, judge: judgeOf(r!, c, live) };
+    return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live, attempts: tally && tally.of > 1 ? { passed: tally.passed, of: tally.of } : null, judge: judgeOf(r!, c, live) };
   });
 }
 

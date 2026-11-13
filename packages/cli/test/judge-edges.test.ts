@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { trackInGit } from './tracked.js';
-import { JUDGE_SCOPE, Store, type CallRecord } from '@shadowlap/engine';
+import { JUDGE_NOT_ASKED, JUDGE_SCOPE, Store, type CallRecord, type StoredCheck } from '@shadowlap/engine';
 import { judgeRequests, message, startMockAnthropic, text, withJudge, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { departures } from './json-shapes.js';
 
@@ -46,6 +46,8 @@ let answeredTwice = 0;
 const asks: Record<string, number> = {};
 let agent: string[];
 let counter = 0;
+/** How many times the agent of variant `alt` has answered: it issues the refund, then declines it, in turn. */
+let alternated = 0;
 
 const answers: Record<string, () => string> = {
   a: () => 'Refund issued on 2026-10-20.',
@@ -54,6 +56,7 @@ const answers: Record<string, () => string> = {
   card: () => 'Refund issued to card SECRET42.',
   plain: () => 'Refund issued.',
   n: () => `Refund ${++counter} issued.`,
+  alt: () => (++alternated % 2 ? 'Refund issued.' : 'Refund declined.'),
 };
 
 beforeAll(async () => {
@@ -467,5 +470,89 @@ describe('a judge\'s calls are never the agent\'s', () => {
     expect(scoped.code).not.toBe(0);
     expect(scoped.out).toContain('made no model calls in scope nope (it used no scopes)');
     expect(scoped.out).not.toContain(JUDGE_SCOPE);
+  }, 120_000);
+});
+
+describe('a golden that may fork, whose attempt fails a check other than its judge', () => {
+  /** The checks an attempt's run kept. */
+  function keptChecks(runId: string): StoredCheck[] {
+    const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+    try {
+      return store.getRun(runId)?.meta?.checks ?? [];
+    } finally {
+      store.close();
+    }
+  }
+  const judgeCalls = (runId: string) => storeCalls(runId).filter((c) => c.meta.scope === JUDGE_SCOPE);
+
+  it('asks its judge only in the attempts that passed their other checks, and counts only those asks', async () => {
+    // Packed before its checks were added, so only the test's attempts ask the judge.
+    config({ tests: { 'goldens/half': { fork: true } } });
+    const rec = await record({ VARIANT: 'plain' });
+    expect((await shadowlap(['pack', rec, 'goldens/half'])).code).toBe(0);
+    // An output check, which the attempt checks on what the agent printed before it asks any judge.
+    config({ tests: { 'goldens/half': { fork: true, repeat: 4, passes: 4, expect: { output: { includes: ['issued'] }, judge: [judge({})] } } } });
+    const before = asked();
+    // The agent issues the refund in attempts 1 and 3, and declines it in 2 and 4.
+    alternated = 0;
+    const t = await test('goldens/half', [], { VARIANT: 'alt' });
+    expect(t.code, t.out).toBe(1);
+    expect(asked() - before).toBe(2);
+    expect(t.result.runs.map((r) => r.verdict)).toEqual(['passed', 'failed', 'passed', 'failed']);
+    // The attempts that failed their output check asked nothing: their judge is not applicable, with why, at no cost.
+    for (const r of [t.result.runs[1], t.result.runs[3]]) {
+      expect(judgeCalls(r.runId)).toEqual([]);
+      expect(keptChecks(r.runId).find((c) => c.judge)).toMatchObject({ status: 'not-applicable', ok: true, detail: JUDGE_NOT_ASKED, judge: { verdict: null, source: null, cost: null } });
+    }
+    // Those that passed it asked live, and got a verdict: what they printed reached that check before the judges.
+    for (const r of [t.result.runs[0], t.result.runs[2]]) {
+      expect(judgeCalls(r.runId)).toHaveLength(1);
+      expect(keptChecks(r.runId).find((c) => c.judge)).toMatchObject({ status: 'passed', judge: { verdict: 'yes', source: 'live' } });
+    }
+    // An attempt's line says what failed alone: the judge it didn't ask is neither inconclusive nor failed.
+    expect(t.result.message).toBe('2 of 4 attempts passed, 4 needed. Attempt 2: check failed: output includes "issued", but not found in the output');
+    expect(t.out).toMatch(/attempt 2 {2}✗ check failed: output includes "issued", but not found in the output\n/);
+    expect(t.out).not.toMatch(/; 1 (inconclusive|more check failed)/);
+    // The shown attempt's own checks: its judge wasn't asked there, though attempts 1 and 3 asked it.
+    expect(t.out).toContain(`– judge "issued" answers yes: not applicable · ${JUDGE_NOT_ASKED}`);
+    // The counts add up the asks made: four agent requests, and two judge calls.
+    const result = t.result as Result & { judge: { calls: number; live: number } | null };
+    expect(result.judge).toMatchObject({ calls: 2, live: 2 });
+    expect(result.upstreamRequests).toBe(6);
+  }, 120_000);
+
+  it('reads not asked: no attempt passed its other checks, where every attempt failed another check', async () => {
+    config({ tests: { 'goldens/none': { fork: true } } });
+    const rec = await record({ VARIANT: 'plain' });
+    expect((await shadowlap(['pack', rec, 'goldens/none'])).code).toBe(0);
+    config({ tests: { 'goldens/none': { fork: true, repeat: 2, passes: 2, expect: { answer: { includes: ['issued'] }, judge: [judge({})] } } } });
+    const junit = join(work, `junit-${++counter}.xml`);
+    const markdown = join(work, `summary-${++counter}.md`);
+    const before = asked();
+    const t = await test('goldens/none', ['--junit', junit, '--markdown', markdown], { VARIANT: 'c' });
+    // It fails on its answer check, never inconclusive, and asks no judge.
+    expect(t.code, t.out).toBe(1);
+    expect(asked()).toBe(before);
+    expect(t.result).toMatchObject({ verdict: 'failed', failure: 'check', upstreamRequests: 2 });
+    const line = 'judge "issued" answers yes: not applicable · not asked: no attempt passed its other checks';
+    expect(t.out).toContain(`    – ${line}\n`);
+    const result = t.result as Result & { judge: unknown };
+    expect(result.judge).toBeNull();
+    expect(t.result.checks.find((c) => c.judge)).toMatchObject({ status: 'not-applicable', ok: true, detail: 'not asked: no attempt passed its other checks', judge: { verdict: null, source: null } });
+    // Each attempt's own run keeps why it didn't ask.
+    for (const r of t.result.runs) expect(keptChecks(r.runId).find((c) => c.judge)).toMatchObject({ status: 'not-applicable', detail: JUDGE_NOT_ASKED });
+    const md = readFileSync(markdown, 'utf8');
+    expect(md).toContain(`- ➖ ${line}`);
+    expect(md).not.toContain('Inconclusive means');
+    // JUnit's details, as the terminal prints them, after its failure's line.
+    expect(readFileSync(junit, 'utf8')).toContain(`<failure message="0 of 2 attempts passed, 2 needed. Attempt 1: check failed: final answer includes &quot;issued&quot;, but not found in the final answer"><![CDATA[✗ final answer includes "issued": not found in the final answer\n– ${line}\n`);
+    // The store keeps the result as the reports print it, for the dashboard's Show as printed.
+    const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+    try {
+      const kept = store.listTestResults({ golden: 'goldens/none', limit: 1 })[0];
+      expect(kept?.data?.checks?.find((c) => c.judge)).toMatchObject({ status: 'not-applicable', detail: 'not asked: no attempt passed its other checks' });
+    } finally {
+      store.close();
+    }
   }, 120_000);
 });

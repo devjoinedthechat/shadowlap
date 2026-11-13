@@ -459,7 +459,7 @@ describe('a judge beside other rules', () => {
     expect(judgesIn(null)).toBe(0);
     expect(judgesNote(0, false)).toBeNull();
     expect(judgesNote(1, false)).toEqual({ text: 'Its judge isn’t counted: a recording holds no verdict for a new judge until the golden is packed or updated', tone: 'grey' });
-    expect(judgesNote(2, true)?.text).toBe('Its 2 judges aren’t counted: its verdicts are recorded in the golden’s next test’s attempts');
+    expect(judgesNote(2, true)?.text).toBe('Its 2 judges aren’t counted: its verdicts are recorded in the golden’s next test, in the attempts that pass its other checks');
     expect(judgeAdded([fileUnit({ judge: [judge] })])).toBe(false);
     expect(judgeAdded([withRule(blankUnit(), { kind: 'judge', name: 'explains', question: 'Does it explain?', of: 'answer', model: 'claude-haiku-4-5', pass: 'yes' })])).toBe(true);
   });

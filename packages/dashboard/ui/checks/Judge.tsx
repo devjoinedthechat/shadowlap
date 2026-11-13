@@ -74,7 +74,7 @@ export function JudgeRows({ rule, models, onRule }: { rule: JudgeRule; models: r
  */
 export function judgeCost(rule: JudgeRule, fork: boolean, redactions: number): CostLineProps {
   const reads = rule.of === 'run' ? [`your ${plural(redactions, 'redaction rule')} apply`] : rule.of === 'output' ? [`Update golden judges a replay: ${NO_OUTPUT_KEPT}`] : [];
-  const [price = '', ...parts] = costLine(noEstimate('update', JUDGE_UNASKED, [fork ? 'asked live in each attempt where what it reads changed' : 'replays read its verdict free', ...reads]));
+  const [price = '', ...parts] = costLine(noEstimate('update', JUDGE_UNASKED, [fork ? 'asked in each attempt that passes its other checks, live where what it reads changed' : 'replays read its verdict free', ...reads]));
   return { price, parts };
 }
 

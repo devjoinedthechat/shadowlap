@@ -1,7 +1,7 @@
 import { justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import { STATUS_WORDS } from '../../engine/src/check-status.js';
-import { CHECK_MARKS, notApplicableParts } from '../../engine/src/checks/labels.js';
+import { CHECK_MARKS, notApplicableParts, notAskedWords } from '../../engine/src/checks/labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { judgeRows } from './judge-rows.js';
@@ -168,10 +168,11 @@ function failedLines(c: GoldenCheck, detail: string): { sub: string | null; valu
  * A check in the table, marked by how the golden's last result came out on it: ✓ passed (a judge's,
  * where its verdict came from: the recording, free, or live, at what cost), ✗ failed (for a golden
  * run more than once, how many attempts passed it and what the others did), ? in amber when it
- * couldn't be decided (and why), – when it didn't apply, and no mark on a check not tested yet: before
- * a result exists, when the last test couldn't run the golden, or when it was added since, as the mock
- * says it. `ran`: the golden has a last result. `cell`: Tests' Checks column, where a passed judge's
- * source moves onto its hover, as a line under every passed check would crowd the column.
+ * couldn't be decided (and why), – when it didn't apply (a judge no attempt asked says why), and no
+ * mark on a check not tested yet: before a result exists, when the last test couldn't run the golden,
+ * or when it was added since, as the mock says it. `ran`: the golden has a last result. `cell`: Tests'
+ * Checks column, where a passed judge's source moves onto its hover, as a line under every passed
+ * check would crowd the column.
  */
 export function checkMark(c: GoldenCheck, ran: boolean, cell = false): CheckMarkView {
   const text = c.label;
@@ -188,9 +189,10 @@ export function checkMark(c: GoldenCheck, ran: boolean, cell = false): CheckMark
     value = detail || 'it could not be decided';
   } else if (c.status === 'not-applicable') {
     // The engine's detail is why, then what the calls had instead: the line says why, the hover the values.
-    const p = notApplicableParts(detail);
-    sub = `not applicable${p.why ? ` · ${p.why}` : ''}`;
-    value = p.values ?? 'its condition never held';
+    // A judge no attempt asked (another check failed in each) says its whole reason in both: it is all it has.
+    const p = notAskedWords(detail) ? null : notApplicableParts(detail);
+    sub = p ? `not applicable${p.why ? ` · ${p.why}` : ''}` : detail;
+    value = p ? (p.values ?? 'its condition never held') : detail;
   } else {
     // A check over several attempts says how many passed it; a judge's verdict, where it came from.
     sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : cell ? null : judgedLine(c);

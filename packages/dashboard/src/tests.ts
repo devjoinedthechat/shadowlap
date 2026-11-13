@@ -636,8 +636,8 @@ export { gatePreview, PREVIEW_HISTORY, type GatePreview } from './tests-gate.js'
 export function gateResultView(r: TestResult, golden: string): GateResultView | null {
   const g = r.data?.gate;
   if (!g || g.decision === 'continue') return null;
-  // What this session's own attempts cost, the agent's calls and its judges' alike (each forked
-  // attempt asks its judges live): carried-over ones were paid for before.
+  // What this session's own attempts cost, the agent's calls and its judges' alike (a forked attempt
+  // asks its judges live where it passed its other checks): carried-over ones were paid for before.
   const agent = r.data?.spent;
   const judges = r.data?.judge?.spent;
   const spent = typeof agent === 'number' ? agent + (typeof judges === 'number' ? judges : 0) : undefined;

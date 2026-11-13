@@ -196,6 +196,7 @@ A judge check with no verdict, where the judge can't be asked live, is **inconcl
 Where the verdict comes from depends on the command:
 
 - **`shadowlap check`** reads the verdict a recording holds.
+- **`shadowlap test` and `bisect`** on a golden that may fork, and `bisect --fork`, ask a judge only in attempts that passed their other checks, live where what it reads changed. Where another check failed, the attempt fails whatever the judge would say, so its judge check is not applicable and makes no call.
 - **`blame`, `verify` and `repair`** fork every attempt, so they ask a judge live. One no attempt can ask (no key for its provider, and no upstream set for it) they refuse before they start, since every attempt would read inconclusive and none could pass.
 
 ## How a check comes out
@@ -207,7 +208,7 @@ Every report uses these four words, and marks them the same way:
 | **passed** | The run did what the check asks | `✓` | ✅ |
 | **failed** | It didn't; the detail names the values | `✗` | ❌ |
 | **inconclusive** | It could not be decided: a judge with no verdict, or a `when` whose condition could not be read. Never a pass | `?` | 🟡 |
-| **not applicable** | A `when` check whose condition never held. Never a failure, and never counted as passed | `–` | ➖ |
+| **not applicable** | A `when` check whose condition never held, or a judge skipped beside a failed check (`test`, `bisect`). Never a failure, and never counted as passed | `–` | ➖ |
 
 A run's checks come out as one: failed when any check failed, else inconclusive when any could not be decided, else passed.
 
@@ -262,7 +263,7 @@ The check builder shows the golden's checks as reports label them, the rule bein
 - **Refusals** are `shadowlap check`'s own words, on the rule they name. Save stays off until each is fixed.
 - **Against your recordings**: the agent's newest recordings, up to 200, judged as `shadowlap check` judges them, nothing replayed. Under the counts is the command that gives the same numbers.
 - **Suggested**: on a failed recording, up to three rules that fail it and none of its good runs, each a call's number against an earlier call's result, a condition and the write it rules out, an order, or a count. A rule the golden's checks hold already is left out.
-- **Ask a judge…** bills nothing as it is built. The judge is asked when the golden is packed or updated, or live in a fork golden's attempts.
+- **Ask a judge…** bills nothing as it is built. The judge is asked when the golden is packed or updated, or live in those of a fork golden's attempts that pass its other checks.
 
 **Save check** writes the golden's entry under `tests` in `shadowlap.config.json`, only if the file is as the page read it. A change made since, in an editor or a terminal, is never overwritten: the page reads the file again and shows the change against it. A golden whose checks come from a pattern entry gets an exact entry of its own, with the pattern's other keys.
 

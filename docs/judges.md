@@ -62,6 +62,7 @@ $ shadowlap test goldens/research
 ### When a judge is asked live
 
 - **A golden that may fork** (`"fork": true`) asks the judge live wherever what the judge reads changed, and its replay keeps the call. The judge reads what the fork did, so a prompt fix is judged on the reply it gives.
+- **An attempt that failed another check** fails whatever the judge says, so `shadowlap test` and `bisect` of a golden that may fork, and `bisect --fork`, don't ask the judge there. The judge check reads not applicable, `not asked: another check failed`, with no call and no cost. Where no attempt got that far, the golden's result reads `not asked: no attempt passed its other checks`.
 - **A replay** (`shadowlap replay`, with the checks of the golden it came from or `--expect`) is judged the same way: from the recording when it asks what the recording asked, live when what the judge reads changed.
 - **Blame, verify and repair** fork every attempt, so an attempt asks the judge live unless its recording holds the very same request. What that costs is reported apart from the agent's cost (`judge` in their JSON, and on their cost line), and counts against `--budget`.
 - **A judge no attempt can ask live** (no key for its provider, and no upstream set for it) is refused before anything runs, since every attempt would read inconclusive.
@@ -137,9 +138,10 @@ A check is also not judged, with the reason, when:
 - the agent exited with an error or was stopped;
 - the replay of a golden that may not fork diverged (the test fails on that anyway);
 - the judge's call failed;
-- its answer held no verdict.
+- its answer held no verdict;
+- it was skipped when another check failed, and that check didn't fail in the end.
 
-A run that can't pass anyway asks no judge.
+A run that can't pass anyway asks no judge: one whose agent exited with an error or was stopped, or whose replay diverged where its golden may not fork. In `shadowlap test` and `bisect` of a golden that may fork, or with `bisect --fork`, an attempt that failed another check asks none either, and its judge checks read not applicable, not inconclusive.
 
 ### Keys and upstreams
 
@@ -263,26 +265,26 @@ Each verdict and its reason are beside the check wherever checks are shown:
 - GitHub annotations;
 - the JSON.
 
-A check's JSON entry has `status` (`passed`, `failed` or `inconclusive`), the judge's `reason`, `source` (`recording` or `live`), and `judge`:
+A check's JSON entry has `status` (`passed`, `failed`, `inconclusive` or `not-applicable`), the judge's `reason`, `source` (`recording` or `live`), and `judge`:
 
-| Field        | Type           | Meaning                                                      |
-|--------------|----------------|--------------------------------------------------------------|
-| `name`       | string         | The judge check's name                                       |
-| `model`      | string         | The judge's model                                            |
-| `of`         | string         | What it read: `answer`, `output` or `run`                    |
-| `verdict`    | string or null | `yes`, `no`, or `null` when not judged                       |
-| `source`     | string         | `recording` or `live`                                        |
-| `cost`       | number or null | USD: 0 from the recording, `null` for a model with no price  |
-| `redactions` | number         | How many redaction rules applied to what it read             |
-| `normalized` | boolean        | Whether what it read had values that change every run masked |
-| `cut`        | number         | Characters of what it read that were left out                |
-| `callNo`     | number         | The judge's call in the run                                  |
+| Field        | Type           | Meaning                                                                          |
+|--------------|----------------|----------------------------------------------------------------------------------|
+| `name`       | string         | The judge check's name                                                           |
+| `model`      | string         | The judge's model                                                                |
+| `of`         | string         | What it read: `answer`, `output` or `run`                                        |
+| `verdict`    | string or null | `yes`, `no`, or `null` when it was not judged or not asked                       |
+| `source`     | string or null | `recording` or `live`, or `null` without a verdict                               |
+| `cost`       | number or null | USD: 0 from the recording, `null` for a model with no price or without a verdict |
+| `redactions` | number         | How many redaction rules applied to what it read                                 |
+| `normalized` | boolean        | Whether what it read had values that change every run masked                     |
+| `cut`        | number         | Characters of what it read that were left out                                    |
+| `callNo`     | number         | The judge's call in the run                                                      |
 
 Other reports carry `judge`, what the judges did and cost:
 
 | Report | Its `judge` |
 |---|---|
-| A run's summary, and a golden's result in `test --json` | `calls`, `replayed`, `live`, `notAsked`, `upstreamRequests`, `spent`, `saved`, `unknownModels` |
+| A run's summary, and a golden's result in `test --json` | `calls`, `replayed`, `live`, `notAsked` (judge calls nothing could answer, not checks skipped beside a failed one), `upstreamRequests`, `spent`, `saved`, `unknownModels` |
 | `blame` and `verify` JSON | `spent`, `upstreamRequests`, or `null` |
 | `repair` JSON | Under its `cost` |
 | `tasks score` | For each attempt, each task and the whole score, as a run's summary has it |
