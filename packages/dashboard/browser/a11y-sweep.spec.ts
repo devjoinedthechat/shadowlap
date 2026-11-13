@@ -807,6 +807,15 @@ test.describe('on a touch screen', () => {
         ],
       ],
       [`/fixes/${demoId('emailFix')}`, 'fix', [{ name: 'a fix’s Edit check…', sel: 'main#view .ph p.chk .fmx .linkbtn', reach: [4, 0, 4, 0] }]],
+      // Not covered's rows (port/presets-coverage): the count's toggle 32px tall on a touch screen and a caret's 5px past it, the row's pack beside it.
+      [
+        '/tests?at=notcovered',
+        'main#view #notcovered ul.covl > li',
+        [
+          { name: 'Not covered’s toggle', sel: 'main#view #notcovered .xbtn.cvn', size: [0, 42], reach: [5, 5, 5, 5] },
+          { name: 'a Not covered row’s pack', sel: 'main#view #notcovered .cvacts .btn', size: [0, 24] },
+        ],
+      ],
     ];
     const found: string[] = [];
     for (const [path, drawn, targets] of pages) {
