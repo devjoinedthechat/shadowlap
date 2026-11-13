@@ -1,7 +1,7 @@
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { expectAccessible, openPage, serveDashboard, type Served } from './dashboard.js';
+import { expectAccessible, openPage, RESET_RETRY, serveDashboard, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
 
 /**
@@ -53,7 +53,7 @@ test.afterAll(async () => {
 /** A read of the dashboard's API, as the page makes it. */
 async function api<T>(page: Page, path: string): Promise<T> {
   const { origin, token } = here();
-  const res = await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } });
+  const res = await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY });
   expect(res.ok(), `GET /api/${path}`).toBe(true);
   return (await res.json()) as T;
 }
