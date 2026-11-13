@@ -309,38 +309,9 @@ table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background
 
 /* a repair's report.md is the pull request's body: a preview of it, boxed as the Slack and pull request previews are */
 .fxg .prbody.md { margin-top: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
-/* its sections the step shows around it open on request: the heading, a summary of it and a caret */
-.prbody.md h3 { margin: 0 0 6px; }
-.prbody.md h4 { font-size: 12.5px; }
-.prbody.md p { margin: 6px 0; }
-.prbody.md code { font-size: 12.5px; }
-.prbody.md h4.mdh { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.prbody.md h4.mdh .mds { color: var(--faint); font-weight: 400; font-size: 12px; }
-.prbody.md h4.mdh .xbtn { margin-left: -4px; }
 .prbody p { margin: 0 0 10px; }
 .prbody h4 { margin: 16px 0 6px; font: 600 13px var(--body); color: var(--ink); }
 .prbody code { font-size: 12px; }
-.prbody pre.fxcode { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-
-.fxcode .add { color: var(--add); }
-.fxcode .del { color: var(--del); }
-.fxtable { overflow-x: auto; margin: 0 0 12px; }
-.fxtable table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.fxtable th { text-align: left; vertical-align: bottom; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); }
-.fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
-/* a long cell (an answer, a candidate) wraps anywhere, so the table fits its panel; a run id or a role stays whole */
-.fxtable td.nw { white-space: nowrap; overflow-wrap: normal; }
-/* report.md in a panel under 560px wide (beside Handed over on a laptop, or on a phone): each row as
-   its headers and values, one under the other, so no column is ever out of view */
-.prbody { container: report / inline-size; }
-
-@container report (max-width: 560px) {
-  .fxtable table, .fxtable tbody, .fxtable tr, .fxtable td { display: block; }
-  .fxtable thead { display: none; }
-  .fxtable tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
-  .fxtable td { padding: 2px 0; border: 0; }
-  .fxtable td::before { content: attr(data-h); display: block; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
-}
 
 /* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
    by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen

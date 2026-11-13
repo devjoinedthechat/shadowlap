@@ -114,6 +114,12 @@ export abstract class Decisions extends StorePart {
     return { ...this.decisionSessionRow(row), data: JSON.parse(String(row.data)) as Record<string, unknown>, runRows };
   }
 
+  /** A session's report alone, none of its runs' rows read: what a scan of the sessions reads (the switch, the change); null for none. */
+  decisionReport(sessionId: string): Record<string, unknown> | null {
+    const row = this.db.prepare(`SELECT data FROM decision_sessions WHERE session_id = ?`).get(sessionId);
+    return row ? (JSON.parse(String(row.data)) as Record<string, unknown>) : null;
+  }
+
   /** The ids of the runs a session asked again, in its order, none of their parts read. */
   decisionRunIds(sessionId: string): string[] {
     return this.db

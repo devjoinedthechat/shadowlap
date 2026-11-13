@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { JUDGED_IN_RECORDED_STATE_SHORT, PR_DECISIONS_SUFFIX } from '@shadowlap/engine';
 import type { KeptDecisions, KeptInjection, PrCommentPreview, SessionCommentParts, SessionVerdict, VerdictFlag, VerdictRevision, VerdictRow, VerdictsView } from '../ui/types.js';
+import { RESET_RETRY } from './dashboard.js';
 
 /** A session's pull request, merged: the flag a page draws when its verdict didn't pass. */
 const merged = (n: number) => ({ number: n, url: `https://github.com/example/agent/pull/${n}`, state: 'merged' as const });
@@ -46,7 +47,7 @@ function commentParts(goldens: readonly string[]): SessionCommentParts {
 /** The page's own answer, changed: asked in full, since an answer the page holds already (304) has no body to change. */
 const changed = <T>(change: (real: T) => T) => async (route: Route) => {
   const headers = Object.fromEntries(Object.entries(route.request().headers()).filter(([k]) => k !== 'if-none-match' && k !== 'if-modified-since'));
-  const res = await route.fetch({ headers });
+  const res = await route.fetch({ headers, ...RESET_RETRY });
   if (res.status() !== 200) return route.fulfill({ response: res });
   await route.fulfill({ response: res, json: change((await res.json()) as T) });
 };

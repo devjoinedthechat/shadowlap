@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, Store, type DecisionRun, type DecisionsVerify } from '@shadowlap/engine';
+import { emptyCounts, Store, type DecisionRemedy, type DecisionRun, type DecisionsVerify } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
-import { formatMigrate, modelMentions, passesOf, pullRequestBody, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
+import { type DecisionTarget } from '../src/decisions.js';
+import { formatMigrate, markDiverges, modelMentions, passesOf, pullRequestBody, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
 import { quoteArgv } from '../src/ui.js';
 import { departures } from './json-shapes.js';
 
@@ -76,6 +77,16 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
+/** The recording's first model call: where a golden that replays exactly diverges on $.model once the config change is in. */
+function firstModelCall(): number {
+  const store = Store.open(db);
+  try {
+    return store.getCalls(runId).find((c) => c.kind === 'api')!.callNo;
+  } finally {
+    store.close();
+  }
+}
+
 /** The recorded model call whose answer called a tool, by the tool's name. */
 function callOf(tool: string): number {
   const store = Store.open(db);
@@ -97,17 +108,20 @@ describe('shadowlap migrate', () => {
     expect(report.changes).toMatchObject({ runs: 1, flagged: 1 });
     expect(report.changes.steps).toEqual([{ runId, golden: 'goldens/research', callNo: callOf('send_email'), rank: 1, detail: 'send_email is called with other arguments', recorded: expect.stringContaining('send_email('), now: expect.stringContaining('send_email('), arguments: ['send_email.body: "Replay works." → "Replay works; forks fence writes."'] }]);
     // A fixed count (--attempts 2) decided it: its tally, and no bound, which a gate's verdict shows.
-    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 2, attempts: 2, bound: null, rule: '2 of 2 attempts must pass', undecided: null } }] });
+    // The project names the model in its config, and the golden replays exactly: once applied, it diverges on $.model at its first model call.
+    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 2, attempts: 2, bound: null, rule: '2 of 2 attempts must pass', undecided: null, parts: { tally: '2 of 2 passed', undecided: null, cutShort: null, bound: null } }, diverges: { callNo: firstModelCall(), path: '$.model' } }] });
     expect(report.decisions.verify?.rule).toBe('2 of 2 attempts must pass');
     expect(report.costs.perRun.after!).toBeLessThan(report.costs.perRun.before!);
     expect(report.costs.checking.verify).toBeGreaterThan(0);
-    expect(report.set).toEqual({ flags: [], fields: [], given: {} });
+    expect(report.set).toEqual({ flags: [], fields: [], given: {}, byHand: [] });
     // The model the recordings use retires; the report says when and where that is said.
     expect(report.retirements.find((n) => n.model === FROM)).toMatchObject({ retires: '2026-11-30', replacement: 'claude-sonnet-5-5' });
 
     // The change to the project's file that names the old model, as a patch git applies.
     expect(report.configChange!.files).toEqual([{ path: 'agent.config.json', places: 1 }]);
     expect(report.configChange!.review).toEqual([]);
+    // A JSON file's field stays for the hand: the switch here needs none.
+    expect(report.configChange!.leftOut).toEqual([]);
     expect(report.configChange!.patch).toContain(`-  "model": "${FROM}",\n+  "model": "claude-haiku-4-5",`);
     writeFileSync(join(cwd, 'check.patch'), report.configChange!.patch);
     execFileSync('git', ['apply', '--check', 'check.patch'], { cwd });
@@ -115,7 +129,8 @@ describe('shadowlap migrate', () => {
 
     expect(report.pullRequest.title).toBe(`Switch ${FROM} to claude-haiku-4-5`);
     for (const block of ['### What changes', '### What still passes', '### What it costs', '### What to set']) expect(report.pullRequest.body).toContain(block);
-    expect(report.pullRequest.body).toContain('goldens/research: passed (kept, verified · 2 of 2)');
+    expect(report.pullRequest.body).toContain('goldens/research: passed (kept, verified · 2 of 2 passed)');
+    expect(report.pullRequest.body).toContain('\ngoldens/research replays exactly, so it diverges on `$.model` once this is in: re-record it under claude-haiku-4-5 with `shadowlap test goldens/research --update`.\n');
     // The rule the verified runs were decided by, once.
     expect(report.pullRequest.body).toContain('Verified by `shadowlap verify`, 2 of 2 attempts must pass.');
     expect(readFileSync(join(cwd, report.files!.pullRequest), 'utf8')).toContain(`# Switch ${FROM} to claude-haiku-4-5`);
@@ -136,6 +151,11 @@ describe('shadowlap migrate', () => {
     expect(text.code, text.out).toBe(0);
     const blocks = ['What changes', 'What still passes', 'What it costs', 'What to set', 'The config change'].map((b) => text.stdout.indexOf(`\n${b}\n`));
     expect(blocks.every((at, i) => at > 0 && (i === 0 || at > blocks[i - 1]))).toBe(true);
+    // Before anything is applied: the golden the config change leaves behind, and the command that re-records it.
+    expect(text.stdout).toContain(`\n  ! once applied, goldens/research (#${firstModelCall()}) diverges on $.model: it replays exactly\n    re-record it under claude-haiku-4-5: shadowlap test goldens/research --update\n`);
+    expect(text.stdout).toContain(`\n  agent.config.json  1 place\n`);
+    // All clear, its patch the whole switch: the last line names migrate apply.
+    expect(text.stdout).toMatch(/· the config change: \.shadowlap\/migrations\/mg-\w{26}\/config\.patch \(shadowlap migrate apply mg-\w{10}, or git apply \.shadowlap\/migrations\/mg-\w{26}\/config\.patch\)\n$/);
   }, 240_000);
 
   it("verifies a golden it flags against the same run on the model it was recorded with, and states its verdict as the tallies, the bound and the rule", async () => {
@@ -155,10 +175,10 @@ describe('shadowlap migrate', () => {
       expect(report.decisions.verify).toMatchObject({ verdict: 'accepted', rule: kept(200) });
       expect(report.decisions.verify!.commands[0]).not.toMatch(/--attempts|--passes|--gate/);
       expect(report.command).not.toMatch(/--attempts|--passes|--gate/);
-      expect(report.pullRequest.body).toMatch(/- goldens\/research: passed \(kept, verified · 6 of 6, baseline 6 of 6 · drop <= 0\.\d\d \(95%\)\)/);
+      expect(report.pullRequest.body).toMatch(/- goldens\/research: passed \(kept, verified · 6 of 6 passed, baseline 6 of 6 · drop <= 0\.\d\d \(95%\)\)/);
       expect(report.pullRequest.body).toContain(`Verified by \`shadowlap verify\`, ${kept(200)}.`);
       const text = formatMigrate(report).replace(/\x1b\[[0-9;]*m/g, '');
-      expect(text).toMatch(/goldens\/research +passed · kept, verified · 6 of 6, baseline 6 of 6 · drop <= 0\.\d\d \(95%\)\n {2}kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs\n/);
+      expect(text).toMatch(/goldens\/research +passed · kept, verified · 6 of 6 passed, baseline 6 of 6 · drop <= 0\.\d\d \(95%\)\n {2}kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs\n/);
       // A session verified again under other figures holds runs different rules decided: each rule is stated once, with its runs.
       const shortGate = 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts';
       const other = { ...report.passes.runs[0], runId: '01M5000000000000000000000X', golden: 'goldens/other', verdict: 'inconclusive' as const, outcome: 'inconclusive', tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)', rule: shortGate } };
@@ -174,20 +194,22 @@ describe('shadowlap migrate', () => {
       const short = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--json', ...flaky]);
       expect(short.code, short.out).toBe(3);
       const unsettled = json<MigrateReport>(short);
-      expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'drop -0.72 to 0.76 (95%)', rule: kept(7), undecided: null, baseline: { passes: 5, attempts: 7 } } }] });
+      const parts = { tally: '5 of 7 passed, baseline 5 of 7', undecided: null, cutShort: null, bound: 'drop -0.72 to 0.76 (95%)' };
+      expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'drop -0.72 to 0.76 (95%)', rule: kept(7), undecided: null, baseline: { passes: 5, attempts: 7 }, parts }, diverges: { callNo: firstModelCall(), path: '$.model' } }] });
       expect(unsettled.decisions.verify?.rule).toBe(kept(7));
       expect(unsettled.command).toContain(`--gate '{"bad":0.5,"max":7}'`);
       const warned = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--inconclusive', 'warn', ...flaky]);
       expect(warned.code, warned.out).toBe(0);
       expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
       // The counter goes on from where the first left it, so this time the change's failures fall elsewhere.
-      expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · \d of 7, baseline \d of 7 · drop -?\d\.\d\d to \d\.\d\d \(95%\)\n {2}kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 7 pairs\n/);
+      expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · \d of 7 passed, baseline \d of 7 · drop -?\d\.\d\d to \d\.\d\d \(95%\)\n {2}kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 7 pairs\n/);
 
       // The inconclusive migration verified again as the dashboard's Verify the changed runs verifies it: no count
       // and no gate of its own, the golden's own command. Kept against its baseline, and What still passes says so.
       const settled = await shadowlap(['decisions', '--verify', unsettled.migrateId!, '--json']);
       expect(settled.code, settled.out).toBe(0);
-      const keptRun = { runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally };
+      // Verified again, the golden still diverges where migrate found it once the config change is in.
+      const keptRun = { runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally, diverges: { callNo: firstModelCall(), path: '$.model' } };
       expect(json<{ kind: string; verify: MigrateReport['decisions']['verify']; passes: MigrateReport['passes']['runs'] }>(settled)).toMatchObject({ kind: 'migrate', verify: { verdict: 'accepted', rule: kept(200) }, passes: [keptRun] });
       const store = Store.open(db);
       try {
@@ -270,7 +292,7 @@ describe('shadowlap migrate', () => {
     const r = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '--expect', expect_, '-y', '--attempts', '2', '--json']);
     expect(r.code, r.out).toBe(1);
     const report = json<MigrateReport>(r);
-    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', verdict: 'failed', outcome: 'broken', verified: true, tally: { passes: 0, attempts: 1, bound: null, rule: '2 of 2 attempts must pass', undecided: null } }] });
+    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', verdict: 'failed', outcome: 'broken', verified: true, tally: { passes: 0, attempts: 1, bound: null, rule: '2 of 2 attempts must pass', undecided: null, parts: { tally: '0 of 1 passed', undecided: null, cutShort: null, bound: null } }, diverges: { callNo: firstModelCall(), path: '$.model' } }] });
   }, 240_000);
 
   it('migrates the goldens from a fresh store, as CI has one, running their commands as test runs them', async () => {
@@ -329,6 +351,72 @@ describe.skipIf(process.platform === 'win32')("migrate's change to the project's
   });
 });
 
+describe('the config change takes a field out with the model', () => {
+  const FROM_PY = 'claude-sonnet-4-5-20250929';
+  const remedy = (field: string, o: Partial<DecisionRemedy> = {}): DecisionRemedy => ({ field, value: null, leftOut: true, renamedTo: null, why: 'Claude 4.7 and later refuse it', source: null, steps: 1, ...o });
+  const call = (indent: string) => [`${indent}return client.messages.create(`, `${indent}    model="${FROM_PY}",`, `${indent}    max_tokens=1024,`, `${indent}    temperature=0,`, `${indent}    top_p=0.9,`, `${indent}    messages=messages,`, `${indent})`];
+  let project: string;
+  beforeAll(() => {
+    project = mkdtempSync(join(tmpdir(), 'sl-migrate-leave-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: project, stdio: 'ignore' });
+    git('init', '-q');
+    // Two calls far apart: the second hunk starts a line earlier in the new file, once the first lost one.
+    const py = ['import anthropic', '', 'client = anthropic.Anthropic()', '', '', 'def ask(messages):', ...call('    '), ...Array.from({ length: 12 }, (_, i) => `# ${i}`), '', 'def summarize(messages):', ...call('    '), ''];
+    writeFileSync(join(project, 'agent.py'), py.join('\n'));
+    // A YAML config's field stays for the hand: a line taken out there could leave a file its reader refuses.
+    writeFileSync(join(project, 'agent.yaml'), `model: ${FROM_PY}\ntemperature: 0\n`);
+    git('add', '.');
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  it('takes out a literal field on its own line in the call it switches, recounts each hunk, and leaves the rest for the hand', () => {
+    const change = modelMentions(project, [FROM_PY], 'claude-opus-5', [remedy('temperature', { value: 1 }), remedy('top_p'), remedy('thinking', { leftOut: false, value: { type: 'adaptive' } })]);
+    if (!change || change === 'no-git') throw new Error('no config change');
+    expect(change.files).toEqual([{ path: 'agent.py', places: 2 }, { path: 'agent.yaml', places: 1 }]);
+    expect(change.leftOut).toEqual([
+      { field: 'temperature', path: 'agent.py', line: 10 },
+      { field: 'top_p', path: 'agent.py', line: 11 },
+      { field: 'temperature', path: 'agent.py', line: 31 },
+      { field: 'top_p', path: 'agent.py', line: 32 },
+    ]);
+    expect(change.patch).toContain('@@ -5,10 +5,8 @@');
+    expect(change.patch).toContain('@@ -26,9 +24,7 @@');
+    writeFileSync(join(project, 'check.patch'), change.patch);
+    execFileSync('git', ['apply', 'check.patch'], { cwd: project });
+    rmSync(join(project, 'check.patch'));
+    const after = readFileSync(join(project, 'agent.py'), 'utf8');
+    expect(after).not.toMatch(/temperature|top_p/);
+    expect(after.match(/model="claude-opus-5",\n {8}max_tokens=1024,\n {8}messages=messages,/g)).toHaveLength(2);
+    expect(readFileSync(join(project, 'agent.yaml'), 'utf8')).toBe('model: claude-opus-5\ntemperature: 0\n');
+    execFileSync('git', ['checkout', '--', '.'], { cwd: project });
+  });
+
+  it("says in the terminal what the patch takes out, and what it leaves for the hand", () => {
+    const change = modelMentions(project, [FROM_PY], 'claude-opus-5', [remedy('temperature'), remedy('top_p', { value: 0.9 })]);
+    if (!change || change === 'no-git') throw new Error('no config change');
+    const fields = [remedy('temperature'), remedy('max_tokens', { leftOut: false, renamedTo: 'max_completion_tokens' })];
+    const r = {
+      from: [FROM_PY],
+      to: 'claude-opus-5',
+      migrateId: null,
+      decisions: { runs: [], counts: emptyCounts(), verify: null, cost: { unknownModels: [] } },
+      changes: { runs: 0, flagged: 0, steps: [] },
+      passes: { verdict: 'not-run', runs: [] },
+      costs: { perRun: { before: null, after: null }, total: { before: null, after: null }, tokensPerRun: { before: 0, after: 0 }, checking: { decisions: 0, judge: 0, verify: 0 } },
+      set: { flags: [], fields, given: { seed: 7 }, byHand: ['max_tokens', 'seed'] },
+      configChange: { ...change, leftOut: change.leftOut.filter((x) => x.field === 'temperature') },
+      retirements: [],
+      notes: [],
+      warnings: [],
+      files: null,
+    } as unknown as MigrateReport;
+    const text = formatMigrate(r).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(text).toContain('\nThe config change\n  agent.py  2 places, temperature left out\n  agent.yaml  1 place\n');
+    expect(text).toContain('\n  by hand: send max_completion_tokens in place of max_tokens and set seed to 7, as What to set says: the patch changes the model alone\n');
+    expect(pullRequestBody({ ...r, command: 'shadowlap migrate --to claude-opus-5' }).body).toContain('\nThe model is named in `agent.py`, `agent.yaml`, where the config change leaves `temperature` out too.\n');
+  });
+});
+
 describe("migrate's first line", () => {
   // A report with what the first line reads: the switch, its runs and what still passes.
   const report = (runs: Array<Pick<MigrateRunPass, 'verdict' | 'outcome' | 'verified'>>, o: { verdict?: MigrateReport['passes']['verdict']; flagged?: number; notAsked?: number } = {}): MigrateReport =>
@@ -351,13 +439,13 @@ describe("migrate's first line", () => {
 
   it('claims no run passing, and no decision unchanged, while What still passes has one inconclusive', () => {
     // Verify kept the run it took, but a step of another got no answer: that run is not settled.
-    expect(first(report([kept, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { verdict: 'accepted', flagged: 1, notAsked: 2 }))).toBe('! Not settled: claude-old → claude-new, 2 runs, 1 inconclusive');
+    expect(first(report([kept, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { verdict: 'accepted', flagged: 1, notAsked: 2 }))).toBe('! Inconclusive: claude-old → claude-new, 2 runs, 1 inconclusive');
     // Nothing flagged in the steps asked, but one run was never asked.
     const unasked = report([{ verdict: 'passed', outcome: 'unchanged', verified: false }, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { notAsked: 3 });
-    expect(first(unasked)).toBe('! Not settled: claude-old → claude-new, 2 runs, 1 inconclusive');
+    expect(first(unasked)).toBe('! Inconclusive: claude-old → claude-new, 2 runs, 1 inconclusive');
     expect(formatMigrate(unasked)).toContain('\n  no write, stop or judged change in the steps asked\n');
     // A run its verify left inconclusive.
-    expect(first(report([{ verdict: 'inconclusive', outcome: 'inconclusive', verified: true }], { verdict: 'incomplete', flagged: 1 }))).toBe('! Not settled: claude-old → claude-new, 1 run, 1 inconclusive');
+    expect(first(report([{ verdict: 'inconclusive', outcome: 'inconclusive', verified: true }], { verdict: 'incomplete', flagged: 1 }))).toBe('! Inconclusive: claude-old → claude-new, 1 run, 1 inconclusive');
   });
 
   it('says what holds once every run is settled', () => {
@@ -373,14 +461,41 @@ describe("migrate's first line", () => {
     const verify = (passes: number, attempts: number): DecisionsVerify => ({ verdict: 'incomplete', verifyIds: [], runs: [{ runId: 'R0', role: 'good', outcome: 'inconclusive', passes, attempts, bound: null, undecided: why }], rule: null, commands: [], spent: 0, upstreamRequests: 0, reasons: [] });
     const run = { runId: 'R0', golden: 'goldens/g0', decisions: [] } as unknown as DecisionRun;
     const [pass] = passesOf([run], ['R0'], verify(2, 3), () => true);
-    expect(pass).toEqual({ runId: 'R0', golden: 'goldens/g0', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 3, bound: null, rule: null, undecided: why } });
+    expect(pass).toEqual({ runId: 'R0', golden: 'goldens/g0', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 3, bound: null, rule: null, undecided: why }, diverges: null });
+    // A session kept before the tally's parts reads in verify's words, from the figures it kept.
     const r = { ...report([pass], { verdict: 'incomplete', flagged: 1 }), command: 'shadowlap migrate --to claude-new' };
-    expect(formatMigrate(r)).toContain('inconclusive · verified · 2 of 2, attempt 3 not judged\n');
-    expect(pullRequestBody(r).body).toContain('\n- goldens/g0: inconclusive (verified · 2 of 2, attempt 3 not judged)\n');
+    expect(formatMigrate(r)).toContain('inconclusive · verified · 2 of 2 passed, attempt 3 not judged\n');
+    expect(pullRequestBody(r).body).toContain('\n- goldens/g0: inconclusive (verified · 2 of 2 passed, attempt 3 not judged)\n');
+    // One kept with them says what only they hold: the provider that stayed unavailable, the attempts it cut short.
+    const parts = { tally: '2 of 3 passed', undecided: 'the provider unavailable', cutShort: null, bound: null };
+    const [kept3] = passesOf([run], ['R0'], { ...verify(2, 4), runs: [{ ...verify(2, 4).runs[0], parts }] }, () => true);
+    expect(kept3.tally).toMatchObject({ parts });
+    const withParts = { ...r, passes: { verdict: 'incomplete' as const, runs: [kept3] } };
+    expect(formatMigrate(withParts)).toContain('inconclusive · verified · 2 of 3 passed, the provider unavailable\n');
+    expect(pullRequestBody(withParts).body).toContain('\n- goldens/g0: inconclusive (verified · 2 of 3 passed, the provider unavailable)\n');
     // Its first attempt: nothing was judged before it.
     const [alone] = passesOf([run], ['R0'], verify(0, 1), () => true);
     expect(formatMigrate({ ...r, passes: { verdict: 'incomplete', runs: [alone] } })).toContain('inconclusive · verified · attempt 1 not judged\n');
     expect(formatMigrate(r)).not.toMatch(/2 of 3|0 of 1/);
+  });
+
+  it('marks each golden a switch leaves behind at its first call with the old model, and why each other golden stays as recorded', () => {
+    const step = (callNo: number, model: string) => ({ callNo, model: { recorded: model } });
+    const runs = [
+      { runId: 'R0', golden: 'goldens/replays', decisions: [step(3, 'claude-new'), step(2, 'claude-old')] },
+      { runId: 'R1', golden: 'goldens/forks', decisions: [step(1, 'claude-old')] },
+      { runId: 'R2', golden: 'goldens/other', decisions: [step(1, 'gpt-5')] },
+      { runId: 'R3', golden: null, decisions: [step(1, 'claude-old')] },
+    ] as unknown as DecisionRun[];
+    const targets = runs.map((r) => ({ run: { runId: r.runId }, spec: r.golden === 'goldens/forks' ? { fork: true } : {} })) as unknown as DecisionTarget[];
+    const passes = runs.map((r) => ({ runId: r.runId, golden: r.golden, verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, diverges: null })) as MigrateRunPass[];
+    markDiverges(passes, runs, targets, ['claude-old']);
+    expect(passes.map((x) => [x.diverges, x.stays])).toEqual([
+      [{ callNo: 2, path: '$.model' }, undefined],
+      [null, 'fork'],
+      [null, 'no-call'],
+      [null, undefined],
+    ]);
   });
 
   it('names the command it was checked with in the pull request body, with a key its command line carries masked', () => {

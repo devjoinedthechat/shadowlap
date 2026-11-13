@@ -41,7 +41,11 @@ let files = 0;
 
 const VERSION = (JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }).version;
 
-/** The project's source as `init` reads it: an AI SDK agent with a tool that only reads and one that writes, neither wrapped. */
+/**
+ * The project's source as `init` reads it: an AI SDK agent with a tool that only reads and one that
+ * writes, neither wrapped. It names the model the reference agent calls, so a migration from it has a
+ * config change for `migrate apply` to apply.
+ */
 const AGENT_SOURCE = `import { generateText, tool } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 
@@ -50,7 +54,7 @@ const tools = {
   send_email: tool({ description: 'Email the summary', inputSchema: {}, execute: async (email) => mailer.send(email) }),
 };
 
-await generateText({ model: anthropic('claude-sonnet-4-5'), tools, prompt: process.argv[2] });
+await generateText({ model: anthropic('claude-opus-5'), tools, prompt: process.argv[2] });
 `;
 
 /** The fix the blame above opened, as `fix ls` lists it. */
@@ -59,6 +63,13 @@ async function openFix(): Promise<string> {
   const fix = listed.fixes.find((f) => f.status === 'open');
   if (!fix) throw new Error('no open fix: the blame that opens one runs before this command');
   return fix.fixId;
+}
+
+/** The migration the `migrate` above kept, by the id its JSON gave. */
+function keptMigration(): string {
+  const id = (gave.get('migrate') ?? []).map((out) => (out as { migrateId?: string | null }).migrateId).filter(Boolean).at(-1);
+  if (!id) throw new Error('no migration: the migrate that keeps one runs before this command');
+  return id;
 }
 
 /** The scripted model's turn that emails the summary. */
@@ -308,6 +319,19 @@ const SCENARIOS: Record<string, Variant[]> = {
     },
   ],
   migrate: [{ fill: () => ({ '<model>': 'claude-haiku-4-5' }), check: (r) => expect(json(r.stdout, 'migrate --json')).toMatchObject({ kind: 'migrate', to: 'claude-haiku-4-5' }) }],
+  'migrate apply': [
+    {
+      // "Once no run breaks": the migration above, whose config change switches agent.mjs's model.
+      fill: () => ({ '<id>': keptMigration() }),
+      check: (r) => {
+        // The golden replays the reference agent, which reads no model from agent.mjs, so none diverges on it.
+        expect(json(r.stdout, 'migrate apply --json')).toMatchObject({ status: 'applied', patch: 'applied', outdated: [], update: null });
+        expect(readFileSync(join(project, 'agent.mjs'), 'utf8')).toContain("anthropic('claude-haiku-4-5')");
+        // The commands after this one get the project's tree as it was.
+        execFileSync('git', ['checkout', '--', 'agent.mjs'], { cwd: project });
+      },
+    },
+  ],
   '--version': [{ check: (r) => expect(r.stdout.trim()).toBe(VERSION) }],
 };
 

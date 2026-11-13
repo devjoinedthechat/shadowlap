@@ -1,7 +1,8 @@
-import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofParts, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type ProofParts, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { baselineWords, checkLine, checkStatus, decisionsName, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofParts, rateBound, safe, safeLines, shortSessionId, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type ProofParts, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import { crashError, type CrashError } from './crash-error.js';
 import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
+import { goldensLeftWaiting, type GoldenLeftWaiting } from './migrate-applied.js';
 import { answer, type ReadTable } from './read-registry.js';
 import { judgeFor, type OutcomeWork } from './run-outcome.js';
 import { entriesBodies } from './request-diff.js';
@@ -24,11 +25,12 @@ import type { DivergenceView, FailureView, GoldenRow, GoldenSource, Inconclusive
  * Every word the CLI also prints comes from the engine helper or the stored text that words it
  * (`checkLine`, `formatPassK`, `rateBound`, the result's reason); the browser words only the hint,
  * from its key (ui/tests/report-words.ts). GET /api/tests answers on the server's thread, so nothing
- * here reads every run or every call: a run, a call and a session by key, and a golden's own results.
+ * here reads every run or every call: a run, a call and a session by key, a golden's own results,
+ * and where a golden diverged, the newest migrations' rows for the goldens they left waiting.
  */
 
-/** A sentence in pieces: paths and files are code; a check reads as words, as the table writes it. */
-export type Piece = string | { code: string };
+/** A sentence in pieces: paths and files are code, an id with the page it opens (`href`) a link; a check reads as words, as the table writes it. */
+export type Piece = string | { code: string; href?: string };
 
 /** How a printed line is coloured: the golden's line red or amber, a value before red, after lime, the agent's lines dim. */
 export type ReportTone = '' | 'no' | 'del' | 'add' | 'dim' | 'y';
@@ -47,9 +49,10 @@ export type ReportPart =
    * once the report opens (`GET /api/runs/:id/diff`); where the replay is gone, the changes its result kept as two bodies,
    * drawn with no notes, under `against`, the recording's call they're compared with. Then what followed from it, in grey:
    * the offline refusal the agent exited on, with the body it got. A divergence that kept no changes has no `runId`,
-   * `bodies` or `against`, only what followed.
+   * `bodies` or `against`, only what followed. `cause`, where an applied migration left the golden waiting at that call: the
+   * migration whose config change switched its model (`switchCause`), said once, on the Request's line.
    */
-  | { kind: 'request'; runId: string | null; callNo: number; against: { runId: string; callNo: number } | null; bodies: { was: unknown; now: unknown } | null; followed: Followed | null }
+  | { kind: 'request'; runId: string | null; callNo: number; against: { runId: string; callNo: number } | null; bodies: { was: unknown; now: unknown } | null; followed: Followed | null; cause?: Piece[] }
   /** A crash: the exception it died of, the file it was raised in (in the project where it can be), and the lines it printed last. */
   | ({ kind: 'error' } & CrashError)
   /** Which of the row's checks to draw, in the row's order: the row's own component draws them. */
@@ -81,6 +84,8 @@ export interface Followed {
 export type HintKey =
   | { key: 'normalizer' }
   | { key: 'rules-added'; path: string; update: boolean }
+  /** A divergence an applied migration explains: the golden was recorded before the switch its config change made, so Update golden leads. */
+  | { key: 'switch' }
   /** Named only where the report draws Find breaking commit, which its steps decide. */
   | { key: 'bisect' }
   | { key: 'gate' }
@@ -155,13 +160,18 @@ export function printedLines(name: string, r: TestResult): ReportLine[] {
 
 const upstream = (r: TestResult): string | null => (r.data?.upstreamRequests === undefined ? null : plural(r.data.upstreamRequests, 'upstream request'));
 
-/** What a report is built from: the golden's last result and row, the page's inputs, the recording it replays, and the result's own run, read once. */
+/**
+ * What a report is built from: the golden's last result and row, the page's inputs, the recording it
+ * replays, the result's own run, read once, and where an applied migration left the golden waiting,
+ * that migration's switch.
+ */
 interface From {
   r: TestResult;
   row: GoldenRow;
   i: ReportInput;
   recording: string | null;
   replay: ReturnType<StoreOf<'recording'>['getRun']>;
+  left: GoldenLeftWaiting | null;
 }
 
 /** The calls of the recording a replay ran against: the replay's own count where it kept one, else the recording's last call. */
@@ -248,7 +258,7 @@ function failureHint(failure: TestResult['failure'], reason: string): HintKey {
 }
 
 export interface ReportInput {
-  store: StoreOf<'recording' | 'tests' | 'injection'>;
+  store: StoreOf<'recording' | 'tests' | 'injection' | 'decisions'>;
   /** The goldens on disk, for the recording a golden replays and the checks it has now. */
   goldens: readonly GoldenSource[];
   normalizers: TestsNormalizers;
@@ -294,6 +304,22 @@ const dot = (...words: Array<string | null>): string => words.filter(Boolean).jo
  */
 const divergenceHint = (d: DivergenceView): HintKey => (d.rulesAdded && d.volatile ? { key: 'rules-added', path: d.volatile.path, update: !d.normalizerFixes } : d.normalizerFixes && !d.maybeReal ? { key: 'normalizer' } : { key: 'bisect' });
 
+type Divergence = NonNullable<ReturnType<typeof divergenceOf>>;
+
+/**
+ * The applied migration a divergence is the switch of: the newest that left its golden waiting
+ * (migrate-applied.ts' goldensLeftWaiting), where the replay changed the request at the call it was
+ * left at, on the field it diverged on there (`$.model`). Null for any other divergence.
+ */
+const switchOf = (left: GoldenLeftWaiting | null, div: Divergence): GoldenLeftWaiting | null => (left && div.type === 'request_changed' && div.callNo === left.callNo && (div.diff ?? []).some((e) => e.path === left.path) ? left : null);
+
+/**
+ * The cause of a divergence a migration's switch explains, as its Request line says it: the migration
+ * by its id as its lines show it (`shortSessionId`), opening its report on Migrate, and the switch as
+ * Verdicts names the migration (`decisionsName`: `claude-sonnet-4-5 → claude-sonnet-5-5`).
+ */
+export const switchCause = (w: Pick<GoldenLeftWaiting, 'migrationId' | 'from' | 'to'>): Piece[] => ['The config change of migration ', { code: shortSessionId(w.migrationId), href: links.changeSession('migrate', w.migrationId) }, ` switched its model: ${decisionsName({ kind: 'migrate', from: w.from, to: w.to })}.`];
+
 function divergenceParts(f: From, d: DivergenceView): Built {
   const { r, i } = f;
   const div = divergenceOf(r);
@@ -302,9 +328,11 @@ function divergenceParts(f: From, d: DivergenceView): Built {
   const recorded = div.callNo > 1 ? recordedCalls(f) : null;
   const then = div.type === 'ended_early' ? 'it stopped' : `call ${div.callNo} diverged`;
   if (recorded) parts.push({ kind: 'replay', recorded, replayed: div.replayedBefore, stop: div.callNo, words: dot(`${div.replayedBefore} of ${recorded} recorded calls replayed, then ${then}`, upstream(r)) });
+  // A golden an applied migration left waiting says the switch once, on its Request's line, and its hint only why Update golden leads.
+  const switched = switchOf(f.left, div);
   const request = requestPart(f, div);
-  if (request) parts.push(request);
-  return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint: divergenceHint(d) };
+  if (request) parts.push(switched ? { ...request, cause: switchCause(switched) } : request);
+  return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint: switched ? { key: 'switch' } : divergenceHint(d) };
 }
 
 /**
@@ -314,7 +342,7 @@ function divergenceParts(f: From, d: DivergenceView): Built {
  * call new to the recording or past its end, a replay that stopped before it did) compares nothing:
  * its part is only what followed, and there is none where nothing did.
  */
-function requestPart({ r, i, recording, replay }: From, div: NonNullable<ReturnType<typeof divergenceOf>>): ReportPart | null {
+function requestPart({ r, i, recording, replay }: From, div: Divergence): Extract<ReportPart, { kind: 'request' }> | null {
   const followed = r.runId && replay ? followedOf(i.store, replay, div.callNo) : null;
   if (!div.diff?.length) return followed ? { kind: 'request', runId: null, callNo: div.callNo, against: null, bodies: null, followed } : null;
   const against = recording ? { runId: recording, callNo: div.callNo } : null;
@@ -522,13 +550,16 @@ function builtOf(f: From, listed: Listed): Built {
   return inconclusiveParts(f, listed.view);
 }
 
-/** One golden's report, from its last result (read again by key, its run once) and the page's view of it. */
-export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): GoldenReport | null {
+/**
+ * One golden's report, from its last result (read again by key, its run once) and the page's view of
+ * it; `left`, the migration that left it waiting, if one did.
+ */
+export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput, left: GoldenLeftWaiting | null = null): GoldenReport | null {
   const r = i.store.listTestResults({ golden: row.path, limit: 1 })[0];
   if (!r || r.ok) return null;
   const verdict = testResultVerdict(r);
   if (verdict === 'passed') return null;
-  const from: From = { r, row, i, recording: i.goldens.find((g) => g.path === row.path)?.runId ?? null, replay: r.runId ? i.store.getRun(r.runId) : null };
+  const from: From = { r, row, i, recording: i.goldens.find((g) => g.path === row.path)?.runId ?? null, replay: r.runId ? i.store.getRun(r.runId) : null, left };
   const built = partsOf(from, listed);
   // Its checks changed since, by the row's one rule (tests-checks.ts' checksChanged): its step's hint says what to do (withStepHints).
   const gone = row.changed;
@@ -545,16 +576,18 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): Go
 
 /**
  * A report for each golden that didn't pass, by its path: those Tests lists under the table, in its
- * order. A report that fails to build is left out, never the page.
+ * order. A report that fails to build is left out, never the page. The goldens applied migrations
+ * left waiting are read only where one diverged, which a migration's switch can explain.
  */
 export function goldenReports(view: TestsView, i: ReportInput): Record<string, GoldenReport> {
   const reports: Record<string, GoldenReport> = {};
   const listed: Listed[] = [...view.divergences.map((v) => ({ kind: 'divergence' as const, view: v })), ...view.failures.map((v) => ({ kind: 'failure' as const, view: v })), ...view.inconclusive.map((v) => ({ kind: 'inconclusive' as const, view: v }))];
+  const left = view.divergences.length ? new Map(goldensLeftWaiting(i.store).map((w) => [w.golden, w])) : null;
   for (const l of listed) {
     const row = view.rows.find((x) => x.path === l.view.golden);
     if (!row) continue;
     try {
-      const report = goldenReport(row, l, i);
+      const report = goldenReport(row, l, i, left?.get(row.path) ?? null);
       if (report) reports[l.view.golden] = report;
     } catch {
       // Left out: the row and its old lines still show.

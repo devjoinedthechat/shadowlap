@@ -20,6 +20,9 @@ describe('how a command uses the working tree', () => {
   it('changes it to repair or apply a patch, and runs the agent from it to record, replay, blame, verify, test, calibrate or score', () => {
     expect(commandTreeUse(['repair', '--fixes', 'label:x'])).toEqual({ use: 'writes', doing: 'a repair is verifying candidates made from your working tree', verb: 'repair' });
     expect(commandTreeUse(['fix', 'apply', 'fx-1'])).toMatchObject({ use: 'writes', verb: 'apply the patch' });
+    // Applying a migration's config change writes the tree; migrate itself only runs the agent from it.
+    expect(commandTreeUse(['migrate', 'apply', 'mg-01ABCDEFGH'])).toEqual({ use: 'writes', doing: "a migration's config change is being applied to your working tree", verb: 'apply the config change' });
+    expect(commandTreeUse(['migrate', '--to', 'claude-haiku-4-5', 'goldens/a'])).toMatchObject({ use: 'reads', verb: 'migrate' });
     for (const [args, verb] of [
       [['run', '--', 'node', 'agent.mjs'], 'record'],
       [['replay', '01M3'], 'replay'],

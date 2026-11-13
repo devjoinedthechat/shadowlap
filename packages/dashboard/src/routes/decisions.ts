@@ -1,5 +1,7 @@
+import { ACTIONS } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
-import { decisionSessions, decisionsJob, decisionsReadJob, limitsRefused, READING_TREE, migrateJob, previewRequest, retirementsView, verifyFlaggedJob } from '../decisions.js';
+import { MODEL_NAME } from '../decisions-argv.js';
+import { decisionSessions, decisionsJob, decisionsReadJob, limitsRefused, READING_TREE, migrateApplyJob, migrateJob, previewRequest, retirementsView, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
 import { modelChoices } from '../model-listing.js';
 import { outcomeWork } from '../outcome-work.js';
@@ -8,19 +10,23 @@ import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity } from '../run-index.js';
 import type { GoldenSource } from '../tests.js';
 import { verifyRule } from './estimates.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * The decision diff (`shadowlap decisions`, `migrate`), for the Changes page and a run's Decisions view:
  *
- *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), the project's goldens, and their models that retire
- *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, and its `view` (decision-view.ts), beside the server
+ *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), and how many goldens the project has
+ *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, its `view` (decision-view.ts), and a migration's `migration` (migrate-view.ts) with its applied state, beside the server
  *   GET /api/decisions/:id/estimates[?runId=…][&max=&keptMax=]   what its Verify bills (estimates.ts), on every run it could not clear or those the runIds name, at Run more attempts' limits where given
  *   POST /api/decisions/estimates { runs?, goldens?, model?, set?, from?, scope?, samples?, fromCode?, changed? }   what a new preview asks and bills (preview-estimate.ts), each way's card while no change is named; changes nothing
  *   GET /api/model-choices                       the models a preview's field offers beside the runs' own: each provider's own listing, and why one couldn't be listed (model-listing.ts)
  *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again, beside the server
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
+ *   GET /api/migrate/estimate?to=&from=&golden=   what Migrate to <model> bills (migrate-estimate.ts), on the goldens named or every golden, and the newest preview of the same switch
+ *   GET /api/migrate/start                       what Migrate opens on (migrate-start.ts): the goldens' retiring models with their goldens, scopes and the migration that checked each, and the models in use
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
  *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
+ *   POST /api/jobs { kind: "migrate-apply", migrationId }   migrate apply: a kept migration's config change into the working tree, its goldens replayed offline
  *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, runIds?, max?, keptMax?, yes? }   decisions --verify: the runs a session could not clear (or those named), each under its checks; Run more attempts' limits, a failing run's attempts and a good run's pairs
  *
  * The goldens a job may name are the project's (`DashboardOptions.goldens`); runs are ids in the store.
@@ -76,14 +82,14 @@ export function register(router: Router, ctx: RouteContext): void {
     const kind = r.query.get('kind');
     if (kind !== null && !KINDS.has(kind)) throw new HttpError(400, 'kind is decisions or migrate');
     const limit = Math.max(1, Math.min(200, Number(r.query.get('limit') ?? 50) || 50));
-    r.tagged({ sessions: decisionSessions(ctx.store, { limit, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}) }), goldens: goldens().length, retirements: retirementsView(ctx.store, goldens()) });
+    r.tagged({ sessions: decisionSessions(ctx.store, { limit, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}) }), goldens: goldens().length });
   });
 
   // A session's runs hold every step's two decisions, and their about lines read requests: worked out beside the server.
   router.get('/decisions/:id', async (r) => {
     const { byId } = loadRunIndex(ctx.store);
     const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
-    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id!, ...comparedBy(ctx), keptMax: verifyRule(ctx).keptMax }, { calls }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id!, ...comparedBy(ctx), keptMax: verifyRule(ctx).keptMax, shared: namesTeamStore(ctx.project?.path) }, { calls }));
   });
 
   // What a new preview would ask and bill, beside the server, by the runs' calls: the change as its
@@ -139,10 +145,30 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/retirements', (r) => r.tagged(retirementsView(ctx.store, goldens())));
 
+  // What Migrate opens on: the goldens' models that retire, with their scopes and whether a migration checked each, and the models in use. It reads every golden's calls, so beside the server.
+  router.get('/migrate/start', async (r) => {
+    const listed = goldens();
+    const { byId } = loadRunIndex(ctx.store);
+    sendAnswer(r, await ctx.reads.run({ kind: 'migrate-start', goldens: listed }, { calls: listed.reduce((n, g) => n + ((g.runId && byId.get(g.runId)?.calls) || 0), 0) }));
+  });
+
+  // What Migrate to <model> bills on the goldens named (every golden when none is), and the newest preview of the same switch: beside the server.
+  router.get('/migrate/estimate', async (r) => {
+    const to = r.query.get('to') ?? '';
+    if (!MODEL_NAME.test(to)) throw new HttpError(400, 'to is the model to switch to, such as claude-sonnet-5-5');
+    const from = r.query.getAll('from').filter((m) => MODEL_NAME.test(m)).slice(0, 20);
+    const named = new Set(r.query.getAll('golden'));
+    const listed = goldens().filter((g) => !named.size || named.has(g.path));
+    const { byId } = loadRunIndex(ctx.store);
+    const job = { kind: 'migrate-estimate' as const, to, from, goldens: listed, work: outcomeWork(ctx), rule: verifyRule(ctx), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    sendAnswer(r, await ctx.reads.run(job, { calls: listed.reduce((n, g) => n + ((g.runId && byId.get(g.runId)?.calls) || 0), 0) }));
+  });
+
   // A golden's pack is read from the project's folder, which is where a job runs the CLI.
   const folder = (b: { project: { path: string } | null }) => b.project?.path ?? process.cwd();
   ctx.jobs.registerJobKind('decisions', { title: () => 'Previewing a change', build: (req, b) => decisionsJob(req, b.store, goldens(), folder(b)) });
   ctx.jobs.registerJobKind('decisions-read', { title: () => READING_TREE, build: (req, b) => decisionsReadJob(req, b.store, goldens(), folder(b)) });
   ctx.jobs.registerJobKind('migrate', { title: () => 'Migrating', build: (req, b) => migrateJob(req, b.store, goldens(), folder(b)) });
+  ctx.jobs.registerJobKind('migrate-apply', { title: () => ACTIONS.applyConfigChange.doing, build: (req, b) => migrateApplyJob(req, b.store) });
   ctx.jobs.registerJobKind('decisions-verify', { title: () => 'Verifying the changed runs', build: (req, b) => verifyFlaggedJob(req, b.store, folder(b)) });
 }

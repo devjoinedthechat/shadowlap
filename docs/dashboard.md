@@ -200,7 +200,7 @@ The header says the week in four facts, the first three each a link: *4 failures
 | Ready to ship | A verified fix not applied yet, but not one whose pull request merged | Its next step on Fixes: **Verify this run**, **Apply fix**, or **Mark applied** for one with no patch |
 | Tests | An inconclusive golden, and presets left inconclusive | **Run tests**, **Run more attempts**, **Update golden** or **Re-run test** |
 | Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Open →**, to a run of the newest |
-| Tests | A [preview of a change](./decisions.md) whose flagged runs nothing has settled since | **Open →**, to the first at the call whose decision changed: a preview's cell on [Preview](#preview), a migration's run |
+| Tests | A [preview of a change](./decisions.md) whose flagged runs nothing has settled since | **Open →**, to the first at the call whose decision changed: a preview's cell on [Preview](#preview), a migration's on [Migrate](#migrate) |
 | Security | An [injection test](./injection.md) a planted instruction got through (red), or that it influenced or that showed too little to say (amber) | **Open proof**, to the attempt that shows it |
 | Housekeeping | With a team store, the runs only on this machine | **Push local runs** |
 | Housekeeping | A model the goldens use that retires | **Migrate to** what its provider recommends |
@@ -217,17 +217,18 @@ What the rows mean:
 - **Inconclusive goldens**: **Run tests** when their checks changed since, **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection gate showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
 - **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id and failure, with what it was about on hover, and opens its issue on this week's [Failed](#failed-as-issues). A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
 - **Open fixes**: where blame found that no answer of the model's lost the run, a repair of the prompt is no fix, and the row opens the fix at Blame.
-- **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it.
+- **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it. A migration from a model that retires has no row of its own: the model's row stands for it.
 - **Verified fixes**: one verified with request fields set, as `--set temperature=1`, says to make them in your agent first.
 - **Runs only on this machine** are counted as Settings → Store and `shadowlap store show` count them, by run. **Push local runs** pushes them all, as `shadowlap push --all` does. The row opens Runs with those runs alone, each with the `local` tag.
-- **A model that retires**: its name, how many goldens use it, and when it goes (*retires on Nov 30, 2026*, *retired on*, or *is deprecated*). **Migrate to** asks first, saying your provider bills it, then runs `shadowlap migrate --to <model> <goldens> --from <model>` on those goldens. A model with nothing to migrate to has no step.
+- **A model that retires**: its name, how many goldens use it, and when it goes (*retires on Nov 30, 2026*, *retired on*, or *is deprecated*). **Migrate to** asks first, naming what it bills at most, then runs `shadowlap migrate --to <model> <goldens> --from <model>` on those goldens. A model with nothing to migrate to has no step.
+- **A model a migration checked**: the row says how the newest migration from it came out (*checked · the config change is ready*) and opens it. Once applied, it says how many goldens wait to be updated (*applied · 1 golden to update*), and it goes when none does.
 
 A step that bills names its price on hover, asked for once the pointer or the focus reaches it, and asks first as [Spending](#spending) says. On a read-only dashboard a step that runs a job says **Open →**, since nothing runs there. Past 50 rows of a kind, one line says how many more there are and opens the page that lists them.
 
 **Dismiss** advice you have seen: behaviours no golden covers, runs only on this machine, a model that retires. A failure has no Dismiss.
 
 - **Dismiss**: the **×** at the row's end, which shows on hover or focus and always on a touch screen, or Dismiss in ⌘K on the row. The row folds under its group's **Dismissed (n)**, and the toast's **Undo** or ⌘Z puts it back until you switch projects.
-- **When it comes back**: once it states a fact it didn't, such as another behaviour or run, or another date or golden. **Restore** under **Dismissed (n)** brings it back sooner.
+- **When it comes back**: once it states a fact it didn't, such as another behaviour or run, another date or golden, or a migration that checks it. **Restore** under **Dismissed (n)** brings it back sooner.
 - **Where it is kept**: in this project's store, never pushed or pulled, and never in Activity.
 
 ### Recent runs
@@ -257,7 +258,7 @@ The rest is what commands record as they change the project or write something:
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 - A preview's verify, by the preview's name and how its runs came out (*Verified · Model switch to claude-haiku-4-5: 1 fixed, 1 kept*), counted the same way where it rejected the change, or why it settled nothing. It opens the preview.
 
-An entry no page shows, such as a migration's, is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview). A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
+An entry no page shows is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview), and a migration on [Migrate](#migrate), as does *Config change applied*, which `migrate apply` records with the goldens it left to update. A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
 
 Who did it is the run's author, worked out when the run was made: `SHADOWLAP_AUTHOR` if set, `ci` in CI, else git's `user.email`, else the OS user. The author stays on this machine: packs and HTML files (`export html`, or **Share → HTML report** on a run) leave it out.
 
@@ -1032,16 +1033,16 @@ A run imported from someone else's pack carries what they recorded about it. Any
 
 ## Changes
 
-Changes shows what a change does to your agent, on its own recorded runs. It has three tabs, each one word with the command it matches on hover: **Verdicts** lists every change checked, **Compare** puts two runs side by side, and **Preview** shows what a change decides differently before it ships.
+Changes shows what a change does to your agent, on its own recorded runs. It has four tabs, each one word with the command it matches on hover: **Verdicts** lists every change checked, **Compare** puts two runs side by side, **Preview** shows what a change decides differently before it ships, and **Migrate** switches models with the evidence.
 
-The sidebar, `g` then `c` and [Search or jump to](#search-or-jump-to) reopen the tab last shown in the project, Compare on the pair it showed and Preview on the preview it showed. The first time, and after a reload, they open Verdicts. The crumb *Changes* always opens Verdicts.
+The sidebar, `g` then `c` and [Search or jump to](#search-or-jump-to) reopen the tab last shown in the project, Compare on the pair it showed, Preview on the preview it showed and Migrate on the migration it showed. The first time, and after a reload, they open Verdicts. The crumb *Changes* always opens Verdicts.
 
 ### Verdicts
 
 Verdicts lists every change checked, newest first, one row each. A change is one of three kinds:
 
 - **A test session** that ran every golden at a revision. Its row opens [the revision's page](#a-revisions-page).
-- **A preview or a migration**: what a change of model, prompt or tools decides differently. A preview's row opens it on [Preview](#preview).
+- **A preview or a migration**: what a change of model, prompt or tools decides differently. A preview's row opens it on [Preview](#preview), a migration's on [Migrate](#migrate).
 - **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
 
 Each row gives the change and how it was checked (*test session · d2e8a1f · PR #142 open*), what it was checked on (*7 goldens*), what moved (*2 goldens failed*, and *1 write changed* where its comment kept the decisions) and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
@@ -1061,7 +1062,7 @@ A test session's row opens its revision's page (`#/changes/verdicts/<revision>`)
 - **On the pull request**, for a session that ran for one: what else its comment carried, a run's cost before and after (*≈$0.041 → ≈$0.043 +5%*) and each injection gate's verdict and tally.
 - **The command** that gave the verdict.
 
-A session that kept no decisions lists under Decisions the previews and migrations asked at that revision, a preview opening on [Preview](#preview), else says CI runs one on each pull request with the Action's `decisions: true`.
+A session that kept no decisions lists under Decisions the previews and migrations asked at that revision, a preview opening on [Preview](#preview) and a migration on [Migrate](#migrate), else says CI runs one on each pull request with the Action's `decisions: true`.
 
 A revision no session ran every golden at says *No change d2e8a1f.*, with **Open Verdicts**.
 
@@ -1202,6 +1203,7 @@ One lime button gives the next step:
 - **Verify 2 runs** verifies the runs left to verify. Its dialog lists each run in its role: one that fails its checks as recorded `must now pass`, any other `must keep passing`. It is priced first, and asks before it starts above your threshold. It waits, saying why, while a run it would verify is gone from the store.
 - **Run more attempts** comes where verify left a run open: its gate ran out of attempts, or the verify stopped first. It verifies those runs again from the first attempt, the attempts of a failing run and the pairs of a good one doubled only where a run of that role ran out. Its dialog lists what verify found of each.
 - **Verify again** comes instead where an attempt couldn't be judged. Neither comes once verify rejected the change: more attempts can't turn it.
+- **Open migration report** comes where a migration made the same switch since, on every run the preview asked. It opens that migration on [Migrate](#migrate).
 - **Migrate to claude-haiku-4-5** comes where Verdicts calls the preview accepted, or finds nothing to verify, and asks first, as a retiring model's row on Needs a look does.
 
 Once verify rejected the change and nothing is left to verify or attempt, `New preview` is the lime step.
@@ -1244,6 +1246,55 @@ A cell opens under the matrix (`#/changes/decisions/<id>/<run>/<call>`), named *
 #### No preview
 
 With none kept, Preview says what a preview does and offers the three ways, the first lime, with `shadowlap decisions goldens/* --model <model>` to copy. With no goldens it waits for one: *No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view.*, with **Open Runs**. A preview the store doesn't hold says *No preview* and its id, with **Open Preview**.
+
+### Migrate
+
+Migrate switches the model your agent calls, with the evidence (`shadowlap migrate`, see [Migrate](./decisions.md#migrate)). It asks your goldens' model calls again under the model you pick, verifies end to end the runs the preview can't clear, and compares what a run costs. It ends in one report, with the config change and a pull request body. Nothing in your working tree changes until you apply it.
+
+#### Start a migration
+
+The bare tab (`#/changes/migrate`) opens on the model your goldens call that retires soonest and no migration has checked:
+
+- its date as the heading (*claude-sonnet-4-5 retires on November 30, 2026*);
+- when and where, who recommends what, and the goldens and scopes that call it;
+- **Switch to**, the model field, the provider's recommendation first, marked *recommended*;
+- the command, which follows the field, and **Migrate to claude-sonnet-5-5** in lime;
+- where the date comes from: the retirement table that ships with Shadowlap, read from the provider's model deprecations page. Nothing is fetched.
+
+With no model retiring and no migration yet, it offers **Switch from**, the models the goldens call, most used first, and **To**. Once a migration checked every retiring model, it opens the newest migration. With no goldens it says to pack one first, as Preview does, with **Open Runs**.
+
+**Migrate to** asks first, in one dialog wherever it is pressed: the start page, a retiring model's row on [Needs a look](#needs-a-look), Preview's next step, the report's **Migrate to** menu, and the palette's **Migrate claude-sonnet-4-5 to claude-sonnet-5-5**.
+
+The dialog says what it asks again and verifies, and that it writes a config change and a pull request body beside the store, your files left as they are. It names a preview that asked these calls already, and shows the command and what your provider bills at most. Its confirm starts the migration as a [job](#jobs), whose drawer ends on **Open migration report**.
+
+The button waits, saying why, while the field names no model, names the model it switches from, or holds no model's name.
+
+#### The report
+
+A migration's page (`#/changes/migrate/<id>`) is its report. The picker lists the migrations. **Migrate to** asks the same switch again to another model: its menu lists the recommendation first, then the models in use and those the providers offer, each priced on its card.
+
+The verdict is in Verdicts' words, or *applied* once applied. Under it come the headline (*claude-sonnet-5-5 keeps the run it verified passing*), the switch (*claude-sonnet-4-5 → claude-sonnet-5-5, 2 runs*) and the retirement, worded as of today. One lime button gives the next step:
+
+- **Apply config change**, where `migrate apply` would take it;
+- **Update goldens**, once applied, while a golden the switch left behind waits;
+- **Copy pull request body**, once none waits.
+
+| Section | What it shows |
+| --- | --- |
+| What changes | The compact matrix, then each write, stop or judged change, its call opening its cell |
+| What still passes | Each run's verdict, a golden the switch leaves behind, the rules, and the runs verified end to end |
+| What it costs | Per run, end to end where verify ran, and what checking it cost |
+| What to set | Each field the model refuses and what it takes instead, the fields given, or *Only the model* |
+| The config change | Its files and places, the patch, what it leaves out or to the hand, `git apply` and **Copy config change** |
+| The pull request body | Its title, `gh pr create`, **Copy pull request body**, and **Show body** to read it |
+
+A golden the switch leaves behind replays differently once applied, since its recording names the model it switches from: *diverges at #1 on `$.model` once applied*. A cell opens under What changes as it does on Preview, with no **Verify this run**. The foot gives the report's warnings and the command that made it. An id that is no migration's says *No migration* and its id, with **Open Migrate**.
+
+#### Apply config change
+
+**Apply config change** asks first. Its dialog says what happens: the patch applied with `git apply`, the goldens replayed offline, and **Update goldens** next where the switch leaves a golden behind. It names the fields the patch leaves out, the patch, the goldens left behind (or, with none, why none diverges) and `shadowlap migrate apply <id>`. Its confirm starts the `migrate-apply` [job](#jobs), which waits while another job holds your working tree. Its drawer ends on **Update goldens** for the goldens left behind.
+
+Once applied, the verdict says *applied* and names the goldens to update under the model, the config change says *applied*, and What still passes says *until updated*. The model's row on [Needs a look](#needs-a-look) follows. Where `migrate apply` would refuse, as where What to set leaves a field for the hand, it isn't offered.
 
 ## Fixes
 
@@ -1527,6 +1578,8 @@ A divergence's report offers:
 - **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run test** once the rule is in the config.
 - **Update golden**, beside that step only. A divergence another step leads offers that step and Find breaking commit.
 - **Find breaking commit**, whose answer then shows as the report's last part, above its steps, while the golden keeps failing as it did when the search started.
+
+**A golden a migration left behind.** Once a migration's [config change](#apply-config-change) is applied, a golden recorded under the old model diverges on `$.model` at the call it was left at, until it is updated. Its report says the cause once, on its **Request** line: *The config change of migration `mg-01M58W9A7S` switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.* The id opens the migration's report. **Update golden** leads, and the hint says why: *A golden recorded before the switch diverges on it: update it once the switch is what you meant.*
 
 Find breaking commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find breaking commit…** to search from an older one.
 
@@ -2930,6 +2983,8 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 
 A divergence's `request` part names the call it diverged at (`callNo`), the replay to ask its diff of (`runId`), and the recording's call it is compared with (`against`, null where the golden's recording isn't known). Where the replay is gone, `bodies` holds the changes its result kept. `followed`, null where nothing followed, is what followed from it, such as the offline 503 the agent exited on: its `line`, and the body the agent got as `message`, null where none was kept. A divergence that changed no request sends only `followed`.
 
+Where an applied migration left the golden waiting at that call, the part adds `cause`: the migration whose config change switched the model, in pieces, its id as `code` with the `href` of its report. The report's `hint` is then `switch`.
+
 An injection gate's `proof` part names its attempt (`runId`) and holds the proof in `parts`, as the attempt's page reads it: where the payload was planted (`plantedAt`) and read (`readAt`), and what carried the canary (`evidence`), with `why` for an attempt that showed nothing. Its `injection-attempts` part names the kept result Security report writes and the run that result tested (`security`), null once the store no longer has it.
 
 The store keeps the agent's last lines cut: each line at 400 characters, the whole at its last 6000. The CLI prints the last 20 lines whole. The notes the CLI prints under a golden's line aren't kept, so `printed` leaves them out. A report that can't be built is left out, and its row still shows.
@@ -3044,6 +3099,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
 | `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `POST /api/decisions/estimates`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions, the retirement notices |
+| `GET /api/migrate/start`, `GET /api/migrate/estimate?to=&from=&golden=` | Migrate's start page: retiring models with their goldens, scopes and checking migration, and the models in use; Migrate to's price |
 | `GET /api/model-choices` | The models a preview's switch can take, beside the ones its runs use |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
@@ -3056,9 +3112,11 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 
 **The decision diff:**
 
-- `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), the project's `goldens` count, and the models the goldens use that retire. Each session gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Verdicts (`#/changes/migrate/<id>`).
+- `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), and the project's `goldens` count. The models the goldens use that retire are `/api/retirements`'. Each session gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Migrate (`#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix` and its `view`, read on a thread of its own. The `view` holds Preview's words, worked out on the server: the verdict as Verdicts gives it, what was asked, verify's verdict and what it verified end to end, the next step's facts, the key, the warnings and the receipt.
+- A migration's `/api/decisions/:id` adds its `applied` state, each golden it left behind with whether it still `waits`, and its `migration`: Migrate's report, worded on the server.
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or those the `runId` parameters name (up to 500), is priced in the role its checks give it as recorded, at what it costs under the change. Preview names the runs no verify took yet. `verify` is `null` when there is nothing to verify, as for a named run the session cleared.
+- A migration's `/api/decisions/:id/estimates` answers `verify: null` while its code must change first: the model it switches to refuses a field the agent's code sends.
 - Its `runs` give each run priced and its `role`: `target` for one that fails its checks as recorded, else `good`. `max` and `keptMax` price Run more attempts at the limits its job raises, refused in the job's words.
 - `POST /api/decisions/estimates`: what a preview would ask and cost, from the targets and the change its job takes (`runs`, `goldens` or `goldens: "all"`, `model`, `set`, `from`, `scope`, `samples`, `fromCode`), read beside the server. It changes nothing: a POST, so the 500 runs one preview takes fit in its body. With `fromCode`, `changed` names each run's changed calls, as the working tree's read found them, and prices those alone.
 - Its answer: the price (`preview`), the calls it `asks` and of which models, the models the runs use (`recorded`), what their answers show of `max_tokens` (`answers`), and a field the model refuses (`refused`). With no change named, `ways` prices each way's card.
@@ -3140,6 +3198,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
 | `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }` | `injection <run\|golden> --json` |
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
+| `migrate-apply { migrationId }` | `migrate apply`: the migration's config change into your working tree, its goldens replayed offline. Refused with `migrate apply`'s own words when it can't go in |
 | `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
 | `pack-test { runId?, golden?, yes? }` | Pack, then test: with `runId`, any ended run into `golden`; `yes` answers a recording from elsewhere or a live test. Once packed, the test alone |

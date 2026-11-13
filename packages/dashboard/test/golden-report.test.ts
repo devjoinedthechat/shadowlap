@@ -124,6 +124,36 @@ describe('a divergence’s request', () => {
   });
 });
 
+describe('a golden an applied migration left waiting', () => {
+  const MIGRATION = 'mg-01M5000000000000000000000C';
+  /** A replay of a golden recorded before the switch: its request changed at call `callNo` on `$.model`. */
+  const onModel = (callNo: number): ReturnType<Parameters<typeof world>[1]> => ({ ok: false, failure: 'diverged', reason: `diverged at call ${callNo} (api POST /v1/messages)`, data: { mode: 'replay', calls: { total: callNo, replayed: callNo - 1, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type: 'request_changed', callNo, kind: 'api', name: 'POST /v1/messages', replayedBefore: callNo - 1, diff: [{ path: '$.model', op: 'changed', before: 'claude-sonnet-4-5', after: 'claude-sonnet-5-5' }], text: '✗ Request changed' } } });
+  const at = (callNo: number) => ({ divergence: { type: 'request_changed' as const, callNo, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: callNo - 1, recorded: 30 } });
+  /** The migration from claude-sonnet-4-5 to claude-sonnet-5-5 as `migrate --json` keeps it, applied where `left` says, leaving `goldens/<left.golden>` waiting at its call. */
+  const migrated = (store: Store, left: { golden: string; callNo: number } | null) => {
+    store.putDecisionSession({ sessionId: MIGRATION, kind: 'migrate', at: 1, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data: { migrateId: MIGRATION, kind: 'migrate', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5' }, runs: [] });
+    if (left) store.setMigrationApplied(MIGRATION, { at: 2, by: null, outdated: [{ golden: `goldens/${left.golden}`, callNo: left.callNo, path: '$.model' }] });
+  };
+  const requestOf = (report: GoldenReport) => report.parts.find((p) => p.kind === 'request');
+
+  it('names the migration whose config change switched its model on its Request’s line, its id opening it, and says only why Update golden leads', () => {
+    const { report } = world('refund', (_run, _s, store) => (migrated(store, { golden: 'refund', callNo: 3 }), onModel(3)), at(3));
+    const cause = (requestOf(report) as Extract<GoldenReport['parts'][number], { kind: 'request' }>).cause!;
+    expect(text(cause)).toBe('The config change of migration `mg-01M5000000` switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.');
+    expect(cause.filter((p) => typeof p !== 'string')).toEqual([{ code: 'mg-01M5000000', href: links.changeSession('migrate', MIGRATION) }]);
+    expect(report.hint).toEqual({ key: 'switch' });
+    // The verdict's sentence says what changed, as for any divergence: the cause is the Request line's alone.
+    expect(text(report.head)).toBe('Diverged at call 3: `$.model` changed');
+  });
+
+  it('says no switch for a divergence the migration doesn’t explain: another call, another golden, or a migration not applied', () => {
+    for (const left of [{ golden: 'refund', callNo: 1 }, { golden: 'escalate', callNo: 3 }, null]) {
+      const { report } = world('refund', (_run, _s, store) => (migrated(store, left), onModel(3)), at(3));
+      expect([requestOf(report), report.hint]).toEqual([expect.not.objectContaining({ cause: expect.anything() }), { key: 'bisect' }]);
+    }
+  });
+});
+
 describe('a check', () => {
   it('names the check a replay golden failed and what it found, over a clean replay', () => {
     const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', data: { mode: 'replay', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('send_email called 0 times', 'failed', 'called 1 time'), check('output includes "refund"', 'passed')] } }), { checks: ['send_email called 0 times', 'output includes "refund"'], divergence: { type: 'ended_early', callNo: 8, kind: 'api', name: 'POST /v1/messages', replayedBefore: 7, recorded: 7 } });

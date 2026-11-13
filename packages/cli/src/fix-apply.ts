@@ -1,14 +1,16 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { cpSync, existsSync, readFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyLeft, fixRecords, markFixApplied, messageOf, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, rewriteHere, safeLine, type Store, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
+import { applyLeft, fixRecords, markFixApplied, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, rewriteHere, safeLine, type Store, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { fieldChange } from '@shadowlap/dashboard';
 import { EXIT } from './exit-codes.js';
 import { planCopies, type GivenName, type GoldenCopy } from './fix-apply-names.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
+import { ApplyError, APPLY, applyToBytes, checkTreeFile, git, putIn, shown } from './patch-apply.js';
 import { physicalPath } from './real-path.js';
+
+export { ApplyError } from './patch-apply.js';
 
 /**
  * `shadowlap fix apply <fix>`: hands a verified fix over to the working tree. It applies the patch
@@ -36,17 +38,6 @@ import { physicalPath } from './real-path.js';
  * place (`repairPatchProblem`), and its fix.patch that patch. The file it writes is a plain file of
  * the working tree, reached through no link to a folder.
  */
-
-export class ApplyError extends Error {
-  /** The status `fix apply` ends with: 1 for a patch refused or failed, 2 where it was run (not the repair's repository or folder) or what it was given (an open fix) can't be applied. */
-  constructor(
-    message: string,
-    readonly exitCode: number = EXIT.failed,
-  ) {
-    super(message);
-    this.name = 'ApplyError';
-  }
-}
 
 export interface ApplyOptions {
   cwd: string;
@@ -86,51 +77,6 @@ export interface ApplyResult {
 
 const CLI_BIN = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
-const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-
-/**
- * `git apply` as apply runs it: the change as the repair verified it, whatever git's config says,
- * with no whitespace fixed (apply.whitespace) and none ignored to find where it goes
- * (apply.ignoreWhitespace, which would also take a line that ends with CRLF for one with LF).
- */
-const APPLY = ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn'];
-
-/**
- * What the patch makes of the file's bytes as they are: whether it is in them already, else the
- * bytes with it applied, or null when it applies to neither. git apply in the working tree converts
- * what it reads and writes as core.autocrlf and the file's text, eol, ident and filter attributes
- * ask: where Git for Windows sets core.autocrlf, or where .gitattributes says `* text=auto` and the
- * line ending git writes is CRLF (Git for Windows' own), it writes a file whose lines end with LF
- * back with CRLF, every line of it, and the file is no longer the one the repair verified. Here git
- * applies the patch to the bytes as a blob, in an index of its own, where nothing is converted.
- */
-function applyToBytes(root: string, file: string, patch: string): { already: boolean; bytes: Buffer | null } {
-  let now: Buffer;
-  try {
-    now = readFileSync(join(root, file));
-  } catch {
-    // Not there, or not readable: git apply in the working tree says why.
-    return { already: false, bytes: null };
-  }
-  const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-apply-'));
-  try {
-    const env = { ...process.env, GIT_INDEX_FILE: join(scratch, 'index') };
-    const run = (args: string[], input?: Buffer) => spawnSync('git', args, { cwd: root, env, input, maxBuffer: 64 * 1024 * 1024 });
-    const blob = run(['hash-object', '-w', '--stdin'], now);
-    const staged = blob.status === 0 && run(['update-index', '--add', '--cacheinfo', `100644,${blob.stdout.toString().trim()},${file}`]).status === 0;
-    if (staged && run([...APPLY, '--cached', '--reverse', '--check', patch]).status === 0) return { already: true, bytes: null };
-    const out = staged && run([...APPLY, '--cached', patch]).status === 0 ? run(['cat-file', 'blob', `:0:${file}`]) : null;
-    return { already: false, bytes: out?.status === 0 ? out.stdout : null };
-  } finally {
-    try {
-      rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
-    } catch {
-      // Held a moment longer on Windows (a virus scanner reading the new index, say): an index left
-      // in the temporary folder harms nothing, and the patch still goes in.
-    }
-  }
-}
-
 /** The repair whose change a fix is applied with: the one it was applied with, else the latest accepted one that counts for it. */
 export function acceptedRepair(store: StoreOf<'fixes'>, fix: StoredFix): StoredRepair | null {
   return repairToApply(fixRecords(store, fix));
@@ -139,28 +85,7 @@ export function acceptedRepair(store: StoreOf<'fixes'>, fix: StoredFix): StoredR
 /** A repair a teammate ran, which came with a fix from the team store: its recordings stayed on their machine. */
 const cameWithPull = (store: StoreOf<'team'>, repair: StoredRepair | null) => !!repair && store.repairPulled(repair.repairId) !== null;
 
-const lstatOrNull = (path: string) => {
-  try {
-    return lstatSync(path);
-  } catch {
-    return null;
-  }
-};
-
-/** The first folder on the way to a file of the repository that is a link (a symbolic link, a junction), or null. */
-function linkOnTheWay(root: string, file: string): string | null {
-  const dirs = file.split('/').slice(0, -1);
-  for (let i = 1; i <= dirs.length; i++) {
-    const dir = dirs.slice(0, i).join('/');
-    if (lstatOrNull(join(root, dir))?.isSymbolicLink()) return dir;
-  }
-  return null;
-}
-
 const slashes = (p: string) => p.split(/[\\/]+/).join('/');
-
-/** A path as apply reports it: relative to the folder it runs in, with forward slashes on every system. */
-const shown = (cwd: string, path: string) => relative(cwd, path).split(sep).join('/');
 
 /**
  * A file of the repository as apply reports it, from the folder it runs in: both named as the system
@@ -207,39 +132,6 @@ function heldToRepair(repair: StoredRepair, path: string, dir: string): void {
   if (problem) throw refused(repair, problem, dir);
 }
 
-/**
- * Puts the patch in: the file's bytes as git applied it to them (`applyToBytes`), else as `git apply`
- * puts it in the working tree, converting line endings. `before` runs once git has found where the
- * patch goes, before anything is written. A tree whose changes conflict with the patch is left alone,
- * with what to do about it.
- */
-function putIn(at: { root: string; file: string; patch: string; text: string; bytes: Buffer | null; cwd: string; fixId: string }, before: (() => void) | null): void {
-  const { root, file, patch } = at;
-  if (at.bytes) {
-    before?.();
-    try {
-      writeFileSync(join(root, file), at.bytes);
-    } catch (err) {
-      throw new ApplyError(`writing ${file} failed: ${messageOf(err)}`);
-    }
-    return;
-  }
-  const check = git(root, [...APPLY, '--check', patch]);
-  if (check.status !== 0) {
-    const files = patchFiles(at.text);
-    const dirty = files.length ? git(root, ['status', '--porcelain', '--', ...files]).stdout.trim() : '';
-    const why = (check.stderr || check.stdout).trim().split('\n')[0] ?? '';
-    throw new ApplyError(
-      dirty
-        ? `${files.join(', ')} ${files.length === 1 ? 'has' : 'have'} uncommitted changes the patch conflicts with (${why}). Nothing was changed: commit or stash them, then run shadowlap fix apply ${at.fixId} again`
-        : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${shown(at.cwd, patch)}, or repair again`,
-    );
-  }
-  before?.();
-  const applied = git(root, [...APPLY, patch]);
-  if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
-}
-
 /** A --name on an apply that copies no recording names none: refused before anything changes, as `planCopies` refuses one. */
 function namesNone(o: ApplyOptions, why: string): void {
   if (o.names?.length) throw new ApplyError(`${why}: --name names none`, EXIT.usage);
@@ -267,15 +159,9 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     const problem = repairPatchProblem(repair.report);
     if (problem) throw refused(repair, problem, paths.dir);
     const file = repair.report.candidates.find((c) => c.id === repair.report.accepted)!.file;
-    const target = lstatOrNull(join(root, file));
-    if (target && !target.isFile()) throw new ApplyError(`${file} is not a plain file in this working tree (a symbolic link or a folder), so the patch was not applied: apply it by hand if you mean to`);
-    // The file is written here, and a link to a folder on the way could lead it out of the working
-    // tree: git apply writes nothing beyond one either.
-    const link = linkOnTheWay(root, file);
-    if (link) throw new ApplyError(`${file} is reached through ${link}, which is a link in this working tree, so the patch was not applied: apply it by hand if you mean to`);
-    // A repair rewrites only files git sees: a change to one git ignores (a dependency's code, say)
-    // would show in neither git status nor git diff, so nobody would ever read it.
-    if (git(root, ['check-ignore', '-q', '--', file]).status === 0) throw new ApplyError(`${file} is a path git ignores here, so a change to it would show in neither git status nor git diff: the patch was not applied. A repair only rewrites files git sees; read ${paths.dir}/fix.patch, and apply it by hand if you mean to`);
+    // A repair rewrites only files git sees (a dependency's code, say, is not one), and the file is
+    // written here: a plain file, reached through no link.
+    checkTreeFile(root, file, { only: 'A repair only rewrites files git sees', read: `${paths.dir}/fix.patch` });
     const patch = resolve(o.cwd, paths.dir, 'fix.patch');
     if (!existsSync(patch)) throw new ApplyError(`the repair's patch is not in this folder (${paths.dir}/fix.patch): run shadowlap fix apply in the folder ${repair.repairId} ran in`, EXIT.usage);
     if (readFileSync(patch, 'utf8') !== repair.report.patch) throw new ApplyError(`${paths.dir}/fix.patch is not the patch ${repair.repairId} verified: it changed since. Nothing was changed: apply it by hand if you changed it on purpose, or repair again`);
@@ -287,13 +173,13 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     // patch whose lines end otherwise than the file's (a teammate's, made in a checkout with LF, for a
     // Windows checkout's file with CRLF) applies only through git's conversion: then it goes in as
     // git apply puts it in, with git's own settings, which give the file back its CRLF.
-    const asIs = applyToBytes(root, file, patch);
+    const asIs = applyToBytes(root, [file], patch);
     if (asIs.already || git(root, [...APPLY, '--reverse', '--check', patch]).status === 0) {
       result.patch = 'already';
       o.log(`  the patch is already in the working tree (${shown(o.cwd, patch)})`);
     } else {
       // A teammate's patch goes in only as a rewrite repair itself would make here.
-      putIn({ root, file, patch, text: repair.report.patch ?? '', bytes: asIs.bytes, cwd: o.cwd, fixId: fix.fixId }, pulled ? () => heldToRepair(repair, join(root, file), paths.dir) : null);
+      putIn({ root, patch, text: repair.report.patch ?? '', bytes: asIs.bytes, cwd: o.cwd }, { rerun: `shadowlap fix apply ${fix.fixId}`, since: 'the repair', redo: 'repair again' }, pulled ? () => heldToRepair(repair, join(root, file), paths.dir) : null);
       result.patch = 'applied';
       o.log(`  applied ${shown(o.cwd, patch)}`);
     }

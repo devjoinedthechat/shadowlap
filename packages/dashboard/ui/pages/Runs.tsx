@@ -6,7 +6,7 @@ import { EmptyLine, EmptyState } from '../components/States.js';
 import { ShowMore } from '../components/Table.js';
 import { pageUp } from '../focus-manager.js';
 import { viewerTimeZone } from '../format.js';
-import { useLatest, useLoad, type Loaded } from '../hooks.js';
+import { useLatest, useLoad, useSettled, type Loaded } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
 import { IMPORT_ASK } from '../page-ask.js';
@@ -146,16 +146,6 @@ function useReadTo(shown: string): [number, (n: number) => void] {
     setLimit(PAGE);
   }, [shown, setLimit]);
   return [limit, setLimit];
-}
-
-/** The text a field holds once it has stopped changing for `ms`. */
-function useSettled<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return settled;
 }
 
 /** Rows of the table up to `limit`, a page of at most 500 at a time. */

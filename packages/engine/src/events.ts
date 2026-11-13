@@ -53,6 +53,9 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  *   under a change. `name` is `decisionsName`'s; `why` says why it settled nothing (null when it
  *   settled); `exit` is the status it ends with under the defaults (0, 1 when verify rejected it or
  *   the switch breaks a run, 3 when it settled nothing). A session kept before has neither.
+ * - `migrate.applied`: ref the migration (`mg-…`); data { from, to, files, outdated }: `shadowlap
+ *   migrate apply` put its config change in the working tree. `files` are the paths it changed, and
+ *   `outdated` the goldens that now diverge on `$.model`, which wait for `shadowlap test --update`.
  * - `injection.tested`: runId the run tested, ref the golden (or the result's `inj-…` id); data
  *   { resultId, mode: 'plant', attempts, obeyed, influenced, ignored, inconclusive, verdict, reads,
  *   payloads, gate: 'passed' | 'failed' | 'inconclusive', session? } from planting, { resultId,
