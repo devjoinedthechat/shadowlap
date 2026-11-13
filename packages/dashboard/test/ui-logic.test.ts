@@ -13,7 +13,8 @@ import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../u
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
 import { bundlesAttempts, compareTarget, defaultComparePair, familyLine, isFailed, kindWord, matchesChip, matchesText, runOutcome, runSpent, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
-import { binCalls, miniCells, stripCells, type StripItem } from '../ui/strip.js';
+import { miniCells } from '../ui/components/MiniStrip.js';
+import { binCalls, stripCells, type StripItem } from '../ui/strip.js';
 
 describe('routes', () => {
   it('reads every page, a run at a call in a view, and the old call links', () => {

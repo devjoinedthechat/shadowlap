@@ -179,6 +179,13 @@ describe('the dashboard’s scripts', () => {
     // a family's runs as the lists see them) loads with those views, on a press of the view switch.
     expect(runPage.upFront.has('ui/run/view-model.ts'), 'the views’ helpers load with the run page').toBe(false);
     for (const view of ['ui/run/TurnsView.tsx', 'ui/run/TimelineView.tsx', 'ui/run/ForksView.tsx', 'ui/run/ProvenanceView.tsx']) expect(inputsOf(loads(chunkOf(view))).has('ui/run/view-model.ts'), `${view} loads its helpers`).toBe(true);
+    // Code the run page would carry and never run waits beside its users: the verdict words' tones
+    // (Changes' revision page, the results matrix, Tests' Security), the small strips (Runs, the
+    // Overview), what the dialogs that pack or copy a run say, a fork dialog's estimate, Tests' prices
+    // and the runs an action took, in its toast (the header's Delete run's, from its menu).
+    const apart = ['ui/components/status-tone.ts', 'ui/components/MiniStrip.tsx', 'ui/run/share-facts.ts', 'ui/run/dialog-estimates.ts', 'ui/tests-prices.ts', 'ui/runspage/bulk-words.ts'];
+    for (const kept of apart) expect(runPage.upFront.has(kept), `${kept} loads with the run page`).toBe(false);
+    for (const [part, kept] of [['ui/run/StepDialogs.tsx', 'ui/run/share-facts.ts'], ['ui/run/ForkMenu.tsx', 'ui/run/dialog-estimates.ts'], ['ui/run/MoreMenu.tsx', 'ui/runspage/bulk-words.ts']] as const) expect(inputsOf(loads(chunkOf(part))).has(kept), `${part} loads ${kept}`).toBe(true);
     // Nothing of an exported copy's own entry is served.
     const all = inputsOf(Object.keys(outs));
     expect(all.has('ui/main-copy.tsx')).toBe(false);

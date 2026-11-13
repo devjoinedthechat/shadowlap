@@ -16,7 +16,8 @@ import { useApp } from '../state.js';
 import type { UntrustedView } from '../types.js';
 import type { PendingAction } from './actions.js';
 import type { CheckEntry } from './check-entry.js';
-import { isFork, rowPriced, useRunEstimates, type RowPrice } from './estimates.js';
+import { isFork } from './dialog-estimates.js';
+import { rowPriced, useRunEstimates, type RowPrice } from './estimates.js';
 import { bisectBlocked, bisectLabel, unknownBisect } from './offers.js';
 import { bisectCardCommand } from './dialog-copy.js';
 

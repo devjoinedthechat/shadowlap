@@ -1,4 +1,4 @@
-import { statusTone } from './components/Status.js';
+import { statusTone } from './components/status-tone.js';
 import { plural } from './format.js';
 import { MANY_READS } from '../src/injection-defaults.js';
 
