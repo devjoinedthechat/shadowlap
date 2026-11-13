@@ -5,11 +5,12 @@ import type { DeleteResult, LabelRunsResult } from '../types.js';
 
 /**
  * What the bulk bar says once it has acted on the runs picked, and what Push sends. What a run's page
- * says too (its toasts' words, Add label…'s suggestions) is in run-words.ts, so that page holds none
- * of the rest. No DOM here: the tests import it.
+ * says too is apart: its toasts' words in bulk-words.ts, Add label…'s suggestions in run-words.ts,
+ * so that page holds none of the rest. No DOM here: the tests import it.
  */
 
-export { bulkToast, labelSuggestions, named } from './run-words.js';
+export { bulkToast, named } from './bulk-words.js';
+export { labelSuggestions } from './run-words.js';
 
 /**
  * What a Delete says it takes: the run or the runs, how many attempts go with them, and the recorded

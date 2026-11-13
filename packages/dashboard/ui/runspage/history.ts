@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect } from 'react';
 import type { RunsFilterRead } from '../../src/links.js';
 import { navigate } from '../router.js';
 import { keepRunsView } from '../runs-view.js';
-import { ALL_RUNS, runsHref, runsLinkQuery } from './query.js';
+import { runsHref, runsView } from './query.js';
 import { forgetScroll, keepScroll } from './scroll.js';
 
 /**
@@ -16,9 +16,6 @@ let landed: string | null = null;
 
 /** The address now; none in the tests' page. */
 const hashNow = (): string | null => (typeof location === 'undefined' ? null : location.hash);
-
-/** A view of Runs as the page writes it, or null for another page's address. */
-const runsView = (hash: string | null): string | null => (hash && /^#\/runs\/?(\?|$)/.test(hash) ? runsHref(runsLinkQuery(hash) ?? ALL_RUNS) : null);
 
 /** Shows `next`, a step of its own in the history. */
 export function commitRuns(next: RunsFilterRead): void {

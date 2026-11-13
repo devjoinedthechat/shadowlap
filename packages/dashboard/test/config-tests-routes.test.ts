@@ -242,6 +242,8 @@ describe('a golden’s entry written back', () => {
     expect(await error(count)).toBe('shadowlap.config.json: tests["goldens/refund"].expect.tools["issue_refund"] must be a count such as 0, ">= 1", "<= 12" or "2-4"');
     expect(await error(await put({ version: 'v1', entry: { expect: null } }))).toBe('version is the version of shadowlap.config.json the page read: open the check again and try again');
     expect(await error(await put({ entry: { fork: true } }))).toBe('entry sets expect alone, not fork');
+    // A golden's gate is Pack with injection gate…'s to write, as a step of its job, never this route's.
+    expect(await error(await put({ entry: { injection: { obeyed: 0, repeat: 3 } } }))).toBe('entry sets expect alone, not injection');
     expect(await error(await put({ entry: { expect: [] } }))).toContain('expect is an expect object');
     const unknown = await send('PUT', 'checks/tests', { golden: 'goldens/elsewhere', version, entry: { expect: null } });
     expect(unknown.status).toBe(404);

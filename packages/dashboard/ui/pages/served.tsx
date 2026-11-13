@@ -5,7 +5,7 @@ import { Skeleton } from '../components/States.js';
 import { useLatest } from '../hooks.js';
 import { BuilderLost } from '../run/check-part.js';
 import { IssuesLoading } from '../runspage/IssuesLoading.js';
-import type { InjectionFindingProps, MoreMenuProps, ServedParts } from '../served-parts.js';
+import type { FindCauseProps, InjectionFindingProps, MoreMenuProps, ServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import { ElsewhereFallback, ElsewhereWaiting } from './held-elsewhere.js';
 
@@ -37,14 +37,15 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
 
 /**
  * The one `failed` of the parts that open on a press: Share's menu and the Security report it opens,
- * the fork menu, the header's …, Revert's dialog, Run blame's dialogs, New preview's dialogs, the
- * steps' dialogs, a run's action's, Find breaking commit's, a diverged test's, Edit and fork's,
- * Remove project's and Preview pull request comment's, each a `menu` or a `dialog` in the toast's
- * words. The parts drawn in place keep their own: the first bad commit's change box's LoadFailed,
- * the check builder's and the check menu's BuilderLost, Runs › Failed's issues' LoadFailed, the
- * results panel's LoadFailed, an injection test's finding's (FindingLost) and the In page's, its
- * page's not-found. The palette and the job's drawer, drawn before any press asks for them, draw
- * nothing.
+ * the fork menu, the header's …, the check menu, Revert's dialog, Run blame's dialogs, New
+ * preview's dialogs, the steps' dialogs, Run injection test…'s and Pack with injection gate…'s, a
+ * run's action's, Find breaking commit's, a diverged test's, Edit and fork's, Remove project's and
+ * Preview pull request comment's, each a `menu` or a `dialog` in the toast's words. The parts drawn
+ * in place keep their own: the first bad commit's change box's LoadFailed, the check builder's
+ * BuilderLost, Runs › Failed's issues' LoadFailed, the results panel's LoadFailed, Find cause…'s
+ * (CauseLost), an injection test's finding's and Find cause's answers' (FindingLost) and the In
+ * page's, its page's not-found. The palette and the job's drawer, drawn before any press asks for
+ * them, draw nothing.
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -54,18 +55,27 @@ const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): On
 });
 
 /**
- * In the place of an injection test's finding, once its script didn't come: LoadFailed's line in the
- * finding's slot of the run's findings bar, rather than nothing, which would hide what the test found.
- * As the finding would, it hides while the bar is closed under the finding that leads it (`fx`), and
- * where it leads the bar, it keeps the bar's toggle at its end (`more`), so the rest still opens.
+ * In the place of an injection test's finding, or of Find cause's answers, once its script didn't
+ * come: LoadFailed's line in the finding's slot of the run's findings bar, rather than nothing, which
+ * would hide what the test or the answers found. As the finding would, it hides while the bar is
+ * closed under the finding that leads it (`fx`), and where it leads the bar, it keeps the bar's
+ * toggle at its end (`more`), so the rest still opens.
  */
-function FindingLost({ fx, more }: Pick<InjectionFindingProps, 'fx' | 'more'>) {
+function FindingLost({ finding, fx, more }: Pick<InjectionFindingProps, 'fx' | 'more'> & { finding: 'injection' | 'cause' }) {
   return (
-    <div className={`banner wrap${fx ? ' fx' : ''}`} data-finding="injection">
+    <div className={`banner wrap${fx ? ' fx' : ''}`} data-finding={finding}>
       <LoadFailed what="finding" />
       {more}
     </div>
   );
+}
+
+/**
+ * In the place of Find cause…'s link, once its script didn't come: LoadFailed's line on a write the
+ * run's answer names (`cause.facts`), the one call the link is drawn on, and nothing on the others.
+ */
+function CauseLost({ callNo, cause }: Pick<FindCauseProps, 'callNo' | 'cause'>) {
+  return cause.facts.some((f) => f.write === callNo) ? <LoadFailed what="link" /> : null;
 }
 
 /**
@@ -84,11 +94,15 @@ export const SERVED_PARTS: ServedParts = {
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks), failed('dialog', closes)),
   NewPreview: onShow(() => import('../changes/NewPreview.js').then((m) => m.NewPreview), failed('dialog', closes)),
-  CheckMenu: onShow(() => import('../run/CheckMenu.js').then((m) => m.CheckMenu), { failed: <BuilderLost /> }),
+  CheckMenu: onShow(() => import('../run/CheckMenu.js').then((m) => m.CheckMenu), failed('menu', closes)),
   FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues), { waiting: <IssuesLoading />, failed: <LoadFailed what="view" /> }),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
+  TestDialog: onShow(() => import('../injection/TestDialog.js').then((m) => m.TestDialog), failed('dialog', closes)),
+  PackWithGate: onShow(() => import('../injection/PackWithGate.js').then((m) => m.PackWithGate), failed('dialog', closes)),
+  FindCause: onShow(() => import('../injection/FindCause.js').then((m) => m.FindCause), { failed: (p) => <CauseLost callNo={p.callNo} cause={p.cause} /> }),
+  CauseFinding: onShow(() => import('../injection/CauseFinding.js').then((m) => m.CauseFinding), { failed: (p) => <FindingLost finding="cause" fx={p.fx} more={p.more} /> }),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog), failed('dialog', closes)),
-  InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding), { failed: (p) => <FindingLost fx={p.fx} more={p.more} /> }),
+  InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding), { failed: (p) => <FindingLost finding="injection" fx={p.fx} more={p.more} /> }),
   // A line inside an attempt's finding, which the run's page draws: nothing in its place if its script didn't come.
   Proof: onShow(() => import('../injection/Proof.js').then((m) => m.Proof)),
   attemptPage: () => import('../injection/AttemptPage.js').then((m) => m.ATTEMPT_PAGE),

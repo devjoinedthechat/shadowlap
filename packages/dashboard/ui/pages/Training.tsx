@@ -11,7 +11,7 @@ import { plural } from '../format.js';
 import { commandText } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { redactsFact } from '../run/share-steps.js';
+import { redactsFact } from '../run/share-facts.js';
 import { useApp } from '../state.js';
 import { ENDPOINT, exportCommand, firstPick, leftOutLine, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, sendTaskUpdate, takeTrainingDialog, whenDone, type LiveAsked, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';

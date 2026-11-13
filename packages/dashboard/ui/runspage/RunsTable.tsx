@@ -5,7 +5,7 @@ import { Id } from '../components/Id.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Status } from '../components/Status.js';
 import { glossed } from '../components/Term.js';
-import { MiniStrip } from '../components/Strip.js';
+import { MiniStrip } from '../components/MiniStrip.js';
 import { rowOpen, SortTh } from '../components/Table.js';
 import { num, shortId, whenShort } from '../format.js';
 import { labelTerm } from '../../src/links.js';

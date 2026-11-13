@@ -11,9 +11,11 @@ import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
 import { MarksContext, NO_MARKS } from '../components/marks.js';
 import { useAttemptPage } from '../injection/attempt-load.js';
+import type { CauseView } from '../injection/model.js';
 import { copyText } from '../dom.js';
 import { dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { agentOf } from '../scopes.js';
+import { useServedParts } from '../served-parts.js';
 import { shortcut, shortcutCard } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -66,9 +68,12 @@ export interface InspectorProps {
   injection?: RunInjection['attempt'] | undefined;
   /** Add check… on the summary line, where the selected call takes it (run/check-entry.tsx). */
   check?: CheckEntry | undefined;
+  /** Find cause… after it, on a write after an untrusted read (injection/FindCause.tsx, a part none in a copy). */
+  cause?: CauseView | null | undefined;
 }
 
-export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection, check }: InspectorProps) {
+export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection, check, cause }: InspectorProps) {
+  const { FindCause } = useServedParts();
   const page = useAttemptPage(injection);
   const marks = useMemo(() => (page ? page.attemptMarks(injection) : NO_MARKS), [page, injection]);
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
@@ -107,6 +112,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
           )}
         </span>
         {check ? <AddCheckLink check={check} /> : null}
+        {cause && FindCause ? <FindCause runId={runId} callNo={call.callNo} cause={cause} /> : null}
         {/* The fork menu's override with the result edited here, a tool's or what a person answered: on every tab. */}
         {c && detail ? (
           <span className="iedit">

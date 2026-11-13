@@ -20,7 +20,8 @@ import {
   type SettingsContext,
 } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
-import type { ToolReads } from '../tool-reads.js';
+import type { ToolsRead } from '../injection-security.js';
+import { injectionReadInput } from './injection.js';
 import { settingsFolder } from './settings-edits.js';
 
 /**
@@ -42,7 +43,7 @@ import { settingsFolder } from './settings-edits.js';
  * exactly the runs that dry run listed, or nothing; when it listed none but found blobs nothing
  * uses or unused space, a plain `gc`, which deletes no run and gives that back).
  *
- * The CI tab reads the tests feature's `GET /api/ci/workflows`; nothing for it is served here.
+ * The CI tab reads `GET /api/ci/workflows`, served by routes/ci.ts; nothing for it is served here.
  */
 
 /** Unused space worth a clean-up of its own when no run is old enough: 1 MB, as `gc` counts it. */
@@ -102,7 +103,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // Every tool call in the store and the MCP servers they came through, read beside the server; the config and the clients' files here.
   router.get('/settings/tools', async (r) => {
     const s = settings();
-    r.tagged(toolsSettings(s, { reads: answerData<ToolReads>(await ctx.reads.run({ kind: 'tool-reads' })) }));
+    r.tagged(toolsSettings(s, { reads: answerData<ToolsRead>(await ctx.reads.run({ kind: 'tools-read', ...injectionReadInput(ctx) })) }));
   });
 
   // Add MCP server…: the line and the client entry for what the dialog has so far. Nothing is written.

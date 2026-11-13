@@ -8,12 +8,13 @@ import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFi
 import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, stopAsk, type RunLink } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, runIdPrefix, runsById, runsToAskFor, snippetParts, type PaletteEntry } from '../ui/palette.js';
-import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
+import { callDetail, modelCallOf, resultLine, timeOf, tokensText, turnCalls, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
 import { bundlesAttempts, compareTarget, defaultComparePair, familyLine, isFailed, kindWord, matchesChip, matchesText, runOutcome, runSpent, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
-import { binCalls, miniCells, stripCells, type StripItem } from '../ui/strip.js';
+import { miniCells } from '../ui/components/MiniStrip.js';
+import { binCalls, stripCells, type StripItem } from '../ui/strip.js';
 
 describe('routes', () => {
   it('reads every page, a run at a call in a view, and the old call links', () => {
@@ -890,35 +891,6 @@ describe('a run’s calls in the views', () => {
     expect(modelCallOf(calls, 4, 'agent')).toEqual({ k: 2, m: 3 });
     expect(modelCallOf(calls, 4, null)).toEqual({ k: 3, m: 4 });
     expect(modelCallOf(calls, 3, 'agent')).toBeNull();
-  });
-
-  it('groups tool calls under the model call that asked for them, within a scope when there are scopes', () => {
-    const calls = [call(1, 'api', { scope: 'agent' }), call(2, 'api', { scope: 'customer' }), call(3, 'tool', { scope: 'agent' }), call(4, 'clock'), call(5, 'tool', { scope: 'customer' })];
-    expect(turnsOf(calls, true).map((t) => [t.model.callNo, t.tools.map((c) => c.callNo)])).toEqual([
-      [1, [3]],
-      [2, [5]],
-    ]);
-    expect(turnsOf(calls, false).map((t) => [t.model.callNo, t.tools.map((c) => c.callNo)])).toEqual([
-      [1, []],
-      [2, [3, 5]],
-    ]);
-  });
-
-  it('places calls on one clock and finds the ones that ran at once, under a long call too', () => {
-    const calls = [call(1, 'api', { startedAt: 1000, endedAt: 3000 }), call(2, 'tool', { startedAt: 1100, endedAt: 1200 }), call(3, 'tool', { startedAt: 1500, endedAt: 1600 }), call(4, 'api', { startedAt: 3100, endedAt: 3500, ttftMs: 40 })];
-    const t = timelineOf(calls);
-    expect(t.end).toBe(2500);
-    expect(t.rows.map((r) => [r.call.callNo, r.start, r.end, r.firstToken])).toEqual([
-      [1, 0, 2000, null],
-      [2, 100, 200, null],
-      [3, 500, 600, null],
-      [4, 2100, 2500, 40],
-    ]);
-    expect(t.parallel).toEqual([
-      [1, 2],
-      [1, 3],
-    ]);
-    expect(ticksFor(2500).map((x) => x.label)).toEqual(['0s', '0.5s', '1s', '1.5s', '2s', '2.5s']);
   });
 
   it('says what a call did on its line, and a replayed call’s time as recorded', () => {

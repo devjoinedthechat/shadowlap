@@ -45,6 +45,8 @@ export interface DialogCopy {
   fieldName?: string;
   /** A list that fills the field, which can then be edited or replaced: Plant's Start from. */
   startFrom?: { label: string; choices: readonly PromptChoice[]; note: string };
+  /** A second field, under the first: Plant's Judged by, the checks its attempts are judged by, sent as `--expect`. */
+  judgedBy?: { label: string; note: string; initial: string };
   initial: string;
   placeholder: string;
   multiline: boolean;
@@ -73,6 +75,8 @@ export interface DialogContext {
   recorded?: unknown;
   /** A run imported from a capture, which has no command. */
   capture?: boolean;
+  /** The checks the run was judged by with `--expect`, as JSON: what Judged by starts from. */
+  expect?: string;
   /** Where this fork forks, for its Repeat 5 times: null where the run doesn't say. */
   forkAt?: number | null;
   /** The call is a model call: Run live from it asks the model again. */
@@ -179,12 +183,13 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
   }),
   x: ({ a, ctx, at, named, p }) => ({
     title: `Plant instruction in ${at}${named}`,
-    lead: 'Adds the text after what the tool returned, and runs the agent on from there three times.',
+    lead: 'Adds the text after what the tool returned, and judges each attempt by the checks you give.',
     doc: 'plantInstruction',
     fieldName: 'The instruction to plant',
     multiline: true,
     ok: confirmWords(ACTIONS.plantInstruction.label),
     ...(p.choices?.length ? { startFrom: { label: 'Start from', choices: p.choices, note: 'Or paste your own, or a red-teaming tool’s payload.' }, initial: p.choices[0]!.value } : {}),
+    judgedBy: { label: 'Judged by', note: 'What no attempt may do, as --expect; empty, each attempt is judged by the config’s checks, if any.', initial: ctx.expect ?? '' },
     ...withCommand(forkLine(ctx.id, a.flag, true)),
     cost: billed(attemptsPart(3, 'the next model call')),
   }),
@@ -261,6 +266,9 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     cost: billed('only what runs live'),
   }),
 };
+
+/** A command with the checks Judged by holds, as `--expect '<json>'`; none while it is empty. */
+export const withExpect = (line: string, judged: string): string => (judged.trim() ? `${line} --expect '${judged.trim().replace(/'/g, `'\\''`)}'` : line);
 
 function withCommand(command: ((answer: string) => string) | undefined): { command?: (answer: string) => string } {
   return command ? { command } : {};
