@@ -297,7 +297,8 @@ table.sect td.sreads .nw { margin-right: 10px; }
 /* A golden's error-path presets under its checks (PresetsStrip), as the design draws them: `error-path presets`, which opens the
    recording with their results, a cell a preset in its verdict's colour (one picture, each cell's card on hover), then the counts,
    which open the attempt that proves the verdict; before they have run, `not run yet` and Run error-path presets… */
-table.gt .chk .gpstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: 12px; }
+/* its links 18px tall, so where the strip wraps a row 6px apart keeps them 24px apart, as WCAG 2.5.8's spacing asks */
+table.gt .chk .gpstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px; font-size: 12px; }
 table.gt .chk .gpstrip :is(.gpk, .gpn) { display: inline; flex: none; font-size: 12px; color: var(--faint); text-decoration: none; }
 table.gt .chk .gpstrip a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 table.gt .chk .gpstrip .pcells { display: inline-flex; gap: 3px; }
