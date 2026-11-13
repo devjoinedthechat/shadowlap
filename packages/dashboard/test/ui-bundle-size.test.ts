@@ -9,9 +9,9 @@ import { describe, expect, it } from 'vitest';
  * serves the files as they are.
  *
  * - The served build is split. What the first look loads before any page (app.js and the chunks it
- *   imports up front): at most 544 KB (421 KB when this was written; React DOM is half of it). It
+ *   imports up front): at most 527 KB (421 KB when this was written; React DOM is half of it). It
  *   was one script of 803 KB with every page in it. The budget was 480 KB until port/runs took the
- *   first look to 479.79 KB; 544 KB is sized for the rest of the port.
+ *   first look to 479.79 KB, then 544 KB to leave room for the rest of the port.
  * - Each page the shell routes to is a chunk of its own that loads when the page first opens
  *   (ui/pages/lazy.tsx). What opening a page loads beyond the first look, its own code and the
  *   chunks only pages need: at most 200 KB each (the run page, the largest, 144 KB; Runs 70 KB; the
@@ -30,7 +30,12 @@ import { describe, expect, it } from 'vitest';
  */
 
 const KB = 1024;
-const FIRST_LOOK = 544 * KB;
+/**
+ * Set by port/line-breaks-sweep, the port's last slice to land, from the first look it measured with
+ * every slice of the port in (522,505 B in 54 scripts, 510.26 KB): rounded up, plus 16 KB, so the
+ * budget guards closely again now the port's room is spent, as d3 asked of the last sweep.
+ */
+const FIRST_LOOK = 527 * KB;
 const PAGE = 200 * KB;
 const PART = 100 * KB;
 const COPY = 900 * KB;
