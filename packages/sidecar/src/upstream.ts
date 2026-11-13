@@ -47,33 +47,48 @@ export function asResponse(status: number, headers: Headers, body: Readable | nu
  * this one when that client has gone. A compressed body is decoded, as fetch did (decodedBody).
  * `inFlight` holds the request until it has ended, so whoever owns the set can end it sooner
  * (Sidecar.close).
+ *
+ * A connection kept from an earlier call may be one the upstream closes just as this request goes
+ * out on it: the request meets a reset before any answer, though the upstream never took it up. It
+ * goes once more on a new connection, as a browser sends it again, so the agent never sees a failure
+ * of Shadowlap's own connection. A reset on a new connection, or after the answer began, is the
+ * upstream's, and is passed on.
  */
 export function requestUpstream(url: string, method: string, headers: Record<string, string>, body: Buffer | null, inFlight?: Set<ClientRequest>, signal?: AbortSignal): Promise<Response> {
   const target = new URL(url);
   const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
-  return new Promise((resolve, reject) => {
-    const req = send(target, { method, headers: { ...headers, ...(body ? { 'content-length': String(body.length) } : {}) }, ...(signal ? { signal } : {}) }, (res) => {
-      try {
-        const status = res.statusCode ?? 502;
-        const out = new Headers();
-        for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) out.set(k, Array.isArray(v) ? v.join(', ') : v);
-        if (method === 'HEAD' || status === 204 || status === 304) {
-          res.resume();
-          return resolve(asResponse(status, out, null));
+  const attempt = (fresh: boolean): Promise<Response> =>
+    new Promise((resolve, reject) => {
+      let answered = false;
+      const req = send(target, { method, headers: { ...headers, ...(body ? { 'content-length': String(body.length) } : {}) }, ...(fresh ? { agent: false } : {}), ...(signal ? { signal } : {}) }, (res) => {
+        answered = true;
+        try {
+          const status = res.statusCode ?? 502;
+          const out = new Headers();
+          for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) out.set(k, Array.isArray(v) ? v.join(', ') : v);
+          if (method === 'HEAD' || status === 204 || status === 304) {
+            res.resume();
+            return resolve(asResponse(status, out, null));
+          }
+          resolve(asResponse(status, out, res));
+        } catch (err) {
+          // A status or header no Response can carry: the upstream's answer is no answer.
+          res.destroy();
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
-        resolve(asResponse(status, out, res));
-      } catch (err) {
-        // A status or header no Response can carry: the upstream's answer is no answer.
-        res.destroy();
-        reject(err instanceof Error ? err : new Error(String(err)));
+      });
+      req.on('error', (err: NodeJS.ErrnoException) => {
+        // Never one this end ended (`destroyed`: its agent gone, or the sidecar closing), whose error says socket hang up too.
+        // Sent again on a connection of its own (`agent: false`), which is never a kept one, it goes no more than once.
+        if (!answered && !req.destroyed && req.reusedSocket && (err.code === 'ECONNRESET' || err.code === 'EPIPE')) resolve(attempt(true));
+        else reject(err);
+      });
+      if (inFlight) {
+        inFlight.add(req);
+        // A request closes once its response has ended, a streamed body included, or it failed.
+        req.once('close', () => inFlight.delete(req));
       }
+      req.end(body ?? undefined);
     });
-    req.on('error', reject);
-    if (inFlight) {
-      inFlight.add(req);
-      // A request closes once its response has ended, a streamed body included, or it failed.
-      req.once('close', () => inFlight.delete(req));
-    }
-    req.end(body ?? undefined);
-  });
+  return attempt(false);
 }
