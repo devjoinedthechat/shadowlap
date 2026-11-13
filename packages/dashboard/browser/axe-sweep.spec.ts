@@ -129,7 +129,7 @@ const NOT_COVERED = 'main#view #notcovered';
 /** The recording the demo's error-path presets ran on, by the matrices the API gives: its page leads with their finding. */
 const presetsRecording = (page: Page) => async () => {
   const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/chaos`, { headers: { 'x-shadowlap-token': token } })).json()) as { matrices: Array<{ runId: string; golden: string | null }> };
+  const view = (await (await page.request.get(`${origin}/api/chaos`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { matrices: Array<{ runId: string; golden: string | null }> };
   const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
   if (!m) throw new Error('the demo store has no error-path presets');
   await run(page, m.runId)();

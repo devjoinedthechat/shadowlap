@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
-import { dash, openPage, seriousViolations } from './dashboard.js';
+import { dash, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
 
 /**
  * Error-path presets and production coverage in Chromium over the demo store: Tests › Not covered's
@@ -64,7 +64,7 @@ test('Not covered’s rows: j walks into them after the goldens, Enter opens a r
 /** The recording the demo's error-path presets ran on: the in-limit refund golden's, else the first the API gives. */
 async function presetsRecording(page: Page): Promise<string> {
   const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/chaos`, { headers: { 'x-shadowlap-token': token } })).json()) as { matrices: Array<{ runId: string; golden: string | null }> };
+  const view = (await (await page.request.get(`${origin}/api/chaos`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { matrices: Array<{ runId: string; golden: string | null }> };
   const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
   if (!m) throw new Error('the demo store has no error-path presets');
   return m.runId;
