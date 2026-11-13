@@ -130,7 +130,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 **Search or jump to** (⌘K or Ctrl K) is a palette over the whole dashboard. It offers:
 
 - **Every page**, and **This run's actions**, its next step first.
-- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, a Migrate row for each model the goldens use that retires, Rescan coverage, Preview pull request comment once the goldens have a test session, the team store's setup, and Keyboard shortcuts.
+- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, Migrate while a golden's model retires, Rescan coverage, Preview pull request comment once the goldens have a test session, the team store's setup, and Keyboard shortcuts.
 - **Preview model switch…** and **Preview changed prompt**, while the project has goldens. Each opens [Preview](#start-a-preview) with its dialog on every golden. The changed prompt waits while a job holds your working tree.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
