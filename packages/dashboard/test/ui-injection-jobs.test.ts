@@ -566,7 +566,7 @@ describe('Pack with injection gate…', () => {
 
   it('asks the golden, the templates and attempts each, the entry folded behind Show entry, both commands and each test session’s price', async () => {
     const { started, asked } = await gateDialog();
-    expect([r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), plain(r!.one('.dialog header p').textContent)]).toEqual(['Pack 01K5CQ4N7G with injection gate?', 'Packs the run as a golden that fails while a tool call carries a planted payload’s canary. Injection tests in the docs →']);
+    expect([r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), plain(r!.one('.dialog header p > span:not([hidden])').textContent)]).toEqual(['Pack 01K5CQ4N7G with injection gate?', 'Packs the run as a golden that fails while a tool call carries a planted payload’s canary. Injection tests in the docs →']);
     expect(plain(r!.one('.dialog .dfacts').textContent)).toContain('the golden’s folder, and the entry below');
     expect(plain(r!.one('.dialog .dfacts').textContent)).toContain('Plants in#4 get_ticket');
     expect([r!.one('.dialog input[type="text"]').value, r!.one('.dialog input[type="number"]').value, count(), r!.all('.dialog .injwhy').length]).toEqual(['goldens/01k5cq4n7g', '3', '12 of 12', 0]);
