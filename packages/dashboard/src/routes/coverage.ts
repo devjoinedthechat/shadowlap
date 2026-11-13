@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { ACTIONS } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { coveragePackArgs } from '../coverage.js';
-import { sendAnswer } from '../read-pool.js';
+import { sendAnswerTagged } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
 import { namesTeamStore } from './verdicts.js';
@@ -33,14 +33,11 @@ export function register(router: Router, ctx: RouteContext): void {
   // store's runs and coverage counters and whether names show, so Tests' asks are a 304 while nothing moved.
   router.get('/coverage', async (r) => {
     const shared = namesTeamStore(ctx.project?.path);
-    const { runs, coverage } = ctx.store.changeCounts();
-    const etag = `"c${createHash('sha1').update(JSON.stringify([runs, coverage, shared])).digest('base64url')}"`;
-    if (r.req.headers['if-none-match'] === etag) {
-      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
-      r.res.end();
-      return;
-    }
-    sendAnswer(r, await ctx.reads.run({ kind: 'coverage-view', shared }), { etag });
+    const tag = () => {
+      const { runs, coverage } = ctx.store.changeCounts();
+      return `"c${createHash('sha1').update(JSON.stringify([runs, coverage, shared])).digest('base64url')}"`;
+    };
+    await sendAnswerTagged(r, tag, () => ctx.reads.run({ kind: 'coverage-view', shared }));
   });
 
   ctx.jobs.registerJobKind(COVERAGE_JOB_KINDS.scan, {

@@ -751,3 +751,22 @@ export function sendAnswer(r: RouteRequest, a: ReadAnswer, o: { etag?: string | 
   r.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': String(Buffer.byteLength(a.body)), 'cache-control': etag ? 'no-cache' : 'no-store', ...(etag ? { etag } : {}) });
   r.res.end(a.body);
 }
+
+/**
+ * Answers a request with the answer `read` works out, under an ETag of the route's own that `tag`
+ * makes from where what the answer reads stands (a run's rows, the store's change counters), without
+ * working it out: a 304 when the browser has the answer the tag names. Else the answer, tagged only
+ * if `tag` says the same once it is in. A write that landed while it was worked out gave the newer
+ * answer the older tag, so a return to the older state, as an Undo makes, was a 304 for the answer
+ * that had the write, and the page kept a label taken off.
+ */
+export async function sendAnswerTagged(r: RouteRequest, tag: () => string, read: () => Promise<ReadAnswer>): Promise<void> {
+  const etag = tag();
+  if (r.req.headers['if-none-match'] === etag) {
+    r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+    r.res.end();
+    return;
+  }
+  const a = await read();
+  sendAnswer(r, a, { etag: tag() === etag ? etag : null });
+}

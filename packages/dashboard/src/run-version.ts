@@ -62,3 +62,15 @@ export function runVersionTag(store: StoreOf<'recording' | 'readModels' | 'activ
   ];
   return `"r${createHash('sha1').update(parts.join('\n')).digest('base64url')}"`;
 }
+
+/**
+ * A run's tag as a route makes it for a pooled answer, before the answer is worked out and again once
+ * it is in (sendAnswerTagged): each time from the run's row read again, so a write meanwhile moves it;
+ * '' once the run has gone. `extra` is worked out from the run as read, as a next step's stamp is.
+ */
+export function runTag(store: StoreOf<'recording' | 'readModels' | 'activity'>, runId: string, extra: (run: RunRecord) => string): () => string {
+  return () => {
+    const run = store.getRun(runId);
+    return run ? runVersionTag(store, run, extra(run)) : '';
+  };
+}

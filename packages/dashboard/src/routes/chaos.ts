@@ -7,9 +7,9 @@ import { expectArgs } from '../expect-field.js';
 import { HttpError } from '../http.js';
 import { outcomeWork } from '../outcome-work.js';
 import type { PresetsPlanJob } from '../presets-plan.js';
-import { sendAnswer } from '../read-pool.js';
+import { sendAnswerTagged } from '../read-pool.js';
 import { runAffinity } from '../run-index.js';
-import { runVersionTag } from '../run-version.js';
+import { runTag } from '../run-version.js';
 import { optionLike } from '../tests.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
@@ -84,13 +84,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const asked = presetsPlanJob(ctx, run, r.query);
     if ('error' in asked) throw new HttpError(400, asked.error);
     const { job, tracking } = asked;
-    const etag = runVersionTag(ctx.store, run, JSON.stringify([ctx.read, job, tracking]));
-    if (r.req.headers['if-none-match'] === etag) {
-      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
-      r.res.end();
-      return;
-    }
-    sendAnswer(r, await ctx.reads.run(job, runAffinity(ctx.store, run.runId)), { etag });
+    const tag = runTag(ctx.store, run.runId, () => JSON.stringify([ctx.read, job, tracking]));
+    await sendAnswerTagged(r, tag, () => ctx.reads.run(job, runAffinity(ctx.store, run.runId)));
   });
 
   ctx.jobs.registerJobKind(CHAOS_JOB_KIND, {
