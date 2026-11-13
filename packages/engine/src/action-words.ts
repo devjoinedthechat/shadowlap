@@ -85,11 +85,12 @@ export const ACTIONS = {
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // What a run's page leads with besides those: a page to open, a test run again, a pack made a golden.
   openFix: { label: 'Open fix' },
+  // A check changed in the check builder: a golden's its own recording fails (Tests, a run's page, Needs a
+  // look), or an open fix's (`shadowlap fix check`), whose Save is the builder's confirm.
+  editCheck: { label: 'Edit check…', confirm: 'Save check', doing: 'Changing check' },
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
   openCandidates: { label: 'Open candidates' },
-  // A golden's check its own recording fails, opened in the check builder (Tests, a run's page, Needs a look).
-  editCheck: { label: 'Edit check…' },
   openProof: { label: 'Open proof' },
   openPassingRun: { label: 'Open passing run' },
   // Once Find breaking commit named a crash's commit: undone in the working tree, uncommitted, then
@@ -125,6 +126,8 @@ export const ACTIONS = {
   addProject: { label: 'Add project…' },
   setUpTeamStore: { label: 'Set up team store' },
   continueTeamStoreSetup: { label: 'Continue team store setup' },
+  // Settings → CI's pull request comment, from the last test session: it only reads.
+  previewPrComment: { label: 'Preview pull request comment' },
   keyboardShortcuts: { label: 'Keyboard shortcuts' },
 } as const satisfies Record<string, ActionWords>;
 

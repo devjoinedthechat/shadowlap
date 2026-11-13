@@ -36,7 +36,7 @@ export function CiSections({ view }: { view: TestsView }) {
             </p>
           ) : null}
           <p className="muted after">
-            On GitHub, <Link href="#/settings/ci">Settings → CI</Link> builds the whole workflow.
+            On GitHub, <Link href="#/settings/ci">Settings → CI</Link> builds the whole workflow, with the pull request comment, Fix on failure and alerts.
           </p>
         </Section>
         <Section title="Add a golden">

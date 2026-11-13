@@ -109,6 +109,20 @@ describe('how a job ends, in the words of its kind', () => {
     expect(check(0, { recordings: [1, 2], counts: { passed: 1, notApplicable: 1 } })).toEqual({ text: 'passed · 1 of 2 recordings passed, 1 not applicable · exit 0', tone: 'ok' });
     expect(check(0, { recordings: [1], counts: { passed: 0, notApplicable: 1 } })).toEqual({ text: 'not applicable · 0 of 1 recording passed, 1 not applicable · exit 0', tone: '' });
   });
+
+  it('Save check says the check changed, with the verdicts that stopped counting, or that nothing changed, and its toast leads with what ran', () => {
+    const fixCheck = (code: number, result: unknown) => done({ kind: 'fix-check', title: 'Changing check', args: ['fix', 'check', 'fx-1'], code, result });
+    // Its lines are a check's: never "check passed" or "check failed".
+    const lines = ['✓ Changed the check of fx-01K8RG000 · Refunds issued without approval', '  failing ✓ 01K8RG0000  failed'];
+    expect(jobStatus(fixCheck(0, { status: 'changed', uncounted: [] }), lines)).toEqual({ text: 'changed · exit 0', tone: 'ok' });
+    expect(jobStatus(fixCheck(0, { status: 'changed', uncounted: ['vf-1'] }), lines).text).toBe('changed · 1 verdict no longer counts · exit 0');
+    expect(jobStatus(fixCheck(0, { status: 'changed', uncounted: ['vf-1', 'vf-2'] }), lines).text).toBe('changed · 2 verdicts no longer count · exit 0');
+    expect(jobStatus(fixCheck(0, { status: 'unchanged', uncounted: [] }), [])).toEqual({ text: 'unchanged · exit 0', tone: 'warn' });
+    expect(jobStatus(fixCheck(2, { status: 'error', error: { message: 'no' } }), [])).toEqual({ text: 'refused · exit 2', tone: 'warn' });
+    expect(endToast(fixCheck(0, { status: 'changed', uncounted: [] }), lines)).toBe('Changed check · exit 0');
+    expect(endToast(fixCheck(0, { status: 'unchanged', uncounted: [] }), [])).toBe('Tried changing check · unchanged · exit 0');
+    expect(endToast(fixCheck(2, { status: 'error', error: { message: 'no' } }), [])).toBe('Tried changing check · refused · exit 2');
+  });
 });
 
 describe('the drawer’s header', () => {

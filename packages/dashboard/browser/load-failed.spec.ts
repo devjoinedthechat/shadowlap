@@ -131,3 +131,31 @@ test('a menu or a dialog whose code didn’t come says so in the error toast, no
   await expect(page.locator('.pop[role="menu"]')).toBeVisible();
   await expect(toast).toHaveCount(0);
 });
+
+test('Preview pull request comment, whose code didn’t come, says so in the error toast, closed again so the next press says it again, until Retry loads it again', async ({ page }) => {
+  const part = /\/assets\/chunks\/PrCommentDialog-\w+\.js$/;
+  await page.route(part, (route) => route.abort());
+  await openPage(page, '/settings/ci', 'main#view .prpanel');
+  const toast = page.locator('.toasts .toast.err');
+  const preview = page.locator('main#view .prpanel button', { hasText: 'Preview pull request comment' });
+  // Its button holds no open dialog once the toast comes: a second press asks for the script again, and says so again.
+  for (const time of [1, 2]) {
+    await preview.click();
+    await expect(toast, `press ${time}`).toContainText('This dialog’s code didn’t come from the dashboard server. Retry loads the page again.');
+    await expect(toast.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(preview).toBeFocused();
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+    if (time === 1) {
+      await toast.getByRole('button', { name: 'Dismiss' }).click();
+      await expect(toast).toHaveCount(0);
+    }
+  }
+  await expectAccessible(page);
+  // The server sends it: Retry loads the page again, and the preview opens.
+  await page.unroute(part);
+  await toast.getByRole('button', { name: 'Retry' }).click();
+  await page.locator('main#view .prpanel').waitFor();
+  await preview.click();
+  await expect(page.locator('[role="dialog"]', { hasText: 'Preview pull request comment' })).toBeVisible();
+  await expect(toast).toHaveCount(0);
+});

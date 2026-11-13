@@ -119,9 +119,12 @@ export function leadingVerdict(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'de
   return v && v.counts && v.verdict === 'incomplete' && v.more ? v : null;
 }
 
-/** Run blame again's card, on the fix's header and its Fixes row alike. */
-export const blameAgainTip = (again: { kind: 'stopped' | 'unsettled'; gate: { good: number; max: number } | null }): string =>
-  again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
+/** What Run blame again does for a blame found under the fix's old check, on its card and its ask. */
+export const UNDER_CHECK_AGAIN = 'Finds the call that lost the run under the fix’s check';
+
+/** Run blame again's card, on the fix's header and its Fixes row alike: under the fix's check first, for a blame found under its old one. */
+export const blameAgainTip = (again: { kind: 'stopped' | 'unsettled' | 'old-check'; gate: { good: number; max: number } | null; underCheck: boolean }): string =>
+  again.underCheck ? UNDER_CHECK_AGAIN : again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
 
 /** Run blame with stronger model's card. */
 export const STRONGER_TIP = 'Another model answers from each probed call instead of the recorded one';

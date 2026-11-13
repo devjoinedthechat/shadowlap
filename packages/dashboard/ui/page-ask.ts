@@ -48,5 +48,7 @@ export const APPLY_ASK = pageAsk('apply');
 export const PREVIEW_ASK = pageAsk('preview');
 /** Changes › Migrate's dialog for a retiring model, asked for by the model it switches from: Migrate <a> to <b>. */
 export const MIGRATE_ASK = pageAsk('migrate');
+/** Settings → CI's Preview pull request comment. */
+export const PR_COMMENT_ASK = pageAsk('pr-comment');
 /** An issue on Runs › Failed, asked for by its key (runspage/open-issue.ts): Runs opens it as its issues are in, and scrolls it into view. */
 export const ISSUE_ASK = pageAsk('issue');

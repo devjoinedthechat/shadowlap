@@ -153,6 +153,7 @@ describe('the browser bundle', () => {
   const builder = `
     export { EXPECT_KEYS, hasChecks } from './grammar.js';
     export { parseExpect } from './parse.js';
+    export { lowerRecorded } from './fields.js';
     export { callRuleLabel, checkLabels, checkLine, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, textLabels, toolCheckLabel, whenLabel } from './labels.js';
   `;
   const bundle = (format: 'esm' | 'iife') =>

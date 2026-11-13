@@ -114,7 +114,7 @@
       "teamPull": 39
     },
     "packages/cli/src/test-report.ts": {
-      "markdownReport": 39
+      "markdownReport": 33
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 58,
@@ -140,7 +140,7 @@
       "row": 56
     },
     "packages/dashboard/src/fix-bundles.ts": {
-      "fixBundles": 82
+      "fixBundles": 79
     },
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
@@ -163,7 +163,7 @@
     "packages/dashboard/src/tests.ts": {
       "bisectChoices": 62,
       "resultLine": 38,
-      "testsView": 55
+      "testsView": 45
     },
     "packages/dashboard/src/training.ts": {
       "trainingView": 81
@@ -375,7 +375,7 @@
       "runVerify > verifyOne": 182
     },
     "packages/dashboard/src/fix-bundles.ts": {
-      "fixBundles": 180
+      "fixBundles": 177
     },
     "packages/dashboard/src/routes/projects.ts": {
       "register": 216
@@ -457,7 +457,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 910,
+    "packages/dashboard/src/tests.ts": 896,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 810,

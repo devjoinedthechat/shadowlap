@@ -24,64 +24,69 @@ export interface LeadPress {
   onUpdate: (golden: string, e: Price) => void;
   onFind: (f: DivergenceView | FailureView) => void;
   onMore: (v: InconclusiveView, e: Price) => void;
+  /** Re-run test of a golden whose injection gate showed too little to say: its test again, which plants the same payloads. */
+  onRerun: (golden: string, e: Price) => void;
   /** Run tests as the page's header runs it, the whole session: null where the server runs no tests. */
   runTests: ReturnType<typeof testsJob> | null;
   /** The check builder on a golden at a check, by its label, and its script asked for ahead: null where the page has no builder. */
   edit: { open: (golden: string, check: string) => void; preload: () => void } | null;
-  onAgain: (lead: Extract<Lead, { kind: 'again' }>, e: Price) => void;
 }
 
-/** The verdict's step, lime: the page's one lime button while it leads (`leadStep`). */
-function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
+/**
+ * A golden's step: lime as the verdict's, the page's one lime button while it leads (`leadStep`);
+ * plain as its report's, where the verdict's lime is the page's.
+ */
+export function LeadButton({ lead, p, lime = true }: { lead: Lead; p: LeadPress; lime?: boolean }) {
+  const btn = lime ? 'btn lime' : 'btn';
   switch (lead.kind) {
     case 'normalize': {
       const { d, n } = lead;
       return (
-        <JobButton className="btn lime" why={p.wait(n.run === 'rerun' ? 'run it again' : 'add the normalizer')} {...testsJob(normalizeCard(d, n), goldenPrice(p.prices, d.golden, n.run === 'rerun' ? 'rerun' : 'normalize'), (e) => p.onNormalize(d, e))}>
+        <JobButton className={btn} why={p.wait(n.run === 'rerun' ? 'run it again' : 'add the normalizer')} {...testsJob(normalizeCard(d, n), goldenPrice(p.prices, d.golden, n.run === 'rerun' ? 'rerun' : 'normalize'), (e) => p.onNormalize(d, e))}>
           {lead.label}
         </JobButton>
       );
     }
     case 'update':
       return (
-        <JobButton className="btn lime" why={p.wait('update it')} {...testsJob(updateCard(lead.golden, lead.judge), goldenPrice(p.prices, lead.golden, 'update'), (e) => p.onUpdate(lead.golden, e))}>
+        <JobButton className={btn} why={p.wait('update it')} {...testsJob(updateCard(lead.golden, lead.judge), goldenPrice(p.prices, lead.golden, 'update'), (e) => p.onUpdate(lead.golden, e))}>
           {lead.label}
         </JobButton>
       );
     case 'bisect':
-      return <FindCommitButton f={lead.f} live={p.live(lead.f)} why={p.wait('find the breaking commit')} lime onBisect={() => p.onFind(lead.f)} />;
+      return <FindCommitButton f={lead.f} live={p.live(lead.f)} why={p.wait('find the breaking commit')} lime={lime} onBisect={() => p.onFind(lead.f)} />;
     case 'revert':
-      return <RevertButton step={lead.step} found={lead.f.found} estimate={goldenPrice(p.prices, lead.f.golden, 'rerun')} runId={lead.f.runId} lead />;
+      return <RevertButton step={lead.step} found={lead.f.found} estimate={goldenPrice(p.prices, lead.f.golden, 'rerun')} runId={lead.f.runId} lead={lime} />;
     case 'more':
       return (
-        <JobButton className="btn lime" why={p.wait('run the tests')} {...testsJob(moreCard(lead.more), goldenPrice(p.prices, lead.v.golden, 'more'), (e) => p.onMore(lead.v, e))}>
+        <JobButton className={btn} why={p.wait('run the tests')} {...testsJob(moreCard(lead.more), goldenPrice(p.prices, lead.v.golden, 'more'), (e) => p.onMore(lead.v, e))}>
+          {lead.label}
+        </JobButton>
+      );
+    case 'rerun':
+      return (
+        <JobButton className={btn} why={p.wait('run it again')} {...testsJob({ tip: lead.label, sub: lead.sub ?? '', command: lead.command ?? commandText(['test', lead.golden]) }, goldenPrice(p.prices, lead.golden, 'rerun'), (e) => p.onRerun(lead.golden, e))}>
           {lead.label}
         </JobButton>
       );
     case 'proof':
       return <ProofLead lead={lead} />;
-    case 'again':
-      return (
-        <JobButton className="btn lime" why={p.wait('run it again')} {...testsJob({ tip: lead.label, sub: lead.sub, command: commandText(['test', lead.golden]) }, goldenPrice(p.prices, lead.golden, 'rerun'), (e) => p.onAgain(lead, e))}>
-          {lead.label}
-        </JobButton>
-      );
     case 'fix':
       return (
-        <a className="btn lime" href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], `The fix for this failure: ${lead.check}`)}>
+        <a className={btn} href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], `The fix for this failure: ${lead.check}`)}>
           {lead.label}
         </a>
       );
     case 'edit': {
       const ahead = () => p.edit?.preload();
       return (
-        <ActionButton className="btn lime" data-step="edit-check" data-g={lead.golden} tip={lead.label} sub={lead.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => p.edit?.open(lead.golden, lead.check)}>
+        <ActionButton className={btn} data-step="edit-check" data-g={lead.golden} tip={lead.label} sub={lead.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => p.edit?.open(lead.golden, lead.check)}>
           {lead.label}
         </ActionButton>
       );
     }
     case 'blame':
-      return <RunBlameButton runId={lead.runId} offer={lead.step.offer} className="btn lime" lead {...(lead.step.capture ? { capture: true } : {})} {...(lead.step.command ? { line: lead.step.command } : {})} />;
+      return <RunBlameButton runId={lead.runId} offer={lead.step.offer} className={btn} lead={lime} {...(lead.step.capture ? { capture: true } : {})} {...(lead.step.command ? { line: lead.step.command } : {})} />;
   }
 }
 

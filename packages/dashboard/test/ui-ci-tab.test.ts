@@ -1,15 +1,19 @@
 import { act, createElement, useMemo, useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BASELINE_DEFAULTS, readWorkflow, RECORD_WINDOWS, workflowVersion } from '@shadowlap/engine';
+import { BASELINE_DEFAULTS, COMMENT_FOOT, commentMarkdown, readWorkflow, RECORD_WINDOWS, workflowVersion } from '@shadowlap/engine';
 import { fileSwitches, type RepositoryWorkflow } from '../src/ci-file.js';
 import { ciWorkflows, fileOptions, parseCiOptions, type CiContext, type CiWorkflowOptions, type CiWorkflowsView } from '../src/ci-workflows.js';
+import type { PrCommentPreview } from '../src/pr-comment-preview.js';
 import { gatePreview } from '../src/tests-gate.js';
 import { ApiError } from '../ui/api.js';
+import { previewSub } from '../ui/ci/words.js';
 import { tipCard } from '../ui/components/HoverCard.js';
+import { PR_COMMENT_ASK } from '../ui/page-ask.js';
 import { sessionLine } from '../ui/pages/settings/CiWorkflow.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * Settings → CI as the page renders the server's answers: Your workflow first, where the
@@ -27,6 +31,32 @@ const goldens = [
 const FILE = '.github/workflows/agent.yml';
 const GATES: NonNullable<CiContext['gates']> = { suiteRisk: 0.05, uses: { sprt: ['refund-flow-budget'], baseline: [] } };
 const SESSION = { ci: false, revision: 'd2e8a1f0c4', at: Date.now() - 3_600_000, text: '2 of 7 goldens passed · 3 failed, 2 inconclusive' };
+
+/** The comment's preview as `GET /api/ci/comment` answers it: a session that ran both goldens, with the decisions its job kept, a run's cost and an injection gate. */
+const PREVIEW: PrCommentPreview = {
+  session: { id: 'ts-01M5PREVIEW00000000000000A', revision: 'd2e8a1f+dirty', at: Date.now() - 3_600_000 },
+  head: '1 of 2 goldens passed · 1 failed',
+  rows: [
+    { verdict: 'failed', golden: 'goldens/refund-over-limit', line: 'failed · diverged at call 3 · $.messages[2].content' },
+    { verdict: 'passed', golden: 'goldens/refund-flow-budget', line: 'passed · replayed clean' },
+  ],
+  decisions: {
+    sessionId: 'dc-01M5PREVIEW00000000000000',
+    mark: '✗',
+    sentence: '1 of 2 goldens decides a write or when to stop differently',
+    headline: '1 of 2 goldens decides a write or when to stop differently, under the prompt and tools this pull request sends',
+    rows: [
+      { rank: 1, golden: 'goldens/refund-over-limit', callNo: 11, detail: 'add_note is no longer called; issue_refund is called', recorded: 'add_note({"order":"ord-1042","text":"over the limit"})', now: 'issue_refund({"order":"ord-1042","amount":240})' },
+      { rank: 2, golden: 'goldens/refund-over-limit', callNo: 12, detail: 'ends the run', recorded: 'escalate({"to":"tier-2"})', now: 'text: Refunded.' },
+    ],
+    note: "Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.",
+  },
+  cost: { before: 0.041, after: 0.043, line: '≈$0.041 → ≈$0.043 (+5%)', amounts: '≈$0.041 → ≈$0.043', change: '+5%' },
+  injection: [{ verdict: 'passed', golden: 'goldens/refund-flow-budget', resultId: 'tr-01M5PREVIEW0000000000000B', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }],
+  postedBy: 'github-actions',
+  foot: COMMENT_FOOT,
+  markdown: '### Shadowlap: 1 of 2 goldens passed · 1 failed\n',
+};
 
 /** The repository's workflow as findWorkflow reads it, and the switches the reader takes from it. */
 function repoOf(text: string | null): RepositoryWorkflow {
@@ -52,6 +82,8 @@ function fakeServer(start: string | null, over: Partial<CiContext> = {}) {
   const was = new Map<string, { text: string | null; version: string }>();
   const s = {
     text: start,
+    preview: { session: null } as PrCommentPreview | { session: null },
+    prComment: vi.fn(async () => s.preview),
     ciWorkflows: vi.fn(async (o: Partial<CiWorkflowOptions> = {}) => served(o, s.text, over)),
     writeWorkflow: vi.fn(async (o: Partial<CiWorkflowOptions>, expect: string) => {
       const view = served(o, s.text, over);
@@ -81,7 +113,7 @@ function fakeServer(start: string | null, over: Partial<CiContext> = {}) {
 }
 
 function app(s: ReturnType<typeof fakeServer>, toast: AppState['toast'] = () => undefined, conn: AppState['conn'] = 'ok'): AppState {
-  const client = { ciWorkflows: s.ciWorkflows, settings: { writeWorkflow: s.writeWorkflow, undoWorkflow: s.undoWorkflow, gate: s.gate }, teamStore: async () => null, jobs: async () => [], storeSetup: { view: async () => null } };
+  const client = { ciWorkflows: s.ciWorkflows, settings: { writeWorkflow: s.writeWorkflow, undoWorkflow: s.undoWorkflow, gate: s.gate, prComment: s.prComment }, teamStore: async () => null, jobs: async () => [], storeSetup: { view: async () => null } };
   return {
     client,
     conn,
@@ -128,7 +160,7 @@ afterEach(async () => {
 });
 
 async function open(s: ReturnType<typeof fakeServer>, toast: AppState['toast'] = () => undefined, conn: AppState['conn'] = 'ok', tab = 'ci'): Promise<Rendered> {
-  r = await render(createElement(AppContext.Provider, { value: app(s, toast, conn) }, createElement(SettingsPage, { tab })));
+  r = await render(createElement(AppContext.Provider, { value: app(s, toast, conn) }, withServed(createElement(SettingsPage, { tab }))));
   await r.until('the panels and the gate preview', () => r!.all('#alerts .cilist').length > 1 && r!.all('#gates .gsays').length === 1);
   return r;
 }
@@ -160,10 +192,10 @@ describe('Settings → CI', () => {
     // The repository's file is the one the switches build: nothing to write.
     expect(r!.one('#workflow .wfstate').textContent).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#workflow header .btn')).toHaveLength(0);
-    // The file folds behind Show workflow, with Copy workflow beside it.
+    // The file folds behind Show workflow, with Copy workflow beside it, its one copy icon CopyButton's own.
     const show = r!.one('#workflow .wftog button[aria-controls="wfBox"]');
     expect([show.textContent, show.getAttribute('aria-expanded'), r!.one('#wfBox').hasAttribute('hidden')]).toEqual(['Show workflow', 'false', true]);
-    expect(r!.byText('#workflow .wftog button', 'Copy workflow')).toBeTruthy();
+    expect(r!.byText('#workflow .wftog button', 'Copy workflow').querySelectorAll('svg')).toHaveLength(1);
     await r!.click(show);
     expect([show.textContent, show.getAttribute('aria-expanded'), r!.one('#wfBox').hasAttribute('hidden')]).toEqual(['Hide workflow', 'true', false]);
     expect(r!.all('#wfBox pre.wfcode span.add, #wfBox pre.wfcode span.del')).toHaveLength(0);
@@ -330,6 +362,133 @@ describe('Settings → CI', () => {
     const problem = served({}, DEFAULTS_FILE, { goldens: [], configError }).problem;
     expect(problem).toBeTruthy();
     expect(r!.one('#workflow .fieldnote').textContent).toBe(problem);
+  });
+});
+
+describe('Settings → CI: the pull request comment', () => {
+  const comment = () => r!.one('#pr-comment');
+  const preview = () => r!.byText('#pr-comment .actions button', 'Preview pull request comment');
+  const needs = () => r!.all('#pr-comment .cimain .cilist li').map((li) => [li.querySelector('span')?.textContent ?? '', li.querySelector('code')?.textContent ?? '']);
+
+  it('says what the comment carries, and previews it from the last test session: the session, who posts it, the comment, and Copy Markdown', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    s.preview = PREVIEW;
+    const toast = vi.fn();
+    const writes: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } });
+    await open(s, toast);
+    expect(plain(comment().querySelector('.cimain > p.muted')!)).toBe('One comment on each pull request, kept current on every push: each golden’s verdict by its gate, beside the base branch’s last session, a run’s cost before and after, and what planted instructions did.');
+    // Its card says which session it reads, once read.
+    await r!.until('the preview read', () => preview().getAttribute('data-tip') === tipCard('Preview pull request comment', [], previewSub(PREVIEW.session)));
+    expect(previewSub(PREVIEW.session)).toMatch(/^From the last test session, d2e8a1f\+dirty at /);
+    expect(preview().getAttribute('aria-disabled')).toBeNull();
+    await r!.click(preview());
+    await r!.until('the dialog', () => r!.all('[role="dialog"] .prc').length === 1);
+    const dialog = r!.one('[role="dialog"]');
+    expect(dialog.className).toBe('dialog prdlg');
+    expect(dialog.querySelector('header h3')!.textContent).toBe('Preview pull request comment');
+    expect(plain(dialog.querySelector('header p')!)).toBe('The one comment the Action keeps on each pull request, edited on every push. Pull request comments in the docs →');
+    expect(dialog.querySelectorAll('.dfacts > div').map((row) => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent, row.querySelector('dd small')?.textContent ?? null])).toEqual([
+      ['Session', `${previewSub(PREVIEW.session).replace('From the last test session, ', '')}the last test session`, 'the last test session'],
+      ['Posted by', 'github-actions', null],
+    ]);
+    // The comment as GitHub shows it: the heading's tally, each golden worst first with its mark, the decisions, the cost, the injection gate and the job summary's line.
+    const prc = dialog.querySelector('.prc')!;
+    expect(prc.querySelector('h4')!.textContent).toBe('Shadowlap: 1 of 2 goldens passed · 1 failed');
+    expect(prc.querySelectorAll('.prc-g li').map((li) => [li.getAttribute('class'), li.querySelector('i')!.textContent, li.querySelector('code')!.textContent, plain(li.querySelector('span')!)])).toEqual([
+      ['fail', '✗', 'goldens/refund-over-limit', 'failed · diverged at call 3 · $.messages[2].content'],
+      ['pass', '✓', 'goldens/refund-flow-budget', 'passed · replayed clean'],
+    ]);
+    expect(prc.querySelectorAll('h5').map((h) => h.textContent)).toEqual(['Decisions', 'Injection']);
+    expect(plain(prc.querySelector('.prc-dh')!)).toBe('✗ 1 of 2 goldens decides a write or when to stop differently, under the prompt and tools this pull request sends');
+    expect(prc.querySelectorAll('.prc-d').map((d) => [d.querySelector('.prc-rk')!.getAttribute('class'), plain(d.querySelector('p')!)])).toEqual([
+      ['prc-rk', 'rank 1 goldens/refund-over-limit #11 · add_note is no longer called; issue_refund is called'],
+      ['prc-rk r2', 'rank 2 goldens/refund-over-limit #12 · ends the run'],
+    ]);
+    // A call cut on one line, whole on hover, a phone breaking after a comma but never in an order's id.
+    const call = prc.querySelectorAll('.prc-a .prc-call')[1];
+    expect([call.textContent, call.getAttribute('title'), call.querySelectorAll('wbr').length, call.querySelectorAll('span.nw').map((x) => x.textContent)]).toEqual(['issue_refund({"order":"ord-1042","amount":240})', 'issue_refund({"order":"ord-1042","amount":240})', 1, ['"ord-1042"']]);
+    expect(prc.querySelector('.prc-dim')!.textContent).toBe(PREVIEW.decisions!.note);
+    expect(plain(prc.querySelector('.prc-cost')!)).toBe('cost per run ≈$0.041 → ≈$0.043 (+5%)');
+    expect(prc.querySelectorAll('.prc-i').map((x) => [x.getAttribute('class'), x.querySelector('i')!.textContent, x.querySelector('code')!.textContent, plain(x.querySelector('span')!)])).toEqual([['prc-i pass', '✓', 'goldens/refund-flow-budget', PREVIEW.injection[0].line]]);
+    // An injection gate's line breaks only after a dot, each part kept whole, as the design's dotJoin keeps one.
+    expect(prc.querySelector('.prc-i > span')!.querySelectorAll('span.nw').map((x) => plain(x))).toEqual(['passed ·', '6 attempts ·', '0 obeyed (at most 0 allowed) ·', '0 influenced ·', '6 ignored']);
+    // The job summary's line in the server's words, the Action's without the job's address the preview can't know.
+    const foot = commentMarkdown({ results: [], runUrl: 'u' }).trimEnd().split('\n').at(-1)!;
+    expect(foot).toBe("[The job's summary](u) has each failure in full.");
+    expect(foot.replace(/\[(.+?)\]\(u\)/, '$1')).toBe(COMMENT_FOOT);
+    expect(prc.querySelector('.prc-foot')!.textContent).toBe(PREVIEW.foot);
+    // Close first, then Copy Markdown, which copies what the Action would post and stays open.
+    expect(dialog.querySelectorAll('footer button').filter((b) => !b.hasAttribute('hidden')).map((b) => b.textContent)).toEqual(['Close', 'Copy Markdown']);
+    expect(r!.focused().textContent).toBe('Close');
+    await r!.click(r!.byText('[role="dialog"] footer button', 'Copy Markdown'));
+    await r!.until('the copy', () => writes.length === 1);
+    expect(writes).toEqual([PREVIEW.markdown]);
+    await r!.until('its toast', () => toast.mock.calls.some((c) => c[0] === 'Copied the comment’s Markdown'));
+    expect(r!.all('[role="dialog"]')).toHaveLength(1);
+    await r!.click(r!.byText('[role="dialog"] footer button', 'Close'));
+    expect(r!.all('[role="dialog"]')).toHaveLength(0);
+  });
+
+  it('waits before a session ran every golden, saying why on its card and in the toast a press raises; the palette’s ask opens the preview', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    const toast = vi.fn();
+    await open(s, toast);
+    await r!.until('the preview read', () => preview().getAttribute('aria-disabled') === 'true');
+    expect(preview().getAttribute('data-tip')).toBe(tipCard('Preview pull request comment', [], 'The comment is the last test session’s: run the tests once'));
+    await r!.click(preview());
+    expect(toast).toHaveBeenCalledWith('No test session yet: run the tests once', 'notice', undefined);
+    expect(r!.all('[role="dialog"]')).toHaveLength(0);
+    await r!.unmount();
+    // Asked for from the palette before the page showed (on another page's window): it opens as the panel does.
+    s.preview = PREVIEW;
+    vi.stubGlobal('window', { dispatchEvent: () => true });
+    PR_COMMENT_ASK.ask();
+    await open(s, toast);
+    await r!.until('the dialog', () => r!.all('[role="dialog"] .prc').length === 1);
+    expect(PR_COMMENT_ASK.take()).toBe(false);
+  });
+
+  it('says a preview it couldn’t read as every page does, never a bare status, and Retry reads it again', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    s.prComment.mockImplementation(async () => {
+      throw new ApiError(500, 'HTTP 500');
+    });
+    await open(s);
+    await r!.until('the panel’s read', () => s.prComment.mock.calls.length === 1);
+    // The panel's read failed, so the dialog reads it itself, and says it couldn't, with Retry.
+    await r!.click(preview());
+    await r!.until('the failure', () => r!.all('[role="dialog"] .loaderr').length === 1);
+    const failed = r!.one('[role="dialog"] .loaderr');
+    expect([failed.getAttribute('role'), ...failed.querySelectorAll('p > span').map((x) => x.textContent)]).toEqual(['alert', 'couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    expect(r!.byText('[role="dialog"] footer button', 'Copy Markdown').hasAttribute('disabled')).toBe(true);
+    s.prComment.mockImplementation(async () => PREVIEW);
+    await r!.click(r!.byText('[role="dialog"] .loaderr button', 'Retry'));
+    await r!.until('the comment', () => r!.all('[role="dialog"] .prc').length === 1);
+    expect(r!.all('[role="dialog"] .loaderr')).toHaveLength(0);
+  });
+
+  it('switches the decisions the branch changes into the comment, with the model key in what posting needs, only while the comment is on', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    const toast = vi.fn();
+    await open(s, toast);
+    const row = () => r!.all('#pr-comment .setrow').find((x) => x.querySelector('b')?.textContent === 'The decisions the branch changes')!;
+    expect(row().querySelector('span')!.textContent).toBe('Asks the goldens’ models on every push, so the step needs their keys.');
+    const decisions = () => r!.one('#pr-comment .setrow .switch[aria-labelledby="cidecisions-name"]');
+    expect([decisions().getAttribute('aria-checked'), decisions().getAttribute('aria-describedby')]).toEqual(['false', 'cidecisions-help']);
+    expect(needs()).toEqual([['permission to keep the action’s comment on a pull request', 'pull-requests: write']]);
+    await r!.click(decisions());
+    await r!.until('the answer with decisions', () => needs().length === 2);
+    expect(s.ciWorkflows).toHaveBeenLastCalledWith(expect.objectContaining({ decisions: true }));
+    expect(toast).toHaveBeenCalledWith('The decisions are on · Your workflow changes with it');
+    expect(needs()[1]).toEqual(['a model key, for the decisions the branch changes', 'ANTHROPIC_API_KEY']);
+    expect(plain(comment().querySelector('.cimain > p.muted')!)).toContain('beside the base branch’s last session, the decisions the branch changes, a run’s cost before and after');
+    expect(shownFile()).toMatch(/^ +decisions: true$/m);
+    // The comment off: nothing of the decisions is written, and posting needs nothing.
+    await r!.click(r!.one('#pr-comment header .switch'));
+    await r!.until('the comment off', () => comment().className === 'panel sec set cip prpanel off');
+    expect(needs().map(([what]) => what)).not.toContain('a model key, for the decisions the branch changes');
+    expect(shownFile()).not.toContain('decisions: true');
   });
 });
 

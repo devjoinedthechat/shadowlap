@@ -619,6 +619,7 @@ export function pasteWhere(files: ReadonlyArray<{ path: string; found: boolean }
 export function ciShown(changed: Partial<CiWorkflowOptions>, view: CiWorkflowsView): CiWorkflowOptions {
   return {
     comment: changed.comment ?? view.comment.on,
+    decisions: changed.decisions ?? view.comment.decisions,
     fix: changed.fix ?? view.fixOnFailure.on,
     alerts: changed.alerts ?? view.alerts.on ?? true,
     budget: changed.budget ?? view.fixOnFailure.budget,

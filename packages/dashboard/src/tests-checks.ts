@@ -98,20 +98,6 @@ function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, {
 }
 
 /**
- * What asking a judge check's verdict live cost, and in how many attempts it was asked: the result's
- * judge summary (every attempt) when this is the result's only judge check and every judge model in it
- * has a price; else, for a result of one attempt, the check's own call. Null for a verdict from the
- * recording, which is free, and when the cost isn't known.
- */
-function judgeLive(r: TestResult, c: StoredCheck): GoldenCheck['live'] {
-  if (c.source !== 'live' || !c.judge) return null;
-  const s = r.data?.judge;
-  const judges = (r.data?.checks ?? []).filter((x) => x.judge).length;
-  if (s && judges === 1 && s.live > 0 && !s.unknownModels.length) return { cost: s.spent, asked: s.live };
-  return (r.data?.attempts?.total ?? 1) <= 1 && c.judge.cost !== null ? { cost: c.judge.cost, asked: 1 } : null;
-}
-
-/**
  * What a golden's pack holds for a judge check its test couldn't decide, read from the CLI's words for
  * why (`whyNotAnswered` in the CLI's judge.ts): no verdict, one given to an older form of the judge's
  * request, or one given on other material, with where it differs. Null for any other reason. Tests'
@@ -125,6 +111,21 @@ export function heldVerdict(why: string): Pick<UnjudgedCheck, 'held' | 'changed'
   const other = /^the recording's verdict was given on other material(?:: (it read [\s\S]*))?, and [^,]*$/.exec(w);
   if (other) return { held: 'material', changed: other[1] ?? null };
   return { held: null, changed: null };
+}
+
+/**
+ * How many attempts a judge check was asked live in, and what that cost: the result's judge summary
+ * (every attempt) when it is the result's only judge check and every judge model in it has a price;
+ * else, for a result of one attempt, the check's own call. Null for a verdict from the recording,
+ * which is free, and when the cost isn't known. The one place Tests counts a judge's asks, the row's
+ * and the report's alike, so asking judges only where an attempt passed its other checks changes it here.
+ */
+export function judgeAsked(r: TestResult, c: StoredCheck): { cost: number; asked: number } | null {
+  if (c.source !== 'live' || !c.judge) return null;
+  const s = r.data?.judge;
+  const judges = (r.data?.checks ?? []).filter((x) => x.judge).length;
+  if (s && judges === 1 && s.live > 0 && !s.unknownModels.length) return { cost: s.spent, asked: s.live };
+  return (r.data?.attempts?.total ?? 1) <= 1 && c.judge.cost !== null ? { cost: c.judge.cost, asked: 1 } : null;
 }
 
 /**
@@ -163,7 +164,7 @@ export function goldenChecks(store: StoreOf<'recording'>, labels: readonly strin
     used.add(i);
     const c = kept[i]!;
     const tally = tallies?.get(label);
-    const live = judgeLive(r!, c);
+    const live = judgeAsked(r!, c);
     return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live, attempts: tally && tally.of > 1 ? tally : null, judge: judgeOf(r!, c, live) };
   });
 }

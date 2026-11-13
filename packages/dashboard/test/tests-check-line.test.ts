@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { JudgeOutcome, StoredCheck } from '@shadowlap/engine';
+import type { JudgeOutcome, StoredCheck, TestResult } from '@shadowlap/engine';
 import { formatChecks } from '../../cli/src/golden-test.js';
-import { checkReportLine } from '../ui/goldens.js';
+import { printedLines } from '../src/golden-report.js';
 
-// A golden's check line on Tests is the line `shadowlap test` prints under the golden, for every
-// status and wherever a judge's verdict came from: one rule, the engine's, never a copy that drifts.
+// A golden's check line in its report as printed (Tests' Show as printed) is the line `shadowlap test`
+// prints under the golden, for every status and wherever a judge's verdict came from: one rule, the
+// engine's, never a copy that drifts.
 const judge = (over: Partial<JudgeOutcome>): JudgeOutcome => ({ name: 'explains', model: 'gpt-5-mini', of: 'answer', verdict: 'yes', source: 'live', cost: 0.0004, redactions: 0, ...over }) as JudgeOutcome;
 const JUDGE = 'judge "explains" answers yes';
 const CHECKS: StoredCheck[] = [
@@ -26,7 +27,8 @@ const CHECKS: StoredCheck[] = [
 describe("a golden's check line on Tests", () => {
   it('reads as `shadowlap test` prints it under the golden, for every status and every judge source', () => {
     const printed = formatChecks(CHECKS as Parameters<typeof formatChecks>[0]).split('\n');
-    expect(CHECKS.map((c) => checkReportLine(c).text)).toEqual(printed.map((line) => `    ${line}`));
+    const r = { ok: false, failure: 'check', reason: 'check failed: issue_refund called 0 times, but called 1 time (1 blocked or stubbed)', data: { mode: 'replay', calls: { total: 4, replayed: 4, live: 0, blocked: 0, stubbed: 0 }, checks: CHECKS } } as unknown as TestResult;
+    expect(printedLines('refund', r).slice(1).map((l) => l.text)).toEqual(printed.map((line) => `    ${line}`));
     // What the engine's line says that the page's own copy never did: a judge's source, and nothing for an empty detail.
     expect(printed).toContain(`✓ ${JUDGE} · It names the limit. (judged live, <$0.001)`);
     expect(printed).toContain(`✓ ${JUDGE} · It names the limit. (judged from the recording, free)`);

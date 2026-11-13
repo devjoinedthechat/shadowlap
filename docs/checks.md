@@ -261,6 +261,7 @@ The check builder shows the golden's checks as reports label them, the rule bein
 - **References**: a value an earlier call returned is a chip, written as `@lookup_order.result.total`.
 - **Refusals** are `shadowlap check`'s own words, on the rule they name. Save stays off until each is fixed.
 - **Against your recordings**: the agent's newest recordings, up to 200, judged as `shadowlap check` judges them, nothing replayed. Under the counts is the command that gives the same numbers.
+- **Suggested**: on a failed recording, up to three rules that fail it and none of its good runs, each a call's number against an earlier call's result, a condition and the write it rules out, an order, or a count. A rule the golden's checks hold already is left out.
 - **Ask a judge…** bills nothing as it is built. The judge is asked when the golden is packed or updated, or live in a fork golden's attempts.
 
 **Save check** writes the golden's entry under `tests` in `shadowlap.config.json`, only if the file is as the page read it. A change made since, in an editor or a terminal, is never overwritten: the page reads the file again and shows the change against it. A golden whose checks come from a pattern entry gets an exact entry of its own, with the pattern's other keys.

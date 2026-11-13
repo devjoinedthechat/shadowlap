@@ -202,12 +202,12 @@ describe('the Tests screen', () => {
     store.close();
   });
 
-  it('prints each divergence as the CLI does, with the normalizer that fixes it and the commit range to bisect', () => {
+  it('offers each divergence the normalizer that fixes it, its re-run and its update', () => {
     const store = sampleStore();
     const view = testsView(store, goldens);
     expect(view.diverged).toEqual(['goldens/refund-in-limit']);
     const [d] = view.divergences;
-    expect(d.text).toBe(`✗ refund-in-limit: diverged at call 1 (api POST /v1/messages)\n    ✗ Diverged at call 1 (api POST /v1/messages): 0 calls replayed before divergence\n      ~ $.metadata.user_id\n          - "${UUID_A}"\n          + "${UUID_B}"`);
+    expect(d).toMatchObject({ callNo: 1, kind: 'api', callName: 'POST /v1/messages' });
     expect(d.volatile).toMatchObject({ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", args: ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'] });
     expect(d.normalizerFixes).toBe(true);
     expect(d.rerun).toEqual(['test', 'goldens/refund-in-limit']);
@@ -289,7 +289,7 @@ describe('the Tests screen', () => {
     store.close();
   });
 
-  it('shows a failed check as test --markdown prints it, without the normalizer', () => {
+  it('shows a failed check with its checks as the result kept them, without the normalizer', () => {
     const store = Store.open(':memory:');
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234+dirty' });
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', revision: 'abc1234+dirty', data: { checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time' } });
@@ -297,12 +297,12 @@ describe('the Tests screen', () => {
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] }]);
     expect(view.verdict!.title).toBe('0 of 1 golden passed · x check failed: send_email called 0 times');
     expect(view.divergences).toEqual([]);
-    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', output: null, blocked: null, bisect: null, found: null, missed: null, revisions: [], unreadable: null }]);
+    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], blocked: null, bisect: null, found: null, missed: null, revisions: [], unreadable: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
     store.close();
   });
 
-  it('shows what the agent printed last when it exited with an error, as test --markdown does', () => {
+  it('shows an exit with its reason, no checks and no blocked connection, its lines left to its report', () => {
     const store = Store.open(':memory:');
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
     const output = 'Traceback (most recent call last):\n  File "agent.py", line 12\nKeyError: \'refund\'';
@@ -310,7 +310,8 @@ describe('the Tests screen', () => {
     store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]);
     expect(view.verdict!.title).toBe('0 of 1 golden passed · x exited with code 1');
-    expect(view.failures).toMatchObject([{ failure: 'exit', reason: 'the agent exited with code 1', checks: null, details: '30/30 calls replayed', output, blocked: null }]);
+    expect(view.failures).toMatchObject([{ failure: 'exit', reason: 'the agent exited with code 1', checks: null, blocked: null }]);
+    // What it printed is the report's to show (src/golden-report.ts), as the failed check's toEqual above pins.
     store.close();
   });
 

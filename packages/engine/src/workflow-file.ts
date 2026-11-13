@@ -491,6 +491,8 @@ export interface ActionStep {
   inputs: Record<string, string>;
   /** The names under its `env:`. */
   env: string[];
+  /** Its `env:` values by name, quotes and comments taken off: a `GH_TOKEN` or `GITHUB_TOKEN` there says whose token the action comments with. */
+  envValues: Record<string, string>;
 }
 
 export interface WorkflowRead {
@@ -564,7 +566,7 @@ export function readWorkflow(input: string | WorkflowDoc): WorkflowRead {
   const env = step.keys.env === undefined ? { values: {}, problem: null } : mappingOf(doc, step.keys.env, 'env:');
   if (env.problem) return { ...none, problem: env.problem };
   const id = step.keys.id === undefined ? null : scalarValue(doc.lines[step.keys.id]!.value);
-  const action: ActionStep = { index, job: step.job, ref: uses[index]!.slice(ACTION_REPO.length + 1), id, inputs: inputs.values, env: Object.keys(env.values) };
+  const action: ActionStep = { index, job: step.job, ref: uses[index]!.slice(ACTION_REPO.length + 1), id, inputs: inputs.values, env: Object.keys(env.values), envValues: env.values };
   const slack = steps.findIndex((s, i) => i > index && s.job === step.job && (uses[i] ?? '').startsWith('slackapi/slack-github-action@'));
   return { problem: null, count: found.length, action, slack: slack < 0 ? null : slackOf(doc, steps[slack]!) };
 }

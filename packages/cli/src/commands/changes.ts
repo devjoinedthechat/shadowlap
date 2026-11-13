@@ -4,6 +4,7 @@ import { links } from '@shadowlap/dashboard';
 import { ACTIONS, byRule, commandIsImported, decisionsUnsettled, fieldValue, GATE_MAX_ATTEMPTS, formatDecisions, hasRecordedCommand, migrateBreaks, migrateUnsettled, SPRT_DEFAULTS, tallyParts, unsettledReason, unsettledRun, verifyTallyLine, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { formatDecisionsRead, readDecisions } from '../decisions-read.js';
+import { keepDecisionsPart, testSessionFlag, testSessionKnown } from '../decisions-test-session.js';
 import { verifySession } from '../decisions-verify.js';
 import { goldenConsented } from '../golden-consent.js';
 import { attemptRule, parseFields, readExpectJson } from './fix-flags.js';
@@ -136,6 +137,12 @@ interface DecisionsFlags {
   guard: GuardMode;
   yes?: boolean;
   json?: boolean;
+  testSession?: string;
+}
+
+/** What `decisions` asks under: the change, how many samples and at once, and what stops it. */
+function decisionsSettings(flags: DecisionsFlags, o: Pick<DecisionsSettings, 'model' | 'fields' | 'from' | 'timeoutMs' | 'argv' | 'thenVerify'>): DecisionsSettings {
+  return { ...o, fromCode: !!flags.fromCode, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, scope: flags.scope ?? null, remedies: false, guard: flags.guard };
 }
 
 /** `shadowlap decisions`: its options, and what it does with them (decisionsAction). */
@@ -166,6 +173,7 @@ function registerDecisions(program: Command): void {
     .option('--inconclusive <mode>', 'what an inconclusive result does to the exit status: fail (3) or warn (0, with a warning)', parseChoice(['fail', 'warn'] as const), 'fail')
     .option('--guard <mode>', 'with --then-verify or --verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
+    .option('--test-session <id>', "with --from-code: keep the preview with this test session, as its pull request comment's decisions (the GitHub Action's decisions: true)")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
     .action((given: string[], flags: DecisionsFlags) => decisionsAction(program, given, flags));
 }
@@ -186,6 +194,7 @@ async function decisionsAction(program: Command, given: string[], flags: Decisio
   const opts = program.opts<GlobalOpts>();
   const v = verifySettings(program, given, flags);
   const log = (line: string) => process.stderr.write(`${line}\n`);
+  const keepIn = testSessionFlag(flags);
   if (flags.verify !== undefined) return verifyAction(opts, flags, { specs: v.specs, settings: { thenVerify: v.thenVerify, argv: v.argv, timeoutMs: v.timeoutMs, guard: flags.guard }, log });
   if (!v.specs.length) throw new InvalidArgumentError('name the runs or goldens to ask again: shadowlap decisions goldens/* --model <model>');
   const { model, fields, from } = decisionsChange(flags);
@@ -194,6 +203,7 @@ async function decisionsAction(program: Command, given: string[], flags: Decisio
   let targets: DecisionTarget[];
   try {
     targets = resolveTargets(store, v.specs, process.cwd());
+    testSessionKnown(store, keepIn);
   } catch (err) {
     store.close();
     return failed(err, flags.json, 'decisions');
@@ -205,10 +215,11 @@ async function decisionsAction(program: Command, given: string[], flags: Decisio
       return;
     }
     if (flags.dryRun) return await dryRun(opts, targets, { argv: v.argv, timeoutMs: v.timeoutMs, scope: flags.scope ?? null }, flags, log);
-    const settings: DecisionsSettings = { model, fields, from, fromCode: !!flags.fromCode, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs: v.timeoutMs, scope: flags.scope ?? null, remedies: false, guard: flags.guard, argv: v.argv, thenVerify: flags.thenVerify ? v.thenVerify : null };
+    const settings = decisionsSettings(flags, { model, fields, from, timeoutMs: v.timeoutMs, argv: v.argv, thenVerify: flags.thenVerify ? v.thenVerify : null });
     const command = decisionsCommand(v.specs, settings, { concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs: v.timeoutMs, expect: v.expect?.json ?? null, attempts: flags.attempts, passes: flags.passes, gate: v.rule.gate, writes: flags.writes, guard: flags.guard, inconclusive: flags.inconclusive });
     for (const line of askingLines(targets.length, settings)) log(line);
     const report = await runDecisions({ opts, targets, settings, command, log });
+    keepDecisionsPart(opts, keepIn, report);
     if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
     else process.stdout.write('\n' + formatDecisions(report, p) + '\n' + (report.verify ? verifyLines(report.verify, null) : ''));
     emitPreview(report);
@@ -223,7 +234,7 @@ async function decisionsAction(program: Command, given: string[], flags: Decisio
 /** The flags a preview refuses: those for a verify it doesn't run, and `--dry-run` with anything but `--from-code`. */
 function refuseAskFlags(flags: DecisionsFlags, change: Pick<DecisionsSettings, 'model' | 'fields'>): void {
   if (flags.keptMax !== undefined) throw new InvalidArgumentError('--kept-max is for --verify, which verifies the runs a kept session could not clear');
-  if (flags.dryRun && (!flags.fromCode || change.model || Object.keys(change.fields).length || flags.thenVerify)) throw new InvalidArgumentError('--dry-run reads what --from-code reads, and stops there: give it with --from-code alone');
+  if (flags.dryRun && (!flags.fromCode || change.model || Object.keys(change.fields).length || flags.thenVerify || flags.testSession !== undefined)) throw new InvalidArgumentError('--dry-run reads what --from-code reads, and stops there: give it with --from-code alone');
   if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
   if (!flags.thenVerify && (flags.expect !== undefined || flags.gate !== undefined || flags.attempts !== undefined || flags.passes !== undefined)) throw new InvalidArgumentError('--expect, --gate, --attempts and --passes are for --then-verify, which verifies the runs a change flags');
 }

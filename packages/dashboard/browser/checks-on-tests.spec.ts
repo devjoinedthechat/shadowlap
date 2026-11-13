@@ -13,6 +13,9 @@ import { dash, demoId, expectAccessible, openPage } from './dashboard.js';
  * holds each at no serious or critical violation of WCAG 2.2 AA.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 const GOLDEN = 'goldens/refund-in-limit';
 const NAME = 'refund-in-limit';
 const DIALOG = '[role="dialog"][aria-modal="true"]';

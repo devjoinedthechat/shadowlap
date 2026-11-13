@@ -4,8 +4,9 @@ import { VERDICTS_WINDOW } from '../src/verdicts.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { changesHref, comparePairHref, forgetComparePair, forgetPreviewSession, noteChangesTab, noteComparePair, notePreviewSession } from '../ui/changes-tab.js';
 import { ChangesHead } from '../ui/changes/Head.js';
-import { chipEmpty, kindLine, moreLimit, rowTone, verdictHref, VERDICTS_MAX, VERDICTS_STEP } from '../ui/changes/model.js';
+import { chipEmpty, flagLine, kindLine, moreLimit, rowTone, verdictHref, VERDICTS_MAX, VERDICTS_STEP } from '../ui/changes/model.js';
 import { RevisionPage } from '../ui/changes/RevisionPage.js';
+import { tipCard } from '../ui/components/HoverCard.js';
 import { forgetVerdictsKept, VerdictsTab } from '../ui/changes/Verdicts.js';
 import { rememberList } from '../ui/fixes/data.js';
 import { minuteStamp } from '../ui/format.js';
@@ -18,7 +19,7 @@ import { Palette } from '../ui/shell/Palette.js';
 import { changesCrumbs } from '../ui/shell/top.js';
 import { unshownKey, useUnshown } from '../ui/shell/unshown.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { FixesViewRow, Meta, PreviewVerdict, RunDetail, RunListItem, SessionVerdict, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerifyVerdict } from '../ui/types.js';
+import type { FixesViewRow, Meta, PrCommentPreview, PreviewVerdict, RunDetail, RunListItem, SessionCommentParts, SessionVerdict, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerifyVerdict } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 import { withServed } from './ui-served-now.js';
 
@@ -52,6 +53,8 @@ const session = (o: Partial<SessionVerdict> = {}): SessionVerdict => ({
   passed: 2,
   failed: 1,
   inconclusive: 0,
+  pullRequest: null,
+  flag: null,
   ...o,
 });
 const preview = (o: Partial<PreviewVerdict> = {}): PreviewVerdict => ({
@@ -386,8 +389,22 @@ describe('Verdicts', () => {
       ['#/changes/verdicts/c91d0f4', null],
     ]);
     // On one machine every check is its own: the note says so, with the way to a team store.
-    expect(shown(page!.one('p.vdlocal'))).toBe('This machine’s test sessions only: CI’s show here once it pushes them to a team store. Team store →');
+    expect(shown(page!.one('p.vdlocal'))).toBe('This machine’s test sessions only. Team store →');
     expect(page!.one('p.vdlocal a').getAttribute('href')).toBe('#/settings/store');
+  });
+
+  it('names the pull request a session ran for in its kind line, and flags in amber one that merged though it didn’t pass, its card saying what shipped', async () => {
+    const merged = session({ id: 'b7e40c2', key: 'b7e40c2', revision: 'b7e40c2', line: '6 of 7 goldens passed', pullRequest: { number: 127, url: 'https://github.com/northwind/support-agent/pull/127', state: 'merged' }, flag: 'merged while failing' });
+    const untold = session({ id: 'c91d0f4', key: 'c91d0f4', revision: 'c91d0f4', pullRequest: { number: 142, url: null, state: null } });
+    await open(() => Promise.resolve(view([merged, untold])));
+    await page!.until('the rows', () => table().length === 2);
+    expect(table().map((tr) => tr.querySelector('td.vdc .rsub')!.querySelectorAll('span.nw').map((x) => shown(x)))).toEqual([
+      ['test session', 'b7e40c2', 'PR #127 merged'],
+      ['test session', 'c91d0f4', 'PR #142'],
+    ]);
+    const flag = table()[0].querySelector('td.vdv .vdflag')!;
+    expect([flag.textContent, flag.className, flag.getAttribute('tabindex'), flag.getAttribute('data-tip')]).toEqual(['merged while failing', 'rsub vdflag', '0', tipCard('merged while failing', [], 'PR #127 merged with 6 of 7 goldens passed at b7e40c2: the change shipped with this verdict')]);
+    expect(table()[1].querySelectorAll('.vdflag')).toHaveLength(0);
   });
 
   it('names who made a change only where the API does, with a team store, and leaves the note out there', async () => {
@@ -538,6 +555,11 @@ describe('Verdicts', () => {
     expect(kindLine(verify({ candidate: null, codeVersion: null, code: 'working tree' }))).toEqual([{ words: 'verify' }, { words: 'working tree' }]);
     expect(kindLine(preview({ kind: 'migration', revision: null, by: 'ci' }))).toEqual([{ words: 'migration' }, { words: 'ci' }]);
     expect(kindLine(session({ revision: null, subject: null, title: 'Tested with no revision' }))).toEqual([{ words: 'test session' }]);
+    // A session's pull request after its revision, where it stands once gh said; none without a number.
+    expect(kindLine(session({ by: 'maya', pullRequest: { number: 142, url: null, state: 'open' } }))).toEqual([{ words: 'test session' }, { code: 'd2e8a1f' }, { words: 'PR #142 open' }, { words: 'maya' }]);
+    expect(kindLine(session({ pullRequest: { number: 142, url: null, state: null } }))).toEqual([{ words: 'test session' }, { code: 'd2e8a1f' }, { words: 'PR #142' }]);
+    expect(kindLine(session({ pullRequest: { number: null, url: null, state: null } }))).toEqual([{ words: 'test session' }, { code: 'd2e8a1f' }]);
+    expect(flagLine(session({ revision: null, line: '2 of 3 goldens passed', pullRequest: { number: 9, url: null, state: 'merged' }, flag: 'merged while inconclusive' }))).toBe('PR #9 merged with 2 of 3 goldens passed: the change shipped with this verdict');
     expect(verdictHref(session({ key: 'd2e8a1f+dirty' }))).toBe('#/changes/verdicts/d2e8a1f%2Bdirty');
     // A preview opens on Preview, a migration on Migrate.
     expect(verdictHref(preview())).toBe('#/changes/decisions/dc-01M5000000000000000000000A');
@@ -595,6 +617,7 @@ describe('a revision’s page', () => {
     lead: golden('refund-flow', 'failed', 'diverged at call 3 · $.model', REC),
     goldens: [golden('refund-flow', 'failed', 'diverged at call 3 · $.model', REC), golden('escalate-over-limit', 'inconclusive', 'inconclusive: the judge check "polite" could not be judged'), golden('refund-in-limit', 'passed', '8/8 replayed')],
     decisions: [preview()],
+    comment: null,
     shared: false,
     ...o,
   });
@@ -624,15 +647,85 @@ describe('a revision’s page', () => {
     expect(page!.one('#unshown').textContent).toBe('false');
   });
 
-  it('keeps the lime for the newest revision, and says when no preview was asked at it', async () => {
+  it('keeps the lime for the newest revision, and says when its session kept no preview and none was asked at it', async () => {
     await openRevision(() => Promise.resolve(revision({ latest: false, decisions: [] })));
     await page!.until('the page', () => page!.all('.verdict').length === 1);
     expect(page!.one('.verdict .actions a').className).toBe('btn sm');
-    expect(page!.one('p.emptyline').textContent).toBe('No preview asked at this revision.');
+    expect(page!.all('.verdict .actions button')).toHaveLength(0);
+    const decisions = page!.all('section.panel.sec')[1];
+    expect([shown(decisions.querySelector('header h2')), shown(decisions.querySelector('header .sub'))]).toEqual(['Decisions', 'what its prompt and tools decide differently']);
+    expect(shown(page!.one('p.emptyline'))).toBe('This session kept no preview of its prompt and tools. CI runs one on each pull request with the Action’s decisions: true.');
+    expect(page!.one('p.emptyline code').textContent).toBe('decisions: true');
     await page!.unmount();
     await openRevision(() => Promise.resolve(revision({ row: session({ revision: null, subject: null, key: 'no-revision', title: 'Tested with no revision' }) })));
     await page!.until('the page', () => page!.all('.verdict').length === 1);
     expect(shown(page!.one('.verdict p'))).toBe(`no revision · Tested with no revision · ${minuteStamp(AT)}`);
+  });
+
+  const parts = (o: Partial<SessionCommentParts> = {}): SessionCommentParts => ({
+    decisions: {
+      sessionId: 'dc-01M5000000000000000000000B',
+      mark: '✗',
+      sentence: '1 of 3 goldens decides a write or when to stop differently',
+      headline: '1 of 3 goldens decides a write or when to stop differently, under the prompt and tools this pull request sends',
+      rows: [{ rank: 1, golden: 'goldens/refund-flow', callNo: 11, detail: 'add_note is no longer called; issue_refund is called', recorded: 'add_note({"order":"ord-1042"})', now: 'issue_refund({"order":"ord-1042","amount":240})' }],
+      note: "Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.",
+    },
+    cost: { before: 0.041, after: 0.043, line: '≈$0.041 → ≈$0.043 (+5%)', amounts: '≈$0.041 → ≈$0.043', change: '+5%' },
+    injection: [{ verdict: 'passed', golden: 'goldens/refund-in-limit', resultId: 'tr-01M5000000000000000000000F', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }],
+    ...o,
+  });
+  const PR = { number: 127, url: 'https://github.com/northwind/support-agent/pull/127', state: 'merged' as const };
+
+  it('gives an older revision what its pull request comment carried: the pull request and its flag, the decisions, a run’s cost and each injection gate', async () => {
+    await openRevision(() => Promise.resolve(revision({ latest: false, row: session({ pullRequest: PR, flag: 'merged while failing' }), comment: parts() })));
+    await page!.until('the page', () => page!.all('.verdict').length === 1);
+    expect(shown(page!.one('.verdict p'))).toBe(`d2e8a1f · Tighten refund wording · PR #127 merged · ${minuteStamp(AT)} · merged while failing`);
+    expect(page!.one('.verdict p .vdflag').textContent).toBe('merged while failing');
+    // Its comment kept the decisions: the mock's steps in place of the previews asked, goldens by name, then the note.
+    const [, decisions, more] = page!.all('section.panel.sec');
+    expect(shown(decisions.querySelector('header .sub'))).toBe('what its prompt and tools decide differently');
+    expect(decisions.querySelectorAll('table')).toHaveLength(0);
+    expect(decisions.querySelectorAll('.prc-d.vdd').map((d) => [shown(d.querySelector('p')), ...d.querySelectorAll('.prc-a').map((a) => shown(a))])).toEqual([
+      ['rank 1 refund-flow #11 · add_note is no longer called; issue_refund is called', 'recorded add_note({"order":"ord-1042"})', 'now issue_refund({"order":"ord-1042","amount":240})'],
+    ]);
+    expect(shown(decisions.querySelector('p.vdnote'))).toBe("Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.");
+    // On the pull request: what the comment added beside the verdicts.
+    expect([shown(more.querySelector('header h2')), shown(more.querySelector('header .sub'))]).toEqual(['On the pull request', 'what the comment adds']);
+    expect(more.querySelectorAll('dl.kvs.vdkv dt').map((dt) => shown(dt))).toEqual(['Cost per run', 'Injection']);
+    const [cost, injection] = more.querySelectorAll('dl dd');
+    expect([shown(cost), shown(cost.querySelector('small'))]).toEqual(['≈$0.041 → ≈$0.043 +5%', '+5%']);
+    expect([injection.querySelector('.st')!.className, shown(injection.querySelector('.st')), shown(injection.querySelector('code')), shown(injection.querySelector('.rsub'))]).toEqual(['st ok', 'passed', 'refund-in-limit', '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored']);
+    // Its tally breaks only after a dot, each part kept whole.
+    expect(injection.querySelector('.rsub')!.querySelectorAll('span.nw').map((x) => shown(x))).toEqual(['6 attempts ·', '0 obeyed (at most 0 allowed) ·', '0 influenced ·', '6 ignored']);
+  });
+
+  it('says a kept preview that flagged nothing in the engine’s words, and leaves On the pull request out for a session that ran for none', async () => {
+    const none = parts({ decisions: { ...parts().decisions!, mark: '✓', sentence: 'The same decisions at every step asked', rows: [], note: null } });
+    await openRevision(() => Promise.resolve(revision({ comment: none })));
+    await page!.until('the page', () => page!.all('.verdict').length === 1);
+    const [, decisions] = page!.all('section.panel.sec');
+    expect(shown(decisions.querySelector('.pbody p.muted'))).toBe('The same decisions at every step asked.');
+    expect(decisions.querySelectorAll('.prc-d')).toHaveLength(0);
+    expect(page!.all('section.panel.sec')).toHaveLength(2);
+    expect(page!.all('dl.vdkv')).toHaveLength(0);
+  });
+
+  it('previews the pull request comment from the newest revision’s page, beside Open Tests', async () => {
+    const PREVIEW: PrCommentPreview = { session: { id: 'ts-01M5000000000000000000000A', revision: 'd2e8a1f', at: AT }, head: '2 of 3 goldens passed · 1 failed', rows: [{ verdict: 'failed', golden: 'goldens/refund-flow', line: 'failed · diverged at call 3 · $.model' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### Shadowlap: 2 of 3 goldens passed · 1 failed\n' };
+    const Probe = () => createElement('i', { id: 'unshown' }, String(useUnshown('changes:d2e8a1f')));
+    const client = { verdictRevision: () => Promise.resolve(revision()), settings: { prComment: () => Promise.resolve(PREVIEW) } } as unknown as Partial<Client>;
+    page = await render(createElement(AppContext.Provider, { value: app(client) }, withServed(createElement(RevisionPage, { rev: 'd2e8a1f' })), createElement(Probe)));
+    await page.until('the page', () => page!.all('.verdict').length === 1);
+    expect(page.all('.verdict .actions .btn').map((b) => [b.tagName.toLowerCase(), b.textContent, b.className])).toEqual([
+      ['button', 'Preview pull request comment', 'btn sm'],
+      ['a', 'Open Tests', 'btn sm lime'],
+    ]);
+    await page.click(page.one('.verdict .actions button'));
+    await page.until('the comment', () => page!.all('[role="dialog"] .prc').length === 1);
+    expect(shown(page.one('[role="dialog"] .prc h4'))).toBe('Shadowlap: 2 of 3 goldens passed · 1 failed');
+    // The comment kept no decisions part and no other: neither heading.
+    expect(page.all('[role="dialog"] .prc h5')).toHaveLength(0);
   });
 
   it('says a change no session checked, with the way back, naming only the tab meanwhile', async () => {

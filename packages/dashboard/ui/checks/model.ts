@@ -1,5 +1,6 @@
+import { lowerRecorded } from '../../../engine/src/checks/fields.js';
 import { EXPECT_KEYS, asNumber } from '../../../engine/src/checks/grammar.js';
-import { checkLabels } from '../../../engine/src/checks/labels.js';
+import { checkLabels, JUDGE_READS } from '../../../engine/src/checks/labels.js';
 import { isReference, parseExpect, referenceTo } from '../../../engine/src/checks/parse.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { messageOf } from '../../../engine/src/message-of.js';
@@ -75,11 +76,7 @@ export const THEN_COUNTS: ReadonlyArray<readonly [ThenCount, string]> = [
   ['>= 1', 'at least 1 time'],
   [1, '1 time'],
 ];
-export const JUDGE_READS = [
-  ['answer', 'the answer'],
-  ['output', 'the output'],
-  ['run', 'the whole run'],
-] as const;
+export { JUDGE_READS };
 export type JudgeReads = (typeof JUDGE_READS)[number][0];
 
 /** A value compared to: an earlier call's, by reference (`@lookup_order.result.total`), or a number as typed. */
@@ -138,13 +135,9 @@ export const firstCall = (ctx: RuleContext, tool: string): ContextCall | null =>
  * round number below it.
  */
 export function threshold(all: readonly ResultField[], f: Pick<ResultField, 'tool' | 'field' | 'value'>): number {
+  const lower = lowerRecorded(all, f);
+  if (lower !== null) return lower;
   const v = asNumber(f.value) ?? 0;
-  const lower = all
-    .filter((x) => !(x.tool === f.tool && x.field === f.field))
-    .map((x) => asNumber(x.value))
-    .filter((n): n is number => n !== null && n < v && n > 0)
-    .sort((a, b) => b - a)[0];
-  if (lower !== undefined) return lower;
   const p = v > 0 ? 10 ** Math.floor(Math.log10(v)) : NaN;
   return [5, 2, 1].map((x) => x * p).find((x) => x < v) ?? Math.floor(v / 2);
 }
@@ -448,15 +441,15 @@ export function settle(units: readonly Unit[], base: Fragment | null, active: nu
   return { rows, merged, refusal, changed: !same(mergeFragments(unitsOf(base)), asBuilt), draft: draftOf.length ? mergeFragments(draftOf) : null };
 }
 
-/** Why Save is off, in the mock's order, or null once it can save. */
-export function saveWhy(s: Settled, units: readonly Unit[], active: number, golden: string | null): string | null {
+/** Why Save is off, in the mock's order, or null once it can save; `none`, why with no golden to save it under. */
+export function saveWhy(s: Settled, units: readonly Unit[], active: number, golden: string | null, none = 'No golden to save it under'): string | null {
   const own = units[active];
   const ownWhy = own && !own.gone ? s.rows[active]?.why : null;
   if (!s.changed) return 'Nothing changed yet';
   if (ownWhy) return ownWhy;
   if (s.refusal) return s.refusal.why;
   if (units.some((u, i) => !s.rows[i]!.f && !u.gone && u.rule)) return 'Finish the rule first';
-  return golden ? null : 'No golden to save it under';
+  return golden ? null : none;
 }
 
 /** The draft as the preview judges it and the command repeats it: without its judges, whose verdicts no recording holds yet. */
@@ -759,3 +752,21 @@ export function previewNotes(p: CheckPreview, o: { golden: string | null; failed
 
 /** A judge added or changed in this session: a replay golden's next offline test reads it inconclusive until Update golden asks it. */
 export const judgeAdded = (units: readonly Unit[]): boolean => units.some((u) => !!u.f && 'judge' in u.f && !same(u.f, u.orig));
+
+// ---- Suggested checks ---------------------------------------------------------------------------
+
+/** The labels of the checks the builder holds, which suggestions leave out: each row's that writes something, a removed one's too, as the golden holds it until Save. */
+export const haveOf = (s: Pick<Settled, 'rows'>): string[] => [...new Set(s.rows.flatMap((r) => (r.f ? r.labels : [])))];
+
+/** What a suggestion's button does: Use rule puts it in place of the rule being built here, Add rule adds it beside a check of the golden's open in the editor. */
+export function suggestVerb(s: Units): 'Use rule' | 'Add rule' {
+  const u = s.units[s.active];
+  return u && !u.orig ? 'Use rule' : 'Add rule';
+}
+
+/** A suggestion taken into the builder, as suggestVerb says: in place of the rule being built, else as a rule of its own, in the editor. Nothing is saved. */
+export function withSuggestion(s: Units, f: Fragment): Units {
+  const rule = ruleOf(f);
+  if (suggestVerb(s) === 'Use rule') return { units: s.units.map((u, j) => (j === s.active ? withRule(u, rule) : u)), active: s.active };
+  return { units: [...s.units, withRule(blankUnit(), rule)], active: s.units.length };
+}

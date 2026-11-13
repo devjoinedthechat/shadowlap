@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { emptyCounts, NO_TOKENS, Store, type DecisionCounts, type DecisionRun, type DecisionStep, type DecisionsVerify, type StoredFix, type TestFailure, type TestResultData, type VerdictStanding, type VerifyReport } from '@shadowlap/engine';
+import { emptyCounts, NO_TOKENS, Store, type DecisionCounts, type DecisionRun, type DecisionStep, type DecisionsVerify, type InjectionGateData, type StoredFix, type TestFailure, type TestResultData, type VerdictStanding, type VerifyReport } from '@shadowlap/engine';
 import { verifyReport } from '../../engine/test/fix-fixtures.js';
 import { times, timesOf } from '../../engine/test/timing.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -536,4 +536,92 @@ describe('verdicts at scale', () => {
       wide.close();
     }
   }, 120_000);
+});
+
+describe('what a session kept of its pull request and its comment', () => {
+  let prs: Store;
+  const ids: Record<string, string> = {};
+  const gate = (o: Partial<InjectionGateData> = {}): InjectionGateData => ({ resultId: 'ij-escalate', attempts: 6, obeyed: 0, influenced: 0, ignored: 6, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'passed', reason: null, skipped: null, ...o });
+  const pr = (n: number | null) => ({ number: n, url: n === null ? null : `https://github.com/acme/agent/pull/${n}`, source: 'GitHub Actions (pull_request)' });
+  const step = (callNo: number, majority: number | null) => ({
+    callNo,
+    step: 4,
+    scope: null,
+    rank: majority ?? 3,
+    majority,
+    changes: [{ rank: majority ?? 3, kind: 'write-added', tool: 'issue_refund', effect: 'write', before: null, after: {}, detail: 'issue_refund is called' }],
+    recorded: { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'add_note', args: { ticket: 'T-8812' }, effect: 'write' }], text: '' },
+    now: { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { amount: 240 }, effect: 'write' }], text: '' },
+  });
+  const failing = () => [diverged('goldens/refund-flow'), pass('goldens/refund-in-limit'), { ...pass('goldens/escalate-over-limit'), data: { ...REPLAYED, verdict: 'passed' as const, injection: gate() } }];
+
+  beforeAll(() => {
+    prs = Store.open(':memory:');
+    // a1a1a1a: failed, and its pull request merged; it kept every part. Newer ones each stand otherwise.
+    ids.merged = session(prs, { revision: 'a1a1a1a', at: at(0), results: failing() });
+    ids.unsure = session(prs, { revision: 'b2b2b2b', at: at(1), results: [pass('goldens/refund-flow'), pass('goldens/refund-in-limit'), unjudged('goldens/escalate-over-limit')] });
+    ids.open = session(prs, { revision: 'c3c3c3c', at: at(2), results: failing() });
+    ids.passed = session(prs, { revision: 'd4d4d4d', at: at(3), results: GOLDENS.map((g) => pass(g.path)) });
+    ids.unnumbered = session(prs, { revision: 'e5e5e5e', at: at(4), results: failing() });
+    ids.none = session(prs, { revision: 'f6f6f6f+dirty', at: at(5), results: GOLDENS.map((g) => pass(g.path)) });
+    prs.setTestSessionPullRequest(ids.merged, pr(142));
+    prs.setTestSessionPullRequest(ids.unsure, pr(143));
+    prs.setTestSessionPullRequest(ids.open, pr(144));
+    prs.setTestSessionPullRequest(ids.passed, pr(145));
+    prs.setTestSessionPullRequest(ids.unnumbered, { ...pr(null), source: 'SHADOWLAP_PR' });
+    for (const n of [142, 143, 145]) prs.setTestPullRequestState({ number: n }, 'merged');
+    prs.setTestPullRequestState({ number: 144 }, 'open');
+    // The decisions the branch changes, as decisions --from-code --test-session keeps them: one golden flagged at rank 1.
+    const runs = [
+      { runId: '01K5RUNPR00000000000000001', golden: 'goldens/refund-flow', rank: 1, changed: 2, data: { runId: '01K5RUNPR00000000000000001', golden: 'goldens/refund-flow', refused: null, decisions: [step(11, 1), step(12, null)] } },
+      { runId: '01K5RUNPR00000000000000002', golden: 'goldens/refund-in-limit', rank: null, changed: 0, data: { runId: '01K5RUNPR00000000000000002', golden: 'goldens/refund-in-limit', refused: null, decisions: [] } },
+    ];
+    prs.putDecisionSession({ sessionId: 'dc-01M5PR000000000000000000A', kind: 'decisions', at: at(0.5), change: 'the prompt and tools in the working tree', actor: 'ci', revision: 'a1a1a1a', data: { kind: 'decisions', counts: counts({ 1: 1, same: 20 }), flagged: ['01K5RUNPR00000000000000001'] }, runs });
+    prs.setTestSessionComment(ids.merged, { decisions: 'dc-01M5PR000000000000000000A' });
+    prs.setTestSessionComment(ids.merged, { costPerRun: { before: 0.041, after: 0.043 } });
+  });
+  afterAll(() => prs?.close());
+
+  it('gives each session row its pull request as gh last said, flagged when it merged though its verdict didn’t pass', () => {
+    const rows = verdictsView(prs, GOLDENS, {}).rows as SessionVerdict[];
+    const of = (id: string) => rows.find((r) => r.sessionId === id)!;
+    expect(of(ids.merged)).toMatchObject({ pullRequest: { number: 142, url: 'https://github.com/acme/agent/pull/142', state: 'merged' }, flag: 'merged while failing' });
+    expect(of(ids.unsure)).toMatchObject({ pullRequest: { number: 143, state: 'merged' }, flag: 'merged while inconclusive' });
+    expect(of(ids.open)).toMatchObject({ pullRequest: { number: 144, state: 'open' }, flag: null });
+    expect(of(ids.passed)).toMatchObject({ pullRequest: { number: 145, state: 'merged' }, flag: null });
+    // CI named no number: nothing to show, nothing to flag.
+    expect(of(ids.unnumbered)).toMatchObject({ pullRequest: { number: null, url: null, state: null }, flag: null });
+    expect(of(ids.none)).toMatchObject({ pullRequest: null, flag: null });
+    // What moved: the decisions the session kept for its comment, in the words previews say them.
+    expect(of(ids.merged).moved).toEqual(['1 golden failed', '1 write changed']);
+    expect(of(ids.open).moved).toEqual(['1 golden failed']);
+  });
+
+  it('gives an older revision’s page what its comment carried, and none for a session that kept none', () => {
+    const page = verdictRevision(prs, GOLDENS, 'a1a1a1a')!;
+    expect(page.latest).toBe(false);
+    expect(page.row).toMatchObject({ pullRequest: { number: 142, state: 'merged' }, flag: 'merged while failing' });
+    expect(page.comment).toEqual({
+      decisions: {
+        sessionId: 'dc-01M5PR000000000000000000A',
+        mark: '✗',
+        sentence: '1 of 2 goldens decides a write or when to stop differently',
+        headline: '1 of 2 goldens decides a write or when to stop differently, under the prompt and tools this pull request sends',
+        rows: [{ rank: 1, golden: 'goldens/refund-flow', callNo: 11, detail: 'issue_refund is called', recorded: expect.stringContaining('add_note'), now: expect.stringContaining('issue_refund') }],
+        note: "Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.",
+      },
+      cost: { before: 0.041, after: 0.043, line: '≈$0.041 → ≈$0.043 (+5%)', amounts: '≈$0.041 → ≈$0.043', change: '+5%' },
+      injection: [{ verdict: 'passed', golden: 'goldens/escalate-over-limit', resultId: 'ij-escalate', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }],
+    });
+    // Its injection gate is in the parts on its own: a session that kept nothing else still carried it.
+    expect(verdictRevision(prs, GOLDENS, 'c3c3c3c')!.comment).toEqual({ decisions: null, cost: null, injection: [expect.objectContaining({ golden: 'goldens/escalate-over-limit' })] });
+    // Run with uncommitted changes: its key as it is, and nothing its comment carried.
+    expect(verdictRevision(prs, GOLDENS, 'f6f6f6f+dirty')).toMatchObject({ latest: true, row: { key: 'f6f6f6f+dirty', pullRequest: null, flag: null }, comment: null });
+  });
+
+  it('reads no part of a decisions session the store no longer keeps', () => {
+    prs.setTestSessionComment(ids.open, { decisions: 'dc-01M5GONE0000000000000000A' });
+    expect(verdictRevision(prs, GOLDENS, 'c3c3c3c')!.comment?.decisions).toBeNull();
+    expect((verdictsView(prs, GOLDENS, {}).rows as SessionVerdict[]).find((r) => r.sessionId === ids.open)!.moved).toEqual(['1 golden failed']);
+  });
 });

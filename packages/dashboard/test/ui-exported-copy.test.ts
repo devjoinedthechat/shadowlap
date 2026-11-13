@@ -367,6 +367,14 @@ describe('an exported copy', () => {
     expect(seen.app!.palette).toBe(false);
   });
 
+  it('never opens Preview pull request comment, which the served dashboard alone hands in: only Settings → CI and a revision’s page under Changes show it, which a copy sends to its runs, and its client refuses the read', async () => {
+    // The page's code that loads the dialog's script: the served entry's, which a copy's entry never
+    // is (COPY_PARTS in test/ui-bundle-size.test.ts). Its decisions' steps it shares with a revision's page alone.
+    expect(loadersOf(/\bPrCommentDialog\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bcomment-parts\.js['"]/).sort()).toEqual(['changes/RevisionPage.tsx', 'ci/PrCommentDialog.tsx']);
+    await expect(createExportedClient(exported([runId])).settings.prComment()).rejects.toThrow();
+  });
+
   it('lists its runs, and only those', async () => {
     await open([forkId, runId], '#/runs');
     await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);

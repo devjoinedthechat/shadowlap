@@ -1,4 +1,4 @@
-import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, keptMaxOf, openRunWhy, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
+import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, keptMaxOf, openRunWhy, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type FixStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
 import { fieldArgs, PULLED_KEPT_MAX, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { changeName, commandLine, countArgs, finite, fixHref, gateArg, gateMarks, notVerified, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
@@ -33,6 +33,12 @@ export interface VerifyStep {
   label: string;
   /** By the runs it checked ("Fixes 1 of 1 target run, keeps 1 of 1 good"), or for one that doesn't count, why ("Doesn't count for this fix: …"). */
   headline: string;
+  /**
+   * That it no longer counts because it checked a check the fix had before (standing `old-check`):
+   * its receipt says so, with the fix's verify command (`commands.verify`), which checks its check now.
+   * False for one made under an old check that covers the fix's, which still counts.
+   */
+  oldCheck: boolean;
   /** "a run passes when 4 of 5 attempts meet the check: …" */
   oracle: string;
   needed: number;
@@ -106,11 +112,18 @@ export interface VerifyMore {
 }
 
 /** Why a verdict doesn't count for a fix, as its heading says it: `Doesn't count for this fix: its check leaves out send_email called 1 time`. Null for one that counts. */
-export function uncountedHead(st: VerdictStanding): string | null {
+export function uncountedHead(st: FixStanding): string | null {
   if (st.counts) return null;
-  const why = st.why === 'another-check' ? (st.missing?.length ? `its check leaves out ${st.missing.join('; ')}` : 'it was checked under another check') : st.why === 'already-passing' ? 'every run of this fix it checked already passed as recorded' : 'none of the runs it checked fails in this fix';
-  return `Doesn't count for this fix: ${why}`;
+  return `Doesn't count for this fix: ${UNCOUNTED_WHY[st.why](st.missing ?? [])}`;
 }
+
+/** Why a verdict doesn't count, by its standing's `why`, in uncountedHead's words. */
+const UNCOUNTED_WHY: Record<Exclude<FixStanding['why'], null>, (missing: readonly string[]) => string> = {
+  'another-check': (missing) => (missing.length ? `its check leaves out ${missing.join('; ')}` : 'it was checked under another check'),
+  'old-check': () => 'it was checked under the fix’s old check',
+  'already-passing': () => 'every run of this fix it checked already passed as recorded',
+  'no-runs': () => 'none of the runs it checked fails in this fix',
+};
 
 /** A change in percent, as verify prints it: +20%, −5.0%, ±0%. */
 function pct(before: number, after: number): string {
@@ -135,7 +148,7 @@ export const verdictHeadline = (rec: FixRecords, v: StoredVerdict): string => he
  * run fixed, every good run kept" only when it checked every failing run of the fix, else what it did
  * role by role. One that doesn't count for the fix says why instead (`uncountedHead`).
  */
-function headline(rec: FixRecords, v: StoredVerdict, standing: VerdictStanding): string {
+function headline(rec: FixRecords, v: StoredVerdict, standing: FixStanding): string {
   return uncountedHead(standing) ?? fixVerifyHead(v.verdict, v.report.runs, rec.failing);
 }
 
@@ -206,6 +219,7 @@ export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string, 
     code,
     label: `${code} · ${verdictWord(v.verdict)}${standing.counts ? '' : " · doesn't count"}`,
     headline: headline(rec, v, standing),
+    oldCheck: standing.why === 'old-check',
     oracle: sprtGate(r.gate) ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(sprtGate(r.gate)!)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
     needed: r.needed,
     attemptsPerRun: r.attemptsPerRun,

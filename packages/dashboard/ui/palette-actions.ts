@@ -6,19 +6,21 @@ import { addPaletteSource, type PaletteContext, paletteSourcesChanged } from './
 import { href } from './route.js';
 import { lastRunsHref } from './runs-view.js';
 import { migratePaletteRows } from './migrate-command.js';
-import { APPLY_ASK, IMPORT_ASK, MIGRATE_ASK, NORMALIZER_ASK, PREVIEW_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
+import { APPLY_ASK, IMPORT_ASK, MIGRATE_ASK, NORMALIZER_ASK, PREVIEW_ASK, PR_COMMENT_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
 import { SETTINGS_TABS, type SettingsTab } from './pages/settings/tabs.js';
 import type { StoreSetupView } from './store-api.js';
 import type { MigrateRetiring } from './types.js';
-import { knownGoldens, onTestsChanged, testsPaletteCommands } from './tests-palette.js';
+import { knownGoldens, onTestsChanged, prCommentPaletteCommands, testsPaletteCommands } from './tests-palette.js';
 import { onTrainingCountsChange, trainingPalette } from './training.js';
 import { stepWords } from '../src/store-steps.js';
 
 /**
  * The palette's Actions and Tests that belong to pages, listed on a fresh dashboard before any of
- * those pages has opened: the Tests group and Update goldens…, Import capture…, Export pairs… and
- * Score model…, Calibrate, Preview model switch… and Preview changed prompt, Migrate <a> to <b> while a model retires, the team store's setup, the Settings tabs by what they hold, Apply fix,
- * and Add normalizer… and Add redaction rule…. They load with the palette, so a page's code waits for its
+ * those pages has opened: the Tests group and Update goldens…, Preview pull request comment, Import
+ * capture…, Export pairs… and Score model…, Calibrate, Preview model switch… and Preview changed
+ * prompt, Migrate <a> to <b> while a model retires, the team store's setup, the Settings tabs by
+ * what they hold, Apply fix, and Add normalizer… and Add redaction rule…. They load with the
+ * palette, so a page's code waits for its
  * page. A row whose dialog lives on its page opens the page and asks there (`page-ask.ts`). Each
  * answers nothing in an exported copy, which runs nothing.
  */
@@ -26,6 +28,9 @@ import { stepWords } from '../src/store-steps.js';
 // Tests, with Update goldens… while goldens diverged: an open palette reads it again once the goldens land.
 addPaletteSource(({ app, go }) => testsPaletteCommands(app, go, { update: app.hasKind(JOB_KINDS.testUpdate) }));
 onTestsChanged(paletteSourcesChanged);
+
+// Preview pull request comment, once the goldens have a session: Settings → CI opens its preview.
+addPaletteSource(({ app, go }) => prCommentPaletteCommands(app, go, () => PR_COMMENT_ASK.ask()));
 
 // Export pairs… and Score model…, while there are pairs and a task is ready.
 addPaletteSource((ctx) => trainingPalette(ctx, JOB_KINDS));

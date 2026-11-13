@@ -123,6 +123,8 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['verify.incomplete', (e, d) => previewVerify(d, 'fixinc', 'Verify inconclusive', strings(d.reasons)[0] ?? null) ?? { kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
   // A fix with no patch (verified on the working tree, or with a change of request fields) was only marked applied, as its page says.
   ['fix.applied', (e, d) => ({ kind: 'fixok', text: `${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
+  // An open fix given another check (`shadowlap fix check`, the builder's Save check): what its runs must do now.
+  ['fix.check', (e, d) => ({ kind: 'setting', text: `Check changed · ${str(d.title) ?? e.ref ?? ''}${str(d.check) ? `: ${str(d.check)!}` : ''}`, href: fixHref(e.ref) })],
   ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: links.training() })],
   ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: links.training('tasks') })],
   // In the projects pages' own words, so the feed and the project list say the same.

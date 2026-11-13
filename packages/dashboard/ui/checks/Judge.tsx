@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NO_OUTPUT_KEPT } from '../../../engine/src/checks/labels.js';
+import { JUDGE_ASKED, NO_OUTPUT_KEPT } from '../../../engine/src/checks/labels.js';
 import { noEstimate } from '../../../engine/src/estimates/estimate.js';
 import { costLine } from '../../../engine/src/estimates/spending.js';
 import { JUDGE_UNASKED } from '../../../engine/src/cost-words.js';
@@ -75,5 +75,15 @@ export function JudgeRows({ rule, models, onRule }: { rule: JudgeRule; models: r
 export function judgeCost(rule: JudgeRule, fork: boolean, redactions: number): CostLineProps {
   const reads = rule.of === 'run' ? [`your ${plural(redactions, 'redaction rule')} apply`] : rule.of === 'output' ? [`Update golden judges a replay: ${NO_OUTPUT_KEPT}`] : [];
   const [price = '', ...parts] = costLine(noEstimate('update', JUDGE_UNASKED, [fork ? 'asked live in each attempt where what it reads changed' : 'replays read its verdict free', ...reads]));
+  return { price, parts };
+}
+
+/**
+ * In fix mode: verify asks the fix's judge live in each attempt that exits 0, where a golden's replay
+ * reads its verdict free, so the line says that and what it reads beyond the answer, never a price.
+ */
+export function fixJudgeCost(rule: JudgeRule, redactions: number): CostLineProps {
+  const reads = rule.of === 'run' ? [`your ${plural(redactions, 'redaction rule')} apply`] : [];
+  const [price = '', ...parts] = costLine(noEstimate('verify', JUDGE_UNASKED, [JUDGE_ASKED, ...reads]));
   return { price, parts };
 }

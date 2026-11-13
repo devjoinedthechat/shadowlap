@@ -298,6 +298,8 @@ A verdict that counts brings its runs to the fix: the target and held-out runs t
 
 A fix stays verified whatever a later verdict says. A verdict that doesn't count is kept and shown on the fix's Verify step with why, and changes nothing.
 
+**A check changed later.** [`shadowlap fix check`](./cli.md#fix-check) gives an open fix another check. A verdict given under the check before is kept, and counts only when its oracle has every condition of the fix's check. The Verify step shows the others as made under the old check.
+
 The report ends with each fix it was kept with, and what the verdict did to it:
 
 ```text

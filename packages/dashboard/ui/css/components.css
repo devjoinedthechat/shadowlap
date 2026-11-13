@@ -258,7 +258,7 @@ code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink,
 .astrip .ac.mu { background: var(--cq-muted-fill); }
 /* a cell is a mark, no target of its own: its attempt shows on hover, the lines under the strip link the runs */
 .astrip .ac:hover { outline: 1px solid var(--ink); outline-offset: 1px; }
-/* the hairline before an injection test's clean replays (the Forks view); port/golden-report draws the same rule in tests.css, where this session took over, and one of the two goes when both are in */
+/* the hairline before an injection test's clean replays (the Forks view), and in a golden's report where this session took over its attempts; drawn in the text colour under forced colours */
 .astrip .acsep { flex: none; width: 1px; height: 18px; margin: 0 4px; background: var(--dim); }
 @media (forced-colors: active) { .astrip .acsep { forced-color-adjust: none; background: CanvasText; } }
 

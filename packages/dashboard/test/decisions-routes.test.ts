@@ -307,6 +307,7 @@ describe('the decision routes', () => {
       { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A' },
       { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B' },
     ];
+    await jobsEnded(dash);
     for (const body of jobs) {
       expect((await startJob(dash, body)).status, JSON.stringify(body)).toBe(202);
       expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive', '--kept-max'].includes(a)), JSON.stringify(body)).toEqual([]);

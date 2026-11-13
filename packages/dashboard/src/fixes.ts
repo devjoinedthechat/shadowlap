@@ -17,8 +17,8 @@
 
 import { commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, lostRange, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
-import { acceptedCandidate, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
-import { blameStep, type BlameStep } from './fix-blame-step.js';
+import { acceptedCandidate, acceptedVerdict, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
+import { blameStep, type BlameStep, oldBlameNote } from './fix-blame-step.js';
 import { fixActions, type GoldensFolder } from './fix-actions.js';
 import type { FixCrash } from './fix-crash.js';
 import { fixLead, type FixLead } from './fix-lead.js';
@@ -57,6 +57,20 @@ export interface FixDetail extends FixRow {
   /** The runs that failed its check, which its header's link opens under Runs › Failed, for the link's card: in the pooled `fix` read alone (read-jobs.ts), null where none are there now. A `fixDetail` built on the server's thread, as `fix show --json` prints it, leaves it out. */
   failedCheck?: FailedCheck | null;
   goodRuns: FixRunRef[];
+  /** The runs a check given since left out of it (`fix check`): failing runs it passes and good runs it fails. */
+  left: { failing: string[]; good: string[] };
+  /**
+   * The golden that guards it, as its `tests` key names it in shadowlap.config.json (`goldens/refund-flow`):
+   * the first a failing run of it replayed, else the first that applying it copied and the goldens
+   * folder still holds. Null when none does: a verified fix with none is usually one to apply first.
+   */
+  guard: string | null;
+  /**
+   * A recording of the fix working, to pack as the golden that guards it when none does: the first
+   * passing attempt of its accepted verdict on its first failing run (else on the verdict's first
+   * failing run), as repair packs one. Null without an accepted verdict that counts, or such an attempt.
+   */
+  fixedRun: string | null;
   openedBy: string | null;
   upstreamRequests: number;
   /** The step a fix opens on without one in its URL: its last finished step. */
@@ -91,6 +105,21 @@ export interface FixDetail extends FixRow {
    */
   repairer: { name: string; configured: boolean; problem: string | null };
   applied: FixData['applied'] | null;
+}
+
+/** `FixDetail.fixedRun`. */
+function fixedRunOf(rec: FixRecords): string | null {
+  const runs = acceptedVerdict(rec)?.report.runs.filter((r) => r.role === 'target') ?? [];
+  const run = runs.find((r) => r.runId === rec.failing[0]) ?? runs[0];
+  return run?.attempts.find((a) => a.passed)?.runId ?? null;
+}
+
+/** `FixDetail.guard`: read from the failing runs still the fix's, so a run a check left out can't name it. */
+function guardOf(store: StoreOf<'recording'>, rec: FixRecords, folder: GoldensFolder | undefined): string | null {
+  const replayed = rec.failing.map((id) => store.getRun(id)?.meta?.test?.golden).find((g): g is string => typeof g === 'string' && g !== '');
+  if (replayed) return replayed;
+  const held = new Set(folder ? folder([]).held.map((n) => n.toLowerCase()) : []);
+  return rec.fix.data.applied?.goldens.find((g) => held.has(g.replace(/\/+$/, '').split('/').at(-1)!.toLowerCase())) ?? null;
 }
 
 function runRef(store: StoreOf<'recording'>, runId: string): FixRunRef {
@@ -206,6 +235,9 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     oracle: fix.check.oracle,
     failingRuns: rec.failing.map((id) => runRef(store, id)),
     goodRuns: rec.good.map((id) => runRef(store, id)),
+    left: rec.left,
+    guard: guardOf(store, rec, options.goldensFolder),
+    fixedRun: fixedRunOf(rec),
     openedBy: fix.data.openedBy ?? null,
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
@@ -213,7 +245,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     lead: fixLead(rec, actions, { repairer: configured, crash, keptMax: options.keptMax ?? null }),
     rung: rungOf(rec),
     pr: prOf(rec),
-    blame: b ? blameStep(store, b, commands.blame, crash) : null,
+    blame: b ? blameStep(store, b, commands.blame, { oldCheck: oldBlameNote(rec, b, actions), crash }) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, range: lostRange(x.report.range), confidence: x.report.confidence })),
     repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p), commands.repair) : null,
     repairs: [...rec.repairs].reverse().map((x) => {

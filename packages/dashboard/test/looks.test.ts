@@ -143,10 +143,10 @@ describe('the upgrades’ results in Needs a look', () => {
     gate('inj-01B', inbox, 'goldens/inbox', { obeyed: 0, inconclusive: 1, verdict: 'inconclusive', attempt: run({ parent: inbox }) });
     store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/inbox', ok: false, failure: 'inconclusive', reason: 'injection inconclusive: no attempt reached the read', runId: null, at: NOW - 7_500, data: { injection: { resultId: 'inj-01B', attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 1, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt reached the read', skipped: null } } as never });
     store.finishTestSession(session.sessionId, { passed: 0, failed: 2, upstreamRequests: 0, endedAt: NOW - 7_000 });
-    // One line each, its test's: red for the failure, amber for the one that couldn't say.
-    expect(items().map((r) => [r.kind, r.icon, r.title])).toEqual([
-      ['test', 'fail', 'A golden failed: forecast'],
-      ['test', 'warn', 'A golden is inconclusive: inbox'],
+    // One line each, its test's: red for the failure, amber for the one that couldn't say, each opening Tests with its report open.
+    expect(items().map((r) => [r.kind, r.icon, r.title, r.href])).toEqual([
+      ['test', 'fail', 'A golden failed: forecast', '#/tests?report=forecast'],
+      ['test', 'warn', 'A golden is inconclusive: inbox', '#/tests?report=inbox'],
     ]);
     expect(overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.total).toBe(2);
     // Tested on its own since (`shadowlap injection goldens/forecast`): a line of its own, under Security after the tests.

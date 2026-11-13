@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { ConfigBusyError, ConfigConflictError, agentOfArgv, agentOfRun, cleanLabel, editWhenFree, isObject, readConfigFile, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { ConfigBusyError, ConfigConflictError, SUGGESTED_MAX, agentOfArgv, agentOfRun, cleanLabel, editWhenFree, isObject, readConfigFile, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { CheckPreviewJob } from '../check-preview.js';
 import { ENTRY_KEYS, agentGoldens, changedWords, checksConfig, goldenAgent, printsOf, restoreTestsEntry, writeTestsEntry, type EntryEdit, type TestsWritten } from '../config-tests.js';
@@ -11,6 +11,7 @@ import { goldensOf } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity } from '../run-index.js';
+import type { CheckSuggestionsJob } from '../suggested-checks.js';
 import type { GoldenSource } from '../tests.js';
 import { VERSION, editError, editFolder, failed, log } from './settings-edits.js';
 
@@ -25,6 +26,9 @@ import { VERSION, editError, editFolder, failed, log } from './settings-edits.js
  *                                                     n: tools, arguments, number fields (pooled)
  *   POST /api/checks/preview { expect, run | golden } the draft judged on the agent's newest recordings,
  *                                                     its goldens' and the run's (pooled; changes nothing)
+ *   POST /api/checks/suggestions { run, at?, have?, fix? }   at most three rules that fail the recording
+ *                                                     and none of its good runs, those labelled in `have`
+ *                                                     left out (suggested-checks.ts; pooled; changes nothing)
  *   PUT  /api/checks/tests { golden, version, read, entry }   the golden's entry, its `expect` set or taken
  *                                                     out (null), refused when the file changed since
  *                                                     `version`, naming what changed from `read`
@@ -45,6 +49,8 @@ const MAX_EXPECT = 64 * 1024;
 const MAX_RECORDINGS = 200;
 /** The agent's recordings a draft is judged on, newest first: as many as the check job names at most. */
 export const PREVIEW_RECORDINGS = MAX_RECORDINGS;
+/** The labels of the builder's checks a request for suggestions may name, more than any golden holds. */
+const MAX_HAVE = 200;
 
 /** The expect object a request gives, checked for its shape (the CLI reads the rest), or why not. */
 function expectOf(raw: unknown): { expect: Record<string, unknown> | null } | { error: string } {
@@ -133,6 +139,23 @@ function callNumber(raw: string | null): number {
   return n;
 }
 
+/** The labels of the checks the builder holds, as a request gives them, or a 400. */
+function labelsOf(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_HAVE || !raw.every((l) => typeof l === 'string')) throw new HttpError(400, 'have is the labels of the checks the builder holds: at most 200, as text');
+  return raw;
+}
+
+/**
+ * The fix a fix's builder asks for, as a request gives it: its id or a unique prefix of it, which the
+ * pooled read resolves as Fixes does; null for a check made from a call, or a 400.
+ */
+function fixOf(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'string' || !raw.trim()) throw new HttpError(400, 'fix is the id of the fix whose check is built, or a unique prefix of it, as text');
+  return raw;
+}
+
 /**
  * The calls a preview reads, as the run index counts them, so a long read is given longer: the
  * agent's newest finished recordings, as many as it judges, then its goldens' and the run it is made
@@ -207,6 +230,22 @@ export function register(router: Router, ctx: RouteContext): void {
       const goldens = agentGoldens(ctx.store, goldensOf(ctx), dir, agent, golden?.path ?? null).map((g) => ({ path: g.path, runId: g.runId, pack: g.runId && ctx.store.getRun(g.runId) ? null : resolve(dir, g.path) }));
       const job: CheckPreviewJob = { kind: 'check-preview', expect: asked.expect, agent, madeFrom: run?.runId ?? null, goldens, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), limit: PREVIEW_RECORDINGS };
       sendAnswer(r, await ctx.reads.run(job, { calls: previewCalls(ctx, agent, [...goldens.map((g) => g.runId), job.madeFrom]) }));
+    },
+    { write: false },
+  );
+
+  // Mined beside the server: finding the good runs reads every run's record. The builder's labels
+  // come in the body, so it is a POST, which changes nothing.
+  router.post(
+    '/checks/suggestions',
+    async (r) => {
+      const body = await r.body();
+      if (typeof body.run !== 'string' || !body.run) throw new HttpError(400, 'name the recording the checks are suggested from (run)');
+      const run = runOf(ctx, body.run);
+      const at = body.at === undefined || body.at === null ? null : callNumber(String(body.at));
+      const job: CheckSuggestionsJob = { kind: 'check-suggestions', runId: run.runId, at, have: labelsOf(body.have), max: SUGGESTED_MAX, fix: fixOf(body.fix) };
+      const agent = agentOfRun(ctx.store, run);
+      sendAnswer(r, await ctx.reads.run(job, agent === null ? runAffinity(ctx.store, run.runId) : { calls: previewCalls(ctx, agent, [run.runId]) }));
     },
     { write: false },
   );
