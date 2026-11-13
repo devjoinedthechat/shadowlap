@@ -158,7 +158,8 @@ function outlineBreaks(hs: Heading[], o: { title?: string } = {}): string[] {
 async function outline(page: Page): Promise<string[]> {
   const dialog = page.locator(DIALOG).first();
   if (!(await dialog.count())) return outlineBreaks(await headings(page));
-  const title = await dialog.evaluate((d) => (document.getElementById(d.getAttribute('aria-labelledby') ?? '')?.textContent ?? d.getAttribute('aria-label') ?? '').trim());
+  // Its words as a screen reader hears them, whitespace normalised as the snapshot's are: the copy glues words with no-break spaces.
+  const title = await dialog.evaluate((d) => (document.getElementById(d.getAttribute('aria-labelledby') ?? '')?.textContent ?? d.getAttribute('aria-label') ?? '').replace(/\s+/g, ' ').trim());
   return outlineBreaks(await headings(page, DIALOG), { title });
 }
 
@@ -449,7 +450,8 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   const told = await page.locator('.calkv dd > span:not(.calwho):has(> small)').evaluateAll((all) =>
     all.map((s) => {
       const lead = [...s.childNodes].filter((n) => !(n instanceof Element && n.matches('small, .srsp'))).map((n) => n.textContent).join('');
-      return `${lead.trim()} ${s.querySelector('small')!.textContent.trim()}`;
+      // whitespace normalised as the snapshot's is: the copy glues a count to its noun with a no-break space
+      return `${lead.trim()} ${s.querySelector('small')!.textContent.trim()}`.replace(/\s+/g, ' ');
     }),
   );
   expect(told.length).toBeGreaterThan(0);
