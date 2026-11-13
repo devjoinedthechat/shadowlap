@@ -96,6 +96,7 @@ export type NextStep =
   | { kind: 'verify'; label: string; runs: string[]; every: boolean; gone: number }
   | ({ kind: 'more'; label: string } & Omit<NonNullable<PreviewNext['more']>, 'kind'>)
   | { kind: 'migrate'; label: string; to: string; from: string[]; goldens: string[]; runs: string[] }
+  | { kind: 'report'; label: string; sessionId: string }
   | null;
 
 export function nextStep(next: PreviewNext): NextStep {
@@ -104,6 +105,8 @@ export function nextStep(next: PreviewNext): NextStep {
     const { kind, ...more } = next.more;
     return { kind: 'more', label: kind === 'again' ? ACTIONS.verifyAgain.label : ACTIONS.runMoreAttempts.label, ...more };
   }
+  // A migration made since of the same switch: its report, where Migrate to would ask it again.
+  if (next.migration) return { kind: 'report', label: ACTIONS.openMigrationReport.label, sessionId: next.migration };
   if (next.migrate) return { kind: 'migrate', label: `Migrate to ${next.migrate.to}`, ...next.migrate };
   return null;
 }

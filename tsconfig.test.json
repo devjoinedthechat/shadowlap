@@ -45,6 +45,7 @@
     "packages/dashboard/test/ui-strip.test.ts",
     "packages/dashboard/test/ui-preview.test.ts",
     "packages/dashboard/test/ui-preview-jobs.test.ts",
+    "packages/dashboard/test/ui-migrate.test.ts",
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
     "packages/dashboard/test/ui-timeline-notch.test.ts",

@@ -1,3 +1,4 @@
+import { appliedStatus } from './fixes/model.js';
 import { ownArgs } from './job-title.js';
 
 /**
@@ -86,14 +87,30 @@ function revertStatus(job: EndedJob, all: string, code: number): JobWords | null
   return !session || sessionTotals(all)?.failed ? { text: `reverted · test failed · ${exit}`, tone: 'err' } : { text: `reverted · ${session.text}`, tone: session.tone };
 }
 
-/** A verify, a change's verify and a migration, by the verdict the command reported. */
+/** A verify and a change's verify, by the verdict the command reported. */
 function verdictStatus(job: EndedJob, code: number): JobWords | null {
-  if (job.kind !== 'verify' && job.kind !== 'decisions-verify' && job.kind !== 'migrate') return null;
+  if (job.kind !== 'verify' && job.kind !== 'decisions-verify') return null;
   // A session's verify answers with the session (`verify.verdict`), where a verify left open is incomplete.
   const said = job.kind === 'decisions-verify' ? asRecord(asRecord(job.result)?.verify)?.verdict : asRecord(job.result)?.verdict;
   const verdict = said === 'incomplete' ? 'inconclusive' : said;
   const tones: Readonly<Record<string, JobWords['tone']>> = { accepted: 'ok', rejected: 'err', inconclusive: 'warn' };
   return typeof verdict === 'string' && tones[verdict] ? { text: `${verdict} · exit ${code}`, tone: tones[verdict] } : null;
+}
+
+/**
+ * A migration, in the word Verdicts gives it: rejected (exit 1), inconclusive where it settled nothing
+ * (exit 3), else accepted where verify accepted it, and nothing to verify where verify took nothing.
+ * Its report has no `verdict` of its own; What still passes carries verify's. Apply config change
+ * ends in Apply fix's words. Other codes have the words of any job.
+ */
+function migrateStatus(job: EndedJob, code: number): JobWords | null {
+  const r = asRecord(job.result);
+  if (job.kind === 'migrate-apply') return r ? appliedStatus(r, code) : null;
+  if (job.kind !== 'migrate') return null;
+  if (code === 1) return { text: 'rejected · exit 1', tone: 'err' };
+  if (code === 3) return { text: 'inconclusive · exit 3', tone: 'warn' };
+  if (code !== 0 || !r) return null;
+  return asRecord(r.passes)?.verdict === 'accepted' ? { text: 'accepted · exit 0', tone: 'ok' } : { text: 'nothing to verify · exit 0', tone: '' };
 }
 
 /**
@@ -156,5 +173,5 @@ function fixCheckStatus(job: EndedJob, code: number): JobWords | null {
 
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? checkStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? checkStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? sessionStatus(job, all, code);
 }

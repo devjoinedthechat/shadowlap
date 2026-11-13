@@ -118,6 +118,52 @@ describe('Needs a look: a capture its import judged failed', () => {
 });
 
 describe('Needs a look: a model the goldens use that retires', () => {
+  it('says how the newest migration from it came out and opens it, then the goldens it left to update, and goes once none waits', () => {
+    const store = Store.open(':memory:');
+    try {
+      const sonnet = addRun(store, { startedAt: NOW - DAY, calls: [{ code: 'l', endMeta: { provider: 'anthropic' } }] });
+      const goldens = [golden('goldens/refund-flow', sonnet)];
+      const migrate = (id: string, at: number, files: boolean) => {
+        const passes = { verdict: 'not-run', runs: [{ runId: sonnet, golden: 'goldens/refund-flow', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null }] };
+        const data = { migrateId: id, kind: 'migrate', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', decisions: { runs: [{}] }, passes, set: { fields: [], given: {}, byHand: [] }, configChange: files ? { files: [{ path: 'agent.py', places: 1 }], leftOut: [], review: [] } : null, files: { dir: 'm', patch: files ? 'm/config.patch' : null }, stopReason: null };
+        store.putDecisionSession({ sessionId: id, kind: 'migrate', at, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data, runs: [] });
+      };
+      const row = () => overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((r) => r.kind === 'retire');
+      migrate('mg-01M5000000000000000000000A', 1_000, true);
+      expect(row()).toMatchObject({ detail: 'checked · the config change is ready', step: null, href: '#/changes/migrate/mg-01M5000000000000000000000A' });
+      // The newest migration from it is the one it says: here no file names the model, so nothing is ready to apply.
+      migrate('mg-01M5000000000000000000000B', 2_000, false);
+      expect(row()).toMatchObject({ detail: 'checked · claude-sonnet-5-5 decided the same in the preview', href: '#/changes/migrate/mg-01M5000000000000000000000B' });
+      store.setMigrationApplied('mg-01M5000000000000000000000B', { at: 3_000, by: null, outdated: [{ golden: 'goldens/refund-flow', callNo: 1, path: '$.model' }] });
+      expect(row()).toMatchObject({ detail: 'applied · 1 golden to update', step: null });
+      const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund-flow', '--update'], startedAt: 4_000 });
+      store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-flow', ok: true, at: 4_000 });
+      expect(row()).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  it('stands for a migration from the model: Needs a look lists no preview row of it, as it does of one from a model that stays', () => {
+    const store = Store.open(':memory:');
+    try {
+      const sonnet = addRun(store, { startedAt: NOW - DAY, calls: [{ code: 'l', endMeta: { provider: 'anthropic' } }] });
+      const goldens = [golden('goldens/refund-flow', sonnet)];
+      // A migration whose verify rejected the run it flagged, from the model given.
+      const migration = (id: string, at: number, from: string) => {
+        const data = { migrateId: id, kind: 'migrate', from: [from], to: 'claude-sonnet-5-5', flagged: [sonnet], decisions: { flagged: [sonnet] }, passes: { verdict: 'rejected', runs: [] } };
+        store.putDecisionSession({ sessionId: id, kind: 'migrate', at, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data, runs: [{ runId: sonnet, golden: null, rank: 1, changed: 1, data: { runId: sonnet, golden: null, rank: 1, decisions: [] } }] });
+      };
+      const previews = () => overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.filter((r) => r.kind === 'decisions').map((r) => r.key);
+      migration('mg-01M5000000000000000000000A', 1_000, 'acme-small-1');
+      expect(previews()).toEqual(['attn:decisions:mg-01M5000000000000000000000A']);
+      migration('mg-01M5000000000000000000000B', 2_000, 'claude-sonnet-4-5');
+      expect(previews()).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
   it('names the model, how many goldens use it and when it goes, the soonest first, with Migrate to what replaces it', () => {
     const store = Store.open(':memory:');
     try {
@@ -133,7 +179,7 @@ describe('Needs a look: a model the goldens use that retires', () => {
         ['claude-sonnet-4-5, used by 2 goldens, retires on Nov 30, 2026', 'in 42 days · Anthropic recommends claude-sonnet-5-5'],
         ['claude-mythos-preview, used by 1 golden, is deprecated', ''],
       ]);
-      expect(rows[0]).toMatchObject({ key: 'attn:retire:claude-3-7-sonnet-20250219', group: 'housekeeping', icon: 'retire', href: '#/changes' });
+      expect(rows[0]).toMatchObject({ key: 'attn:retire:claude-3-7-sonnet-20250219', group: 'housekeeping', icon: 'retire', href: '#/changes/migrate' });
       expect(rows[1]?.step).toEqual({
         of: 'migrate',
         label: 'Migrate to claude-sonnet-5-5',
@@ -146,9 +192,9 @@ describe('Needs a look: a model the goldens use that retires', () => {
       expect(rows[2]?.step).toBeNull();
       // Advice, keyed by the model: the day it retires (or deprecated, with none) and each golden that calls it.
       expect(rows.map((r) => r.advice)).toEqual([
-        { key: 'retire claude-3-7-sonnet-20250219', facts: ['goldens/digest', 'retires 2026-02-19'], until: 'Until a new date or golden', dismissed: false },
-        { key: 'retire claude-sonnet-4-5', facts: ['goldens/refund-flow', 'goldens/refund-in-limit', 'retires 2026-11-30'], until: 'Until a new date or golden', dismissed: false },
-        { key: 'retire claude-mythos-preview', facts: ['deprecated', 'goldens/mythos'], until: 'Until a new date or golden', dismissed: false },
+        { key: 'retire claude-3-7-sonnet-20250219', facts: ['goldens/digest', 'retires 2026-02-19'], until: 'Until a new date or golden, or a migration checks it', dismissed: false },
+        { key: 'retire claude-sonnet-4-5', facts: ['goldens/refund-flow', 'goldens/refund-in-limit', 'retires 2026-11-30'], until: 'Until a new date or golden, or a migration checks it', dismissed: false },
+        { key: 'retire claude-mythos-preview', facts: ['deprecated', 'goldens/mythos'], until: 'Until a new date or golden, or a migration checks it', dismissed: false },
       ]);
     } finally {
       store.close();
@@ -183,7 +229,7 @@ describe('Needs a look: a model the goldens use that retires', () => {
         title: 'claude-sonnet-4-5, used by 4 goldens, retires on Nov 30, 2026',
         step: { from: ['claude-sonnet-4-5'], command: 'shadowlap migrate --to claude-sonnet-5-5 goldens/g0 goldens/g1 goldens/g2 goldens/g3 --from claude-sonnet-4-5' },
       });
-      expect(rows[0]?.advice).toEqual({ key: 'retire claude-sonnet-4-5', facts: ['goldens/g0', 'goldens/g1', 'goldens/g2', 'goldens/g3', 'retires 2026-11-30'], until: 'Until a new date or golden', dismissed: false });
+      expect(rows[0]?.advice).toEqual({ key: 'retire claude-sonnet-4-5', facts: ['goldens/g0', 'goldens/g1', 'goldens/g2', 'goldens/g3', 'retires 2026-11-30'], until: 'Until a new date or golden, or a migration checks it', dismissed: false });
     } finally {
       store.close();
     }

@@ -484,7 +484,7 @@ code.rnm { white-space: nowrap; }
    width they had: tighter tracking gives back what the larger size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .k:not(.stepper>a>.k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
+    .eyebrow, .k:not(.stepper>a>.k, .mgcost .k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
     .fxtable th, .godds th, .msg .role small, .callrow .pp, .callrow .pl,
     .dstop, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,

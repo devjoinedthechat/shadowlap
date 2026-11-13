@@ -42,6 +42,24 @@ export const revealCell = (): void => {
 };
 
 /**
+ * A cell opens under the matrix, and pressed again closes, in place of the address as a pick in a page
+ * is: Back leaves Preview rather than walking back through every cell opened, and the page keeps its
+ * scroll. A cell that opens is brought into view the nearest way, as one from a tall matrix's top row
+ * could open below the window.
+ */
+export function openCell(kind: 'decisions' | 'migrate', sessionId: string, run: string, call: number | null, current: boolean): void {
+  if (!current) revealCell();
+  navigate(current ? href.changeSession(kind, sessionId) : href.changeSession(kind, sessionId, run, call), true);
+}
+
+/** The cell an address opens: its run's row at its call; a run's address without a call, the call its row ends on, else its first. */
+export function openedCell(session: PreviewSession, run: string | null, call: number | null): { row: PreviewSession['matrix'][number]; callNo: number } | null {
+  const row = run ? session.matrix.find((r) => r.runId === run) : undefined;
+  const callNo = call ?? row?.ending.callNo ?? row?.cells[0]?.callNo ?? null;
+  return row && callNo !== null ? { row, callNo } : null;
+}
+
+/**
  * An opened cell closes by Esc or its ×, back to its session's page in place of the address (as the
  * cell opened), the focus on the cell's own button where it was in the panel or lost. Esc closes it
  * before the matrix lets go of its row: the shell asks `pageUp` first.
@@ -69,7 +87,7 @@ const plainPress = (e: MouseEvent): boolean => e.button === 0 && !e.metaKey && !
 
 export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSession; row: Row; callNo: number }) {
   const cell = row.cells.find((c) => c.callNo === callNo) ?? null;
-  const close = href.changeSession('decisions', session.sessionId);
+  const close = href.changeSession(session.kind, session.sessionId);
   const shut = useCellClose(close);
   useEffect(() => {
     if (!reveal) return;
@@ -237,7 +255,7 @@ function RangeLine({ session, row, callNo }: { session: PreviewSession; row: Row
       {others.map((x, i) => (
         <Fragment key={x.callNo}>
           {i ? ', ' : null}
-          <Link href={href.changeSession('decisions', session.sessionId, row.runId, x.callNo)}>
+          <Link href={href.changeSession(session.kind, session.sessionId, row.runId, x.callNo)}>
             #{x.callNo}
           </Link>{' '}
           <span className="dlm">rank {x.rank}</span>

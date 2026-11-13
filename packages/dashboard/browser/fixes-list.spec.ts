@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { demoId, openPage } from './dashboard.js';
+import { demoId, openPage, RESET_RETRY } from './dashboard.js';
 
 /**
  * Fixes as a to-do list in Chromium over the demo store: j and k over its rows, Enter opening a fix and
@@ -101,7 +101,7 @@ test('a job started from a row’s next step hands the focus to that row’s ste
   const again = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
   // The list as the server answers it, the fix's step Run blame again; no estimate, so the step asks.
   await page.route(/\/api\/fixes(\?.*)?$/, async (route) => {
-    const body = (await (await route.fetch()).json()) as { fixes: Array<{ fixId: string }> };
+    const body = (await (await route.fetch(RESET_RETRY)).json()) as { fixes: Array<{ fixId: string }> };
     await route.fulfill({ json: { ...body, fixes: body.fixes.map((f) => (f.fixId.startsWith(email) ? { ...f, next: again } : f)) } });
   });
   await page.route(/\/api\/fixes\/[^/]+\/estimates/, (route) => route.fulfill({ json: { repair: null, blameAgain: null, blameStronger: null, verify: {} } }));

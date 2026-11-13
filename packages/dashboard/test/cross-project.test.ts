@@ -311,7 +311,7 @@ describe('a link into another project', () => {
     };
     answers.filter((a) => a.status === 200).forEach((a) => walk(a.body));
     const asked = [...links].map((link) => ({ link, ask: heldAsk(parseRoute(link)) })).filter((l) => l.ask !== null);
-    expect(new Set(asked.map((l) => l.ask!.what))).toEqual(new Set(['run', 'fix', 'preview']));
+    expect(new Set(asked.map((l) => l.ask!.what))).toEqual(new Set(['run', 'fix', 'preview', 'migration']));
     w.host.switchTo('triage-bot');
     for (const { link, ask } of asked) {
       const a = await w.holding(ask!.what, ...ask!.ids);

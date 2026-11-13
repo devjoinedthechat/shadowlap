@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   applyNormalizers,
+  codeChangeNeeded,
   askedInScope,
   byConsequence,
   chanceRanked,
@@ -948,18 +949,6 @@ function runOf(target: DecisionTarget, planned: Planned[], steps: DecisionStep[]
     decisions: [...steps].sort(byConsequence),
     warnings,
   };
-}
-
-/**
- * Why verify can't test the change as migrate asked it, or null: a field the requests must leave
- * out, or send under another name, is no request field `--set` can give, and verify runs the agent's
- * code, which still sends it, so the new model would refuse every attempt. The code changes first.
- */
-export function codeChangeNeeded(remedies: readonly DecisionRemedy[], to: string | null): string | null {
-  const unsendable = remedies.filter((r) => r.renamedTo !== null || (r.leftOut && r.value === null));
-  if (!unsendable.length) return null;
-  const what = unsendable.map((r) => (r.renamedTo ? `send ${r.renamedTo} in place of ${r.field}` : `leave ${r.field} out`)).join(' and ');
-  return `verify runs your agent's code, which ${to ? `${to} refuses as it stands` : 'the new model refuses'}: ${what} in your agent's requests (What to set), then verify`;
 }
 
 /** The fields verify takes for a change: the model, the fields given, and those migrate sent with a value in place of what the new model refuses. */

@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { fieldModels, FAMILY_NAMES, type ModelFamily } from '../../src/model-order.js';
+import { fieldModels, FAMILY_NAMES, type ModelFamily, type ModelOption } from '../../src/model-order.js';
 import type { ModelChoicesView } from '../estimates-api.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
@@ -27,11 +27,15 @@ export interface ModelFieldProps {
   recorded: ReadonlyArray<{ id: string; family: ModelFamily }>;
   listing: ModelChoicesView | null | undefined;
   label?: string;
+  /** Offered first, each marked recommended: a retiring model's replacements, for Migrate's Switch to. */
+  recommended?: readonly string[];
 }
 
-export function ModelField({ value, onChange, recorded, listing, label = 'Model' }: ModelFieldProps) {
+export function ModelField({ value, onChange, recorded, listing, label = 'Model', recommended = [] }: ModelFieldProps) {
   const list = useId();
-  const options = fieldModels(recorded, listing ? [...listing.choices, ...listing.priced] : []);
+  const offered = fieldModels(recorded, listing ? [...listing.choices, ...listing.priced] : []);
+  const first: ModelOption[] = recommended.map((id) => ({ id, family: offered.find((o) => o.id === id)?.family ?? null, group: 'recommended' }));
+  const options = [...first, ...offered.filter((o) => !recommended.includes(o.id))];
   return (
     <>
       <label>
@@ -39,7 +43,7 @@ export function ModelField({ value, onChange, recorded, listing, label = 'Model'
         <input type="text" list={list} value={value} spellCheck={false} autoComplete="off" onChange={(e) => onChange(e.currentTarget.value.trim())} />
         <datalist id={list}>
           {options.map((o) => (
-            <option key={o.id} value={o.id} label={`${FAMILY_NAMES[o.family ?? 'other']!} · ${o.recorded ? 'recorded' : o.group}`} />
+            <option key={o.id} value={o.id} label={o.group === 'recommended' ? `${o.family ? `${FAMILY_NAMES[o.family]!} · ` : ''}recommended` : `${FAMILY_NAMES[o.family ?? 'other']!} · ${o.recorded ? 'recorded' : o.group}`} />
           ))}
         </datalist>
       </label>

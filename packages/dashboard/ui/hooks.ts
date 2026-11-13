@@ -52,6 +52,16 @@ export function useLoad<T>(load: () => Promise<T> | null, key: string, refresh: 
   return { data: fresh ? state.data : null, error: fresh ? state.error : null, loading: fresh ? state.loading : true, reload };
 }
 
+/** `value`, once it has held still for `ms`: a read that follows a field waits for the typing to stop. */
+export function useSettled<T>(value: T, ms = 300): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
+
 /** Calls `fn` every `ms` while mounted; null pauses it. */
 export function useInterval(fn: () => void, ms: number | null): void {
   const ref = useLatest(fn);
