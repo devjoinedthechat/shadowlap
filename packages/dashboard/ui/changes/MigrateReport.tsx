@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { JOB_KINDS, type JobView } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
+import { asWords, CodeText, Copy } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
-import { DialogSteps, inCode } from '../components/DialogFacts.js';
+import { codeWords, DialogSteps, inCode } from '../components/DialogFacts.js';
+import { DotNodes } from '../components/DotParts.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Markdown } from '../components/Markdown.js';
@@ -61,7 +63,9 @@ export function MigrateReport({ session, sessions, retiring, use, run, call }: {
           {m.costs.map((c) => (
             <p key={c.label}>
               <span className="k">{c.label}</span>
-              <span>{glossed(c.text)}</span>
+              <span>
+                <DotNodes parts={c.text.split(' · ').map((t) => ({ text: t, node: glossed(t, true) }))} />
+              </span>
             </p>
           ))}
         </Section>
@@ -81,13 +85,13 @@ const goldensOf = (session: PreviewSession): string[] => [...new Set(session.mat
 function MigrateVerdict({ session, m }: { session: PreviewSession; m: MigrateView }) {
   const facts = (
     <>
-      <span className="pline">{m.headline.rest}</span>
+      <span className="pline">{asWords(m.headline.rest)}</span>
       {m.retirements.map((r) => (
         <span key={r.text} className="pline">
-          {r.text}
+          {asWords(r.text)}
         </span>
       ))}
-      {m.appliedLine ? <span className="pline">{inCode(m.appliedLine)}</span> : null}
+      {m.appliedLine ? <span className="pline">{codeWords(m.appliedLine)}</span> : null}
     </>
   );
   return (
@@ -185,9 +189,9 @@ function ChangeSteps({ m, sessionId }: { m: MigrateView; sessionId: string }) {
               </a>
               <span className="mgw">{s.detail}</span>
               {s.lines.map((l) => (
-                <code key={l} className="mgarg">
+                <CodeText key={l} className="mgarg">
                   {l}
-                </code>
+                </CodeText>
               ))}
             </li>
           ))}
@@ -298,15 +302,23 @@ function PullRequest({ m }: { m: MigrateView }) {
   );
 }
 
-/** The foot: the report's warnings and notes, then the command that made the migration. */
+/**
+ * The foot: the report's warnings and notes, then the command that made the migration. A warning
+ * holds what failed as the server said it, so it stays as written; a note is the report's own
+ * sentence, set as copy.
+ */
 function Foot({ m }: { m: MigrateView }) {
-  const lines = [...m.warnings, ...m.notes];
   return (
     <div className="mgend">
-      {lines.length ? (
+      {m.warnings.length || m.notes.length ? (
         <ul className="dnotes">
-          {lines.map((w) => (
+          {m.warnings.map((w) => (
             <li key={w}>{inCode(w)}</li>
+          ))}
+          {m.notes.map((n) => (
+            <Copy key={n} as="li">
+              {inCode(n)}
+            </Copy>
           ))}
         </ul>
       ) : null}

@@ -69,7 +69,7 @@ describe('Changes › Migrate', () => {
   const body = `## Switch ${FROM} to ${TO}\n\nChecked with \`shadowlap migrate --to ${TO}\`.\n\n> ${notice.text} ([source](${notice.source}))\n\n### What changes\n\n- refund #2: issue_refund is no longer called`;
 
   /** A migration from FROM to TO as `migrate --json` keeps it: one run flagged and verified, one the preview cleared, `temperature` taken out, a golden left behind. */
-  const migration = (id: string, runs: DecisionRun[], o: { verify?: Record<string, unknown>; warnings?: string[] } = {}) => {
+  const migration = (id: string, runs: DecisionRun[], o: { verify?: Record<string, unknown>; warnings?: string[]; notes?: string[] } = {}) => {
     const [x, y] = runs;
     const decisions = { decisionsId: null, kind: 'decisions', at: AT, change: { model: TO, fields: {}, from: [FROM], fromCode: null, text: `the model ${TO}` }, command: `shadowlap migrate --to ${TO}`, samples: 2, counts: { ...emptyCounts(), 1: 1, same: 3 }, flagged: [x.runId], toVerify: [x.runId], remedies: [REMEDY], runs, cost: { before: 0.04, after: 0.03, spent: 0.01, upstreamRequests: 4, unknownModels: [] }, stopReason: null, judge: null, notes: [], warnings: [], verify: { verdict: 'accepted', rule: 'rate >= 0.6 (95%)', reasons: [], warnings: [], runs: [{ runId: x.runId, golden: 'goldens/refund', role: 'target', outcome: 'kept', verdict: 'passed', passes: 4, attempts: 4, bound: 'rate >= 0.6 (95%)', rule: 'rate >= 0.6 (95%)' }] } };
     if (o.verify) Object.assign(decisions, { verify: o.verify });
@@ -96,7 +96,7 @@ describe('Changes › Migrate', () => {
       files: { dir: `.shadowlap/migrations/${id}`, pullRequest: `.shadowlap/migrations/${id}/pull-request.md`, patch: `.shadowlap/migrations/${id}/config.patch` },
       retirements: [notice],
       stopReason: null,
-      notes: [],
+      notes: o.notes ?? [],
       warnings: o.warnings ?? ['1 step got no answer: rate limited'],
     };
     store.putDecisionSession({ sessionId: id, kind: 'migrate', at: AT, change: `the model ${TO}`, actor: 'dev', revision: null, data, runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.rank, changed: r.rank === null ? 0 : 1, data: r as unknown as Record<string, unknown> })) });
@@ -405,6 +405,26 @@ describe('Changes › Migrate', () => {
       expect(await step(MG)).toEqual([[['Apply config change', true]], []]);
       expect(await step(WAITS)).toEqual([[['Update goldens', true]], [`1 golden to update under ${TO}: refund`]]);
       expect(await step(UPDATED)).toEqual([[['Copy pull request body', true]], []]);
+    });
+
+    it('sets its lines as the line rules do: a cost part whole with its dot, a model’s name whole, a step’s change as code shown as text, a note as copy and a warning as written', async () => {
+      const NOTED = 'mg-01M50000000000000000000007';
+      const note = 'Each step was asked once, and a model varies from one answer to the next: --samples 3 asks each step as recorded as often too.';
+      migration(NOTED, [runOf(a, 'goldens/refund', [step(1, null), step(2, 1)]), runOf(b, 'goldens/lookup', [step(1, null), step(2, null)])], { notes: [note] });
+      sessions.set(NOTED, previewSession(store, NOTED)!);
+      const p = await open(start, [NOTED], { id: NOTED });
+      await p.until('the report', () => p.all('.mgend .dnotes li').length === 2);
+      // Each part of a cost line whole on its line, its dot kept with it, so no line starts with one.
+      expect(p.all('.mgcost p')[0].querySelectorAll('span')[1].querySelectorAll('span.nw').map((x) => x.textContent.replace(/\u00a0/g, ' '))).toEqual(['≈$0.040 → ≈$0.030 (−25%) ·', '1,200 → 900 tokens']);
+      // A model's name in the verdict's lines kept whole, where a browser would break it at a hyphen.
+      expect(p.all('.mgverdict .pline')[0].querySelectorAll('ts-w').map((w) => w.textContent)).toEqual([FROM, `${TO},`]);
+      // A step's change as code shown as text: it breaks after a comma or a brace, never inside a call, an arrow kept with the word before it.
+      expect(p.one('.mgsteps .mgarg').className).toBe('ts-ct mgarg');
+      // The warning as the server wrote it; the note set as copy, its flag kept whole where a browser would break it at a hyphen.
+      expect(p.all('.mgend .dnotes li').map((li) => [shown(li), li.querySelectorAll('ts-w').map((w) => w.textContent)])).toEqual([
+        ['1 step got no answer: rate limited', []],
+        [note, ['--samples']],
+      ]);
     });
 
     it('says applied once applied, with the golden left waiting where What still passes names it', async () => {
