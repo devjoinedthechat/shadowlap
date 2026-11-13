@@ -175,6 +175,10 @@ describe('the dashboard’s scripts', () => {
     expect(runPage.upFront.has('ui/run/offers.ts')).toBe(true);
     for (const words of ['ui/run/dialog-copy.ts', 'ui/runspage/find-commit.ts', 'ui/update-words.ts']) expect(runPage.upFront.has(words), `${words} loads with the run page`).toBe(false);
     for (const part of ['ui/run/RunDialogs.tsx', 'ui/run/ForkMenu.tsx', 'ui/run/DivergedDialogs.tsx']) expect(inputsOf(loads(chunkOf(part))).has('ui/run/dialog-copy.ts'), `${part} loads its words`).toBe(true);
+    // What only the run's other views read (ui/run/view-model.ts: Turns' turns, Timeline's clock and
+    // a family's runs as the lists see them) loads with those views, on a press of the view switch.
+    expect(runPage.upFront.has('ui/run/view-model.ts'), 'the views’ helpers load with the run page').toBe(false);
+    for (const view of ['ui/run/TurnsView.tsx', 'ui/run/TimelineView.tsx', 'ui/run/ForksView.tsx', 'ui/run/ProvenanceView.tsx']) expect(inputsOf(loads(chunkOf(view))).has('ui/run/view-model.ts'), `${view} loads its helpers`).toBe(true);
     // Nothing of an exported copy's own entry is served.
     const all = inputsOf(Object.keys(outs));
     expect(all.has('ui/main-copy.tsx')).toBe(false);

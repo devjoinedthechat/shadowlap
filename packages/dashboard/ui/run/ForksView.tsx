@@ -9,7 +9,7 @@ import { href } from '../route.js';
 import { familyLineParts, repeatBundle } from '../runs.js';
 import { useApp } from '../state.js';
 import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
-import { lineageRunLike } from './model.js';
+import { lineageRunLike } from './view-model.js';
 import { goldenName } from './offers.js';
 import { useOfflineLink } from '../components/ActionButton.js';
 import { byResult, testedRuns } from '../injection/fork-node.js';
