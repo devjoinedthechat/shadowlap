@@ -82,7 +82,7 @@ describe('Rescan coverage in the palette', () => {
     const labels = r.all('.palit').map((el) => el.querySelector('.pl')!.textContent);
     expect(labels.indexOf('Rescan coverage')).toBeGreaterThan(-1);
     expect(labels.indexOf('Rescan coverage')).toBe(labels.indexOf('Preview pull request comment') - 1);
-    keepTests({ ...tested, verdict: null } as unknown as TestsView);
+    keepTests({ ...tested, verdict: null });
   });
 });
 
