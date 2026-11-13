@@ -366,6 +366,31 @@ test.describe('an injection test’s pages', () => {
     await openPage(page, '/settings/tools', 'main#view table.trusttab tbody tr', at);
     expect((await names(page, 'main#view table.trusttab tbody', 'cell')).filter((c) => /^\w+ (read|pure|write)$/.test(c))).toEqual(['fetch_page read', 'search_web read', 'read_file pure', 'send_email write']);
   });
+
+  test.describe('on a touch screen', () => {
+    test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+    test('Find cause…, the trust marks, the tools entry’s and Run injection test…’s buttons take the tap at their edges, and never a neighbour’s', async ({ page }) => {
+      const states: Array<[string, Target[]]> = [
+        [
+          'Settings → Tools’ Trust column',
+          [
+            { name: 'Mark trusted or untrusted', sel: 'main#view .trusttab .trustbtn', reach: [4, 0, 4, 0] },
+            { name: 'Run injection test… on a read’s row', sel: 'main#view .trusttab .btn.tooltest', size: [0, 24] },
+            { name: 'the tools entry’s Show and Copy entry', sel: 'main#view .wftog button.linkbtn', reach: [4, 0, 4, 0] },
+          ],
+        ],
+        ['Find cause… on a write after an untrusted read', [{ name: 'Find cause…', sel: 'main#view .ihead .iask', size: [0, 32], reach: [6, 2, 6, 2] }]],
+        ['Tests with Security', [{ name: 'Run injection test… on a golden', sel: 'main#view table.sect .btn', size: [0, 24] }]],
+      ];
+      const found: string[] = [];
+      for (const [name, targets] of states) {
+        await show(page, routes().find((r) => r.name === name)!)();
+        for (const t of targets) found.push(...(await taps(page, t)).map((p) => `${name}: ${p}`));
+      }
+      expect(found).toEqual([]);
+    });
+  });
 });
 
 test('the cards that stand for a page, signed out and with a refused link, each have one h1, their title', async ({ page }) => {
