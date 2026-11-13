@@ -15,20 +15,15 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * (`LoadFailed`'s Retry, components/bits.tsx). A part that opens on a press draws nothing in its
  * place and says it in an error toast instead, with that Retry (pages/served.tsx).
  *
- * The shell's pages load this way (pages/lazy.tsx), its palette and shortcuts sheet (shell/Shell.tsx),
- * and each part of a page heavy enough to wait for a script of its own: a run's views but Calls
- * (pages/Run.tsx), the dialog a run's action asks in (run/actions.tsx), and what a run's page
- * rarely opens, which keeps it within its budget: a diverged test's dialogs (run/diverged.tsx),
- * Share's menu with its rows' words (pages/served.tsx, run/share.ts: the page's header, steps and
- * keys read theirs from run/share-steps.ts) and its Export dataset… and Export OpenTelemetry trace…
+ * The shell's pages load this way (pages/lazy.tsx), its shortcuts sheet (shell/Shell.tsx), and each
+ * part of a page heavy enough to wait for a script of its own: a run's views but Calls
+ * (pages/Run.tsx), and what a run's page rarely opens, which keeps it within its budget: Share's
+ * menu with its rows' words (pages/served.tsx, run/share.ts: the page's header, steps and keys read
+ * theirs from run/share-steps.ts) and its Export dataset… and Export OpenTelemetry trace…
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), the words of a run's notes
  * (run/RunNotes.tsx, with run/note-lines.ts: the page decides which notes a run has, run/notes.ts),
- * Edit and fork's dialog (run/EditDialog.tsx), Run blame's dialogs and their check
- * (fixes/RunBlameAsks.tsx), the fork menu (run/ForkMenu.tsx), the header's … with Delete run's
- * helper (run/MoreMenu.tsx), and Find breaking commit's and Delete run's dialogs
- * (run/RunDialogs.tsx); and Preview pull request comment's dialog, which Settings → CI and a
- * revision's page under Changes both open, declared once in a module they share
- * (ci/comment-parts.tsx) so the build makes one script for both. So must the structural diff
+ * Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), the fork menu (run/ForkMenu.tsx),
+ * and the header's … with Delete run's helper (run/MoreMenu.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and
  * each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
@@ -40,14 +35,18 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * header's actions), Run blame's dialogs, the check menu at a tool call and the check builder its
  * pick opens (which only Add check… opens), an injection test's results (a copy keeps no results),
  * the dialogs a run's steps ask in (run/StepDialogs.tsx: a copy draws no step that asks), Revert's
- * dialog or the first bad commit's change box, is the exception: the served entry hands it in
- * (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, and a test pins
+ * dialog or the first bad commit's change box, the dialog a run's action asks in
+ * (run/ActionDialog.tsx), Find breaking commit's and Delete run's (run/RunDialogs.tsx), a diverged
+ * test's (run/DivergedDialogs.tsx) and Edit and fork's (run/EditDialog.tsx), the shell's palette,
+ * the job's drawer with the words of a job's kind (jobs.ts) and Remove project's dialog, Preview pull
+ * request comment's (ci/PrCommentDialog.tsx, one script for Settings → CI and a revision's page
+ * under Changes), or the page that says another project holds what a link names
+ * (pages/Elsewhere.tsx, which the page list shows too), is the exception: the served entry hands it
+ * in (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, and a test pins
  * what keeps each one undrawn there (test/ui-exported-copy.test.ts, test/ui-revert-copy.test.ts).
- * The one part the page list shows itself, the page that says another project holds what a link
- * names, is declared in a module of its own that the pages showing it import too
- * (pages/held-elsewhere.tsx), and the bundle size test pins it. The bundle size test holds each
- * page's and each part's script to a budget of its own. What a fork did differently waits so too,
- * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
+ * The bundle size test holds each page's and each part's script to a budget of its own. What a fork
+ * did differently waits so too, a finding of a fork's page alone, asked for with the differences
+ * (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

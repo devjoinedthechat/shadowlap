@@ -1,14 +1,13 @@
 import { Fragment } from 'react';
-import { onShow } from '../components/OnShow.js';
 import type { CommentDecision } from '../types.js';
 
 /**
- * What Settings → CI and a revision's page under Changes share of the pull request comment. Its
- * preview is a dialog in a script of its own, declared once here so the build makes one chunk for
- * both; an exported copy has neither page, so it never draws it (test/ui-exported-copy.test.ts). And
- * the decisions' steps, as the comment draws them and a revision's page lists them.
+ * What Preview pull request comment's dialog and a revision's page under Changes share of the pull
+ * request comment: the decisions' steps, as the comment draws them and a revision's page lists them,
+ * each with its calls. The dialog itself is a served part (pages/served.tsx), one script for
+ * Settings → CI and the newest revision's page, so an exported copy's script holds none of it
+ * (test/ui-exported-copy.test.ts).
  */
-export const PrCommentDialog = onShow(() => import('./PrCommentDialog.js').then((m) => m.PrCommentDialog));
 
 /** A quoted value with a hyphen in it (an order's id), kept whole; or a comma a value follows straight away, where a phone may break. */
 const PIECES = /("[^"\s]*-[^"\s]*"|,(?! ))/;

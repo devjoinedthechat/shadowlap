@@ -14,7 +14,6 @@ import { useLoad } from '../hooks.js';
 import { resultsKey } from '../matrix.js';
 import { ChangeBox } from '../revert/ChangeBox.js';
 import { href } from '../route.js';
-import { navigate } from '../router.js';
 import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import type { FoundCommit, GoldenReport, GoldenRow, ReportPart } from '../types.js';
@@ -255,15 +254,15 @@ function CommitLine({ found }: { found: FoundCommit }) {
 
 /**
  * An injection gate's proof, as an attempt's finding draws it (injection/Proof.tsx, a part the served
- * dashboard hands in): each call it names opens that attempt there, on the tab that shows it (the
- * attempt's page picks it on arrival, injection/arrival.ts); for an attempt that showed nothing, why.
- * Nothing where the part isn't handed in, as on a run's page.
+ * dashboard hands in): each call it names is a link to that attempt there, on the tab that shows it
+ * (the attempt's page picks it on arrival, injection/arrival.ts), so it opens in a new tab too; for
+ * an attempt that showed nothing, why. Nothing where the part isn't handed in, as on a run's page.
  */
 function ReportProof({ p }: { p: Extract<ReportPart, { kind: 'proof' }> }) {
   const { Proof } = useServedParts();
   return Proof ? (
     <p className="rpw">
-      <Proof parts={p.parts} why={p.why} onPick={(n) => navigate(href.run(p.runId, n))} />
+      <Proof parts={p.parts} why={p.why} href={(n) => href.run(p.runId, n)} />
     </p>
   ) : null;
 }

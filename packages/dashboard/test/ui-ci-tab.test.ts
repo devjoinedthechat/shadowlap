@@ -13,6 +13,7 @@ import { sessionLine } from '../ui/pages/settings/CiWorkflow.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * Settings → CI as the page renders the server's answers: Your workflow first, where the
@@ -159,7 +160,7 @@ afterEach(async () => {
 });
 
 async function open(s: ReturnType<typeof fakeServer>, toast: AppState['toast'] = () => undefined, conn: AppState['conn'] = 'ok', tab = 'ci'): Promise<Rendered> {
-  r = await render(createElement(AppContext.Provider, { value: app(s, toast, conn) }, createElement(SettingsPage, { tab })));
+  r = await render(createElement(AppContext.Provider, { value: app(s, toast, conn) }, withServed(createElement(SettingsPage, { tab }))));
   await r.until('the panels and the gate preview', () => r!.all('#alerts .cilist').length > 1 && r!.all('#gates .gsays').length === 1);
   return r;
 }

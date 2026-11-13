@@ -92,6 +92,8 @@ export const JOB_KINDS = {
   // The decision diff (Changes): ask the recorded model calls again under a change, migrate to a
   // model, and verify the runs a session flagged.
   decisions: 'decisions',
+  // What the working tree sends the runs, read offline before Preview changed prompt asks (its result is the CLI's decisions-read).
+  decisionsRead: 'decisions-read',
   migrate: 'migrate',
   decisionsVerify: 'decisions-verify',
   // Injection tests: plant payloads in a run's or a golden's untrusted reads, or ask whether a read caused its writes.

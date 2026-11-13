@@ -23,6 +23,7 @@ import {
   runBisectEstimate,
   selectedRuns,
   shownBlame,
+  SPRT_DEFAULTS,
   STRONGER_MODEL,
   unsettledFirst,
   updateEstimate,
@@ -40,13 +41,14 @@ import {
   type StoredBlame,
 } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from './api.js';
-import { decisionSession, runsToVerify, sessionReport } from './decisions.js';
+import { decisionSession, runsToVerify, sessionGate, sessionReport } from './decisions.js';
 import { nextBlameRule } from './fix-blame-step.js';
 import { acceptedVerdict, sprtGate } from './fix-shared.js';
 import { verdictRule, verifyLeftExpected } from './fix-verify-step.js';
 import { fixDetail } from './fixes.js';
 import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, runTestsEstimate } from './next-step.js';
 import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
+import { previewEstimates, type PreviewEstimateJob } from './preview-estimate.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { parseWork, type OutcomeWork } from './run-outcome.js';
@@ -101,9 +103,10 @@ export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: 
  * one `runId` names, as `decisions --verify` takes them. `work` is the config's tests, as the
  * outcome's reads take it, which give each run's checks; `rule` the config's `verify`.
  */
-export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runIds: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
+/** `max` and `keptMax`: Run more attempts' raised limits, as `decisions-verify` takes them; absent for Verify, which runs by verify's own. */
+export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runIds: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; max?: number | null; keptMax?: number | null; prices?: Record<string, Price> };
 
-export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob;
+export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob | PreviewEstimateJob;
 
 /** A run's answer: Run blame's estimate, and each row's by its key. */
 export interface RunEstimates {
@@ -227,7 +230,7 @@ function budgetOf(argv: readonly string[]): number | null {
 
 async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAnswer> {
   const inTree = job.inTree ? new Map(job.inTree) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, keptMax: job.rule.keptMax ?? null, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
   const fix = d ? resolveFix(store, job.fixId) : null;
   if (!d || !fix) return failed(404, `no fix ${job.fixId.slice(0, 40)}`);
   const rec = fixRecords(store, fix);
@@ -315,9 +318,10 @@ async function bisectEstimates(store: Store, job: BisectEstimateJob): Promise<Re
   return answer({ estimate: await estimateOf(price, pricingOf(store, job.prices)) }, { tagged: true });
 }
 
-/** A kept preview's: what its Verify bills, null when it leaves nothing to verify there, or a run it names is gone. */
+/** A kept preview's: what its Verify bills, null when it leaves nothing to verify there, or a run it names is gone; and each run it prices, in the role it is verified in (none without a price). */
 export interface DecisionEstimates {
   verify: Estimate | null;
+  runs: Array<{ runId: string; role: 'target' | 'good' }>;
 }
 
 /**
@@ -333,14 +337,25 @@ async function decisionEstimates(store: Store, job: DecisionEstimatesJob): Promi
   const report = sessionReport(session);
   const ids = runsToVerify(session, job.runIds.length ? job.runIds : undefined);
   const picked = (Array.isArray(ids) ? ids : []).map((id) => ({ row: report.runs?.find((r) => r.runId === id), run: store.getRun(id) }));
-  if (!picked.length || picked.some((p) => !p.row || !p.run)) return answer({ verify: null } satisfies DecisionEstimates, { tagged: true });
+  if (!picked.length || picked.some((p) => !p.row || !p.run)) return answer({ verify: null, runs: [] } satisfies DecisionEstimates, { tagged: true });
   const entries = parseWork(job.work)?.entries ?? [];
+  // Run more attempts' limits as the job passes them: the session's gate with its max raised, and a good run's pairs.
+  const raised = typeof job.max === 'number' || typeof job.keptMax === 'number';
+  const rule = raised
+    ? { ...job.rule, gate: { ...(sessionGate(store, session) ?? { kind: 'sprt' as const, ...SPRT_DEFAULTS }), ...(typeof job.max === 'number' ? { max: job.max } : {}) }, ...(typeof job.keptMax === 'number' ? { keptMax: job.keptMax } : {}) }
+    : job.rule;
+  const runs: DecisionEstimates['runs'] = [];
   const price = () =>
     verifyEstimate(
-      picked.map(({ row, run }) => decisionRunCost(row!, recordedRole(store, run!, recordedChecks(entries, store, run!, job.work?.dir ?? process.cwd(), row!.golden)?.spec ?? null, job.prices) === 'target')),
-      { rule: job.rule, live: report.change?.fromCode ? 'fork' : 'first', writes: 'stub' },
+      picked.map(({ row, run }) => {
+        const role = recordedRole(store, run!, recordedChecks(entries, store, run!, job.work?.dir ?? process.cwd(), row!.golden)?.spec ?? null, job.prices) === 'target' ? 'target' : 'good';
+        runs.push({ runId: run!.runId, role });
+        return decisionRunCost(row!, role === 'target');
+      }),
+      { rule, live: report.change?.fromCode ? 'fork' : 'first', writes: 'stub' },
     );
-  return answer({ verify: await estimateOf(price, pricingOf(store, job.prices)) } satisfies DecisionEstimates, { tagged: true });
+  const verify = await estimateOf(price, pricingOf(store, job.prices));
+  return answer({ verify, runs: verify ? runs : [] } satisfies DecisionEstimates, { tagged: true });
 }
 
 export const ESTIMATE_READS: ReadTable<EstimateJob> = {
@@ -349,4 +364,5 @@ export const ESTIMATE_READS: ReadTable<EstimateJob> = {
   'tests-estimates': (store, job) => testsEstimates(store, job),
   'bisect-estimate': (store, job) => bisectEstimates(store, job),
   'decision-estimates': (store, job) => decisionEstimates(store, job),
+  'preview-estimate': (store, job) => previewEstimates(store, job),
 };

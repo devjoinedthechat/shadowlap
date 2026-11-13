@@ -68,6 +68,14 @@ describe('a divergence', () => {
     expect(report.printed.map((l) => l.tone)).toEqual(['no', '', 'del', 'add']);
     expect(report.printed[0]).toEqual({ text: '✗ refund: diverged at call 3 (api POST /v1/messages)', tone: 'no' });
   });
+
+  it('says a replay that stopped before its recording did ended early, as the CLI says it, and how far it got', () => {
+    const early = { type: 'ended_early' as const, callNo: 11, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 10, recorded: 30 };
+    const { report } = world('refund', (run, _s, store) => (store.endRun(run, 'completed', 30), { ok: false, failure: 'diverged', reason: 'ended early at call 11 (api POST /v1/messages): 10 of 30 recorded calls replayed', data: { mode: 'replay', calls: { total: 10, replayed: 10, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { ...early, text: '' } } }), { divergence: early });
+    expect(report.head).toEqual(['Ended early at call 11']);
+    expect(report.parts).toEqual([{ kind: 'replay', recorded: 30, replayed: 10, stop: 11, words: '10 of 30 recorded calls replayed, then it stopped · 0 upstream requests' }]);
+    expect(report.hint).toEqual({ key: 'bisect' });
+  });
 });
 
 describe('a divergence’s request', () => {
@@ -389,6 +397,25 @@ describe('Failed runs →', () => {
     expect(page.total).toBe(3);
     const issue = page.issues.find((x) => x.key === key);
     expect([issue?.count, issue?.runs?.map((x) => x.runId)]).toEqual([link.count, link.ids]);
+    store.close();
+  });
+
+  it('leaves out a replay a closed fix lists, which Failed holds under that fix’s issue, never its golden’s', async () => {
+    const store = Store.open(':memory:');
+    const rec = addRun(store, { startedAt: 1_000, calls: 'rr' });
+    const replay = (at: number) => addRun(store, { parent: rec, startedAt: at, calls: 'r', argv: ['python', 'refund_agent.py'], status: 'failed', meta: { test: { golden: 'goldens/refund', session: 's' } } });
+    const [listed, own] = [replay(2_000), replay(3_000)];
+    const fixId = 'fx-01K8RG0000000000000000000B';
+    store.insertFix({ fixId, title: 'Refunds issued twice', labels: [], check: { expect: {}, key: `check:${fixId}`, oracle: [], text: 'issue_refund called at most 1 time' }, status: 'applied', openedAt: 1_500, verifiedAt: null, appliedAt: 4_000, data: {} });
+    store.addFixLink(fixId, 'failing', listed, 2_500);
+    const runs = JSON.parse((await runJob(store, { kind: 'tests-failed-runs', goldens: ['goldens/refund'], outcome: null }, { whole: true })).body) as Record<string, { count: number; ids: string[] }>;
+    expect(runs).toEqual({ 'goldens/refund': { count: 1, ids: [own] } });
+    // The golden's issue under Failed holds what the link counts; the listed replay is the fix's.
+    const key = issueKey.golden('goldens/refund');
+    const page = JSON.parse((await runJob(store, { kind: 'runs-issues', options: { q: 'type:test refund' }, outcome: null, next: null, open: [key] }, { whole: true })).body) as IssuesPage;
+    const issue = page.issues.find((x) => x.key === key);
+    expect([issue?.count, issue?.runs?.map((x) => x.runId)]).toEqual([1, [own]]);
+    expect(page.issues.find((x) => x.key === issueKey.fix(fixId))?.count).toBe(1);
     store.close();
   });
 

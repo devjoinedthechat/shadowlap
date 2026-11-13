@@ -192,7 +192,7 @@ The margin is the lever. A wider one is cheaper, and still bounds what it lets t
 | 0.2 | 18 pairs | 97.9% · 39 | 100% · 20 |
 | 0.3 | 11 pairs | 99.0% · 20 | 100% · 12 |
 
-A gate's `max` other than its default (`--gate '{"max":40}'`) caps a good run's pairs too, and `verify.max` sets them alone.
+A gate's `max` other than its default (`--gate '{"max":40}'`) caps a good run's pairs too, and `verify.max` sets them alone. `--kept-max` sets them for one verify, over both.
 
 ### The line
 
@@ -323,6 +323,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#verify) lists
 | `--gate <json\|@file>` | The gate a run is decided by ([attempts](#attempts)) | `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, 4 of 5 by default | — |
 | `--margin <share>` | The drop below its baseline that breaks a good run | `verify.margin`, else 0.1 |
+| `--kept-max <n>` | The most pairs a good run takes against its baseline, or attempts against its history | `verify.max`, else 200, or a `--gate` max off its default |
 | `--baseline paired\|history` | What a good run is compared with ([against history](#against-history)) | `verify.baseline`, else `paired` |
 | `--base <rev>` | The commit before a committed change ([the baseline](#the-baseline)) | HEAD |
 | `--build <command>` | Build the baseline's checkout before its attempts | — |
