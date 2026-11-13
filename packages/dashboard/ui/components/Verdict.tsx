@@ -46,8 +46,11 @@ export function DotLine({ text, max = 44, soft }: { text: string; max?: number; 
   );
 }
 
-/** A rule's figures, each kept with its words where the rule wraps: "tells 90%+ from 70%-", "at <= 5% risk", "up to 20 attempts". */
-const FIGURES = /tells \S+ from \S+|(?:rescue|lost) at \S+|(?:at )?<= \S+ risk|up to \d+ attempts|a drop of \S+ points|its last \d+ sessions|once \S+ likely|from \d+ attempts up to \d+|\d+ of \d+ attempts/g;
+/**
+ * A rule's figures, each kept with its words where the rule wraps: "tells 90%+ from 70%-", "at <= 5% risk",
+ * "up to 20 attempts", and a --clean gate's "tells a write gone in 80%+", "of clean attempts" and "from one gone in 20%-".
+ */
+const FIGURES = /tells a write gone in \S+|of clean attempts|from one gone in \S+|tells \S+ from \S+|(?:rescue|lost) at \S+|(?:at )?<= \S+ risk|up to \d+ attempts|a drop of \S+ points|its last \d+ sessions|once \S+ likely|from \d+ attempts up to \d+|\d+ of \d+ attempts/g;
 
 /** A rule's words with each figure glued together, so it breaks only between figures. */
 export const ruleWords = (rule: string): string => rule.replace(FIGURES, (m) => m.replace(/ /g, '\u00a0'));

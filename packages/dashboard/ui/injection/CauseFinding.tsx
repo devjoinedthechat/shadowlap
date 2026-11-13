@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { glossed } from '../components/Term.js';
+import { RuleText } from '../components/Verdict.js';
 import { glued, wholeTallies } from '../format.js';
 import { href } from '../route.js';
 import { ANSWER_LEAD } from './answer-words.js';
@@ -57,7 +58,11 @@ export function CauseFinding({ runId, cause, fx, more, onSelect }: { runId: stri
             {ANSWER_LEAD[a.verdict]} <Said a={a} onSelect={onSelect} className="pbn" />
           </p>
         ))}
-        {cause.rule ? <p className="injrule">{cause.rule}</p> : null}
+        {cause.rule ? (
+          <p className="injrule">
+            <RuleText rule={cause.rule} />
+          </p>
+        ) : null}
       </div>
     </section>
   );

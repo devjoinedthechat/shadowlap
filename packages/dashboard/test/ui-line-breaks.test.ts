@@ -1,6 +1,7 @@
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
+import { CLEAN_GATE, cleanRule } from '@shadowlap/engine';
 import { PageHeader } from '../ui/components/bits.js';
 import { Code, CODE_SET, CodeText, Command, Copy, LongWord, Words } from '../ui/components/Copy.js';
 import { Dialog } from '../ui/components/Dialog.js';
@@ -270,6 +271,11 @@ describe('where a line may end', () => {
     await draw(createElement('p', null, createElement(RuleText, { rule: 'fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40' })));
     expect(drawn()).toContain('from\u00a0its\u00a0last\u00a010\u00a0sessions');
     expect(drawn()).toContain('from\u00a05\u00a0attempts\u00a0up\u00a0to\u00a040');
+  });
+
+  it('keeps a --clean gate’s figures with their words as the engine words its rule, so Find cause’s Gate row breaks only between them', async () => {
+    await draw(createElement('p', null, createElement(RuleText, { rule: cleanRule(CLEAN_GATE)! })));
+    for (const figure of ['tells a write gone in 80%+', 'of clean attempts', 'from one gone in 20%-,', 'at <= 5% risk', 'up to 10 attempts']) expect(drawn()).toContain(figure.replace(/ /g, '\u00a0'));
   });
 
   it('glues a dialog’s warning and each part of its cost line, and draws a warning the server wrote as written', async () => {

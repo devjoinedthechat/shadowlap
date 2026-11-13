@@ -30,6 +30,7 @@ import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { errorText, type ToastAction } from '../ui/toast.js';
 import type { RunDetail, RunInjection, UntrustedView } from '../ui/types.js';
+import { ruleWords } from '../ui/components/Verdict.js';
 import { render, type Rendered } from './ui-render.js';
 import { STEP_PARTS } from './ui-served-now.js';
 
@@ -480,7 +481,8 @@ describe('Find cause…', () => {
     await r!.click(link());
     expect(r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Find cause of #28 send_email');
     expect(r!.one('.dialog header p').textContent).toContain('Replays the run with an untrusted read made neutral until the gate decides whether #28 comes back.');
-    expect(r!.one('.dialog .dfacts').textContent).toBe('Gatetells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts');
+    // The gate's rule breaks only between its figures, each kept with its words.
+    expect(r!.one('.dialog .dfacts').textContent).toBe(`Gate${ruleWords('tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts')}`);
     expect(JSON.parse(r!.one('.dialog .dfacts .dtip').getAttribute('data-tip')!)).toMatchObject({ t: 'If #28 goes away', s: 'what the read brought in caused it' });
     expect(r!.all('.dialog .injreads label').map((l) => l.textContent)).toEqual(['#4 get_ticketits result holds refunds@acme.test, which #28 sends', '#14 get_shippinguntrusted · MCP openWorldHint']);
     expect([cmd(), plain(r!.one('.dialog .dcost').textContent), ok().textContent, r!.focused().textContent]).toEqual(['$shadowlap injection 01K5CQ4N7G --clean 4 --write 28', 'At most ≈$0.481 · up to 10 attempts · live from the read, writes stubbed', 'Find cause', 'Find cause']);
@@ -533,6 +535,8 @@ describe('Find cause’s answers as the run’s finding', () => {
     expect([f.getAttribute('class'), r.one('.bk').textContent, plain(r.one('.why').textContent)]).toEqual(['banner wrap blame', 'caused by', '#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)']);
     expect([r.one('.end a').textContent, r.one('.end a').getAttribute('href')]).toEqual(['Clean attempts →', `#/run/${RUN}/28/forks`]);
     expect(r.all('.fbody p').map((p) => plain(p.textContent))).toEqual(['not caused by #14 get_shipping · #28 send_email is gone in 0 of 3 clean attempts · rate >= 0.29 (95%)', CAUSE_RULE]);
+    // The gate's rule breaks only between its figures, each kept with its words.
+    expect(r.one('.fbody p.injrule').textContent).toBe(ruleWords(CAUSE_RULE));
     await r.click(r.one('.why .bn'));
     await r.click(r.one('.injline2 .pbn'));
     expect(picked).toEqual([4, 14]);

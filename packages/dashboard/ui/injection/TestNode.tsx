@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { useOfflineLink } from '../components/ActionButton.js';
 import { Glyph } from '../components/RunIcon.js';
 import { glossed } from '../components/Term.js';
+import { RuleText } from '../components/Verdict.js';
 import { shortId, stamp } from '../format.js';
 import { href } from '../route.js';
 import { openResults } from '../run/panel-state.js';
@@ -31,7 +32,11 @@ export function TestNode({ row, runs, current, rule }: { row: InjectionRow; runs
         </span>
         <span className="f2 block">
           <GlossedParts parts={v.parts} />
-          {rule ? <span className="frule">{rule}</span> : null}
+          {rule ? (
+            <span className="frule">
+              <RuleText rule={rule} />
+            </span>
+          ) : null}
         </span>
         {v.cells.length || v.replays.length ? (
           // a picture of the replays in the order they ran, each one's card on hover, its words said once for a screen reader

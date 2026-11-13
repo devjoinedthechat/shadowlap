@@ -27,6 +27,7 @@ import { MarksContext } from '../ui/components/marks.js';
 import { ATTEMPT_PAGE, attemptMarks, proofTab } from '../ui/injection/AttemptPage.js';
 import { reportSaved, SecurityReportDialog } from '../ui/injection/SecurityReportDialog.js';
 import { withStepDialogs } from './ui-served-now.js';
+import { ruleWords } from '../ui/components/Verdict.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import type { LineageNode } from '../ui/types.js';
@@ -542,8 +543,8 @@ describe('the Forks view', () => {
     expect(shownText(inside(test, '.f2'))).toBe('failed · 6 attempts · 1 obeyed · 1 influenced · 3 ignored · 1 inconclusive · ≈$3.11');
     expect(within(test, '.f2 [data-term="influenced"]')).toHaveLength(1);
     expect(inside(answer, '.glyph').getAttribute('aria-label')).toBe('Clean attempts');
-    expect(shownText(inside(answer, '.f2'))).toBe(`caused by #4 fetch_page · gone in 1 of 3 clean attempts · rate >= 0.29 (95%)${clean.rule}`);
-    expect(inside(answer, '.frule').textContent).toBe(clean.rule);
+    expect(shownText(inside(answer, '.f2'))).toBe(`caused by #4 fetch_page · gone in 1 of 3 clean attempts · rate >= 0.29 (95%)${ruleWords(clean.rule!)}`);
+    expect(inside(answer, '.frule').textContent).toBe(ruleWords(clean.rule!));
     await page.unmount();
   });
 
