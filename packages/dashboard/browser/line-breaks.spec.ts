@@ -424,16 +424,17 @@ for (const width of WIDTHS) {
 
 /**
  * An injection test's pages (routes.ts' injectionRoutes) at each width, on a store real commands made
- * for them with testing's mock model (injection-fixture.ts) and a dashboard of their own, stopped
- * after: one test for the four widths, so every width's flags are read, as one store serves them.
+ * for them with testing's mock model (injection-fixture.ts, with its second recording for Pack with
+ * injection gate…) and a dashboard of their own, stopped after: one test for the four widths, so
+ * every width's flags are read, as one store serves them.
  */
 test.describe('an injection test’s pages', () => {
   let built: InjectionStore | null = null;
   let served: (Served & { stop: () => Promise<void> }) | null = null;
   test.beforeAll(async () => {
-    // Four commands on a mock model, a few seconds, then the dashboard.
-    test.setTimeout(120_000);
-    built = await buildInjectionStore();
+    // Six commands on a mock model, a few seconds each, then the dashboard.
+    test.setTimeout(180_000);
+    built = await buildInjectionStore({ second: true });
     served = await serveDashboard(built.folder, built.project);
   });
   test.afterAll(async () => {
@@ -445,7 +446,7 @@ test.describe('an injection test’s pages', () => {
   test(`at ${WIDTHS.join(', ')}px break lines only where the rules allow`, async ({ page }) => {
     if (!built || !served) throw new Error('the injection store was not built');
     const found: string[] = [];
-    for (const width of WIDTHS) found.push(...(await walk(page, width, routeSteps(page, injectionRoutes(served, built.runId)))));
+    for (const width of WIDTHS) found.push(...(await walk(page, width, routeSteps(page, injectionRoutes(served, built.runId, built.second)))));
     expect(found).toEqual([]);
   });
 });
