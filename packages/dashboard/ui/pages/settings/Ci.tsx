@@ -299,10 +299,10 @@ function Alerts({ o, view, set, toggle }: { o: CiWorkflowOptions; view: CiWorkfl
           </div>
           <div className="setrow tight">
             <div>
-              <b>Webhook secret</b>
-              <span>The repository secret that holds the Slack webhook URL.</span>
+              <b id="alertSecret-name">Webhook secret</b>
+              <span id="alertSecret-help">The repository secret that holds the Slack webhook URL.</span>
             </div>
-            <input className="inp" type="text" spellCheck={false} autoComplete="off" aria-label="Webhook secret" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
+            <input id="alertSecret" className="inp" type="text" spellCheck={false} autoComplete="off" aria-labelledby="alertSecret-name" aria-describedby="alertSecret-help" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
           </div>
           <span className="k cineeds">it needs</span>
           <CiList rows={a.needs} />

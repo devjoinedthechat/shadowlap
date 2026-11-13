@@ -5,7 +5,7 @@ import { RunsPage } from '../ui/pages/Runs.js';
 import { tableNote, warmingLine, withFirstPage } from '../ui/runspage/rows.js';
 import { WHOLE_UP_TO, type TableRun } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { render, type Rendered } from './ui-render.js';
+import { heardText, render, type Rendered } from './ui-render.js';
 
 /**
  * Runs reads its table a page at a time. When the runs move it reads its first page again, and only
@@ -76,6 +76,7 @@ afterEach(async () => {
   await r?.unmount();
   r = null;
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe('the Runs page', () => {
@@ -148,5 +149,88 @@ describe('the Runs page', () => {
     await r.wait(50);
     expect(r.one('table.runst').getAttribute('aria-rowcount')).toBe('251');
     expect(r.all('section.panel .empty, section.panel .emptyline')).toHaveLength(0);
+  });
+
+  it('says why the table may still change from a live region there before its first page, the line drawn for the eye only', async () => {
+    const location = { hash: '#/runs?q=refund', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (location.hash = url.slice(url.indexOf('#'))) });
+    let first: (warming: { done: number; total: number } | null) => void = () => undefined;
+    const client = {
+      exported: false,
+      runsPage: () => new Promise((resolve) => (first = (warming) => resolve({ runs: [row(1)], total: 1, next: null, chipCounts: { all: 1, recording: 1, fork: 0, clean: 0, test: 0, capture: 0, failed: 0, local: 0 }, warming }))),
+      runsByDay: () => new Promise(() => undefined),
+      teamStore: () => Promise.resolve(null),
+      knownRuns: (ids: string[]) => Promise.resolve(ids),
+    } as unknown as Client;
+    const app = { client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(RunsPage, { filter: { q: 'refund', types: 'all', sort: 'when', days: null } })));
+    // Before the first page, the region is there, empty (beside the table's skeleton's own, saying it loads).
+    const region = r.one('.page-in > .said > [role="status"]');
+    expect(region.textContent).toBe('');
+    first({ done: 120, total: 9000 });
+    await r.until('the first page', () => r!.all('table.runst tbody tr[data-wi]').length > 0);
+    expect(r.one('.page-in > .said > [role="status"]')).toBe(region);
+    // Said with its count left out, which moves as the server works; the line drawn holds it.
+    expect(region.textContent).toBe('The about lines of only some runs are known so far: runs among the rest may match too. The table fills in as they are worked out.');
+    const drawn = r.one('p.muted');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual(['The about lines of 120 of 9,000 runs are known so far: runs among the rest may match too. The table fills in as they are worked out.', 'true', false]);
+  });
+
+  it('says what the table waits on once while it fills in, and again only as that changes, the counts that move drawn for the eye alone', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const location = { hash: '#/runs?q=refund', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (location.hash = url.slice(url.indexOf('#'))) });
+    // Each read of the first page in turn, a second and a half apart: the about lines worked out further, the search index behind, then the table whole.
+    const reads: Array<{ matched: number; warming?: { done: number; total: number }; indexing?: { runs: number; of: number } }> = [
+      { matched: 1, warming: { done: 120, total: 9000 } },
+      { matched: 3, warming: { done: 4100, total: 9000 } },
+      { matched: 4, indexing: { runs: 40, of: 9000 } },
+      { matched: 5, indexing: { runs: 12, of: 9000 } },
+      { matched: 6 },
+    ];
+    let read = 0;
+    const client = {
+      exported: false,
+      runsPage: () => {
+        const { matched, ...behind } = reads[Math.min(read++, reads.length - 1)];
+        return Promise.resolve({ runs: Array.from({ length: matched }, (_, i) => row(i + 1)), total: matched, next: null, chipCounts: { all: matched, recording: matched, fork: 0, clean: 0, test: 0, capture: 0, failed: 0, local: 0 }, ...behind });
+      },
+      runsByDay: () => new Promise(() => undefined),
+      teamStore: () => Promise.resolve(null),
+      knownRuns: (ids: string[]) => Promise.resolve(ids),
+    } as unknown as Client;
+    const app = { client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(RunsPage, { filter: { q: 'refund', types: 'all', sort: 'when', days: null } })));
+    await r.until('the first page', () => r!.all('table.runst tbody tr[data-wi]').length > 0);
+    // The note's region and the count's, and what a screen reader hears of each, and what each draws.
+    const note = r.one('.page-in > .said > [role="status"]');
+    const count = r.one('.rqw .qn[role="status"]');
+    const heard = () => [heardText(note), heardText(count)];
+    const drawn = () => [r!.all('p.muted[aria-hidden="true"]').map((p) => p.textContent).join(''), count.textContent];
+    const ABOUT = 'The about lines of only some runs are known so far: runs among the rest may match too. The table fills in as they are worked out.';
+    const INDEX = 'Still reading what some runs recorded: more matches may follow.';
+    expect(heard()).toEqual([ABOUT, '']);
+    expect(drawn()).toEqual(['The about lines of 120 of 9,000 runs are known so far: runs among the rest may match too. The table fills in as they are worked out.', '1 run matches']);
+    // The counts move: what is said stays as it was.
+    await r.wait(1500);
+    expect(drawn()).toEqual(['The about lines of 4,100 of 9,000 runs are known so far: runs among the rest may match too. The table fills in as they are worked out.', '3 runs match']);
+    expect(heard()).toEqual([ABOUT, '']);
+    // What the table waits on changes: said again, its count left out.
+    await r.wait(1500);
+    expect(drawn()).toEqual(['Still reading what 40 of 9,000 runs recorded: more matches may follow.', '4 runs match']);
+    expect(heard()).toEqual([INDEX, '']);
+    await r.wait(1500);
+    expect(drawn()).toEqual(['Still reading what 12 of 9,000 runs recorded: more matches may follow.', '5 runs match']);
+    expect(heard()).toEqual([INDEX, '']);
+    // Whole: the note goes, and the count, holding still, is said.
+    await r.wait(1500);
+    expect(drawn()).toEqual(['', '6 runs match']);
+    expect(heard()).toEqual(['', '6 runs match']);
+    expect(read).toBe(5);
+    // The same two regions throughout, there before their words.
+    expect(r.one('.page-in > .said > [role="status"]')).toBe(note);
+    expect(r.one('.rqw .qn[role="status"]')).toBe(count);
   });
 });

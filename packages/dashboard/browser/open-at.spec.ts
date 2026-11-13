@@ -25,7 +25,7 @@ function inView(page: Page): Promise<{ selected: string | null; shown: string[];
 
 /** Until every page of the run is read: the line that says how many are read is gone. */
 async function everyPageRead(page: Page): Promise<void> {
-  await expect(page.locator('main#view .toolbar[role="status"]')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('main#view .toolbar')).toHaveCount(0, { timeout: 60_000 });
 }
 
 test.describe.configure({ timeout: 120_000 });

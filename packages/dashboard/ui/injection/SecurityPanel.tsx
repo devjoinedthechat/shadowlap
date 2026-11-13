@@ -56,10 +56,14 @@ function Row({ row }: { row: SecurityRow }) {
         </span>
       </td>
       <td className="sreads">
-        {row.reads.map((r) => (
-          <span key={r.callNo} className="nw">
-            #{r.callNo} <code>{r.name}</code>
-          </span>
+        {/* A space between the reads, each kept whole: heard apart, and the line wraps between them where the cell is narrow. */}
+        {row.reads.map((r, i) => (
+          <Fragment key={r.callNo}>
+            {i ? ' ' : null}
+            <span className="nw">
+              #{r.callNo} <code>{r.name}</code>
+            </span>
+          </Fragment>
         ))}
       </td>
       <td>

@@ -219,14 +219,16 @@ describe('a long run’s page', () => {
     // Every call is listed from the start; those drawn are read.
     expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
     expect(r.one('[role="tablist"] [aria-selected="true"] .count').textContent).toBe('1,200');
-    expect(r.byText('.toolbar[role="status"]', '200 of 1,200 calls read so far; the rest are on their way.')).toBeTruthy();
+    expect(r.byText('.toolbar', '200 of 1,200 calls read so far; the rest are on their way.')).toBeTruthy();
+    // How much is read is the view's own text as the page opens, with no live role, as it counts each page.
+    expect([r.one('.toolbar').hasAttribute('role'), r.all('[role="status"], [role="alert"], [aria-live]').filter((s) => s.textContent.includes('calls read')).length]).toEqual([false, 0]);
     // The run's numbers count every call's origin, not those of the calls read: the calls' card says so.
     const calls = JSON.parse(r.all('.metrics .metric[data-tip]')[0].getAttribute('data-tip')!) as { rows: Array<[string, string]> };
     expect(calls.rows).toEqual(expect.arrayContaining([['replayed', '600', ''], ['live', '600', '']]));
     // The pages after it, after a moment, in order.
     expect(asked).toEqual([]);
     await r.wait(PAGES_AFTER_MS + 50);
-    await r.until('every page', () => asked.length === 2 && r!.all('.toolbar[role="status"]').length === 0);
+    await r.until('every page', () => asked.length === 2 && r!.all('.toolbar').length === 0);
     expect(asked).toEqual([
       { from: 201, limit: PAGE },
       { from: 701, limit: PAGE },
@@ -243,7 +245,7 @@ describe('a long run’s page', () => {
     r = await render(createElement(AppContext.Provider, { value: app(withKinds) }, createElement(RunPage, { id: RUN, call: null, view: null })));
     await r.until('the calls', () => rows().length > 0);
     expect(asked).toEqual([]);
-    expect(r.byText('.toolbar[role="status"]', '200 of 1,200 calls read so far; the rest are on their way.')).toBeTruthy();
+    expect(r.byText('.toolbar', '200 of 1,200 calls read so far; the rest are on their way.')).toBeTruthy();
     // The key counts every call, the write among them, and the strip notches the range that holds it.
     expect(r.all('.lfilter button').map((b) => b.textContent)).toEqual(['all 1,200', 'model calls 600', 'reads 599', 'write 1']);
     const notch = r.all('.cells button .tk');
@@ -261,7 +263,7 @@ describe('a long run’s page', () => {
     expect(asked[0]).toEqual({ from: 900, limit: PAGE });
     expect(bar.hash).toBe(`#/run/${RUN}/1000`);
     // Then the gap before it, a page at a time.
-    await r.until('every page', () => r!.all('.toolbar[role="status"]').length === 0);
+    await r.until('every page', () => r!.all('.toolbar').length === 0);
     expect(asked).toEqual([
       { from: 900, limit: PAGE },
       { from: 201, limit: PAGE },
@@ -298,12 +300,12 @@ describe('a long run’s page', () => {
     // The dashboard stopped: every page fails at once.
     const stopped = { ...client, calls: (_id: string, from: number, limit?: number) => (asked.push({ from, limit: limit ?? PAGE }), Promise.reject(new Error('fetch failed'))) } as unknown as Client;
     r = await render(createElement(AppContext.Provider, { value: app(stopped) }, createElement(RunPage, { id: RUN, call: null, view: null })));
-    await r.until('the first failure', () => r!.all('.toolbar[role="status"]').some((x) => /could not be read \(fetch failed\)/.test(x.textContent)));
+    await r.until('the first failure', () => r!.all('.toolbar').some((x) => /could not be read \(fetch failed\)/.test(x.textContent)));
     // A window's worth of rows not read in view asks at every change; the pages wait for the next try,
     // a second after the first failure and two after the next: a few, where it asked 178 times in 5 s.
     await r.wait(RETRY_MS + 600);
     expect(asked.length, 'pages asked for while they fail').toBeLessThanOrEqual(3);
-    expect(r.all('.toolbar[role="status"]').map((x) => x.textContent)).toEqual(['200 of 1,200 calls read; the next page could not be read (fetch failed). It is tried again in a moment, or at once when you pick a call.']);
+    expect(r.all('.toolbar').map((x) => x.textContent)).toEqual(['200 of 1,200 calls read; the next page could not be read (fetch failed). It is tried again in a moment, or at once when you pick a call.']);
     // A call picked tries at once.
     const before = asked.length;
     location.hash = `#/run/${RUN}/1000`;
@@ -492,11 +494,11 @@ describe('a long run’s page', () => {
     await r.until('its new count', () => r!.one('table.calls').getAttribute('aria-rowcount') === '1301');
     // Every page comes, until the line that says how many are read is gone: the newest call's first,
     // since the page follows it.
-    for (let n = 0; n < 50 && r.all('.toolbar[role="status"]').length; n++) {
+    for (let n = 0; n < 50 && r.all('.toolbar').length; n++) {
       held.splice(0).forEach((answer_) => answer_());
-      await r.until('the next page, or every page read', () => held.length > 0 || !r!.all('.toolbar[role="status"]').length);
+      await r.until('the next page, or every page read', () => held.length > 0 || !r!.all('.toolbar').length);
     }
-    expect(r.all('.toolbar[role="status"]')).toHaveLength(0);
+    expect(r.all('.toolbar')).toHaveLength(0);
     expect(pending()).toHaveLength(0);
     expect(runs).toEqual([undefined]);
     // Each call read once: the calls it made while its first were read came after them.
@@ -566,13 +568,13 @@ describe('a long run’s page', () => {
       return createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1200, view: null }));
     }
     r = await render(createElement(Host));
-    await r.until('every call', () => rows().length > 0 && r!.all('.toolbar[role="status"]').length === 0);
+    await r.until('every call', () => rows().length > 0 && r!.all('.toolbar').length === 0);
     const reads1200 = () => asked.filter(({ from, limit }) => from <= 1200 && from + limit - 1 >= 1200).length;
     expect(reads1200()).toBe(1);
     // #1200 is answered and #1201 made: #1200 is read again with it, and nothing else.
     const before = asked.length;
     grow(1201);
-    await r.until('the new call', () => r!.one('table.calls').getAttribute('aria-rowcount') === '1202' && r!.all('.toolbar[role="status"]').length === 0 && asked.length > before);
+    await r.until('the new call', () => r!.one('table.calls').getAttribute('aria-rowcount') === '1202' && r!.all('.toolbar').length === 0 && asked.length > before);
     await r.wait(ASKING_PAUSE_MS + PAGES_AFTER_MS);
     expect(reads1200()).toBe(2);
     expect(asked.slice(before).flatMap(({ from, limit }) => range(from, Math.min(from + limit - 1, 1201)))).toEqual([1200, 1201]);
@@ -605,7 +607,7 @@ describe('a long run’s page', () => {
         return createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: total, view: null }));
       }
       r = await render(createElement(Host));
-      await r.until('every call', () => rows().length > 0 && pending().length === 0 && r!.all('.toolbar[role="status"]').length === 0);
+      await r.until('every call', () => rows().length > 0 && pending().length === 0 && r!.all('.toolbar').length === 0);
       // The recording ends.
       status = 'completed';
       const pages = asked.length;

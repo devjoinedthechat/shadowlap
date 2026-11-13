@@ -390,7 +390,7 @@
       "ProvenanceView": 266
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
-      "PaletteDialog": 175
+      "PaletteDialog": 167
     },
     "packages/dashboard/ui/state.tsx": {
       "AppProvider": 300

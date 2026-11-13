@@ -425,9 +425,9 @@ describe('the receipt and the panel', () => {
     expect(html).toMatch(/^<section class="rmxp" data-kind="presets" aria-label="Error-path preset results"><div class="rmxp-h"><span class="rmxp-t">Run × presets<\/span><span class="rmxp-meta"><span class="nw">6 presets ·<\/span> <span class="nw">at get_ticket \(#4\) and model call #5 ·<\/span> <span class="nw">just now<\/span><\/span><span class="rmxp-cmd"><code class="ts-cmd">/);
     expect(html.match(/<code/g)).toHaveLength(1);
     expect(html).not.toMatch(/rmxp-cmd[^>]*title=/);
-    expect(html).not.toContain('<b>$</b>');
-    // the matrix's script hasn't come: it waits in its place
-    expect(html).toContain('Loading the results…');
+    expect(html).not.toMatch(/<b[^>]*>\$\s*<\/b>/);
+    // the matrix's script hasn't come: it waits in its place, its live region there and empty as it is first drawn
+    expect(html).toContain('<section class="skel" aria-busy="true"><span class="said"><span class="sr" role="status"></span></span><div class="skbars"');
   });
 
   it('draws the rule and the checks on one line, the dot kept with the part before it, and the receipt at the foot', () => {
@@ -445,8 +445,13 @@ describe('the receipt and the panel', () => {
     expect(ResultsMatrixPart.script).toBe('idle');
   });
 
-  it('waits for the matrix’s script as the results’ skeleton, and says so where it fails to come', () => {
-    expect(renderToStaticMarkup(MATRIX_STATES.waiting)).toContain('Loading the results…');
+  it('waits for the matrix’s script as the results’ skeleton, and says so where it fails to come', async () => {
+    const waiting = await render(MATRIX_STATES.waiting);
+    try {
+      expect(waiting.one('.skel > .said > [role="status"]').textContent).toBe('Loading the results…');
+    } finally {
+      await waiting.unmount();
+    }
     expect(renderToStaticMarkup(createElement(AppContext.Provider, { value: app() }, MATRIX_STATES.failed))).toContain('This matrix’s code didn’t come from the dashboard server. Retry loads the page again.');
   });
 

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { dash, openPage } from './dashboard.js';
+import { dash, openPage, sideways } from './dashboard.js';
 
 /**
  * Settings and Training on a phone, 390 px: no tab scrolls the page sideways (a table scrolls in a
@@ -11,13 +11,12 @@ import { dash, openPage } from './dashboard.js';
  */
 
 const TABS = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
-const sideways = () => document.documentElement.scrollWidth - document.documentElement.clientWidth;
 
 test('no Settings tab scrolls the page sideways on a phone, and the tab shown stays in view in one row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   for (const t of TABS) {
     await openPage(page, `/settings/${t}`, 'main#view .settab > :not(.skel)');
-    expect(await page.evaluate(sideways), `Settings → ${t}`).toBe(0);
+    expect(await sideways(page), `Settings → ${t}`).toBe(0);
     const tabs = page.locator('main#view nav.stabs');
     const shown = tabs.locator('a[aria-current="page"]');
     const [row, tab] = await Promise.all([tabs.boundingBox(), shown.boundingBox()]);
@@ -40,7 +39,7 @@ test('a Settings row puts its label and line over its control on a phone, a Swit
   expect(on!.y, 'the Switch under its line').toBeGreaterThanOrEqual(line!.y + line!.height);
   expect(link!.y, 'the link under the Switch').toBeGreaterThanOrEqual(on!.y + on!.height);
   await openPage(page, '/training', 'main#view .ph');
-  expect(await page.evaluate(sideways)).toBe(0);
+  expect(await sideways(page)).toBe(0);
 });
 
 test('a redaction rule removed on a phone comes back from its toast’s Undo, shadowlap.config.json as it was', async ({ page }) => {
@@ -56,7 +55,7 @@ test('a redaction rule removed on a phone comes back from its toast’s Undo, sh
     const undo = page.locator('.toast button', { hasText: 'Undo' });
     await expect(undo).toBeVisible();
     await expect(rows).toHaveCount(count - 1);
-    expect(await page.evaluate(sideways)).toBe(0);
+    expect(await sideways(page)).toBe(0);
     await undo.click();
     await expect(rows).toHaveCount(count);
     await expect.poll(() => readFileSync(file, 'utf8')).toBe(before);
@@ -72,8 +71,8 @@ test('Settings → CI on a phone: Write file in Your workflow’s header, and th
   await expect(page.locator('#workflow header button', { hasText: 'Write file' })).toBeVisible();
   await page.locator('#workflow .wftog button[aria-controls="wfBox"]').click();
   await expect(page.locator('#wfBox pre.wfcode')).toBeVisible();
-  expect(await page.evaluate(sideways), 'Your workflow shown').toBe(0);
+  expect(await sideways(page), 'Your workflow shown').toBe(0);
   await page.locator('#gates .xbtn').click();
   await expect(page.locator('#gates table.godds')).toBeVisible();
-  expect(await page.evaluate(sideways), 'the odds shown').toBe(0);
+  expect(await sideways(page), 'the odds shown').toBe(0);
 });

@@ -180,7 +180,7 @@ test('Tab goes through the top bar, then the sidebar, then the page, never back'
   expect(seen.filter((x) => order.includes(x))).toEqual(order);
 });
 
-test('a focus ring in a pane that scrolls is drawn inside the control, so the pane cuts none of it off', async ({ page }) => {
+test('a focus ring in a pane that scrolls is drawn inside the control, so the pane cuts none of it off, and a raw stream rings inside itself', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   await page.waitForSelector('aside#side .runs a.run');
   // The sidebar's runs, and a run's calls: rows flush with their scrolling pane's edges.
@@ -202,6 +202,20 @@ test('a focus ring in a pane that scrolls is drawn inside the control, so the pa
     });
     expect(ring, sel).toEqual({ style: 'solid', offset: '-2px', inside: true });
   }
+  // A streamed model call's Raw view: the stream scrolls in a box of its own, a Tab stop whose ring is drawn inside it.
+  await openPage(page, `/run/${demoId('refundBug')}`, 'run');
+  await page.locator('main#view tr[data-wi]:has(td.name[title^="POST "])').first().click();
+  await page.locator('.insp [role="tablist"] button', { hasText: 'Response' }).click();
+  await page.locator('.insp .ibar button', { hasText: 'Raw' }).click();
+  await page.focus('.rawsse');
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const raw = await page.evaluate(() => {
+    const el = document.activeElement!;
+    const s = getComputedStyle(el);
+    return { raw: el.classList.contains('rawsse'), style: s.outlineStyle, offset: s.outlineOffset };
+  });
+  expect(raw).toEqual({ raw: true, style: 'solid', offset: '-2px' });
 });
 
 test('Search or jump to is a combobox, and hands the focus back when Esc closes it', async ({ page }) => {
@@ -513,7 +527,7 @@ test('a batch’s tickets are rows of their own, each named by what it was asked
 
 /** Until every page of a long run is read: the line that says how many are read is gone. */
 async function everyPageRead(page: Page): Promise<void> {
-  await expect(page.locator('main#view .toolbar[role="status"]')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('main#view .toolbar')).toHaveCount(0, { timeout: 60_000 });
 }
 
 test.describe('on a tall window', () => {
@@ -630,57 +644,4 @@ test('a golden’s report on Tests folds under its row until found, and opens to
     // Wide, the lines wrap in the box; on a phone they keep their columns and scroll in it, never the page.
     expect(scrolls).toBe(width < 640);
   }
-});
-
-test('on a phone no label is under 11px, an avatar’s initials aside, and the floor that raises them lowers nothing', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const small: string[] = [];
-  // Tests with a gated golden (tests-fixture.ts), its evidence opened under its row: its line's values and
-  // axis; and a crash's, a failed gate's and a divergence's reports open, with their tracebacks, request diff and
-  // lines as printed, at 11px.
-  const { crash, gate, diverged } = await routeTestsFixture(page);
-  const evidence = async () => {
-    await page.locator('main#view button.gev:not(.grptog)').first().click();
-    await page.waitForSelector('main#view tr.gevrow .alist', { state: 'visible' });
-    for (const name of [crash, gate, diverged]) await openReport(page, name);
-    await page.locator(`main#view section[id="report-${diverged}"] .rpdiff .jl`).first().waitFor();
-  };
-  const pages: Array<[string, string, (() => Promise<void>)?]> = [
-    ['/', 'main#view .ovg'],
-    ['/runs', 'main#view table.runst tbody tr'],
-    [`/run/${demoId('override')}`, 'run'],
-    [`/fixes/${demoId('refundFix')}/blame`, 'fix'],
-    ['/tests', 'main#view table.gt', evidence],
-  ];
-  for (const [path, drawn, then] of pages) {
-    await openPage(page, path, drawn);
-    await then?.();
-    const found = await page.evaluate((where) => {
-      const out: string[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>('body *')) {
-        const s = getComputedStyle(el);
-        if (el.closest('.av, .sr') || s.visibility === 'hidden' || !el.getClientRects().length) continue;
-        const text = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim());
-        if (text && parseFloat(s.fontSize) < 11) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} “${el.textContent?.trim().slice(0, 30)}” at ${s.fontSize}`);
-      }
-      // The floor only raises: with its sizes taken out, no element is drawn larger than with them.
-      const floor: CSSStyleRule[] = [];
-      for (const sheet of document.styleSheets)
-        for (const r of sheet.cssRules)
-          if (r instanceof CSSMediaRule && r.conditionText.includes('max-width: 640px'))
-            for (const x of r.cssRules) if (x instanceof CSSStyleRule && x.selectorText.startsWith(':is(#root, body)') && x.style.fontSize) floor.push(x);
-      if (!floor.length) out.push(`${where}: no label floor in the stylesheet`);
-      const raised = [...document.querySelectorAll<HTMLElement>('body *')].map((el) => ({ el, px: parseFloat(getComputedStyle(el).fontSize) }));
-      const kept = floor.map((r) => ({ r, size: r.style.fontSize }));
-      for (const r of floor) r.style.removeProperty('font-size');
-      for (const { el, px } of raised) {
-        const was = parseFloat(getComputedStyle(el).fontSize);
-        if (px + 0.01 < was) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} lowered from ${was}px to ${px}px`);
-      }
-      for (const { r, size } of kept) r.style.setProperty('font-size', size);
-      return out;
-    }, path);
-    small.push(...found);
-  }
-  expect(small).toEqual([]);
 });

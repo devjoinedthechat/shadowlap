@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createElement, useState, type ReactNode } from 'react';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { Dialog } from '../ui/components/Dialog.js';
 import { MenuItem, Popover, useMenu } from '../ui/components/Popover.js';
@@ -60,6 +60,7 @@ let r: Rendered | null = null;
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  vi.useRealTimers();
 });
 
 beforeAll(() => {
@@ -224,7 +225,88 @@ describe('Search or jump to', () => {
     expect(r.all('[role="listbox"]')).toEqual([]);
     expect(field.getAttribute('aria-expanded')).toBe('false');
     expect(field.hasAttribute('aria-activedescendant')).toBe(false);
-    expect(r.one('.pallist [role="status"]').textContent).toContain('Nothing matches');
+    expect(r.all('.pallist [role="status"]').map((s) => s.textContent)).toEqual(['Nothing matches “zzzz nothing like it”.', '']);
+  });
+
+  it('says that nothing matches from a live region on the page since it opened, the line drawn for the eye only', async () => {
+    r = await render(createElement(PaletteOpener, { base: app() }));
+    await r.click(r.one('#opener'));
+    // Before a word is typed, the list's two regions are there, empty: nothing found, and the index's note.
+    const [none, note] = r.all('.pallist .said > [role="status"]');
+    expect([none.textContent, note.textContent]).toEqual(['', '']);
+    await r.type(r.one('.palin input'), 'zzzz nothing like it');
+    // The same region takes the words.
+    expect(r.all('.pallist .said > [role="status"]').map((s, i) => s === [none, note][i])).toEqual([true, true]);
+    expect(none.textContent).toBe('Nothing matches “zzzz nothing like it”.');
+    const drawn = r.one('.pallist > .empty');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual([none.textContent, 'true', false]);
+  });
+
+  it('says that the index is still being read from a live region on the page since it opened, and nothing found as not yet', async () => {
+    const search = async () => ({ hits: [], indexing: { runs: 3, of: 200 } });
+    r = await render(createElement(PaletteOpener, { base: app({ client: { ...app().client, search } as unknown as Client }) }));
+    await r.click(r.one('#opener'));
+    const [none, note] = r.all('.pallist .said > [role="status"]');
+    expect([none.textContent, note.textContent]).toEqual(['', '']);
+    await r.type(r.one('.palin input'), 'zzzz');
+    await r.until('the index’s note', () => note.textContent !== '');
+    expect(r.all('.pallist .said > [role="status"]').map((s, i) => s === [none, note][i])).toEqual([true, true]);
+    // Said with its count left out, which moves as the index catches up; the line drawn holds it.
+    expect([none.textContent, note.textContent]).toEqual(['Nothing matches yet.', 'Still reading what some runs recorded: more matches may follow.']);
+    const drawn = r.one('.pallist > .palnote');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual(['Still reading what 3 of 200 runs recorded: more matches may follow.', 'true', false]);
+  });
+
+  it('says the index is still being read once while its count moves, and again only as that changes: it catches up, or the search fails', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    // The search's answers in turn, asked again each second while the index is behind.
+    const answers: Array<{ hits: never[]; indexing?: { runs: number; of: number } } | Error> = [
+      { hits: [], indexing: { runs: 3, of: 200 } },
+      { hits: [], indexing: { runs: 2, of: 200 } },
+      { hits: [], indexing: { runs: 1, of: 200 } },
+      { hits: [] },
+      { hits: [], indexing: { runs: 7, of: 200 } },
+      new Error('HTTP 500'),
+    ];
+    const asked: string[] = [];
+    const search = async (q: string) => {
+      asked.push(q);
+      const a = answers.shift() ?? { hits: [] };
+      if (a instanceof Error) throw a;
+      return a;
+    };
+    r = await render(createElement(PaletteOpener, { base: app({ client: { ...app().client, search } as unknown as Client }) }));
+    await r.click(r.one('#opener'));
+    const [none, note] = r.all('.pallist .said > [role="status"]');
+    const said = () => [none.textContent, note.textContent];
+    const drawn = () => r!.all('.pallist > .palnote[aria-hidden="true"]').map((d) => d.textContent).join('');
+    const INDEX = 'Still reading what some runs recorded: more matches may follow.';
+    await r.type(r.one('.palin input'), 'zzzz');
+    await r.wait(220);
+    await r.until('the index’s note', () => drawn() !== '');
+    expect([drawn(), ...said()]).toEqual(['Still reading what 3 of 200 runs recorded: more matches may follow.', 'Nothing matches yet.', INDEX]);
+    // Its count moves each second: what is said stays as it was.
+    await r.wait(1000);
+    await r.until('the next count', () => drawn().includes('2 of 200'));
+    expect(said()).toEqual(['Nothing matches yet.', INDEX]);
+    await r.wait(1000);
+    await r.until('the last run', () => drawn().includes('1 run recorded'));
+    expect(said()).toEqual(['Nothing matches yet.', INDEX]);
+    // Caught up: the note goes, and nothing found is said as it now stands.
+    await r.wait(1000);
+    await r.until('the index caught up', () => drawn() === '');
+    expect(said()).toEqual(['Nothing matches “zzzz”.', '']);
+    // Behind again for other words, then the search fails: each is said as it comes.
+    await r.type(r.one('.palin input'), 'zzzzq');
+    await r.wait(220);
+    await r.until('the note again', () => drawn() !== '');
+    expect(said()).toEqual(['Nothing matches yet.', INDEX]);
+    await r.wait(1000);
+    await r.until('the failed search', () => drawn() === '');
+    expect(said()).toEqual(['Nothing matches “zzzzq”.', '']);
+    expect(asked).toEqual(['zzzz', 'zzzz', 'zzzz', 'zzzz', 'zzzzq', 'zzzzq']);
+    // The same two regions throughout.
+    expect(r.all('.pallist .said > [role="status"]')).toEqual([none, note]);
   });
 
   it('says how many rows each word found, once, and leaves none found to the list’s own status', async () => {

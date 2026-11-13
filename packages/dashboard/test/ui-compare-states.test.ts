@@ -150,9 +150,9 @@ describe('two runs named', () => {
     await page.until('the head', () => page!.all('.prefix').length > 0);
     expect(page.one('.prefix').textContent).toBe('#1–#19,976 identical. The first request that differs is #19977.');
     // Each head's sign is drawn for the eye alone, as the structural diff's are.
-    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['−#19977 in 01M5GRVTKS', '+#19977 in 01M5GRXFM1']);
-    expect(page.all('.diffpanel h4 .js').every((s) => s.getAttribute('aria-hidden') === 'true')).toBe(true);
-    expect(page.one('.cmpwait[role="status"]').textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
+    expect(page.all('.diffpanel h2').map((h) => h.textContent)).toEqual(['−#19977 in 01M5GRVTKS', '+#19977 in 01M5GRXFM1']);
+    expect(page.all('.diffpanel h2 .js').every((s) => s.getAttribute('aria-hidden') === 'true')).toBe(true);
+    expect(page.one('.cmpwait').textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
     // The whole comparison takes its place once it comes.
     whole({ ...head, prefix: [], responseDifferences: [], after: null, changes: { systemPrompt: true, systems: { a: ['x'], b: ['y'] }, tools: { added: [], removed: [], redefined: false }, models: { a: [], b: [] }, code: { a: null, b: null } }, intervention: null, code: null });
     await page.until('the whole comparison', () => page!.all('.cmpwait').length === 0 && page!.all('.cmpfacts').length > 0);
@@ -166,12 +166,39 @@ describe('two runs named', () => {
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the answer', () => page!.all('.cmpwait').some((w) => w.textContent.includes('could not')));
     expect(page.one('.prefix').textContent).toBe('#1–#99,976 identical. The first request that differs is #99977.');
-    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['−#99977 in 01M5GRVTKS', '+#99977 in 01M5GRXFM1']);
-    expect(page.one('.cmpwait[role="status"] p').textContent).toBe(
+    expect(page.all('.diffpanel h2').map((h) => h.textContent)).toEqual(['−#99977 in 01M5GRVTKS', '+#99977 in 01M5GRXFM1']);
+    expect(page.one('.cmpwait p').textContent).toBe(
       'The rest, what changed between the two runs and where each went from #99977, could not be worked out here: a compare job took more than 2 minutes, so it was stopped. What shows above is whole. A terminal compares the two runs with no time limit:',
     );
     expect(page.one('.cmpwait .cmdline').textContent).toBe('$shadowlap diff 01M5GRVTKS 01M5GRXFM1');
     expect(page.all('.empty')).toEqual([]);
+  });
+
+  it('says the rest is being compared, then why it stopped short, from a live region there before the head came, the lines drawn for the eye only', async () => {
+    addressBar(`#/compare/${REC}/${FORK}`);
+    const head: CompareHead = { a: { runId: REC, calls: 20_000 }, b: { runId: FORK, calls: 20_000 }, identicalPrefix: 19_976, firstRequestDifference: { callNo: 19_977, kind: 'api', name: 'POST /v1/messages', diff: [{ path: '$.system', op: 'changed', before: 'Be thorough.', after: 'Be brief.', what: 'system prompt' }] }, onlyInA: 0, onlyInB: 0, answersDiffer: 0 };
+    let giveHead: (h: CompareHead) => void = () => undefined;
+    let stop: (err: Error) => void = () => undefined;
+    const client = { run: (id: string) => Promise.resolve(detail(id)), compareHead: () => new Promise<CompareHead>((resolve) => (giveHead = resolve)), compare: () => new Promise<CompareView>((_resolve, reject) => (stop = reject)) };
+    page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
+    // Nothing of the comparison has come: its region is there, empty, beside the skeleton's own that says it loads.
+    const theRest = () => page!.all('.said > [role="status"]').filter((s) => !s.closest('.skel'));
+    const [region] = theRest();
+    expect([theRest().length, region.textContent]).toEqual([1, '']);
+    giveHead(head);
+    await page.until('the head', () => page!.all('.prefix').length > 0);
+    expect(theRest()).toEqual([region]);
+    expect(region.textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
+    const wait = page.one('.cmpwait');
+    expect([wait.textContent, wait.getAttribute('aria-hidden'), wait.hasAttribute('role')]).toEqual([region.textContent, 'true', false]);
+    stop(new ApiError(503, 'a compare job took more than 2 minutes, so it was stopped'));
+    await page.until('the stop', () => region.textContent.startsWith('The rest,'));
+    expect(theRest()).toEqual([region]);
+    expect(region.textContent).toBe(
+      'The rest, what changed between the two runs and where each went from #19977, could not be worked out here: a compare job took more than 2 minutes, so it was stopped. What shows above is whole. A terminal compares the two runs with no time limit:',
+    );
+    // Its sentence is drawn for the eye; the command is there to be read and copied.
+    expect([page.one('.cmpwait p').textContent, page.one('.cmpwait p').getAttribute('aria-hidden'), page.one('.cmpwait').hasAttribute('role'), page.one('.cmpwait .cmdline').closest('[aria-hidden]')]).toEqual([region.textContent, 'true', false, null]);
   });
 
   it('names the run the store doesn’t hold, and the side to pick again', async () => {

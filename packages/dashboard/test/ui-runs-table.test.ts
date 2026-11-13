@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Chips } from '../ui/components/bits.js';
 import { COPY_FILTER_PLACEHOLDER, FILTER_PLACEHOLDER, matchWords, RunsFilterField } from '../ui/runspage/FilterField.js';
@@ -7,7 +7,7 @@ import { RUN_CHIPS, type RunChip } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ChipCounts } from '../ui/types.js';
 import { styleRules } from './css-sheet.js';
-import { render, type Rendered } from './ui-render.js';
+import { heardText, render, type Rendered } from './ui-render.js';
 
 /**
  * Runs' table as the design draws it: a section with no card of its own, close under the chips; the
@@ -156,6 +156,23 @@ describe('the filter', () => {
     f = await field({ value: 'label:good', settled: 'label:good', loaded: false });
     expect(f.one('.rqw .qn').textContent).toBe('');
     expect([matchWords(1), matchWords(1200), matchWords(0)]).toEqual(['1 run matches', '1,200 runs match', '0 runs match']);
+  });
+
+  it('keeps a count that moves as the table fills in out of its live region, drawn for the eye alone, and says it once it holds still', async () => {
+    let set: (o: { total: number; moving: boolean }) => void = () => undefined;
+    function Host() {
+      const [o, setO] = useState({ total: 120, moving: true });
+      set = setO;
+      return createElement(RunsFilterField, { value: 'refund', onChange: () => undefined, onCommit: () => undefined, settled: 'refund', loaded: true, ...o });
+    }
+    r = await render(createElement(Host));
+    const region = r.one('.rqw .qn[role="status"]');
+    expect([region.textContent, heardText(region)]).toEqual(['120 runs match', '']);
+    await act(async () => set({ total: 135, moving: true }));
+    expect([region.textContent, heardText(region)]).toEqual(['135 runs match', '']);
+    await act(async () => set({ total: 140, moving: false }));
+    expect(r.one('.rqw .qn[role="status"]')).toBe(region);
+    expect([region.textContent, heardText(region)]).toEqual(['140 runs match', '140 runs match']);
   });
 
   it('in an exported copy takes no tool:, and its card says no recorded text', async () => {

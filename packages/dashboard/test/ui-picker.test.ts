@@ -134,10 +134,26 @@ describe('a picker', () => {
     expect(input.hasAttribute('aria-activedescendant')).toBe(false);
     expect(input.hasAttribute('aria-controls')).toBe(false);
     expect(r.one('.pnone').textContent).toBe('Nothing matches.');
-    expect(r.one('.pnone').getAttribute('role')).toBe('status');
+    expect(r.one('.pop [role="status"]').textContent).toBe('Nothing matches.');
     // Enter with nothing lit picks nothing.
     await r.press('Enter');
     expect(r.all('.pop')).toHaveLength(1);
+  });
+
+  it('says "Nothing matches." from a live region there since it opened, the line drawn for the eye only', async () => {
+    r = await render(shell({}, createElement(Opener, { key: 'picker', onPick: () => undefined })));
+    await r.click(r.one('#pick'));
+    // Open, with its rows: the region is there, empty.
+    const region = r.one('.pop.picker .said > [role="status"]');
+    expect(region.textContent).toBe('');
+    await r.type(r.one('input.pfilter'), 'zzz');
+    expect(r.one('.pop.picker .said > [role="status"]')).toBe(region);
+    expect(region.textContent).toBe('Nothing matches.');
+    const drawn = r.one('.pnone');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual(['Nothing matches.', 'true', false]);
+    // A word that finds rows again takes the words away.
+    await r.type(r.one('input.pfilter'), 'refund');
+    expect([r.one('.pop.picker .said > [role="status"]') === region, region.textContent]).toEqual([true, '']);
   });
 
   it('picks with Enter or a click, and hands the focus back to its button; Esc and Tab close it', async () => {

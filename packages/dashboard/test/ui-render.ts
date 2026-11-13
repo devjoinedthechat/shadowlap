@@ -715,3 +715,8 @@ export async function render(element: ReactElement): Promise<Rendered> {
 export function shownText(el: FakeElement): string {
   return el.childNodes.map((n) => (n instanceof FakeElement ? (n.hasAttribute('hidden') ? '' : shownText(n)) : n.textContent)).join('');
 }
+
+/** What a screen reader hears of an element: its text but an aria-hidden element's, such as a count drawn for the eye alone. */
+export function heardText(el: FakeElement): string {
+  return el.childNodes.map((n) => (n instanceof FakeElement ? (n.getAttribute('aria-hidden') === 'true' ? '' : heardText(n)) : n.textContent)).join('');
+}

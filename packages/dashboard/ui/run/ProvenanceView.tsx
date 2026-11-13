@@ -213,7 +213,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     <div className="prov" ref={box}>
       <div className="provgrid">
         <section>
-          <h3>Record</h3>
+          <h2>Record</h2>
           <dl className="kvs">
             {rows.map(([k, v]) => (
               <Pair key={k} k={k} v={v} />
@@ -221,7 +221,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           </dl>
         </section>
         <section>
-          <h3>Lineage</h3>
+          <h2>Lineage</h2>
           <ol className="lineage">
             {chain.length
               ? chain.map((n) => {
@@ -248,7 +248,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                 })
               : null}
           </ol>
-          <h3>Leaving this machine</h3>
+          <h2>Leaving this machine</h2>
           {exported ? (
             // An exported copy says how it was made itself: it has no Settings, and no copy is made from it.
             <p className="muted">{exportedLine({ exportedAt: meta?.exportedAt ?? null, rules: meta?.redactedRules ?? null, redacted: meta?.redacted ?? null })}</p>
@@ -265,7 +265,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           <p className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</p>
           {labels.length || notes.length ? (
             <>
-              <h3>Labels and notes</h3>
+              <h2>Labels and notes</h2>
               {labels.length ? (
                 <p className="muted">
                   {labels.map((l) => (
@@ -289,7 +289,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       </div>
       {ledger ? (
         <section>
-          <h3 id="provCalls">Calls</h3>
+          <h2 id="provCalls">Calls</h2>
           {/* It scrolls sideways on a narrow window and holds no control: it takes the focus itself. */}
           <div className="tscroll" tabIndex={0} role="region" aria-labelledby="provCalls">
             <table className="t ledger">

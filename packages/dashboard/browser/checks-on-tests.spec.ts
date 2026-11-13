@@ -260,7 +260,7 @@ test('a run’s judge verdicts are findings of their own, each its call, the che
   const bar = page.locator('main#view .scopebar');
   await expect(bar.locator('.chips > *')).toHaveCount(3);
   await expect(bar.locator('.chips > .jsep')).toHaveAttribute('aria-hidden', 'true');
-  await expect(bar.locator('.chips button')).toHaveText([`Agent${calls - 1}`, 'judge1']);
+  await expect(bar.locator('.chips button')).toHaveText([`Agent ${calls - 1}`, 'judge 1']);
   await expect(bar.locator('.chips button').last()).toHaveAttribute('title', 'shadowlap:judge: the judge’s calls, kept apart from the agent’s');
   await expect(bar.locator('.shint')).toHaveText('A judge’s calls are the check’s: no count, budget or cost of the agent’s includes them');
   await expect(page.locator(`main#view .vbody tr[data-call="${last}"]`)).toHaveCount(0);

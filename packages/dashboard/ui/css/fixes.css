@@ -96,7 +96,7 @@ table.probes tr.hot td { background: var(--sel); }
 /* a step: a dot and its word, faint with a hollow dot until it ran; its name said to a screen reader, shown on a phone */
 .psk { font-size: var(--fs-quiet); color: var(--faint); min-width: 0; }
 .psk i { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: var(--r-dot); box-shadow: inset 0 0 0 1.5px var(--line2); vertical-align: 0; }
-.psk .psw { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.psk .psw { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* each step's outcome in its consequence colour: a step that ran ink with a filled muted dot, verify's passed lime
    ("2 fixed · 1 kept"), a rejected verdict red, one that couldn't settle amber; a running one pulses */
 .psk.done { color: var(--ink); }
@@ -113,7 +113,8 @@ table.probes tr.hot td { background: var(--sel); }
    them shows only while both share a line (the one wrapped to the next line starts past the clip). */
 .fm { display: flex; flex-wrap: wrap; column-gap: 18px; row-gap: 2px; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
 .fm .fmu { position: relative; max-width: 100%; }
-.fm .fmu ~ .fmu::before { content: "·"; position: absolute; left: -11px; color: var(--faint); }
+/* the drawn dot is for the eye only: the hidden " · " before it is the one heard */
+.fm .fmu ~ .fmu::before { content: "·" / ""; position: absolute; left: -11px; color: var(--faint); }
 .fm .fmsep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 /* the clip stops 4px out, so a control in the line keeps its whole box and the 4px around it that take taps; the dot
    hangs 7px or more out and stays clipped */
@@ -173,7 +174,7 @@ table.probes tr.hot td { background: var(--sel); }
   .pslist .psn:has(.go) { display: none; }
   .psk { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: baseline; }
   .psk i { grid-row: 1; grid-column: 1; margin: 0; }
-  .psk .psw { position: static; width: auto; height: auto; overflow: visible; clip: auto; display: block; grid-column: 2; font-size: var(--fs-small); color: var(--faint); }
+  .psk .psw { position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; display: block; grid-column: 2; font-size: var(--fs-small); color: var(--faint); }
   .psk > span { grid-column: 2; }
   .stepper, .fxsks { grid-template-columns: minmax(0, 1fr); }
   .stepper a, .stepper a + a, .fxsks > div, .fxsks > div + div { padding: 12px 0 12px 14px; border-left: 0; border-top: 1px solid var(--line); }

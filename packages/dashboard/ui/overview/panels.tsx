@@ -65,7 +65,6 @@ const RecentRow = memo(function RecentRow({ r, now, focused }: { r: RunListItem;
         <AboutLine about={r.about} className="rab" />
         {st ? (
           <span className="r2s">
-            {r.about?.text ? <span className="dot">·</span> : null}
             <SideStatus st={st} />
           </span>
         ) : null}

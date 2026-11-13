@@ -194,6 +194,18 @@ function ContextBody({ run, calls, selected, onSelect }: ContextProps) {
 }
 
 /**
+ * The label under bar `i`: every `every`th bar's, and the open call's bar's whatever the step. When
+ * that bar is off the step, the labels nearest it draw none, so its label never touches theirs; on a
+ * phone, where a chart past 22 calls shows every other label, the next ones give way too (`near`).
+ */
+function barLabel(i: number, every: number, open: number): { drawn: boolean; near: boolean } {
+  const off = open < 0 ? Infinity : Math.abs(i - open);
+  if (off === 0) return { drawn: true, near: false };
+  if (open % every !== 0 && off < every) return { drawn: false, near: false };
+  return { drawn: i % every === 0, near: every > 1 && off < 2 * every };
+}
+
+/**
  * The chart: the input's axis and gridlines beside the bars, the output's own axis running down from
  * the baseline beside its bars (context-axis.ts), and the call numbers under both. The axes are drawn
  * for the eye alone: each bar's card and the table say the numbers.
@@ -209,6 +221,7 @@ function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms
   const every = Math.max(1, Math.ceil(bars.length / (many ? 12 : 22)));
   const modelNos = new Set(ms.map((c) => c.callNo));
   const holds = (b: ContextBar) => selected !== null && selected >= b.first && selected <= b.last && modelNos.has(selected);
+  const open = bars.findIndex(holds);
   const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
   return (
     <div className="cplot">
@@ -260,12 +273,15 @@ function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms
         ))}
       </div>
       <span />
-      <div className={`clabels${many ? ' many' : ''}`}>
-        {bars.map((b, i) => (
-          <span key={b.first} className={holds(b) ? 'sel' : undefined}>
-            {i % every === 0 ? `#${num(b.first)}` : ''}
-          </span>
-        ))}
+      <div className={`clabels${many ? ' many' : ''}${every > 1 ? ' thin' : ''}`}>
+        {bars.map((b, i) => {
+          const l = barLabel(i, every, open);
+          return (
+            <span key={b.first} className={i === open ? 'sel' : l.near && l.drawn ? 'near' : undefined}>
+              {l.drawn ? `#${num(b.first)}` : ''}
+            </span>
+          );
+        })}
       </div>
     </div>
   );

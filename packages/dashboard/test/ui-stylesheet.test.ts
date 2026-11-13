@@ -95,7 +95,9 @@ describe('the type, radius and spacing tokens', () => {
     for (const r of styleRules()) {
       if (r.conditions.some((c) => /forced-colors/.test(c))) continue;
       const font = r.decls.find(([p]) => p === 'font-size' || p === 'font');
-      const px = font ? Number(/(\d+(?:\.\d+)?)px/.exec(font[1])?.[1]) : NaN;
+      // A size given as a type token (10px for --fs-caps) is read as the token's own.
+      const size = font?.[1].replace(/var\((--fs-[\w-]+)\)/g, (_, t: string) => root.get(t) ?? '');
+      const px = size ? Number(/(\d+(?:\.\d+)?)px/.exec(size)?.[1]) : NaN;
       if (!(px < 11)) continue;
       // An avatar's initials, and a tick drawn in its circle, keep the size their circle sets.
       for (const s of r.selectors) if (!/\.av\b|\.ondisk(\.steps)? li i$/.test(s) && !raised.some((x) => covers(x, s))) small.push(s);
@@ -111,5 +113,16 @@ describe('the type, radius and spacing tokens', () => {
       const font = styleRules().filter((r) => !r.conditions.length && r.selectors.includes(s)).flatMap((r) => r.decls).filter(([p]) => p === 'font');
       expect(font.at(-1)?.[1], s).toBe('500 10px var(--mono)');
     }
+  });
+});
+
+describe('reduced motion', () => {
+  it('stills every animation and transition, the pseudo-elements’ too: the live tag’s pulse, a switch’s knob, a caret', () => {
+    const still = styleRules().find((r) => r.conditions.includes('@media (prefers-reduced-motion: reduce)') && r.selectors.includes('*'));
+    expect(still?.selectors).toEqual(['*', '*::before', '*::after']);
+    expect(still?.decls).toEqual([
+      ['animation', 'none !important'],
+      ['transition', 'none !important'],
+    ]);
   });
 });

@@ -498,15 +498,21 @@ const Row = memo(function Row({
       <td className="name" title={c.name} style={depth ? cssVars({ '--d': depth }) : undefined}>
         {caret}
         <small>{kindShort(c.kind)}</small>
+        <SrSpace />
         {callName(c.kind, c.name)}
-        {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
+        <EffectTag c={c} />
         <UntrustedTag read={untrusted} />
         {c.extraRead ? (
-          <span className="eff extra" title="An extra read: answered live, as its recording held no counterpart, while the replay went on replaying">
-            extra
-          </span>
+          <>
+            <SrSpace />
+            <span className="eff extra" title="An extra read: answered live, as its recording held no counterpart, while the replay went on replaying">
+              extra
+            </span>
+          </>
         ) : null}
+        {c.attempts ? <SrSpace /> : null}
         {c.attempts ? <span className="det" title={`${c.attempts} ${c.attempts === 1 ? 'retry' : 'retries'} before the final outcome`}>+{c.attempts}</span> : null}
+        {d.text ? <SrSpace /> : null}
         {d.text ? <span className={`det${d.err ? ' err' : ''}`}>{d.text}</span> : null}
         {res ? <span className={`res${res.err ? ' err' : res.blocked ? ' blk' : ''}`}>→ {res.text}</span> : null}
       </td>
@@ -539,6 +545,18 @@ const Row = memo(function Row({
     </tr>
   );
 });
+
+/** A call's effect after its name, or `input` for a reply the user typed, a space a screen reader says before it. */
+function EffectTag({ c }: { c: CallRow }) {
+  const tag = c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null;
+  if (!tag) return null;
+  return (
+    <>
+      <SrSpace />
+      {tag}
+    </>
+  );
+}
 
 /** The fork's and the lost call's mark before the number, a space a screen reader says after it: "fork 17", not "fork17". */
 function Mark({ mark }: { mark: 'fork' | 'lost' }) {

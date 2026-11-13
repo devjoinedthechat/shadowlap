@@ -1,5 +1,6 @@
-import { expect, test, type Page, type Request, type Route } from '@playwright/test';
-import { dash, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
+import { expect, test, type Page, type Route } from '@playwright/test';
+import { dash, openPage, seriousViolations } from './dashboard.js';
+import { apiRequests, asksFirst, at, click, compareOpen, DIALOG, DVIEW, escape, fixes, MENU, moreAttempts, NOT_COVERED, NOT_FOUND, presetsRecording, press, PREVIEW, previewed, previews, revision, routeTreeRead, run, runs, settled, sweep, VERDICTS } from './routes.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
@@ -16,68 +17,6 @@ import { openReport, routeTestsFixture } from './tests-fixture.js';
 // A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
 test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
-/** The demo's runs by name, each by its id: every run the demo names. */
-function runs(): Array<[string, string]> {
-  return Object.entries(dash().runs).flatMap(([name, v]) => (typeof v === 'string' && /^01[0-9A-Z]{24}$/.test(v) ? [[name, v] as [string, string]] : []));
-}
-
-/** The demo's fixes, by id. */
-const fixes = () => Object.values(dash().runs).filter((v): v is string => typeof v === 'string' && v.startsWith('fx-'));
-
-/** Each violation found, under the state it was found in. */
-async function sweep(page: Page, states: Array<[string, () => Promise<void>]>): Promise<string[]> {
-  const found: string[] = [];
-  for (const [name, show] of states) {
-    await show();
-    for (const v of await seriousViolations(page)) found.push(`${name}: ${v}`);
-  }
-  return found;
-}
-
-/** The page's requests to the dashboard's API still out: what a view shows comes with them. */
-const inFlight = new WeakMap<Page, Set<Request>>();
-function apiRequests(page: Page): Set<Request> {
-  let open = inFlight.get(page);
-  if (!open) {
-    const out = new Set<Request>();
-    page.on('request', (r) => {
-      if (new URL(r.url()).pathname.startsWith('/api/')) out.add(r);
-    });
-    page.on('requestfinished', (r) => out.delete(r));
-    page.on('requestfailed', (r) => out.delete(r));
-    inFlight.set(page, out);
-    open = out;
-  }
-  return open;
-}
-
-/**
- * A state swept once it has settled, never after a time that a loaded machine can outrun: what it
- * shows is up (`shows`), or what it closed is gone (`hides`); none of the page's requests to the API
- * is still out, as what a view shows comes with them; and two frames have been drawn since, so axe
- * reads what the step changed.
- */
-async function settled(page: Page, o: { shows?: string; hides?: string } = {}): Promise<void> {
-  const open = apiRequests(page);
-  if (o.shows) await page.waitForSelector(o.shows, { state: 'visible' });
-  if (o.hides) await page.waitForSelector(o.hides, { state: 'detached' });
-  // Polled from here, where the requests are seen: a request still out after a minute fails the sweep, naming it.
-  await expect.poll(() => [...open].map((r) => new URL(r.url()).pathname), { message: "the page's requests to the API to come back", timeout: 60_000, intervals: [25] }).toEqual([]);
-  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
-}
-
-/** A dialog on top, the palette's and the shortcuts' included, and a menu open. */
-const DIALOG = '[role="dialog"][aria-modal="true"]';
-const MENU = '.pop[role="menu"]';
-
-const at = (page: Page, path: string, drawn = 'main#view') => async () => {
-  apiRequests(page);
-  await openPage(page, path, drawn);
-  await settled(page);
-};
-const run = (page: Page, id: string, view = '') => at(page, `/run/${id}${view ? `/${view}` : ''}`, 'run');
-/** A link that names nothing: the not-found page, drawn once the other projects were asked whether one holds it. */
-const NOT_FOUND = 'main#view .ph h1:text-is("Nothing here")';
 /**
  * Runs with its table's read held, its rows drawn as quiet bars, then answered 500, the error line
  * with Retry in the table's place. The table reads `/api/runs/page?…`; the shell's own run list,
@@ -108,97 +47,6 @@ function runsTableHeld(page: Page): Array<[string, () => Promise<void>]> {
     ['Runs when its table’s read failed on a phone', failed],
   ];
 }
-/** Changes' Verdicts, drawn with its rows. */
-const VERDICTS = 'main#view table.vdt tbody tr';
-/**
- * The page of the revision Verdicts leads with, by the key the API gives: a key can hold a `+`, which
- * the token link's `open=` stops at, so the page goes there from Verdicts.
- */
-const revision = (page: Page) => async () => {
-  const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { lead: { key: string } | null };
-  if (!view.lead) throw new Error('the demo store has no test session that ran every golden');
-  await at(page, '/changes', VERDICTS)();
-  await page.evaluate((key) => {
-    location.hash = `#/changes/verdicts/${encodeURIComponent(key)}`;
-  }, view.lead.key);
-  await settled(page, { shows: 'main#view table.vdg tbody tr' });
-};
-/** Tests › Not covered, drawn: the demo's scan left behaviours no golden covers, the refund HAR's one the agent no longer does. */
-const NOT_COVERED = 'main#view #notcovered';
-/** The recording the demo's error-path presets ran on, by the matrices the API gives: its page leads with their finding. */
-const presetsRecording = (page: Page) => async () => {
-  const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/chaos`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { matrices: Array<{ runId: string; golden: string | null }> };
-  const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
-  if (!m) throw new Error('the demo store has no error-path presets');
-  await run(page, m.runId)();
-};
-/** Changes' Preview, drawn with its matrix's cells; an opened cell, drawn with its head; a run's Decisions view, drawn with its session's line. */
-const PREVIEW = 'main#view .dmx button.dc';
-const CELL = 'main#view .dcell .dch';
-const DVIEW = 'main#view .dview .dvhead';
-/** The demo's preview, a cell of it opened and its run's Decisions view, by the addresses the API gives. */
-async function previewed(page: Page): Promise<{ preview: string; cell: string; view: string }> {
-  const { origin, token } = dash();
-  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as T;
-  const { sessions } = await get<{ sessions: Array<{ kind: string; sessionId: string }> }>('decisions');
-  const s = sessions.find((x) => x.kind === 'decisions');
-  if (!s) throw new Error('the demo store has no preview');
-  const { matrix } = await get<{ matrix: Array<{ runId: string; inStore: boolean }> }>(`decisions/${s.sessionId}`);
-  const runId = matrix.find((r) => r.inStore)?.runId;
-  if (!runId) throw new Error('the demo’s preview names no run the store holds');
-  const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
-  return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
-}
-/**
- * The preview at `preview` as if its verify had left its first run open, as the session's read answers
- * while `on`: Run more attempts its next step. Off, the session reads as the demo keeps it.
- */
-async function moreAttempts(page: Page, preview: string): Promise<{ preview: string; on: boolean }> {
-  const sessionId = preview.split('/').at(-1)!;
-  const more = { preview, on: false };
-  await page.route(
-    (url) => url.pathname.endsWith(`/api/decisions/${sessionId}`),
-    async (route) => {
-      if (!more.on) return route.continue();
-      // Read whole, with the session's cookie, never a 304 the page's cache would answer.
-      const headers = Object.fromEntries(Object.entries(await route.request().allHeaders()).filter(([k]) => k !== 'if-none-match'));
-      const res = await route.fetch({ headers, ...RESET_RETRY });
-      const s = (await res.json()) as { matrix: Array<{ runId: string; verified: unknown }>; view: { next: Record<string, unknown> } };
-      const runId = s.matrix[0]!.runId;
-      s.matrix[0]!.verified = { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' };
-      s.view.next = { ...s.view.next, verify: null, migrate: null, more: { kind: 'more', runs: [runId], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' } };
-      await route.fulfill({ response: res, json: s });
-    },
-  );
-  return more;
-}
-const previews = async (page: Page, on = ''): Promise<Array<[string, () => Promise<void>]>> => {
-  const p = await previewed(page);
-  return [
-    [`Preview${on}`, at(page, p.preview, PREVIEW)],
-    [`a preview’s opened cell${on}`, at(page, p.cell, CELL)],
-    [`a run’s Decisions view${on}`, at(page, p.view, DVIEW)],
-  ];
-};
-const click = (page: Page, selector: string, text?: string, o: { shows?: string; hides?: string } = {}) => async () => {
-  apiRequests(page);
-  await page.locator(selector, text ? { hasText: text } : {}).first().click();
-  await settled(page, o);
-};
-const press = (page: Page, key: string, o: { shows?: string; hides?: string } = {}) => async () => {
-  apiRequests(page);
-  await page.keyboard.press(key);
-  await settled(page, o);
-};
-/** Compare on the pair it opens on, its first row opened by a click, whichever call that is in the demo. */
-const compareOpen = (page: Page) => async () => {
-  await at(page, '/compare', 'main#view .paths2 button.cprow')();
-  await click(page, 'main#view .paths2 button.cprow', undefined, { shows: 'main#view #cmpd' })();
-};
-/** Escape, and the dialog or menu it closes gone. */
-const escape = (page: Page, closes: string = DIALOG) => press(page, 'Escape', { hides: closes });
 /**
  * Update goldens from Tests, as the palette opens it (`#/tests?update`): the header offers it only
  * when more than one golden diverged, and the demo has one, so its dialog is for that one.
@@ -455,7 +303,7 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
 test('every dialog has no serious or critical axe violation, wide and as a phone’s sheet', async ({ page }) => {
   test.setTimeout(600_000);
   // Every billed press asks on this page, whatever the suite's one Spending says, so opening a dialog runs nothing.
-  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
+  await asksFirst(page);
   const ids = dash().runs;
   const id = (name: string) => ids[name] as string;
   // A row or a button that isn't there says so soon: there is no waiting it out.
@@ -492,9 +340,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   // A preview's menu and the dialogs it opens, and its Verify.
   const p = await previewed(page);
   // Preview changed prompt reads the working tree as a job, answered here as it ends: a real read replays the agent's code.
-  const read = { id: 'axe-tree-read', kind: 'decisions-read', title: 'Reading what your working tree sends', args: ['decisions', '--from-code', '--dry-run'], runId: null, opensRun: false, startedAt: Date.now(), done: true, code: 0, newRunId: null, lines: [], total: 0, result: { fromCode: { calls: 2, instructions: { before: 'You are a support agent.', after: 'You are a support agent. Never refund an order twice.' }, tools: { added: [], removed: [], changed: ['issue_refund'] } }, runs: [], notes: [], nothing: null, scope: 'agent' } };
-  await page.route('**/api/jobs', (route) => (route.request().method() === 'POST' && (route.request().postDataJSON() as { kind?: string }).kind === 'decisions-read' ? route.fulfill({ status: 202, json: read }) : route.continue()));
-  await page.route(`**/api/jobs/${read.id}**`, (route) => route.fulfill({ json: read }));
+  await routeTreeRead(page);
   // Run more attempts shows where a preview's verify left a run open: the same preview, answered as if verify had.
   const more = await moreAttempts(page, p.preview);
   const onPreview = (name: string, ...open: Array<() => Promise<void>>) => opened(name, at(page, p.preview, PREVIEW), ...open);

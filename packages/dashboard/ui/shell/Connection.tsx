@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { tokenInUse } from '../api.js';
-import { CmdLine } from '../components/bits.js';
+import { CmdLine, Said } from '../components/bits.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
 import { Icon } from '../components/Icon.js';
 import { pastedLink } from '../connection.js';
@@ -21,6 +21,11 @@ import { useApp } from '../state.js';
  * which explains where the link comes from.
  */
 
+/** The bar's words, the ones its line draws and the ones its live region says once as they come: never the countdown or the buttons. */
+const PAUSED = 'Offline · actions paused';
+const UNREACHED = 'Can’t reach the dashboard server';
+const LOADED = 'showing what loaded';
+
 export function OfflineBar() {
   const { conn, loadedAt, retryIn, retrying, retryNow } = useApp();
   const [why, setWhy] = useState(false);
@@ -28,37 +33,57 @@ export function OfflineBar() {
     document.body.classList.toggle('is-offline', conn === 'offline');
     return () => document.body.classList.remove('is-offline');
   }, [conn]);
-  if (conn !== 'offline') return null;
+  const offline = conn === 'offline';
   const when = loadedAt ? ` at ${clock(loadedAt)}` : '';
+  // The live region is on the page before its words come, as the toast's is: one on a display: contents box, or drawn
+  // with its words already in it, may never be heard (Safari drops such a box's role). What the bar draws is drawn only.
+  const said = (
+    <span className="sr" role="status">
+      {offline ? `${PAUSED} · ${UNREACHED} · ${LOADED}${when}` : ''}
+    </span>
+  );
+  if (!offline) return said;
   return (
-    <div className={`connbar${why ? ' open' : ''}`}>
-      <span className="cdot" />
-      {/* Said once as it comes: the countdown and the buttons are outside what is read out. */}
-      <span className="csay" role="status">
-        <span className="cs">Offline · actions paused</span>
-        <span className="ct">
-          <b className="nw">Can’t reach the dashboard server</b> · <span className="nw">showing what loaded{when}</span> · <span className="nw">actions paused ·</span>
+    <>
+      {said}
+      <div className={`connbar${why ? ' open' : ''}`}>
+        <span className="cdot" />
+        <span className="csay">
+          <span className="cs" aria-hidden="true">
+            {PAUSED}
+          </span>
+          <span className="ct" aria-hidden="true">
+            <b className="nw">{UNREACHED}</b> ·{' '}
+            <span className="nw">
+              {LOADED}
+              {when}
+            </span>{' '}
+            · <span className="nw">actions paused ·</span>
+          </span>
         </span>
-      </span>
-      <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
-        Why
-      </button>
-      {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
-      <span className="cw" id="connWhyText">
-        <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
-      </span>
-      <span className="cc">
-        <span className="cwith">start it with </span>
-        <code>shadowlap dashboard</code>
-        <CopyButton text="shadowlap dashboard" label="the command" name="Copy command" sub="Starts the dashboard server again" className="linkbtn ccopy">
-          {null}
-        </CopyButton>
-      </span>
-      <span className="cr">{retrying ? 'Reconnecting…' : `Retrying in ${retryIn}s`}</span>
-      <button className="btn sm" type="button" disabled={retrying} onClick={retryNow}>
-        Retry now
-      </button>
-    </div>
+        <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
+          Why
+        </button>
+        {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
+        <span className="cw" id="connWhyText">
+          <span className="cwt">
+            {UNREACHED}, so this shows what loaded{when}.
+          </span>{' '}
+          <span className="cwa">Start it again:</span>
+        </span>
+        <span className="cc">
+          <span className="cwith">start it with </span>
+          <code>shadowlap dashboard</code>
+          <CopyButton text="shadowlap dashboard" label="the command" name="Copy command" sub="Starts the dashboard server again" className="linkbtn ccopy">
+            {null}
+          </CopyButton>
+        </span>
+        <span className="cr">{retrying ? 'Reconnecting…' : `Retrying in ${retryIn}s`}</span>
+        <button className="btn sm" type="button" disabled={retrying} onClick={retryNow}>
+          Retry now
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -80,12 +105,15 @@ function CopyCommand({ text }: { text: string }) {
 /**
  * Paste the new link: the link the dashboard printed, read from the clipboard, opened in this tab
  * (`pastedLink`): the page starts again with its token. Says why when the clipboard holds no
- * dashboard link, the one this page has, or can't be read.
+ * dashboard link, the one this page has, or can't be read: a refusal, said as an alert from a region
+ * there since the card came, again on each press. The line drawn under the button is for the eye.
  */
 function PasteLink() {
   const [why, setWhy] = useState<string | null>(null);
-  const paste = () =>
-    navigator.clipboard.readText().then(
+  const paste = () => {
+    // The last reason goes as the clipboard is read, so the same one is said again.
+    setWhy(null);
+    return navigator.clipboard.readText().then(
       (text) => {
         const step = pastedLink(text, location.origin);
         if (!step) return setWhy('The clipboard holds no dashboard link: copy the one shadowlap dashboard printed, with its #token=.');
@@ -96,16 +124,20 @@ function PasteLink() {
       },
       () => setWhy('The browser didn’t let the page read the clipboard: paste the link into the address bar instead.'),
     );
+  };
   return (
     <>
-      <button className="btn lime" type="button" onClick={() => void paste()}>
-        Paste the new link
-      </button>
-      {why ? (
-        <p className="fieldnote err" role="status">
-          {why}
-        </p>
-      ) : null}
+      <div className="actions">
+        <button className="btn lime" type="button" onClick={() => void paste()}>
+          Paste the new link
+        </button>
+        {why ? (
+          <p className="fieldnote err" aria-hidden="true">
+            {why}
+          </p>
+        ) : null}
+      </div>
+      <Said words={why} alert />
     </>
   );
 }
@@ -140,9 +172,7 @@ export function ExpiredCard() {
             {DOCS.sessionTokens.what} in the docs<span aria-hidden="true">{'\u00a0→'}</span>
           </a>
         </p>
-        <div className="actions">
-          <PasteLink />
-        </div>
+        <PasteLink />
       </div>
     </div>
   );

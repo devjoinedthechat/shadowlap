@@ -200,7 +200,8 @@
 /* a selected call that has the focus (j and k, Esc from the filter) says so by its own ground and bar */
 table.calls tr:focus-visible { outline: none; }
 /* The list puts its rows itself (window-hook.ts), keeping the call asked for in view as rows above it change height: no anchoring of the browser's own moves it as well. */
-.vbody { flex: 1; overflow: auto; min-height: 0; overflow-anchor: none; }
+/* Tab and Shift+Tab stop a row clear of the calls' sticky head (j and k place it so already) */
+.vbody { flex: 1; overflow: auto; min-height: 0; overflow-anchor: none; scroll-padding-top: 34px; }
 /* a view whose code couldn't be loaded: its line under the tabs, whose own hairline is above it */
 .vbody > .loaderr { margin: 0; padding: 14px 16px; border-top: 0; }
 table.calls { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -563,7 +564,7 @@ td.scopecell code { font-size: 11.5px; color: var(--dim); }
 .tl-head .span { position: absolute; top: 11px; height: 4px; border-radius: 2px; background: var(--line2); }
 /* provenance */
 .prov { padding: 16px 18px 24px; }
-.prov h3 { margin: 18px 0 8px; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.prov h2 { margin: 18px 0 8px; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
 .provgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0 28px; }
 .prov .kvs { grid-template-columns: 110px minmax(0, 1fr); }
 .prov .kvs dd { word-break: normal; overflow-wrap: anywhere; }
@@ -593,6 +594,15 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .cbars.many, .couts.many, .clabels.many { gap: 1px; }
 .cbars.many .cbar > i:last-child { border-radius: 1px 1px 0 0; }
 .clabels.many span { overflow: visible; white-space: nowrap; }
+/* On a narrow screen a chart of eleven or more calls labels every other one, so no two labels touch; the open call keeps its
+   label and its neighbours give theirs up. A chart past 22 calls, labelled every few already (.thin), shows every other label it
+   draws, the labels nearest the open call's giving way (.near): by its own rule only, as the first one's count by bar, where the
+   open call's neighbours draw none, would hide the rest. */
+@media (max-width: 399px) {
+  .clabels:not(.many):not(.thin):has(> :nth-child(11)) > span:nth-child(even):not(.sel),
+  .clabels:not(.many):not(.thin):has(> :nth-child(11)) > span:has(+ .sel), .clabels:not(.many):not(.thin):has(> :nth-child(11)) > .sel + span { visibility: hidden; }
+  .clabels.thin > span:nth-child(even of :not(:empty)):not(.sel), .clabels.thin > .near { visibility: hidden; }
+}
 
 .rawsse, .jbox, .tree { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 
@@ -643,9 +653,10 @@ table.calls tbody tr.wspace:hover td { background: none; }
 /* Add check… before Edit and fork…, the two kept together at the line's end. */
 .ihead .ckins { margin-left: auto; flex: none; padding-left: 10px; min-height: 24px; font-size: 12px; }
 .ihead .ckins + .iedit { margin-left: 0; }
+/* on a touch screen a 32px tap: its 24px box and 4px above and below, which keeps it clear of the tabs under it */
 @media (pointer: coarse) {
   .ihead .ckins { position: relative; }
-  .ihead .ckins::after { content: ''; position: absolute; inset: -6px -2px; }
+  .ihead .ckins::after { content: ''; position: absolute; inset: -4px -2px; }
 }
 .ibar.stopline { margin-top: 10px; font-family: var(--mono); }
 
@@ -847,6 +858,12 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .findings .banner .end + .fmore { margin-left: 0; }
 .findings .fmore .caret { width: 10px; height: 10px; margin-left: 4px; transition: transform .15s; }
 .findings.open .fmore .caret { transform: rotate(180deg); }
+/* below 400px a finding's buttons wrap under each other: each is 24px tall itself, and the rows they wrap to stand 8px apart
+   or more, so the 4px each takes above and below, as every link-style button does, reaches no neighbour */
+@media (max-width: 399px) {
+  .findings :is(.banner .linkbtn, .fmore) { min-height: 24px; margin: 0; }
+  .findings .banner:is(.wrap, .ck) { row-gap: 8px; }
+}
 @media (max-width: 1000px) { .findings .banner, .findings .rnote, .findings .fdiff { padding-left: 16px; padding-right: 16px; } }
 
 /* ---- A run's Decisions view: the previews that asked its model calls again, one at a time ---- */

@@ -52,6 +52,25 @@ describe('Context’s chart', () => {
     expect(html.indexOf('<div class="cplot">')).toBeGreaterThan(-1);
   });
 
+  it('labels the open call whatever the step, the labels nearest it giving way, and the next ones on a phone', () => {
+    /** Each label under the bars: its class and its words. */
+    const labels = (n: number, selected: number) => {
+      const html = renderToStaticMarkup(createElement(ContextView, { run, calls: Array.from({ length: n }, (_, i) => call(i + 1, 0, 1000, 100, 20)), selected, onSelect: () => undefined }));
+      const row = html.slice(html.indexOf('<div class="clabels'), html.indexOf('</div>', html.indexOf('<div class="clabels')));
+      return { cls: /<div class="([^"]*)"/.exec(row)![1], spans: [...row.matchAll(/<span(?: class="([^"]*)")?>([^<]*)<\/span>/g)].map((m) => `${m[1] ? `${m[1]}:` : ''}${m[2]}`) };
+    };
+    // 30 calls label every second; #6, off the step, keeps its label and #5's and #7's go.
+    const off = labels(30, 6);
+    expect(off.cls).toBe('clabels thin');
+    expect(off.spans.slice(0, 10)).toEqual(['#1', '', 'near:#3', '', '', 'sel:#6', '', '', 'near:#9', '']);
+    // #7, on the step: the ones a step away give way on a phone.
+    expect(labels(30, 7).spans.slice(2, 11)).toEqual(['#3', '', 'near:#5', '', 'sel:#7', '', 'near:#9', '', '#11']);
+    // Up to 22 calls every call is labelled; the stylesheet thins them on a phone.
+    const all = labels(15, 4);
+    expect(all.cls).toBe('clabels');
+    expect(all.spans.slice(0, 5)).toEqual(['#1', '#2', '#3', 'sel:#4', '#5']);
+  });
+
   it('draws no axis without a model call to chart', () => {
     const empty = renderToStaticMarkup(createElement(ContextView, { run, calls: [], selected: null, onSelect: () => undefined }));
     expect(empty).toContain('No model calls yet.');

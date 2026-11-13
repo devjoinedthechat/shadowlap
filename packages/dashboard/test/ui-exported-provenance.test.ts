@@ -54,7 +54,7 @@ function leaving(data: StaticPayload): { text: string; html: string } {
   const run = normalizeRunDetail(data.responses[`runs/${runId}`] as RunDetail);
   const app = { client: createExportedClient(data), meta, exported: true, toast: () => undefined, runs: [] } as unknown as AppState;
   const html = renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, createElement(ProvenanceView, { run })));
-  const part = /<h3>Leaving this machine<\/h3>(<p[^>]*>[\s\S]*?<\/p>)/.exec(html)![1];
+  const part = /<h2>Leaving this machine<\/h2>(<p[^>]*>[\s\S]*?<\/p>)/.exec(html)![1];
   return { html: part, text: part.replace(/<[^>]+>/g, '').replace(/&#x27;|’/g, '’') };
 }
 

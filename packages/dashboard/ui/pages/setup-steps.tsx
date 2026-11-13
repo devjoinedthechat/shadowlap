@@ -53,7 +53,9 @@ function SetupStep({ step, cli, children }: { step: SetupView['steps'][number]; 
         {cli.length ? (
           <div className="cli">
             <span>or in a terminal</span>
-            <code>$ {cli.join(' && ')}</code>
+            <code>
+              <span aria-hidden="true">$</span> {cli.join(' && ')}
+            </code>
           </div>
         ) : null}
       </div>

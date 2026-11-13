@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { ApiError } from '../api.js';
 import { useApp } from '../state.js';
+import { Said } from './Said.js';
 import { CodeBox } from './CodeBox.js';
 import { Copy } from './Copy.js';
 
@@ -29,7 +30,7 @@ export function EmptyState({ title, text, copy = false, step, command, children 
           <span>or in a terminal</span>
           {/* the prompt is never copied with the command */}
           <code>
-            <b>$ </b>
+            <b aria-hidden="true">$ </b>
             {command}
           </code>
         </div>
@@ -50,14 +51,13 @@ export function EmptyLine({ children }: { children: ReactNode }) {
  * Still loading: the part in its final shape, every piece of text a quiet bar along the line it will
  * take and every mark its shape in the same tone, nothing to press. Given the part's own markup
  * (`children`, drawn with what it will hold), it draws that, inert; else `lines` bars under the
- * part's heading. A screen reader hears what is loading, once.
+ * part's heading. A screen reader hears what is loading, once: a wait that starts, said by a live
+ * region there before its words (`Said`).
  */
 export function Skeleton({ what, title, lines = 3, children }: { what: string; title?: string | undefined; lines?: number; children?: ReactNode }) {
   return (
     <section className={title ? 'panel sec skel' : 'skel'} aria-busy="true">
-      <span className="sr" role="status">
-        Loading {what}…
-      </span>
+      <Said words={`Loading ${what}…`} />
       {title ? (
         <header>
           <h2>{title}</h2>

@@ -338,8 +338,8 @@ describe('a judged run’s page', () => {
     expect(bar.hash).toBe(`#/run/${RUN}/12`);
     expect(r!.one('table.calls tr[aria-selected="true"] td.n').textContent).toBe('12');
     expect(pressed()).toEqual([
-      ['Agent12', 'true'],
-      ['judge1', 'false'],
+      ['Agent 12', 'true'],
+      ['judge 1', 'false'],
     ]);
     expect(listed()).not.toContain(13);
   });

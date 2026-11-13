@@ -277,6 +277,10 @@ describe('what each colour may mean', () => {
     expect(value('.eyebrow', 'color')).toBe('var(--faint)');
     for (const s of ['.dotlive', '.glyph.live i', '.st.live i', '.livebtn .pulse']) expect(value(s, 'background'), s).toBe('var(--o-live)');
   });
+
+  it('underlines a link set in a line of grey words, where ink and the grey differ by colour alone: a fix’s about line’s, and the retirement table’s on Migrate’s start', () => {
+    for (const s of ['.ph.fxh .pmeta a.dlink', '.mgstart .mgsrc a.dlink']) expect(final(s, 'text-decoration'), s).toBe('underline');
+  });
 });
 
 describe('lime', () => {
@@ -552,7 +556,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw'];
+    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.astrip .acsep', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw', '.dc', 'i.dg', '.cvc > i', '.cvkey i.lg', '.gpstrip .pc'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 
@@ -562,10 +566,14 @@ describe('forced colours', () => {
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
     // A folded row in Calls that holds the open call is outlined as the open call's row is.
     expect(forced.get('table.calls tr.held')?.get('outline')).toBe('2px solid Highlight');
+    // A run's Decisions view outlines the step it shows, as Calls does its open call.
+    expect(forced.get('.dvstep.sel')?.get('outline')).toBe('2px solid Highlight');
     for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
     // The structural diff's marked words, which say what changed by their ground alone.
     expect(forced.get('mark.jdw')?.get('text-decoration')).toBe('underline 2px');
+    // What the working tree adds to a prompt in Preview changed prompt, drawn on the added lines' ground.
+    expect(forced.get('.dprompt ins')?.get('text-decoration')).toBe('underline');
   });
 
   it('outlines every overlay in the user’s text colour, since its edge is a shadow the theme drops', () => {

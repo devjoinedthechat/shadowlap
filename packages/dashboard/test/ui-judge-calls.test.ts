@@ -111,9 +111,9 @@ describe('the agents’ bar of a judged run', () => {
 
   it('leads with Agent where the run names no agents of its own, then the judge’s chip after a hairline, and says what its calls count towards', async () => {
     const p = await bar(CALLS, []);
-    expect(p.one('.chips').children.map((el) => (el.tagName.toLowerCase() === 'span' ? el.className : el.textContent))).toEqual(['Agent3', 'jsep', 'judge1']);
+    expect(p.one('.chips').children.map((el) => (el.tagName.toLowerCase() === 'span' ? el.className : el.textContent))).toEqual(['Agent 3', 'jsep', 'judge 1']);
     expect(p.one('.chips .jsep').getAttribute('aria-hidden')).toBe('true');
-    const chip = p.byText('.chips button', 'judge1');
+    const chip = p.byText('.chips button', 'judge 1');
     expect([chip.getAttribute('title'), chip.getAttribute('aria-pressed')]).toEqual(['shadowlap:judge: the judge’s calls, kept apart from the agent’s', 'false']);
     expect(p.one('.shint').textContent).toBe('A judge’s calls are the check’s: no count, budget or cost of the agent’s includes them');
   });
@@ -121,7 +121,7 @@ describe('the agents’ bar of a judged run', () => {
   it('leads with All beside the run’s own scopes, and gives blame’s hint, never the judge’s scope', async () => {
     const scoped = CALLS.map((c) => (c.scope === JUDGE ? c : { ...c, scope: 'agent', agent: 'agent' }));
     const p = await bar(scoped, ['agent']);
-    expect(p.all('.chips button').map((b) => b.textContent)).toEqual(['All3', 'agent3', 'judge1']);
+    expect(p.all('.chips button').map((b) => b.textContent)).toEqual(['All 3', 'agent 3', 'judge 1']);
     expect(p.one('.shint').textContent).toBe(`Blame within one scope: shadowlap blame ${shortId(RUN)} --scope agent`);
   });
 });

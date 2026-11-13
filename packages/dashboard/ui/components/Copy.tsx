@@ -520,7 +520,7 @@ export function Command({ cmd, inline = false, prompt = !inline }: { cmd: string
   const body = (
     <>
       <span ref={(el: HTMLElement | null) => void (ref.current = el)} className={prompt ? 'nw cmdp' : 'nw'}>
-        {prompt ? <b>$</b> : null}
+        {prompt ? <b aria-hidden="true">$</b> : null}
         {head}
       </span>
       <CommandPieces pieces={rest} room={box && text && box.width > 0 ? { width: box.width, text } : null} />
