@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Store, type CallRecord } from '@shadowlap/engine';
+import { Store, storeView, type CallRecord } from '@shadowlap/engine';
 import { keepCostPerRun, sessionCostPerRun } from '../src/session-cost.js';
 import type { PackResult } from '../src/test-report.js';
 
@@ -49,7 +49,7 @@ describe("a session's cost per run", () => {
     try {
       const session = store.startTestSession({ command: ['test'], owner: null });
       store.setTestSessionComment(session.sessionId, { decisions: 'dc-01K9A3RZ5E6G4N2V8XWQJ7T1BM' });
-      const fake = Object.assign(Object.create(store) as Store, { getCalls: runs({ recording: [call('claude-sonnet-4-5')], replay: [call('claude-sonnet-4-5', 2_000)] }).getCalls });
+      const fake = storeView(store, { getCalls: runs({ recording: [call('claude-sonnet-4-5')], replay: [call('claude-sonnet-4-5', 2_000)] }).getCalls });
       const near = { before: expect.closeTo(0.0045, 9) as number, after: expect.closeTo(0.0075, 9) as number };
       expect(keepCostPerRun(fake, session.sessionId, [result({})])).toEqual(near);
       expect(store.getTestSession(session.sessionId)?.comment).toEqual({ decisions: 'dc-01K9A3RZ5E6G4N2V8XWQJ7T1BM', costPerRun: near });
