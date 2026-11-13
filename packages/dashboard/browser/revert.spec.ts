@@ -17,6 +17,9 @@ import { openReport } from './tests-fixture.js';
  * reverted again, or Tried reverting where git refused.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 const DIALOG = '[role="dialog"][aria-modal="true"]';
 const REV = '9a3c5e0';
 const GOLDEN = 'goldens/refund-flow';

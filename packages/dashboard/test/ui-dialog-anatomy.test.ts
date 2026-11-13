@@ -8,6 +8,8 @@ import { UpdateGoldenDialog } from '../ui/components/UpdateGolden.js';
 import { DOCS, docsHref, type DocKey } from '../ui/docs-links.js';
 import { ApplyDialog, PatchDialog, RenameFixDialog, RepairDialog, StrongerDialog } from '../ui/fixes/FixPage.js';
 import { CheckDialog } from '../ui/fixes/CheckDialog.js';
+import { NewPreview } from '../ui/changes/NewPreview.js';
+import { PreviewVerifyButton } from '../ui/changes/VerifyAsk.js';
 import { PrCommentDialog } from '../ui/ci/PrCommentDialog.js';
 import { RunBlameButton } from '../ui/fixes/RunBlame.js';
 import { updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
@@ -51,7 +53,7 @@ import { maskFirst } from '../ui/update-plan.js';
  */
 
 /** What opens a dialog's title: an action's verb, as every button starts. */
-const VERB = /^(Add|Apply|Delete|Download|Edit and fork|Export|Fail|Find|Finish|Force|Free|Import|Inject|Mark|Override|Pack|Plant|Preview|Record|Remove|Rename|Repeat|Replace|Replay|Re-run|Run|Score|Show|Stop|Switch|Update|Use)\b/;
+const VERB = /^(Add|Apply|Delete|Download|Edit and fork|Export|Fail|Find|Finish|Force|Free|Import|Inject|Mark|Override|Pack|Plant|Preview|Record|Remove|Rename|Repeat|Replace|Replay|Re-run|Run|Score|Show|Stop|Switch|Update|Use|Verify)\b/;
 
 interface Expect {
   title: string | RegExp;
@@ -339,8 +341,7 @@ describe('a run’s next steps that ask first', () => {
   const GOLDEN = 'goldens/refund-in-limit';
   const run = { run: { runId: RUN, parentRunId: null, status: 'completed', meta: {} }, actions: [], children: [], calls: [] } as unknown as RunDetail;
   // Run injection test's dialog reads the templates and the run's untrusted reads where its step hands it none.
-  const reads = { injectionTemplates: async () => ({ version: 1, updated: '', templates: [{ id: 'system-notice', shape: 'notice', title: 'A notice', text: '{{canary}}' }] }), injectionRun: async () => ({ untrusted: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }], results: [], rule: null, answers: [], cause: [], attempt: null }), injectionEstimate: () => new Promise(() => undefined), checks: { goldens: async () => ({ version: 'v1', read: { keys: {}, tests: {} } }) } };
-  const served = (client: Record<string, unknown> = {}) => appWith({ client: { jobs: () => Promise.resolve([]), ...reads, ...client }, feeds: {}, live: [], runs: [] });
+  const served = (client: Record<string, unknown> = {}) => appWith({ client: { jobs: () => Promise.resolve([]), injectionTemplates: async () => ({ version: 1, updated: '', templates: [{ id: 'system-notice', shape: 'notice', title: 'A notice', text: '{{canary}}' }] }), injectionRun: async () => ({ untrusted: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }], results: [], rule: null, answers: [], cause: [], attempt: null }), injectionEstimate: () => new Promise(() => undefined), checks: { goldens: async () => ({ version: 'v1', read: { keys: {}, tests: {} } }) }, ...client }, feeds: {}, live: [], runs: [] });
   /** The step's lime button, pressed: the dialog it asks in, once what it reads has come. */
   async function pressed(step: NextStep, app = served()): Promise<Rendered> {
     const page = await open(createElement('div', null, createElement(NextStepButton, { run, step, offers: null, onAction: () => undefined, onFindCommit: () => undefined }), createElement(TestsAskHost)), app);
@@ -733,10 +734,7 @@ describe('Settings’ and the shell’s dialogs', () => {
     holds(page, { title: 'Stop repair', doc: 'jobs', first: CANCEL, ok: 'Stop repair', tone: 'plain' });
     expect(page.one('.dlg-cancel').textContent).toBe('Keep it running');
   });
-});
-
-describe('Settings → CI’s dialog', () => {
-  it('Preview pull request comment: Close, then Copy Markdown, plain, which copies and keeps it open', async () => {
+  it('Settings → CI’s Preview pull request comment: Close, then Copy Markdown, plain, which copies and keeps it open', async () => {
     const preview = { session: { id: 'ts-1', revision: 'd2e8a1f', at: Date.now() }, head: '1 of 1 golden passed', rows: [{ verdict: 'passed', golden: 'goldens/refund-flow', line: 'passed · replayed clean' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### Shadowlap: 1 of 1 golden passed\n' };
     holds(await open(createElement(PrCommentDialog, { preview, ...closes }), appWith({ feeds: {} })), { title: 'Preview pull request comment', doc: 'prComment', first: CANCEL, ok: 'Copy Markdown', tone: 'plain' });
   });
@@ -782,6 +780,60 @@ describe('the bulk bar’s dialogs', () => {
     holds(page, { title: 'Delete 2 runs?', doc: 'deletingRuns', first: CANCEL, ok: 'Delete 2 runs', tone: 'danger' });
     expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Deletes the runs, their 3 attempts and the recorded data nothing else uses.');
     expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Forks, replayskeep their own datathey lose the link to them', 'Left alone01M5H2DJR4still recording']);
+  });
+});
+
+describe('a preview’s dialogs', () => {
+  const RUN = '01M5H2DJ1W0000000000000000';
+  const SESSION = 'dc-01M5000000000000000000000J';
+  const read = { preview: null, asks: { calls: 41, from: ['claude-sonnet-4-5'], control: true, runs: 2, otherFamily: null }, recorded: [{ id: 'claude-sonnet-4-5', family: 'claude', calls: 41 }], answers: { most: 1840, cut: 3 }, refused: null, targets: ['goldens/refund'], ways: null };
+  const tree = { fromCode: { calls: 12, instructions: { before: 'Be brief.', after: 'Be brief. Never email.' }, tools: { added: [], removed: [], changed: [] } }, runs: [{ runId: RUN, golden: 'goldens/refund', changed: [1, 3], refused: null }], notes: [], nothing: null };
+  const estimates = {
+    previewEstimates: () => Promise.resolve(read),
+    modelChoices: () => Promise.resolve({ choices: [{ id: 'claude-haiku-4-5', family: 'claude', group: 'Anthropic' }], notes: [], priced: [] }),
+    decisionEstimates: () => Promise.resolve({ verify: { kind: 'verify', usd: 1.2, ceiling: true, parts: [] }, runs: [{ runId: RUN, role: 'target' }] }),
+  };
+  // The changed prompt's read of the working tree ends as it starts.
+  const app = () => appWith({ client: { estimates, jobs: () => Promise.resolve([]), startJob: (kind: string) => Promise.resolve({ id: 'j1', kind, title: '', args: [], done: true, code: 0, total: 0, result: tree }), job: () => new Promise(() => undefined), stopJob: () => Promise.resolve() }, feeds: {} });
+  const way = async (w: 'model' | 'code' | 'field') => {
+    const page = await open(createElement(NewPreview, { way: w, target: { goldens: 'all' }, onClose: () => undefined }), app());
+    // What each waits on: the targets its estimate names, the tree's read, the recorded answers.
+    const shows = { model: 'goldens/refund --model', code: 'tool definitions', field: 'output tokens' }[w];
+    await page.until('what it reads', () => page.all('[role="dialog"]').some((d) => d.textContent.includes(shows)));
+    // Its confirm waits, saying why, until what it asks is read.
+    if (w !== 'field') await page.until('what it asks', () => page.all('.dlg-ok').every((b) => !b.props['data-why']));
+    return page;
+  };
+  const row = { runId: RUN, golden: 'goldens/refund', about: null, verified: null };
+  const rows = [row];
+  const verify = async (props: Partial<Parameters<typeof PreviewVerifyButton>[0]>, label: string) => {
+    const page = await open(createElement(PreviewVerifyButton, { sessionId: SESSION, change: 'the model claude-haiku-4-5', rows, label, tip: 'Each runs end to end under the change', ...props }), app());
+    await page.click(page.byText('button', label));
+    await page.until('its dialog', () => page.all('[role="dialog"]').length === 1);
+    return page;
+  };
+
+  it('Preview model switch', async () => {
+    holds(await way('model'), { title: 'Preview model switch', doc: 'decisions', first: FIELD, ok: 'Preview model switch' });
+  });
+  it('Preview changed prompt, once it read what the working tree sends', async () => {
+    holds(await way('code'), { title: 'Preview changed prompt', doc: 'decisions', first: OK, ok: 'Preview changed prompt' });
+  });
+  it('Preview field change', async () => {
+    holds(await way('field'), { title: 'Preview field change', doc: 'decisions', first: FIELD, ok: 'Preview field change' });
+  });
+  it('Verify 1 run, with each run in its role', async () => {
+    const page = await verify({ lime: true }, 'Verify 1 run');
+    holds(page, { title: 'Verify 1 run', doc: 'verify', first: OK, ok: 'Verify 1 run' });
+  });
+  it('Run more attempts, with what verify found of each run', async () => {
+    const more = { kind: 'more' as const, runs: [RUN], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' };
+    const page = await verify({ rows: [{ ...row, verified: { outcome: 'inconclusive', count: '50 of 80' } }], more, lime: true }, 'Run more attempts');
+    holds(page, { title: 'Run more attempts', doc: 'verify', first: OK, ok: 'Run more attempts' });
+  });
+  it('Verify this run, titled as Fixes titles it', async () => {
+    const page = await verify({ one: true }, 'Verify this run');
+    holds(page, { title: 'Verify change on 01M5H2DJ1W', doc: 'verify', first: OK, ok: 'Verify this run' });
   });
 });
 

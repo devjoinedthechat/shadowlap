@@ -9,6 +9,7 @@ import { endedRecordings, recordingToast } from './live.js';
 import type { PaletteGroup } from './palette.js';
 import { parseRoute, samePage } from './route.js';
 import { currentRoute, navigate, previewState } from './router.js';
+import type { JobWords } from './served-parts.js';
 import { errorText, type ToastAction, type ToastKind } from './toast.js';
 
 /**
@@ -230,9 +231,13 @@ const POLL_MS = 2000;
 /** How soon the run list is asked again while some of its rows' totals are being added up. */
 export const RUNS_WARMING_MS = 1500;
 
-/** A job a newer one took the drawer from ended: its way on from what it reported, unless that is in another project, else Show. */
-async function sayReplacedEnd(job: JobView, lines: readonly string[], here: string | undefined, toast: AppState['toast'], show: (id: string) => void): Promise<void> {
-  const { endToast, jobStatus, wayOnOf } = await import('./jobs.js');
+/**
+ * A job a newer one took the drawer from ended: its way on from what it reported, unless that is in
+ * another project, else Show, in the words of its kind, which the served entry hands in (a copy runs
+ * no job).
+ */
+async function sayReplacedEnd(words: () => Promise<JobWords>, job: JobView, lines: readonly string[], here: string | undefined, toast: AppState['toast'], show: (id: string) => void): Promise<void> {
+  const { endToast, jobStatus, wayOnOf } = await words();
   const way = job.project && job.project.id !== here ? null : wayOnOf(job, (to) => samePage(parseRoute(to), currentRoute()));
   toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => show(job.id) });
 }
@@ -244,7 +249,8 @@ function guarded(paused: boolean, toast: (text: string) => void, fn: () => void)
   return !paused;
 }
 
-export function AppProvider({ client, children }: { client: Client; children: ReactNode }) {
+/** The app's state over `client`; `jobWords`, the words of a job's kind, the served entry hands in (served-parts.ts): a copy runs no job. */
+export function AppProvider({ client, jobWords, children }: { client: Client; jobWords?: (() => Promise<JobWords>) | undefined; children: ReactNode }) {
   const preview = useMemo(() => previewState(), []);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
@@ -513,8 +519,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       // An HTML copy and a HAR download as well as being written into the project (decision 5).
       if (job.code === 0 && (job.kind === JOB_KINDS.har || job.kind === JOB_KINDS.exportHtml)) for (const f of job.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
       // On the screen, its drawer says how it ended; hidden, its drawer raises the toast, its way on there to take.
-      if (watched?.open || watched?.hidden) return;
-      void sayReplacedEnd(job, lines, meta?.project?.id, toast, (id) => openJobNow.current(id, true));
+      if (watched?.open || watched?.hidden || !jobWords) return;
+      void sayReplacedEnd(jobWords, job, lines, meta?.project?.id, toast, (id) => openJobNow.current(id, true));
     },
     lost: (job, watched) => {
       if (!watched?.open) toast(`${jobTitle(job)}: the dashboard server no longer has this job`, 'error');

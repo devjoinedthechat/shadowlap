@@ -1097,6 +1097,7 @@ free attempt.
 | `--budget <usd>`, `--timeout <seconds>` | As for [`blame`](#blame) | — |
 | `--fail-fast` | Start nothing more once a run has failed | — |
 | `--margin <share>` | A good run that forks is kept unless its pass rate drops this much or more below its baseline's, at the gate's risk | `verify.margin` in `shadowlap.config.json`, else 0.1: 10 points |
+| `--kept-max <n>` | The most pairs a good run that forks takes against its baseline, or attempts against its history | `verify.max`, else 200, or a `--gate` max off its default |
 | `--baseline paired\|history` | What a good run is compared with (below) | `verify.baseline`, else `paired` |
 | `--base <rev>` | With a paired baseline: the commit before the change, checked out on its own for the baseline's attempts | HEAD, when the working tree has a change |
 | `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` | — |
@@ -1683,12 +1684,14 @@ AzureOpenAI SDKs do; without it, nothing is sent.
 | `--model <model>` | The change is this model, at the agent's model calls: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure (below) | — |
 | `--from <model>` | The recorded model the change switches from: `--model` and `--set` change only the calls made with it (repeatable; an alias names its dated snapshots) | The model the runs use most; with `--set` alone, every call |
 | `--from-code` | The change is the system prompt and tool definitions your working tree sends (below) | — |
+| `--dry-run` | With `--from-code` alone: read what your working tree sends each run, offline, print it and stop. Nothing is asked and no session is kept | — |
 | `--set <key=value>` | The change sets this request field, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini); repeatable | — |
 | `--samples <n>` | Ask each model call *n* times under the change and, from 3 on, *n* times as recorded, the control (below) | 3: six requests a step |
 | `--concurrency <n>` | Requests in flight at once. A run whose requests carry cache breakpoints is asked one step at a time, in order | 4 |
 | `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope | — |
 | `--then-verify` | Then run [`verify`](#verify) on the runs a preview can't clear ([which](./decisions.md#then-verify)) | — |
 | `--verify <session>` | Ask nothing: verify the runs a kept session could not clear (below) | — |
+| `--kept-max <n>` | With `--verify`: the most pairs a good run takes, as for [`verify`](#verify) | Verify's |
 | `--test-session <id>` | With `--from-code`: keep the preview with this test session, as its pull request comment's decisions (below) | — |
 | `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify) | Verify's |
 | `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent | — |

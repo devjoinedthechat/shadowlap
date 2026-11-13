@@ -3,9 +3,10 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, NO_TOKENS, packRun, Store, unpackRun, type DecisionRun } from '@shadowlap/engine';
+import { emptyCounts, fieldValue, NO_TOKENS, packRun, Store, unpackRun, type DecisionRun } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
-import { decisionsJob, migrateJob, verifyFlaggedJob } from '../src/decisions.js';
+import { decisionsArgv } from '../src/decisions-argv.js';
+import { decisionsJob, decisionsReadJob, migrateJob, verifyFlaggedJob } from '../src/decisions.js';
 import { injectionJob } from '../src/injection.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -45,6 +46,14 @@ afterAll(() => {
 });
 
 describe('the jobs that pass --yes', () => {
+  it('builds a preview’s command with the helper its dialog shows it with, and refuses more runs than one preview takes in the bar’s words', () => {
+    const req = { goldens: ['goldens/sent'], model: 'claude-sonnet-5-5', set: { max_tokens: 512, stop: 'END' }, from: ['claude-sonnet-4-5-20250929'], scope: 'billing', samples: 2 };
+    const shown = decisionsArgv({ targets: ['goldens/sent'], model: 'claude-sonnet-5-5', set: [['max_tokens', fieldValue(512)], ['stop', fieldValue('END')]], from: ['claude-sonnet-4-5-20250929'], scope: 'billing', samples: 2 });
+    expect(args(decisionsJob(req, store, goldens, project))).toEqual(shown);
+    expect(shown).toEqual(['decisions', 'goldens/sent', '--model', 'claude-sonnet-5-5', '--set', 'max_tokens=512', '--set', 'stop=END', '--from', 'claude-sonnet-4-5-20250929', '--scope', 'billing', '--samples', '2']);
+    expect(decisionsJob({ runs: Array.from({ length: 501 }, () => 'x'), model: 'claude-sonnet-5-5' }, store, goldens, project)).toEqual({ error: 'At most 500 runs are previewed at once: 501 are picked' });
+  });
+
   it('ask before a decisions job runs a sent golden from the working tree, and pass --yes once the request says yes to it', () => {
     const req = { goldens: ['goldens/sent'], fromCode: true };
     const q = asked(decisionsJob(req, store, goldens, project));
@@ -53,6 +62,16 @@ describe('the jobs that pass --yes', () => {
     expect(args(decisionsJob({ ...req, yes: q.confirm }, store, goldens, project)).at(-1)).toBe('--yes');
     // Asking the model again runs no agent: nothing to ask.
     expect(args(decisionsJob({ goldens: ['goldens/sent'], model: 'claude-sonnet-5-5' }, store, goldens, project))).toEqual(['decisions', 'goldens/sent', '--model', 'claude-sonnet-5-5']);
+  });
+
+  it('ask before the working tree’s read replays a sent golden offline, and pass --yes once the request says yes to it', () => {
+    const q = asked(decisionsReadJob({ goldens: ['goldens/sent'] }, store, goldens, project));
+    expect(q).toMatchObject({ status: 409, error: expect.stringMatching(/^goldens\/sent is from a pack this repository doesn't track: this runs the command it was recorded with \(node their-agent\.mjs\)/), confirm: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(decisionsReadJob({ goldens: ['goldens/sent'], yes: true }, store, goldens, project)).toMatchObject({ status: 409 });
+    // The same yes covers the preview it reads for: both run the one command.
+    expect(args(decisionsReadJob({ goldens: ['goldens/sent'], yes: q.confirm }, store, goldens, project))).toEqual(['decisions', 'goldens/sent', '--from-code', '--dry-run', '--yes']);
+    expect(asked(decisionsJob({ goldens: ['goldens/sent'], fromCode: true }, store, goldens, project)).confirm).toBe(q.confirm);
+    expect(args(decisionsReadJob({ goldens: ['goldens/own'], yes: 'f'.repeat(32) }, store, goldens, project))).toEqual(['decisions', 'goldens/own', '--from-code', '--dry-run']);
   });
 
   it('pass no --yes where nothing was asked: a golden recorded here runs as it is', () => {

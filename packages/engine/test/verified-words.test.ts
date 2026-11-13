@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decisionStepState, emptyCounts, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, minorityChange, minorityNotes, samplesWords, stepsAsked, unchangedRunWords, unsettledWords, WITHIN_VARIATION, withinVariationLine, type DecisionChange, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
-import { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords } from '../src/verified-words.js';
+import { CLEARED, changePct, endToEndWords, tallyCount, tallyWords, usdOrUnknown, verifiedCount, verifiedWords } from '../src/verified-words.js';
 
 type Step = Pick<DecisionStep, 'rank' | 'majority' | 'control' | 'sampled' | 'samples' | 'error'>;
 const step = (o: Partial<Step> = {}): Step => ({ rank: null, majority: null, sampled: null, control: null, error: null, samples: { asked: 3, answered: 3, changed: 0, ranks: [0, 0, 0] }, ...o });
@@ -111,6 +111,9 @@ describe('how verify found the runs it took', () => {
     expect(tallyWords({ passes: 2, attempts: 3, undecided: 'the judge could not answer' })).toBe(' · 2 of 2, attempt 3 not judged');
     expect(tallyWords({ passes: 38, attempts: 38, bound: 'drop <= 0.10 (95%)', baseline: { passes: 38, attempts: 38 } })).toBe(' · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)');
     expect(tallyWords(null)).toBe('');
+    expect(tallyCount({ passes: 64, attempts: 80, bound: 'rate >= 0.6 (95%)' })).toBe('64 of 80');
+    expect(tallyCount({ passes: 2, attempts: 3, undecided: 'the judge could not answer' })).toBe('2 of 2, attempt 3 not judged');
+    expect(tallyCount(null)).toBe('');
     expect(verifiedWords({ verdict: 'passed', outcome: 'kept', tally: { passes: 4, attempts: 4 } })).toBe('kept, verified · 4 of 4');
     expect(verifiedWords({ verdict: 'inconclusive', outcome: 'inconclusive', tally: null })).toBe('verified');
   });

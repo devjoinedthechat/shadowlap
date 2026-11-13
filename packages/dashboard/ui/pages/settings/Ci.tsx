@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { PrCommentDialog } from '../../ci/comment-parts.js';
 import { previewSub, PREVIEW_WAIT } from '../../ci/words.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Tile } from '../../components/Icon.js';
@@ -11,6 +10,7 @@ import { useLatest, useLoad } from '../../hooks.js';
 import { ACTIONS } from '../../labels.js';
 import { PR_COMMENT_ASK } from '../../page-ask.js';
 import { href } from '../../route.js';
+import { useServedParts } from '../../served-parts.js';
 import type { CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
 import { CiList, Select } from './CiList.js';
@@ -135,10 +135,12 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
  * The action's comment on each pull request: its switch, what it carries, the decisions' switch, its
  * preview and what posting it needs. The preview is the newest session's that ran every golden, read
  * as the panel shows and again as the tests feed moves; before one, Preview pull request comment
- * waits, saying why. The palette's row asks for it here (`PR_COMMENT_ASK`).
+ * waits, saying why. The palette's row asks for it here (`PR_COMMENT_ASK`). Its dialog comes from
+ * the served parts (pages/served.tsx), so a press whose script didn't come says so in the error toast.
  */
 function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: CiWorkflowsView; toggle: (patch: Partial<CiWorkflowOptions>, what: string) => void }) {
   const { client, feeds } = useApp();
+  const { PrCommentDialog } = useServedParts();
   const preview = useLoad(() => client.settings.prComment(), 'pr-comment', feeds.tests ?? 0);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -176,7 +178,7 @@ function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: C
         <span className="k cineeds">it needs</span>
         <CiList rows={view.comment.needs} />
       </div>
-      {open ? <PrCommentDialog preview={preview.data} onClose={() => setOpen(false)} /> : null}
+      {open && PrCommentDialog ? <PrCommentDialog preview={preview.data} onClose={() => setOpen(false)} /> : null}
     </Section>
   );
 }

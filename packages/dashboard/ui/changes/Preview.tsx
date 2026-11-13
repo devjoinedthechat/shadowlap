@@ -1,13 +1,12 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo } from 'react';
 import { ApiError } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
-import { AskNote } from '../components/AskNote.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { ConfirmDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Link } from '../components/Link.js';
 import { MigrateAsk } from '../components/MigrateAsk.js';
+import { NewPreviewMenu, NO_GOLDENS, PreviewWayButtons, usePreviewDialog } from '../components/NewPreviewMenu.js';
 import { Picker } from '../components/Picker.js';
 import { useMenu } from '../components/Popover.js';
 import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
@@ -18,6 +17,7 @@ import { nextStep, sessionHint, verdictState } from '../decisions.js';
 import { FixJobButton } from '../fixes/FixJobButton.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
+import { PREVIEW_ASK } from '../page-ask.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { Unshown } from '../shell/unshown.js';
@@ -25,6 +25,7 @@ import { useApp } from '../state.js';
 import type { Tone } from '../components/Status.js';
 import type { DecisionSessionView, PreviewSession, PreviewView } from '../types.js';
 import { DecisionCellPanel, revealCell } from './DecisionCell.js';
+import { moreTip, PreviewVerifyButton, type VerifyRow } from './VerifyAsk.js';
 import { DecisionMatrix } from './DecisionMatrix.js';
 
 /**
@@ -41,7 +42,40 @@ const LISTED = 200;
  * `onMissing` hears that the session the address names isn't in this store, with the read that
  * found it so: the page then asks whether another project holds it (pages/Changes.tsx).
  */
-export function PreviewTab({ id, run, call, onMissing }: { id: string | null; run: string | null; call: number | null; onMissing?: (error: Error) => void }) {
+export function PreviewTab(props: PreviewTabProps) {
+  return (
+    <>
+      <PaletteAsks />
+      <PreviewBody {...props} />
+    </>
+  );
+}
+
+interface PreviewTabProps {
+  id: string | null;
+  run: string | null;
+  call: number | null;
+  onMissing?: (error: Error) => void;
+}
+
+/** The palette's Preview model switch… and Preview changed prompt: the way's dialog on every golden, as the tab shows or at once where it shows already. */
+function PaletteAsks() {
+  const dialog = usePreviewDialog(EVERY_GOLDEN);
+  const { open } = dialog;
+  useEffect(() => {
+    const offs = PALETTE_WAYS.map((way) => {
+      if (PREVIEW_ASK.take(way)) open(way);
+      return PREVIEW_ASK.on(() => open(way), way);
+    });
+    return () => offs.forEach((off) => off());
+  }, [open]);
+  return dialog.dialog;
+}
+
+/** The ways the palette asks Preview for. */
+const PALETTE_WAYS = ['model', 'code'] as const;
+
+function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
   const { client, feeds } = useApp();
   const list = useLoad(() => client.decisionSessions('decisions', LISTED), 'decision-sessions', `${feeds.decisions ?? 0}`);
   const sessions = list.data?.sessions;
@@ -74,6 +108,8 @@ export function PreviewTab({ id, run, call, onMissing }: { id: string | null; ru
     <>
       <div className="chbar">
         <SessionPicker sessions={sessions} shown={session} />
+        <span className="sp" />
+        <NewPreviewMenu target={{ goldens: 'all', count: list.data!.goldens }} lime={anotherChange(session.view)} why={list.data!.goldens ? null : NO_GOLDENS} />
       </div>
       <Verdict session={session} />
       <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell(session.sessionId, r, c, current)} />
@@ -108,12 +144,17 @@ function NoPreview({ goldens }: { goldens: number }) {
     return (
       <EmptyState title="Preview a change on your goldens" text={text}>
         <p className="emptyline">
-          No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view. <Link href={href.runs()}>Open Runs</Link>
+          {NO_GOLDENS} <Link href={href.runs()}>Open Runs</Link>
         </p>
       </EmptyState>
     );
-  return <EmptyState title="Preview a change on your goldens" text={text} copy command="shadowlap decisions goldens/* --model <model>" />;
+  return <EmptyState title="Preview a change on your goldens" text={text} step={<PreviewWayButtons target={EVERY_GOLDEN} />} copy command="shadowlap decisions goldens/* --model <model>" />;
 }
+
+const EVERY_GOLDEN = { goldens: 'all' } as const;
+
+/** Another change is the next step once verify rejected the shown preview's and left nothing to verify or attempt: New preview turns lime. */
+const anotherChange = (v: PreviewSession['view']): boolean => verdictState(v) === 'verified' && v.verdict.word === 'rejected' && !nextStep(v.next);
 
 /** The previews picker: the one shown by its name, then its goldens or runs and when, fitted to the rest; a pick opens it. */
 function SessionPicker({ sessions, shown }: { sessions: readonly DecisionSessionView[]; shown: PreviewSession }) {
@@ -238,12 +279,21 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
   );
 }
 
-/** The one lime next step: Verify the runs left to verify, or Migrate to the model switched to. Run more attempts waits for its gate. */
+/** The runs a verify takes, as its dialog lists them: the matrix's rows, with what verify found of each for Run more attempts. */
+const verifyRows = (session: PreviewSession, runs: readonly string[], found: boolean): VerifyRow[] =>
+  session.matrix.filter((r) => runs.includes(r.runId)).map((r) => ({ runId: r.runId, golden: r.golden, about: r.about?.text ?? null, verified: found ? r.verified : null }));
+
+/** The one lime next step: Verify the runs left to verify, Run more attempts or Verify again on those verify left open, or Migrate to the model switched to. */
 function NextStepButton({ session }: { session: PreviewSession }) {
   const v = session.view;
   const id = session.sessionId;
   const step = nextStep(v.next);
-  if (!step || step.kind === 'more') return null;
+  if (!step) return null;
+  if (step.kind === 'more') {
+    const more = v.next.more!;
+    const rows = verifyRows(session, step.runs, true);
+    return <PreviewVerifyButton sessionId={id} change={v.change} rows={rows} label={step.label} more={more} lime tip={moreTip(more, { one: rows.length === 1 })} />;
+  }
   if (step.kind === 'verify') {
     const named = step.every ? '' : ` ${step.runs.map(shortId).join(' ')}`;
     const command = `shadowlap decisions --verify ${id}${named}`;
@@ -254,15 +304,7 @@ function NextStepButton({ session }: { session: PreviewSession }) {
           {step.label}
         </ActionButton>
       );
-    return (
-      <VerifyButton
-        sessionId={id}
-        runs={step.every ? null : step.runs}
-        label={step.label}
-        command={command}
-        lead={`Replays each run end to end under ${v.change || 'the change'} until verify’s gate decides.`}
-      />
-    );
+    return <PreviewVerifyButton sessionId={id} change={v.change} rows={verifyRows(session, step.runs, false)} every={step.every} label={step.label} lime tip="Each runs end to end under the change, writes stubbed, until verify’s gate decides" />;
   }
   const targets = step.goldens.length ? step.goldens : step.runs.map(shortId);
   const command = `shadowlap migrate --to ${step.to} ${targets.join(' ')}${step.from.map((f) => ` --from ${f}`).join('')}`;
@@ -277,27 +319,6 @@ function NextStepButton({ session }: { session: PreviewSession }) {
       command={command}
       estimate={null}
       ask={(start, close) => <MigrateAsk from={step.from} to={step.to} command={command} ok={step.label} onOk={() => start({})} onClose={close} />}
-    />
-  );
-}
-
-/** Verify, priced by the runs it would verify: a press at or under the threshold starts it, else it asks. */
-function VerifyButton({ sessionId, runs, label, command, lead }: { sessionId: string; runs: string[] | null; label: string; command: string; lead: string }) {
-  const { client, exported, actionsOff } = useApp();
-  const api = client.estimates;
-  const priced = useLoad(() => (api && !exported && !actionsOff ? api.decisionEstimates(sessionId, runs ?? undefined) : null), `decision-estimate:${sessionId}:${runs?.join(',') ?? ''}`);
-  const estimate = priced.data ? priced.data.verify : priced.error ? null : undefined;
-  return (
-    <FixJobButton
-      kind="decisions-verify"
-      fields={{ sessionId, ...(runs ? { runIds: runs } : {}) }}
-      label={label}
-      verb="verify the changed runs"
-      lead
-      tip="Each runs end to end under the change, writes stubbed, until verify’s gate decides"
-      command={command}
-      estimate={estimate}
-      ask={(start, close) => <ConfirmDialog title={label} lead={lead} command={command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={() => start({})} onClose={close} />}
     />
   );
 }

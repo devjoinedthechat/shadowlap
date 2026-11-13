@@ -72,6 +72,7 @@ export function register(program: Command): void {
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--fail-fast', 'start nothing new once a run has failed')
     .option('--margin <share>', `a good run that forks is kept unless its pass rate drops this much or more below its baseline's: 0.1 is 10 points (default: verify.margin in shadowlap.config.json, else ${KEPT_DEFAULTS.margin})`, parseMargin)
+    .option('--kept-max <n>', `the most pairs a good run that forks takes against its baseline, or attempts against its history (default: verify.max in shadowlap.config.json, else ${KEPT_DEFAULTS.max}, or a --gate max off its default)`, parseIntArg)
     .option('--baseline <source>', 'what a good run is compared with: paired, the same run under the code before the change, attempt for attempt; or history, its golden\'s test history (default: verify.baseline, else paired)', parseChoice(['paired', 'history'] as const))
     .option('--base <rev>', 'with a paired baseline: the commit before the change (default: HEAD, when the working tree has a change)')
     .option('--build <command>', 'with a paired baseline at a commit: build its checkout before its attempts, e.g. "npm run build"')
@@ -136,6 +137,15 @@ function configuredRepairer(): string | null {
   }
 }
 
+/** The config's `verify.max`, a good run's pairs, which Run more attempts keeps one to as the dashboard does; null where it sets none or can't be read. */
+function configuredKeptMax(): number | null {
+  try {
+    return loadConfig(process.cwd()).verify?.max ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** A fix by its id or a unique prefix, or a FixIdError that says where to find one. */
 function requireFix(store: StoreOf<'fixes'>, idOrPrefix: string): StoredFix {
   const fix = resolveFix(store, idOrPrefix);
@@ -192,7 +202,7 @@ function registerFixes(program: Command): void {
         const fix = requireFix(store, arg);
         const patchInTree = await patchesInTree(process.cwd(), patchesToCheck(store, [fix]));
         const rewriteHere = await rewritesHere(process.cwd(), pulledPatchesToCheck(store, [fix]));
-        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree, rewriteHere, goldensFolder: goldensFolderIn(process.cwd()) })!;
+        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree, rewriteHere, goldensFolder: goldensFolderIn(process.cwd()), keptMax: configuredKeptMax() })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);

@@ -21,6 +21,7 @@ import { unshownKey, useUnshown } from '../ui/shell/unshown.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixesViewRow, Meta, PrCommentPreview, PreviewVerdict, RunDetail, RunListItem, SessionCommentParts, SessionVerdict, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerifyVerdict } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * Changes: what a change does to your agent, on its own recorded runs. Its addresses, the tab it
@@ -713,7 +714,7 @@ describe('a revision’s page', () => {
     const PREVIEW: PrCommentPreview = { session: { id: 'ts-01M5000000000000000000000A', revision: 'd2e8a1f', at: AT }, head: '2 of 3 goldens passed · 1 failed', rows: [{ verdict: 'failed', golden: 'goldens/refund-flow', line: 'failed · diverged at call 3 · $.model' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### Shadowlap: 2 of 3 goldens passed · 1 failed\n' };
     const Probe = () => createElement('i', { id: 'unshown' }, String(useUnshown('changes:d2e8a1f')));
     const client = { verdictRevision: () => Promise.resolve(revision()), settings: { prComment: () => Promise.resolve(PREVIEW) } } as unknown as Partial<Client>;
-    page = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RevisionPage, { rev: 'd2e8a1f' }), createElement(Probe)));
+    page = await render(createElement(AppContext.Provider, { value: app(client) }, withServed(createElement(RevisionPage, { rev: 'd2e8a1f' })), createElement(Probe)));
     await page.until('the page', () => page!.all('.verdict').length === 1);
     expect(page.all('.verdict .actions .btn').map((b) => [b.tagName.toLowerCase(), b.textContent, b.className])).toEqual([
       ['button', 'Preview pull request comment', 'btn sm'],
@@ -759,7 +760,7 @@ describe('Changes’ page', () => {
     const asked: string[] = [];
     const holding = (what: string, ids: readonly string[]) => (asked.push(`${what} ${ids.join(' ')}`), Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null }));
     const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 0, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), projects: { holding } };
-    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' })));
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, withServed(createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' }))));
     await page.until('the Preview tab', () => page!.all('.empty.tall').length === 1);
     expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Preview']);
     expect(bar.hash).toBe('#/changes/decisions/dc-01M5000000000000000000000A');

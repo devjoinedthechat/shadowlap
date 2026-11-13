@@ -105,6 +105,8 @@ export interface LookWork {
   rewriteHere?: RewriteCheck | undefined;
   /** The configured repairer, which Run repair's card names. */
   repairer?: string | null;
+  /** The config's `verify.max`, which Run more attempts keeps a good run's pairs to. */
+  keptMax?: number | null;
   budget?: number | undefined;
   next: NextStepWork | null;
   now: number;

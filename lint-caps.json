@@ -26,9 +26,6 @@
     "packages/cli/src/chaos.ts": {
       "runPresets": 92
     },
-    "packages/cli/src/commands/changes.ts": {
-      "register > action(\"decisions\")": 42
-    },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
     },
@@ -150,9 +147,6 @@
     },
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
-    },
-    "packages/dashboard/src/fix-verify-step.ts": {
-      "verifyMore": 41
     },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35
@@ -354,9 +348,6 @@
     },
     "packages/cli/src/chaos.ts": {
       "runPresets": 156
-    },
-    "packages/cli/src/commands/changes.ts": {
-      "register": 176
     },
     "packages/cli/src/commands/data.ts": {
       "register": 207

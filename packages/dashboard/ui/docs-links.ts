@@ -47,6 +47,7 @@ export const DOCS = {
   blame: { page: 'blame', what: 'Blame' },
   repair: { page: 'repair', what: 'Repair' },
   verify: { page: 'verify', what: 'Verify' },
+  decisions: { page: 'decisions', what: 'Decisions' },
   repairHandover: { page: 'repair#handing-it-over', what: 'Repair' },
   fixTitles: { page: 'cli#fix-title', what: 'Fix titles' },
   pairs: { page: 'training#exporting-pairs', what: 'Pairs' },

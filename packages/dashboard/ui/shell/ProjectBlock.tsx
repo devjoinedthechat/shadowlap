@@ -16,10 +16,7 @@ import { useApp, type AppState } from '../state.js';
 import { errorText } from '../toast.js';
 import { flush } from '../pending-delete.js';
 import { ActionButton, useActionWait } from '../components/ActionButton.js';
-import { onShow } from '../components/OnShow.js';
-
-/** The Remove dialog. Rarely opened, so its code waits out of the first look until the switcher opens. */
-const RemoveProjectDialog = onShow(() => import('./RemoveProject.js').then((m) => m.RemoveProjectDialog));
+import { useServedParts, type ServedParts } from '../served-parts.js';
 
 /**
  * The project at the top of the sidebar, and the switcher behind it: each project on this machine
@@ -71,6 +68,8 @@ addPaletteSource(({ app }) =>
 );
 
 export function ProjectBlock({ meta }: { meta: Meta | null }) {
+  // The Remove dialog, handed in by the served entry: rarely opened, so its code waits out of the first look until the switcher opens.
+  const { RemoveProject } = useServedParts();
   const p = projectOf(meta);
   // An exported copy says what it is in the switcher's place: what it holds, when it was made, that it reads only.
   if (meta?.static) {
@@ -82,7 +81,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
       </div>
     );
   }
-  if (meta?.project?.id) return <ProjectSwitcher meta={meta} />;
+  if (meta?.project?.id) return <ProjectSwitcher meta={meta} RemoveProject={RemoveProject} />;
   const name = p?.name ?? 'this store';
   return (
     <div className="proj is-static" title={p?.path ?? meta?.dbPath ?? undefined}>
@@ -95,7 +94,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
   );
 }
 
-function ProjectSwitcher({ meta }: { meta: Meta }) {
+function ProjectSwitcher({ meta, RemoveProject }: { meta: Meta; RemoveProject: ServedParts['RemoveProject'] }) {
   const app = useApp();
   const removeWait = useActionWait();
   const { client, guard } = app;
@@ -122,7 +121,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
 
   // Settings → Project's Remove project… opens this same dialog for the current project.
   const several = list ? list.items.length > 1 : true;
-  useEffect(() => provideProjectRemoval({ current: () => ({ id, blocked: several ? null : ONLY_PROJECT }), Dialog: RemoveProjectDialog }), [id, several]);
+  useEffect(() => (RemoveProject ? provideProjectRemoval({ current: () => ({ id, blocked: several ? null : ONLY_PROJECT }), Dialog: RemoveProject }) : undefined), [id, several, RemoveProject]);
 
   // A switch made here lands where it was asked to (the Overview, or a job's link in the project it
   // ran in). One made elsewhere (another tab, a project removed there) keeps a page every project
@@ -174,7 +173,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         onClick={(e) => {
           if (!menu.open) {
             load();
-            RemoveProjectDialog.preload();
+            RemoveProject?.preload();
           }
           menu.toggle(e.currentTarget);
         }}
@@ -247,8 +246,8 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
           <div className="pnote">{list?.notice ?? project.notice ?? list?.note ?? 'Each project keeps its own store.'}</div>
         </Popover>
       ) : null}
-      {removing ? (
-        <RemoveProjectDialog
+      {removing && RemoveProject ? (
+        <RemoveProject
           id={removing}
           onClose={() => setRemoving(null)}
           onRemoved={() => {

@@ -185,6 +185,8 @@ export interface OverviewOptions extends StatsOptions {
   next?: NextStepWork | null;
   /** The configured repairer, which Run repair's card on Needs a look names. */
   repairer?: string | null;
+  /** The config's `verify.max`, which Run more attempts keeps a good run's pairs to. */
+  keptMax?: number | null;
 }
 
 export interface OverviewSummary {
@@ -302,7 +304,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     },
     cache: weekCache(store, index, week.from, options.budget),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
-    needsLook: withDismissals(needsLook(lookWork(store, { goldens, teamStore: options.teamStore ?? null, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, repairer: options.repairer ?? null, budget: options.budget, next: options.next ?? null, now, week: { ...week, first: weekDays[0]!.key, last: today.key }, index })), store),
+    needsLook: withDismissals(needsLook(lookWork(store, { goldens, teamStore: options.teamStore ?? null, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, repairer: options.repairer ?? null, keptMax: options.keptMax ?? null, budget: options.budget, next: options.next ?? null, now, week: { ...week, first: weekDays[0]!.key, last: today.key }, index })), store),
   };
 }
 

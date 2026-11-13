@@ -7,15 +7,10 @@ import { bisectBlocked, unknownBisect } from './offers.js';
 import { useBilledPress } from '../components/JobButton.js';
 import { sentEstimate } from '../spending.js';
 import { rowPriced, type RowPrice } from './estimates.js';
-import { onShow } from '../components/OnShow.js';
+import { useServedParts } from '../served-parts.js';
 import { TestDialogPart } from '../injection/test-part.js';
 import type { TestOpener } from './ForkMenu.js';
 import type { UntrustedView } from '../types.js';
-
-/** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
-const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
-/** Find breaking commit's dialog, which a run's page rarely opens: a part of its own, with Delete run's (OnShow.tsx). */
-const BisectDialog = onShow(() => import('./RunDialogs.js').then((m) => m.BisectDialog));
 
 /**
  * Running a run's actions, the fork menu's (ForkMenu.tsx) among them, and the dialog an action asks
@@ -51,6 +46,9 @@ export interface PendingAction {
  */
 export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null, forkAt?: number | null, record?: Pick<RunDetail['run'], 'meta'>) {
   const app = useApp();
+  // The dialog an action asks in, and Find breaking commit's, which a run's page rarely opens: parts the
+  // served entry hands in, each loading the first time it asks (OnShow.tsx). A copy's actions wait, so it asks in neither.
+  const { ActionDialog, BisectDialog } = useServedParts();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [bisecting, setBisecting] = useState(false);
   const [consent, setConsent] = useState<{ p: PendingAction; value?: string; why: string; confirm: string } | null>(null);
@@ -86,15 +84,17 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
     else press({ estimate: priced, start: () => start(p), ask: () => setPending(p) });
   };
   const dialog = pending ? (
-    <ActionDialog
-      runId={pending.runId ?? runId}
-      capture={capture}
-      forkAt={forkAt}
-      pending={pending}
-      expect={record?.meta?.expect}
-      onClose={() => setPending(null)}
-      onRun={(v, estimate, expect) => start({ ...pending, estimate, ...(expect ? { expect } : {}) }, v)}
-    />
+    ActionDialog ? (
+      <ActionDialog
+        runId={pending.runId ?? runId}
+        capture={capture}
+        forkAt={forkAt}
+        pending={pending}
+        expect={record?.meta?.expect}
+        onClose={() => setPending(null)}
+        onRun={(v, estimate, expect) => start({ ...pending, estimate, ...(expect ? { expect } : {}) }, v)}
+      />
+    ) : null
   ) : consent ? (
     <ConsentDialog
       why={consent.why}
@@ -102,7 +102,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
       onClose={() => setConsent(null)}
       onOk={() => start(consent.p, consent.value, consent.confirm)}
     />
-  ) : bisecting ? (
+  ) : bisecting && BisectDialog ? (
     <BisectDialog
       runId={runId}
       offer={offers?.bisect ?? unknownBisect(runId)}

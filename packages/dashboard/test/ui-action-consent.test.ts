@@ -6,6 +6,7 @@ import { ApiError, type ActionItem, type JobView } from '../ui/api.js';
 import { useActionRunner } from '../ui/run/actions.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * A replay of a run from someone else's pack, or a teammate's pulled from the team store, runs
@@ -60,7 +61,7 @@ afterEach(async () => {
 });
 
 const open = async (action: ActionItem, state: AppState) => {
-  r = await render(createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement(Runner, { action }))));
+  r = await render(createElement(AppContext.Provider, { value: state }, withServed(createElement('main', { id: 'view', tabIndex: -1 }, createElement(Runner, { action })))));
   return r;
 };
 

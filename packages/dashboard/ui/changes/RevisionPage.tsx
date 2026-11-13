@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from 'react';
 import { ApiError } from '../api.js';
-import { DecisionSteps, PrCommentDialog } from '../ci/comment-parts.js';
+import { DecisionSteps } from '../ci/comment-parts.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { Words } from '../components/Copy.js';
@@ -19,6 +19,7 @@ import { ACTIONS } from '../labels.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { useServedParts } from '../served-parts.js';
 import { Unshown } from '../shell/unshown.js';
 import { useApp } from '../state.js';
 import type { KeptDecisions, PreviewVerdict, SessionCommentParts, VerdictGolden, VerdictRevision } from '../types.js';
@@ -123,15 +124,16 @@ function Verdict({ page }: { page: VerdictRevision }) {
   );
 }
 
-/** Preview pull request comment, on the newest revision's page: the comment the newest session that ran every golden gives, this one. */
+/** Preview pull request comment, on the newest revision's page: the comment the newest session that ran every golden gives, this one. Its dialog comes from the served parts, as Settings → CI's does. */
 function PreviewComment() {
+  const { PrCommentDialog } = useServedParts();
   const [open, setOpen] = useState(false);
   return (
     <>
       <ActionButton className="btn sm" reads onClick={() => setOpen(true)}>
         {ACTIONS.previewPrComment.label}
       </ActionButton>
-      {open ? <PrCommentDialog onClose={() => setOpen(false)} /> : null}
+      {open && PrCommentDialog ? <PrCommentDialog onClose={() => setOpen(false)} /> : null}
     </>
   );
 }

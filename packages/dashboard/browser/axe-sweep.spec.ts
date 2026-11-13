@@ -141,6 +141,29 @@ async function previewed(page: Page): Promise<{ preview: string; cell: string; v
   const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
   return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
 }
+/**
+ * The preview at `preview` as if its verify had left its first run open, as the session's read answers
+ * while `on`: Run more attempts its next step. Off, the session reads as the demo keeps it.
+ */
+async function moreAttempts(page: Page, preview: string): Promise<{ preview: string; on: boolean }> {
+  const sessionId = preview.split('/').at(-1)!;
+  const more = { preview, on: false };
+  await page.route(
+    (url) => url.pathname.endsWith(`/api/decisions/${sessionId}`),
+    async (route) => {
+      if (!more.on) return route.continue();
+      // Read whole, with the session's cookie, never a 304 the page's cache would answer.
+      const headers = Object.fromEntries(Object.entries(await route.request().allHeaders()).filter(([k]) => k !== 'if-none-match'));
+      const res = await route.fetch({ headers });
+      const s = (await res.json()) as { matrix: Array<{ runId: string; verified: unknown }>; view: { next: Record<string, unknown> } };
+      const runId = s.matrix[0]!.runId;
+      s.matrix[0]!.verified = { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' };
+      s.view.next = { ...s.view.next, verify: null, migrate: null, more: { kind: 'more', runs: [runId], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' } };
+      await route.fulfill({ response: res, json: s });
+    },
+  );
+  return more;
+}
 const previews = async (page: Page, on = ''): Promise<Array<[string, () => Promise<void>]>> => {
   const p = await previewed(page);
   return [
@@ -453,6 +476,17 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const inReport = (name: string, text: string) => opened(name, at(page, '/tests'), reportsOpen, button('main#view section.gpanel button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
+  // A preview's menu and the dialogs it opens, and its Verify.
+  const p = await previewed(page);
+  // Preview changed prompt reads the working tree as a job, answered here as it ends: a real read replays the agent's code.
+  const read = { id: 'axe-tree-read', kind: 'decisions-read', title: 'Reading what your working tree sends', args: ['decisions', '--from-code', '--dry-run'], runId: null, opensRun: false, startedAt: Date.now(), done: true, code: 0, newRunId: null, lines: [], total: 0, result: { fromCode: { calls: 2, instructions: { before: 'You are a support agent.', after: 'You are a support agent. Never refund an order twice.' }, tools: { added: [], removed: [], changed: ['issue_refund'] } }, runs: [], notes: [], nothing: null, scope: 'agent' } };
+  await page.route('**/api/jobs', (route) => (route.request().method() === 'POST' && (route.request().postDataJSON() as { kind?: string }).kind === 'decisions-read' ? route.fulfill({ status: 202, json: read }) : route.continue()));
+  await page.route(`**/api/jobs/${read.id}**`, (route) => route.fulfill({ json: read }));
+  // Run more attempts shows where a preview's verify left a run open: the same preview, answered as if verify had.
+  const more = await moreAttempts(page, p.preview);
+  const onPreview = (name: string, ...open: Array<() => Promise<void>>) => opened(name, at(page, p.preview, PREVIEW), ...open);
+  const newPreview = (where: string) => click(page, where, 'New preview', { shows: MENU });
+  const way = (row: string) => button(`${MENU} [role="menuitem"]`, row);
   // The builder from a call of the refund bug, a failed recording: swept once Suggested has drawn the rules the demo's
   // good run gives, which it asks for after the builder settles, so the read can come after the dialog's own.
   const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule, `${DIALOG} .cb-sug`));
@@ -483,6 +517,25 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...bulk('Delete runs', 'Delete'),
     ...bulk('Pack runs', 'Pack'),
     ...bulk('Export the dataset of runs', 'Dataset'),
+    ...opened('Preview change on runs', at(page, '/runs', 'main#view table.runst tbody tr'), tick, click(page, '.bulkbar button', 'Preview change', { shows: MENU }), way('Preview model switch')),
+    ...onPreview('Preview model switch', newPreview('main#view button'), way('Preview model switch')),
+    ...onPreview('Preview field change', newPreview('main#view button'), way('Preview field change')),
+    ...onPreview('Verify a preview’s runs', button('main#view .dverdict .actions button', 'Verify')),
+    ...onPreview('Preview changed prompt', newPreview('main#view button'), way('Preview changed prompt')),
+    ...opened(
+      'Run more attempts on a preview',
+      async () => {
+        more.on = true;
+        // From another page, so the preview mounts again and reads its session anew.
+        await at(page, '/runs', 'main#view table.runst tbody tr')();
+        await at(page, more.preview, PREVIEW)();
+      },
+      async () => {
+        await button('main#view .dverdict .actions button', 'Run more attempts')();
+        more.on = false;
+      },
+    ),
+    ...opened('New preview on a run', at(page, p.view, DVIEW), newPreview('main#view .dview .dvhead button')),
     ...opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
     ...inReport('Update golden', 'Update golden'),
     ...inReport('Add normalizer and update', 'Add normalizer and update'),

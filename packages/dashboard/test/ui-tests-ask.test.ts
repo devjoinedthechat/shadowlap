@@ -19,6 +19,7 @@ import { moreAttemptsAsk, rerunAsk, startTestsJob, testsQuestion } from '../ui/t
 import { keepAsk } from '../ui/pages/Setup.js';
 import type { RunDetail, RunOffers } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * A Tests job that would run goldens live asks first, wherever it starts. The server answers it with
@@ -136,7 +137,7 @@ afterEach(async () => {
 /** `page` with the shell's dialog beside it, in the app given. */
 async function shown(state: AppState, page: ReactElement): Promise<Rendered> {
   g.location = { hash: '#/tests' };
-  r = await render(createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, page, createElement(TestsAskHost))));
+  r = await render(createElement(AppContext.Provider, { value: state }, withServed(createElement('main', { id: 'view', tabIndex: -1 }, page, createElement(TestsAskHost)))));
   return r;
 }
 

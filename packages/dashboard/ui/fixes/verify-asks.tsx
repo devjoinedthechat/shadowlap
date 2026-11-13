@@ -24,6 +24,16 @@ export function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: 
   return <ConfirmDialog title={label} lead={lead} doc="verify" command={more.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;
 }
 
+/** Verify this run's title, a fix's and a preview's: `Verify change on <id>`, or on N runs. */
+export function VerifyChangeTitle({ runs }: { runs: readonly string[] }) {
+  if (runs.length !== 1) return <>{`Verify change on ${runs.length} runs`}</>;
+  return (
+    <>
+      Verify change on <code>{shortId(runs[0]!)}</code>
+    </>
+  );
+}
+
 /**
  * Verify this run's ask, above the threshold or with no estimate (`Verify change on <run>`): the
  * failing runs no accepted verify checked, verified on the code as it is now, its Cost line the
@@ -31,13 +41,7 @@ export function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: 
  */
 export function VerifyLeftAsk({ left, estimate, onRun, onClose }: { left: { runs: readonly string[]; command: string }; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
   const one = left.runs.length === 1;
-  const title = one ? (
-    <>
-      Verify change on <code>{shortId(left.runs[0]!)}</code>
-    </>
-  ) : (
-    `Verify change on ${left.runs.length} runs`
-  );
+  const title = <VerifyChangeTitle runs={left.runs} />;
   const label = leftLabel(left.runs);
   const lead = one ? 'Verifies the code as it is now on the failing run the change wasn’t verified on.' : 'Verifies the code as it is now on the failing runs the change wasn’t verified on.';
   return <ConfirmDialog title={title} lead={lead} doc="verify" command={left.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;
