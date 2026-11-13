@@ -96,6 +96,8 @@ async function openTests(o: { tests?: () => Promise<TestsView>; builder?: OnShow
     offers: () => Promise.resolve(null),
     startJob: () => Promise.resolve({ id: 'j1' }),
     checks: o.checks ?? checksStub(),
+    // Security on Tests reads its goldens' untrusted reads: none here.
+    injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
   } as unknown as Client;
   const app = { client, tick: 0, feeds: {}, jobs: [], actionsOff: o.actionsOff ?? null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: o.toast ?? (() => undefined), refresh: () => undefined };
   const page = createElement(TestsPage);
