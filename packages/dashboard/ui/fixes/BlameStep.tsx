@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import type { FixAttemptGroups } from '../../src/attempt-groups.js';
 import { type Attempt, AttemptList, AttemptsCell } from '../components/AttemptsCell.js';
 import { EmptyState, SrSpace } from '../components/bits.js';
-import { Copy, CodeText } from '../components/Copy.js';
+import { Copy, CodeText, Words } from '../components/Copy.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { DotParts } from '../components/DotParts.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
@@ -404,6 +404,7 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
   return (
     <Section title="The check" sub="what a passing run must do">
       <div className="pbody">
+        {/* each check in its labels' words, a count kept with its noun */}
         <ul className="fxlist">
           {b.oracle.map((o) => {
             // A judge's line carries its card: what it asks and reads, the model, and when it is asked.
@@ -412,10 +413,10 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
               <li key={o}>
                 {judge ? (
                   <span tabIndex={0} data-tip={judgeTip(judge)}>
-                    {o}
+                    <Words>{o}</Words>
                   </span>
                 ) : (
-                  o
+                  <Words>{o}</Words>
                 )}
               </li>
             );
@@ -427,7 +428,9 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
             {b.recordedFailures.length ? (
               <ul className="fxlist bad">
                 {b.recordedFailures.map((f) => (
-                  <li key={f}>{f}</li>
+                  <li key={f}>
+                    <Words>{f}</Words>
+                  </li>
                 ))}
               </ul>
             ) : null}

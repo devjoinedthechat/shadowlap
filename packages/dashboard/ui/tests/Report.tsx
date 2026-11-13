@@ -1,7 +1,7 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { issueKey } from '../../src/issue-keys.js';
 import { CopyButton } from '../components/CodeBox.js';
-import { Copy } from '../components/Copy.js';
+import { Code, Copy, Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { failedRunsWords } from '../failed-runs.js';
@@ -130,9 +130,9 @@ function ReportPanel({ report, row, open, asked, onOpen, view, press }: { report
   );
 }
 
-/** The verdict's sentence, its paths, checks and files as code. */
+/** The verdict's sentence, glued as a verdict's words are (a count with its noun), its paths, checks and files as code. */
 function Head({ pieces }: { pieces: readonly Piece[] }) {
-  return <>{pieces.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))}</>;
+  return <>{pieces.map((p, i) => (typeof p === 'string' ? <Words key={i}>{p}</Words> : <Code key={i}>{p.code}</Code>))}</>;
 }
 
 /**

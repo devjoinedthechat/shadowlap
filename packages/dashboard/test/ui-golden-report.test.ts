@@ -267,6 +267,10 @@ describe('a golden’s report under its row', () => {
     expect(drawn('drift')).toEqual({ head: expect.stringContaining('Diverged at call 1: $.metadata.user_id changed, a UUID'), parts: ['Request'], hint: ['Normalizers apply at match time, so older goldens keep working.'] });
     expect(drawn('judged')).toEqual({ head: expect.stringContaining('Replayed clean, but its judge check wasn’t judged'), parts: ['Checks'], hint: [hintWords({ key: 'judge', held: 'none', name: 'polite' })] });
     expect(drawn('flaky')).toEqual({ head: expect.stringContaining('and its gate ran out before deciding'), parts: ['Gate', 'Attempts'], hint: [hintWords({ key: 'gate' })] });
+    // Its sentence glued as a verdict's words are, a small word kept with the word after it, its path as code kept whole.
+    const drift = one(report(page, 'drift'), '.verdict h3');
+    expect(drift.textContent).toContain('at\u00a0call');
+    expect(drift.querySelector('code')!.className).toBe('ts-code');
     // The lines as printed, the CLI's, under Show as printed: the golden's line red, a crash's tail dim.
     const printed = one(report(page, 'refund'), 'pre.report[role="log"]');
     expect([printed.getAttribute('aria-label'), printed.querySelectorAll('span')[0].textContent.trim(), printed.querySelectorAll('span')[0].className]).toEqual(['refund as printed', '✗ refund: the agent exited with code 1', 'no']);
