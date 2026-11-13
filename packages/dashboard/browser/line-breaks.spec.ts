@@ -6,7 +6,7 @@ import { evidenceWords } from '../src/tests-evidence.js';
 import { gateRuleOf } from '../src/verdict.js';
 import { ARTICLES, SMALL } from '../ui/typeset.js';
 import type { DecisionSessionDetail, TestsView } from '../ui/types.js';
-import { dash, demoId, serveDashboard, sideways, type Served } from './dashboard.js';
+import { dash, demoId, RESET_RETRY, serveDashboard, sideways, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
 import { asksFirst, at, cardStates, click, DIALOG, dialogWalk, escape, fixes, injectionRoutes, menu, overlayStates, press, PREVIEW, previewed, ROUTES, run, runs, settled, show, type RouteState, type State } from './routes.js';
 import { routeTestsFixture } from './tests-fixture.js';
@@ -243,7 +243,7 @@ async function routeHistoryGate(page: Page): Promise<void> {
     (url) => url.pathname === '/api/tests',
     async (route) => {
       if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch();
+      const res = await route.fetch(RESET_RETRY);
       const real = (await res.json()) as TestsView;
       const one = real.rows.find((r) => r.last.verdict === 'passed') ?? real.rows[0];
       return route.fulfill({ response: res, json: { ...real, rows: real.rows.map((r) => (r === one ? { ...r, last: { ...r.last, gate } } : r)) } });
@@ -258,7 +258,7 @@ async function routeMigrateNext(page: Page): Promise<string> {
   await page.route(
     (url) => url.pathname === `/api/decisions/${session}`,
     async (route) => {
-      const res = await route.fetch();
+      const res = await route.fetch(RESET_RETRY);
       const real = (await res.json()) as DecisionSessionDetail;
       const next: PreviewNext = { verify: null, more: null, migrate: { to: 'claude-sonnet-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund-flow'], runs: [] } };
       return route.fulfill({ response: res, json: { ...real, view: { ...real.view, next } } });
@@ -431,7 +431,7 @@ test.describe('an injection test’s pages', () => {
 test('Store’s two sentences with no store each sit whole on a line of their own at 1440 and 1180', async ({ page }) => {
   // The store read as a project's with none, whatever the demo holds.
   await page.route('**/api/settings/store', async (route) => {
-    const res = await route.fetch();
+    const res = await route.fetch(RESET_RETRY);
     await route.fulfill({ response: res, json: { ...(await res.json()), configured: false, status: null } });
   });
   for (const width of [1440, 1180]) {
