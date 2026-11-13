@@ -255,8 +255,13 @@ code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink,
 .astrip .ac { display: block; width: 6px; height: 12px; border-radius: var(--r-mark); background: var(--cq-lime); }
 .astrip .ac.no { background: var(--cq-red); }
 .astrip .ac.inc { background: var(--cq-amber); }
+/* an injection test's replay that ignored its planted text, or a clean replay: muted, never lime */
+.astrip .ac.mu { background: var(--cq-muted-fill); }
 /* a cell is a mark, no target of its own: its attempt shows on hover, the lines under the strip link the runs */
 .astrip .ac:hover { outline: 1px solid var(--ink); outline-offset: 1px; }
+/* the hairline before an injection test's clean replays (the Forks view), and in a golden's report where this session took over its attempts; drawn in the text colour under forced colours */
+.astrip .acsep { flex: none; width: 1px; height: 18px; margin: 0 4px; background: var(--dim); }
+@media (forced-colors: active) { .astrip .acsep { forced-color-adjust: none; background: CanvasText; } }
 
 /* ---- the three states (EmptyState, EmptyLine, Skeleton, ErrorState) ---- */
 /* nothing here yet: a section under a hairline, its heading, one sentence, its step, the command quiet under it */

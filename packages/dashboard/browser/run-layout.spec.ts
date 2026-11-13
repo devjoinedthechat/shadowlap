@@ -185,7 +185,7 @@ test('at 1050×800 a long run’s list scrolled away from its call stays where i
   await page.setViewportSize({ width: 1050, height: 800 });
   await openPage(page, `/run/${demoId('batch')}`, 'run');
   await page.locator('#vbody').evaluate((el) => el.scrollTo(0, 0));
-  await expect(page.locator('main#view .toolbar[role="status"]')).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.locator('main#view .toolbar')).toHaveCount(0, { timeout: 30_000 });
   expect(await page.locator('#vbody').evaluate((el) => el.scrollTop)).toBeLessThan(3);
 });
 

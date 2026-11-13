@@ -23,16 +23,36 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .rmx-in[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, .rawsse:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
-:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .rmx-in, .dmcw, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .gotw) :focus-visible { outline-offset: -2px; }
+:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .rmx-in, .dmcw, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, .report, .gotw) :focus-visible { outline-offset: -2px; }
 /* Skip to content: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-control); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
 .skip:focus { transform: none; }
 .skip:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-/* a space only a screen reader says, between two words drawn apart by a margin (a chip's word and its count) */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* pinned to its containing block's corner: with no positioned parent that block is the page, and left where it sat (a row far
+   down a scrolled list) a hidden text would stretch the page itself, so a phone scrolled into empty space */
+.sr { top: 0; left: 0; }
+/* and kept on one line wherever it sits: a rule that wraps a row's words prettily (text-wrap: pretty or balance, which sets
+   the wrap mode too) names a span more closely than .sr does, as Settings' rows do, so the mode is held past any such rule */
+:is(#root, body) .sr { text-wrap-mode: nowrap; }
+/* what holds hidden text far down a list or a step is positioned itself, so the text sits on its own row, where a screen
+   reader that shows its cursor and find in page look for it; a table cell is never the holder */
+:where([data-about], .turn .tools button, .cmdin, .palin) { position: relative; }
+/* and main's own, each the line its hidden words are read on: a Compare side and its call, a JSON diff's line, a status (a
+   run's on Runs and its status fact), Runs' good and bad keys, a verdict's heading, the link that opens a run at its call, a
+   takeover's tools, an attempt, a decision's tool call, a run a dialog lists and a Security report's masked text */
+:where(.pside, .pside .pnm, .jl > .jt, .st, .runkey .rk, .verdict h2, .verdict h3, .cmpdc > .more, .tkn, .alist > .al, .dtool, .dvrows > p, .injmask) { position: relative; }
+/* a space only a screen reader says, between two words drawn apart by a margin (a chip's word and its count): it carries its
+   own anchor, an empty inline box, so it sits where it is read, and the space is kept (pre), since a lone space in the hidden
+   box collapses away. In a flex row (Turns' tool buttons, a Compare side's call) the anchor would be an item and take a gap,
+   so there it gives way to its holder. */
 .srsp { position: relative; }
 .srsp > .sr { white-space: pre; }
+.turn .tools button > .srsp, .pside .pnm > .srsp { display: contents; }
+/* a live region's anchor (Said), an empty inline box where its line is drawn, so its words sit where they are read: between
+   blocks its line box takes no room, and in a column of flex items it is one of no size */
+.said { position: relative; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; border: 3px solid var(--bg); }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -131,6 +151,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
    replaying. In a call both runs made alike on Compare, the row's faint ink takes the tag too. */
 .eff.input { color: var(--dim); }
 .eff.extra { color: var(--dim); }
+/* an untrusted read (injection/UntrustedTag.tsx): one step brighter than its effect, never a consequence's colour */
+.eff.untrusted { color: var(--dim); }
 .pips { display: inline-flex; gap: 3px; vertical-align: middle; }
 /* an attempt passed or failed: a verdict, in the consequence colours, never a call's origin */
 .pips i { width: 9px; height: 9px; border-radius: 3px; background: var(--cq-lime); }
@@ -482,7 +504,7 @@ code.rnm { white-space: nowrap; }
 .vline .nw, .attn .d .nw, .attn .t .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
 
 
-.rab:empty + .abs .dot { display: none; }
+.rab:is(:empty, [data-gone]) + .abs .dot { display: none; }
 
 /* inconclusive, the consequence amber: a status chip and a banner that neither passed nor failed */
 .tag.inc { color: var(--cq-amber); border-color: color-mix(in srgb, var(--cq-amber) 45%, transparent); }
@@ -491,15 +513,15 @@ code.rnm { white-space: nowrap; }
    flags, key hints and chart axes keep their case and tracking and rise from 9 to 10.5px to --fs-label. An avatar's initials
    keep their size, which their circle sets. Scoped by :is(#root, body), which weighs as an id wherever it matches, so it
    outranks each label's own rule, in a dialog drawn over the page too; a column head larger already (a model's) is left
-   as it is, and so are a fix's stepper's key, a word at the quiet size, and a Settings key, larger already. Labels that fill a line or size a column keep the
+   as it is, and so are a fix's stepper's key, a word at the quiet size, a Settings key, a dialog's key and the calendar's weekdays (12px), larger already. Labels that fill a line or size a column keep the
    width they had: tighter tracking gives back what the larger size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .k:not(.stepper>a>.k):not(.settab .k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
+    .eyebrow, .k:not(.stepper>a>.k):not(.settab .k):not(.dialog .k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
     .fxtable th, .godds th, .msg .role small, .callrow .pp, .callrow .pl,
-    .dstop, .prov h2, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
-    .hkey .hkh, .evl .ev, .cb-l, .cb-ua em, .drk, .pslist .psh, .settab td.num small
+    .dstop, .prov h2, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels,
+    .hkey .hkh, .evl .ev, .cb-l, .cb-ua em, .drk, .pslist .psh, .settab td.num small, .prc-rk
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }

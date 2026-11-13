@@ -1,4 +1,4 @@
-import { aboutUsd, BASELINE_DEFAULTS, checkStatus, formatPassK, formatTokens, markdownCode, markdownText, RECORD_WINDOWS, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, BASELINE_DEFAULTS, checkStatus, commentHead, formatPassK, formatTokens, markdownCode, markdownText, RECORD_WINDOWS, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 import { judgeSource } from './checks.js';
 
 /**
@@ -92,6 +92,12 @@ export interface TestReport {
   interrupted: boolean;
   results: PackResult[];
   /**
+   * What a run of the goldens costs as it would run live, in USD: `before` as recorded, `after` as this
+   * session replayed them, the mean over the goldens whose replay ran to its end with a price; null
+   * when none did. The pull request comment says it.
+   */
+  costPerRun: { before: number | null; after: number | null } | null;
+  /**
    * With a gated golden: the session's one risk of going red for nothing, each gated golden's share
    * of it (Bonferroni), how many shared it, what inconclusive verdicts did, the chance the session
    * went red for nothing at most as planned, and the forecast made before it ran: attempts on
@@ -124,10 +130,10 @@ export function suiteRed(plan: { risk: number; red: number; over?: number; early
   return `but ${why.length ? why.join(' and ') : "its goldens can't keep within their shares"}, so a healthy suite ${red} in ${odds}, with the provider answering`;
 }
 
-export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null): TestReport {
+export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null, costPerRun: TestReport['costPerRun'] = null): TestReport {
   const failed = results.filter((r) => !r.ok).length;
   const inconclusive = results.filter((r) => r.verdict === 'inconclusive').length;
-  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results, ...(suite ? { suite } : {}) };
+  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results, costPerRun, ...(suite ? { suite } : {}) };
 }
 
 /** A pack's verdict, as CI's `ok` says for a result made before results had one. */
@@ -221,18 +227,8 @@ function inconclusiveNote(unsure: readonly PackResult[], given: 'fail' | 'warn' 
  */
 export function markdownReport(report: TestReport, given: 'fail' | 'warn' | null = null): string {
   const lines: string[] = [];
-  const total = report.results.length;
-  const recordings = `recording${total === 1 ? '' : 's'}`;
-  // Inconclusive ones are counted apart, whether they fail the run or only warn.
-  const failed = report.results.filter((r) => verdictOf(r) === 'failed').length;
-  const inconclusive = report.results.filter((r) => verdictOf(r) === 'inconclusive').length;
-  const head =
-    !failed && !inconclusive
-      ? `${total} ${recordings} passed`
-      : !failed
-        ? `${inconclusive} of ${total} ${recordings} ${inconclusive === 1 ? 'is' : 'are'} inconclusive`
-        : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
-  lines.push(`### Shadowlap: ${head}`, '');
+  // Counting what passed, inconclusive ones apart whether they fail the run or only warn, as the pull request comment heads.
+  lines.push(`### Shadowlap: ${commentHead(report.results)}`, '');
   // The session's one risk, when gated goldens shared it.
   // A golden that can't keep within its share makes the plan's own chance the bound, never the risk given.
   if (report.suite && report.suite.goldens > 1) lines.push(`Suite risk ${riskPercent(report.suite.risk)}, split across ${report.suite.goldens} gated goldens (${riskPercent(report.suite.perGoldenRisk)} each), ${suiteRed(report.suite, report.suite.inconclusive === 'warn' ? 'fails a golden for nothing' : 'goes red for nothing')}.`, '');
@@ -272,7 +268,8 @@ export function markdownReport(report: TestReport, given: 'fail' | 'warn' | null
   if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'failed'))) {
     lines.push('', 'A failed check means the agent did something its recording\'s checks in `shadowlap.config.json` rule out.');
   }
-  if (inconclusive) lines.push('', inconclusiveNote(report.results.filter((r) => verdictOf(r) === 'inconclusive'), given));
+  const unsure = report.results.filter((r) => verdictOf(r) === 'inconclusive');
+  if (unsure.length) lines.push('', inconclusiveNote(unsure, given));
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);
   if (updated.length) {

@@ -6,6 +6,7 @@ import { ApiError, type ActionItem, type JobView } from '../ui/api.js';
 import { useActionRunner } from '../ui/run/actions.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * A replay of a run from someone else's pack, or a teammate's pulled from the team store, runs
@@ -60,7 +61,7 @@ afterEach(async () => {
 });
 
 const open = async (action: ActionItem, state: AppState) => {
-  r = await render(createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement(Runner, { action }))));
+  r = await render(createElement(AppContext.Provider, { value: state }, withServed(createElement('main', { id: 'view', tabIndex: -1 }, createElement(Runner, { action })))));
   return r;
 };
 
@@ -111,8 +112,11 @@ describe('an action on someone else’s run', () => {
     const asking = files.filter((f) => readFileSync(join(ui, f), 'utf8').includes('consentAsked('));
     expect(asking.length).toBeGreaterThanOrEqual(5);
     for (const f of asking) {
-      // Its dialogs where it draws them: in the file, or in the part it hands them to (Run blame's, fixes/RunBlameAsks.tsx).
-      const src = [f, f.replace(/\.tsx$/, 'Asks.tsx')].filter((g) => files.includes(g)).map((g) => readFileSync(join(ui, g), 'utf8')).join('\n');
+      // Its dialogs where it draws them: in the file, or in the part it hands them to (Run blame's,
+      // fixes/RunBlameAsks.tsx; a run's steps', run/StepDialogs.tsx, which a step's consent asks in).
+      const own = readFileSync(join(ui, f), 'utf8');
+      const parts = [f.replace(/\.tsx$/, 'Asks.tsx'), ...(/<StepDialogPart\b[^>]*kind: 'consent'/.test(own) ? ['run/StepDialogs.tsx'] : [])];
+      const src = [own, ...parts.filter((g) => files.includes(g)).map((g) => readFileSync(join(ui, g), 'utf8'))].join('\n');
       expect({ f, consent: src.includes('<ConsentDialog'), ownTitle: src.includes('consentTitle(') }).toEqual({ f, consent: true, ownTitle: false });
     }
   });

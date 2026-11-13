@@ -7,7 +7,7 @@ import { shortId } from '../format.js';
 import { bisectQuery, useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { deleteFacts, deleteLead } from '../runspage/bulk.js';
 import { sentEstimate } from '../spending.js';
-import { bisectCopy } from './offers.js';
+import { bisectCopy } from './dialog-copy.js';
 import { Copy } from '../components/Copy.js';
 
 /**

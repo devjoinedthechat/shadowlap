@@ -8,6 +8,7 @@ import type { ToastAction } from '../ui/toast.js';
 import type { Meta } from '../ui/types.js';
 import { app, shell, words } from './ui-overlays-page.js';
 import { render, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * The project switcher's keys and a removal's Undo: → reaches a row's ×, ← comes back, and Delete
@@ -39,7 +40,7 @@ describe('the project switcher’s keys', () => {
   const open = async (list: ReturnType<typeof listOf>) => {
     const asked: string[] = [];
     const client = { projects: { list: async () => list, removal: async (id: string) => (asked.push(id), view) } };
-    r = await render(shell({ ...app(), client: client as never, guard: (fn: () => void) => (fn(), true), toast: () => undefined, reload: async () => undefined, actionsOff: null }, createElement(ProjectBlock, { key: 'block', meta })));
+    r = await render(shell({ ...app(), client: client as never, guard: (fn: () => void) => (fn(), true), toast: () => undefined, reload: async () => undefined, actionsOff: null }, withServed(createElement(ProjectBlock, { key: 'block', meta }))));
     await r.click(r.one('button.proj'));
     await r.until('the list', () => r!.all('.prow').length === list.items.length);
     await r.press('Home');

@@ -100,11 +100,12 @@ describe('shadowlap show and untrusted reads', () => {
   it('prints them in the JSON as the dashboard lists them, and the dashboard serves the same object', async () => {
     const r = await shadowlap(['show', runId, '--json']);
     expect(r.code, r.out).toBe(0);
-    const shown = JSON.parse(r.stdout) as { untrusted: Array<{ callNo: number; name: string; from: string }> };
+    const shown = JSON.parse(r.stdout) as { untrusted: Array<{ callNo: number; name: string; from: string; readAt: number | null }> };
+    // No model call follows these reads, so none has a reader: readAt is null.
     expect(shown.untrusted).toEqual([
-      { callNo: 1, name: 'fetch_page', from: 'sdk' },
-      { callNo: 2, name: 'web_search', from: 'mcp' },
-      { callNo: 3, name: 'read_inbox', from: 'config' },
+      { callNo: 1, name: 'fetch_page', from: 'sdk', readAt: null },
+      { callNo: 2, name: 'web_search', from: 'mcp', readAt: null },
+      { callNo: 3, name: 'read_inbox', from: 'config', readAt: null },
     ]);
     for (const u of shown.untrusted) expect(departures('showUntrusted', u)).toEqual({ missing: [], extra: [] });
     const store = Store.open(db);

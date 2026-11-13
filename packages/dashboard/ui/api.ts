@@ -20,6 +20,7 @@ import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDet
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, IssueRunsPage, IssuesPage, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { CompareView, NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
+import type { InjectionPanelView, InjectionReport, InjectionRow, ReportPreview, RunInjection } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
 import type { RequestDiff } from '../src/request-diff.js';
@@ -55,6 +56,8 @@ export const JOB_KINDS = {
   applyFix: 'apply',
   // A fix's verdict left incomplete: Run more attempts, or Verify again.
   verify: 'verify',
+  // An open fix given another check (Edit check…, Save check).
+  fixCheck: 'fix-check',
   tests: 'test',
   importCapture: 'import',
   calibrate: 'calibrate',
@@ -89,6 +92,8 @@ export const JOB_KINDS = {
   // The decision diff (Changes): ask the recorded model calls again under a change, migrate to a
   // model, and verify the runs a session flagged.
   decisions: 'decisions',
+  // What the working tree sends the runs, read offline before Preview changed prompt asks (its result is the CLI's decisions-read).
+  decisionsRead: 'decisions-read',
   migrate: 'migrate',
   decisionsVerify: 'decisions-verify',
   // Injection tests: plant payloads in a run's or a golden's untrusted reads, or ask whether a read caused its writes.
@@ -202,6 +207,18 @@ export interface Client extends ChangesApi, TestsApi {
   exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
   /** Saves a kept injection result's report as one HTML file, as Share's Security report does. */
   injectionReport(resultId: string): Promise<{ filename: string; redacted: boolean }>;
+  /**
+   * A run's injection tests (`GET /api/injection/runs/:id`): its untrusted reads, each with the model
+   * call that reads it, the results kept for it, and for an attempt, the test it belongs to and what it
+   * planted where. It reads every call of the run, so a page asks once and asks `injectionResults` as runs move.
+   */
+  injectionRun(runId: string): Promise<RunInjection>;
+  /** The results kept for a run, newest first (`GET /api/injection?run=`), from the results alone. */
+  injectionResults(runId: string): Promise<{ results: InjectionRow[] }>;
+  /** One kept result (`GET /api/injection/:id`): its row, its report, the runs gc took, and its panel (null for a --clean answer). */
+  injectionResult(resultId: string): Promise<{ row: InjectionRow; report: InjectionReport; gone: string[]; view: InjectionPanelView | null }>;
+  /** What a result's security report masks and keeps, and the file it saves (`GET /api/injection/:id/report?preview=1`). */
+  injectionPreview(resultId: string): Promise<ReportPreview>;
   /** Saves a file a job wrote. */
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
@@ -523,7 +540,7 @@ export function createClient(token: string): Client {
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
     unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
-    ...longRunReads(request),
+    ...longRunReads(request), ...injectionReads(request),
   };
 }
 
@@ -564,6 +581,17 @@ function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep' | '
     outcome: (runId) => request<{ judged: unknown }>(`runs/${id(runId)}/outcome`).then((r) => ({ judged: normalizeJudged(r.judged) })),
     nextStep: (runId) => request<{ next: NextStep | null }>(`runs/${id(runId)}/next`),
     requestDiff: (runId, callNo) => request<{ diff: RequestDiff | null }>(`runs/${id(runId)}/diff${callNo === undefined ? '' : `?call=${callNo}`}`).then((r) => r.diff),
+  };
+}
+
+/** What a run's page reads of injection tests, beside the run (`/api/injection`). */
+function injectionReads(request: Request): Pick<Client, 'injectionRun' | 'injectionResults' | 'injectionResult' | 'injectionPreview'> {
+  const id = encodeURIComponent;
+  return {
+    injectionRun: (runId) => request<RunInjection>(`injection/runs/${id(runId)}`),
+    injectionResults: (runId) => request<{ results: InjectionRow[] }>(`injection?run=${id(runId)}`),
+    injectionResult: (resultId) => request(`injection/${id(resultId)}`),
+    injectionPreview: (resultId) => request<ReportPreview>(`injection/${id(resultId)}/report?preview=1`),
   };
 }
 
@@ -676,6 +704,12 @@ export function createExportedClient(data: StaticPayload): Client {
     outcome: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ judged: normalizeJudged(d.judged ?? null) })),
     // As its page holds it: a copy runs nothing, so it bills nothing.
     nextStep: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ next: d.next ?? null })),
+    // A copy keeps no injection results: its run's page tags no read and draws no test, and an attempt's
+    // page draws what its run's own record says of it (run/model.ts), never what was planted where.
+    injectionRun: () => Promise.resolve({ untrusted: [], results: [], attempt: null }),
+    injectionResults: () => Promise.resolve({ results: [] }),
+    injectionResult: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
+    injectionPreview: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
     // Held for each run that diverged, at the call it diverged at; another call's is the store's to read.
     requestDiff: (runId, callNo) => Promise.resolve(callNo === undefined ? ((data.responses[`runs/${full(runId)}/diff`] as { diff: RequestDiff | null } | undefined)?.diff ?? null) : null),
   };

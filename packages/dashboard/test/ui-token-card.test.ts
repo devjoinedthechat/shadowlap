@@ -81,6 +81,27 @@ describe('the card for a refused session token', () => {
     expect(r.one('.cb .fieldnote').textContent).toContain('paste the link into the address bar');
     expect(location.assign).not.toHaveBeenCalled();
   });
+
+  it('says why a paste is refused as an alert from a region there since the card came, again on each press, the line drawn for the eye only', async () => {
+    let answer: (text: string) => void = () => undefined;
+    r = await card(() => new Promise<string>((resolve) => (answer = resolve)));
+    // Before a press, the card's alert region is there, empty.
+    const region = r.one('.cb .said > [role="alert"]');
+    expect(region.textContent).toBe('');
+    const refused = 'The clipboard holds no dashboard link: copy the one shadowlap dashboard printed, with its #token=.';
+    await r.click(r.byText('.cb .actions button', 'Paste the new link'));
+    answer('https://example.com/#token=abc');
+    await r.until('the reason', () => region.textContent !== '');
+    expect([r.one('.cb .said > [role="alert"]') === region, region.textContent]).toEqual([true, refused]);
+    const drawn = r.one('.cb .fieldnote');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual([refused, 'true', false]);
+    // Pressed again, the reason goes while the clipboard is read and comes back, so it is said again.
+    await r.click(r.byText('.cb .actions button', 'Paste the new link'));
+    expect([region.textContent, r.all('.cb .fieldnote').length]).toEqual(['', 0]);
+    answer('https://example.com/#token=abc');
+    await r.until('the reason again', () => region.textContent !== '');
+    expect([r.one('.cb .said > [role="alert"]') === region, region.textContent]).toEqual([true, refused]);
+  });
 });
 
 describe('the token gate’s Copy', () => {

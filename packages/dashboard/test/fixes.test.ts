@@ -729,8 +729,9 @@ describe('what settles a fix left unsettled', () => {
     const outcomes = Array.from({ length: 80 }, (_, i) => i % 5 !== 0);
     const { failing, fixId } = incomplete({ decision: 'inconclusive', passes: outcomes, stopReason: null });
     const v = fixDetail(store, fixId)!.verify[0];
-    expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'inconclusive', why: null }, max: 160, budget: '0.012' });
-    expect(v.more!.argv.slice(-2)).toEqual(['--gate', '{"max":160}']);
+    expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'inconclusive', why: null }, max: 160, keptMax: 200, budget: '0.012' });
+    // The good run keeps the 200 pairs it ran under: a gate's max of 160 alone would cap them at 160.
+    expect(v.more!.argv.slice(-4)).toEqual(['--gate', '{"max":160}', '--kept-max', '200']);
     expect(v.more!.expected).toBeGreaterThan(13);
   });
 

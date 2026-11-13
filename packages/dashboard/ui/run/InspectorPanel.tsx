@@ -121,6 +121,19 @@ export function useFindingPanel(runId: string) {
   return { panel, showDiff, onToggleDiff: () => (showDiff ? closePanelOn(runId) : openDiff(runId)), showChange, onToggleChange: () => (showChange ? closePanelOn(runId) : openDiff(runId, 'change')), close };
 }
 
+/** The prefix of an injection test's results' key: `injection:<result id>`, its finding's `which`. */
+const INJECTION = 'injection:';
+
+/**
+ * The bodies of the results a run's findings open, by their key, for InspectorPlace's `results`: an
+ * injection test's (`injection:<result id>`), where the served dashboard handed its part in
+ * (served-parts.ts). None in an exported copy, which keeps no results.
+ */
+export function useResultsBodies(runId: string): (key: string) => ReactNode {
+  const { InjectionResults } = useServedParts();
+  return useCallback((key: string) => (InjectionResults && key.startsWith(INJECTION) ? <InjectionResults runId={runId} resultId={key.slice(INJECTION.length)} /> : null), [InjectionResults, runId]);
+}
+
 /**
  * The inspector (`children`), or in its place the panel a finding opened: its title and Hide over the
  * diff, the change at the first bad commit (the page's `offers`) or the results, one column at the

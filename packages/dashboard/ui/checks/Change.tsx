@@ -26,18 +26,22 @@ export interface ChangeProps {
   judgeAdded: boolean;
   /** The run a golden can be packed from, with no golden yet. */
   runId: string | null;
+  /** No heading over the box: Remove's dialog (RemoveCheck.tsx) holds the change alone. */
+  bare?: boolean;
 }
 
-export function Change({ cfg, error, retry, golden, merged, changed, conflict, judgeAdded, runId }: ChangeProps) {
+export function Change({ cfg, error, retry, golden, merged, changed, conflict, judgeAdded, runId, bare = false }: ChangeProps) {
   const warn = useRef<HTMLParagraphElement | null>(null);
   useEffect(() => {
     if (conflict) warn.current?.scrollIntoView({ block: 'center' });
   }, [conflict]);
   const head = (
     <>
-      <p className="cb-k">
-        <span className="k">The change</span>
-      </p>
+      {bare ? null : (
+        <p className="cb-k">
+          <span className="k">The change</span>
+        </p>
+      )}
       {error ? <ErrorState retry={retry}>{error}</ErrorState> : null}
     </>
   );

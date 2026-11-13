@@ -85,6 +85,10 @@ function build(): { store: Store; ids: Record<string, string> } {
     run(`scored${attempt}`, { mode: 'replay', parentRunId: root, startedAt: 7200 + attempt, meta: { task: { golden: 'goldens/refund', model: 'claude-haiku-4-5', takeover: 3, attempt, of: 2, score: 1, session: 's9' }, repeat: { group: 's9-refund', attempt, of: 2 } } }, { at: 7210 + attempt });
   }
   recordEvent(store, { kind: 'model.scored', ref: 'claude-haiku-4-5', data: { model: 'claude-haiku-4-5', tasks: 1, attempts: 2, mean: 1, spent: 0.01, session: 's9' }, at: 7250 });
+  // shadowlap injection: an attempt and a baseline, each marked with its test and a --repeat group of it, told by injection.tested.
+  for (const attempt of [1, 2]) {
+    run(`planted${attempt}`, { mode: 'replay', parentRunId: root, startedAt: 7300 + attempt, meta: { injection: { result: 'inj-01T', role: attempt === 1 ? 'attempt' : 'baseline', read: 2, attempt: 1, of: 1 }, repeat: { group: 'inj-01T', attempt, of: 2 } } }, { at: 7310 + attempt });
+  }
   store.updateRunMeta(rec, { blame: { at: 7100, outcome: 'blamed', callNo: 3, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0.1 } });
 
   // What commands recorded.
@@ -124,6 +128,9 @@ describe('the activity feed', () => {
     // A model's scoring attempts are told by its scoring, not as a replay --repeat of the golden.
     expect(byId(items, 'g:s9-refund')).toBeUndefined();
     expect(items.some((i) => i.runId === ids.scored1 || i.runId === ids.scored2)).toBe(false);
+    // An injection test's replays are told by its test, not as a replay --repeat of the run it tested.
+    expect(byId(items, 'g:inj-01T')).toBeUndefined();
+    expect(items.some((i) => i.runId === ids.planted1 || i.runId === ids.planted2)).toBe(false);
     expect(items.filter((i) => i.kind === 'train').map((i) => i.text)).toEqual(['Scored claude-haiku-4-5 on 1 task · mean 1.00']);
     expect(byId(items, `r:${ids.rec}:blame`)).toMatchObject({ kind: 'blame', at: 7100, text: 'Blamed model call #3 · confidence high', href: '#/fixes' });
   });
@@ -148,6 +155,33 @@ describe('the activity feed', () => {
     expect(items.find((i) => i.at === 7700)).toMatchObject({ kind: 'setting', text: 'Widget frobbed · w-1' });
     describeEvent('widget.frobbed', (e) => ({ kind: 'train', text: `Frobbed ${e.ref}`, href: '#/training' }));
     expect(activity(store).items.find((i) => i.at === 7700)).toMatchObject({ kind: 'train', text: 'Frobbed w-1', href: '#/training' });
+  });
+
+  it('words a kept preview’s verify by its session’s name and how each run came out, opening the preview, and a migration’s as a fix’s', () => {
+    const store = Store.open(':memory:');
+    try {
+      const session = 'dc-01M5000000000000000000000V';
+      const name = 'Model switch to claude-haiku-4-5';
+      recordEvent(store, { kind: 'verify.accepted', ref: 'v-1', data: { verifyId: 'v-1', fixes: [], counts: [], reasons: [], session, name, runs: 2, outcomes: ['fixed', 'kept'] }, at: 100 });
+      recordEvent(store, { kind: 'verify.accepted', ref: 'v-0', data: { verifyId: 'v-0', fixes: [], counts: [], reasons: [], session, name, runs: 2, outcomes: ['kept', 'kept'] }, at: 90 });
+      recordEvent(store, { kind: 'verify.rejected', ref: 'v-2', data: { verifyId: 'v-2', fixes: [], counts: [], reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed'], session, name, runs: 2, outcomes: ['kept', 'broken'] }, at: 110 });
+      recordEvent(store, { kind: 'verify.rejected', ref: 'v-5', data: { verifyId: 'v-5', fixes: [], counts: [], reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed'], session, name, runs: 1 }, at: 105 });
+      recordEvent(store, { kind: 'verify.incomplete', ref: 'v-3', data: { verifyId: 'v-3', fixes: [], counts: [], reasons: ['target run 01K5CQ2E8M inconclusive: 80 attempts left it open'], session, name, runs: 1 }, at: 120 });
+      recordEvent(store, { kind: 'verify.accepted', ref: 'v-4', data: { verifyId: 'v-4', fixes: [], counts: [], reasons: [], session: 'mg-01M5000000000000000000000V' }, at: 130 });
+      const said = activity(store, { limit: 10 }).items.map((i: ActivityItem) => [i.text, i.href]);
+      const href = `#/changes/decisions/${session}`;
+      expect(said).toEqual([
+        ['Verify accepted · v-4', expect.any(String)],
+        [`Verify inconclusive · ${name}: target run 01K5CQ2E8M inconclusive: 80 attempts left it open`, href],
+        [`Verify rejected the change · ${name}: 1 broken, 1 kept`, href],
+        // An event that kept no outcomes says why verify rejected it.
+        [`Verify rejected the change · ${name}: breaks a good run`, href],
+        [`Verified · ${name}: 1 fixed, 1 kept`, href],
+        [`Verified · ${name}: 2 kept`, href],
+      ]);
+    } finally {
+      store.close();
+    }
   });
 
   it('pages back in time without gaps or repeats, a full page at a time', () => {
@@ -415,7 +449,7 @@ describe('a test session', () => {
     expect(items.filter((i) => i.text.includes('gate:'))).toEqual([]);
     // Never a gate's evidence for a golden whose gate is not what is inconclusive.
     expect(line(stopped)).toEqual(['warn', 'Test inconclusive · stopped · a check could not be judged']);
-    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection test showed too little to say']);
+    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection gate showed too little to say']);
     // No gate decided either: no rule to give.
     expect([stopped, planted, plain].map((id) => byId(items, `r:${id}:end`)?.rule)).toEqual([undefined, undefined, undefined]);
     expect(JSON.stringify(items)).not.toContain('needed');
@@ -602,6 +636,7 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-refund-limit', data: { title: 'Escalate refunds above the policy limit', repairId: 'r-munzln2i', patch: 'applied', goldens: 1, tests: 'passed' }, at: 3300 });
     // A fix with no patch, verified with temperature=1: only marked applied.
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', repairId: null, patch: 'none', goldens: 0, tests: 'skipped' }, at: 3310 });
+    recordEvent(store, { kind: 'fix.check', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', check: 'send_email called once', previous: 'send_email called at most twice' }, at: 3320 });
     // The tests slice: a session, one cut short, a golden updated.
     recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-1', data: { passed: 3, failed: 1, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0 }, at: 4000 });
     recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-2', data: { passed: 1, failed: 0, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0, interrupted: true, notRun: 3 }, at: 4010 });
@@ -651,6 +686,7 @@ describe('events as each feature records them', () => {
     expect(at(3220)).toMatchObject({ kind: 'fixinc', outcome: 'warn', text: 'Verify inconclusive · target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529', href: '#/fixes/fx-lost/verify/v-3' });
     expect(at(3300)).toMatchObject({ kind: 'fixok', text: 'Patch applied · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit' });
     expect(at(3310)).toMatchObject({ kind: 'fixok', text: 'Marked applied · Confirmation email sent twice', href: '#/fixes/fx-double-email' });
+    expect(at(3320)).toMatchObject({ kind: 'setting', text: 'Check changed · Confirmation email sent twice: send_email called once', href: '#/fixes/fx-double-email' });
     expect(at(4000)).toMatchObject({ kind: 'test', outcome: 'err', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });
     expect(at(4010)).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Tests stopped · 1 passed, 0 failed, 3 not run' });
     expect(at(4100)).toMatchObject({ kind: 'test', text: 'Golden updated · goldens/refund-flow re-recorded · 31 calls' });

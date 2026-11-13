@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
+import { previewSub, PREVIEW_WAIT } from '../../ci/words.js';
+import { ActionButton } from '../../components/ActionButton.js';
 import { Tile } from '../../components/Icon.js';
 import { Section } from '../../components/Section.js';
 import { Switch } from '../../components/Switch.js';
 import { shortFixId } from '../../fixes/model.js';
 import { clock } from '../../format.js';
-import { useLatest } from '../../hooks.js';
+import { useLatest, useLoad } from '../../hooks.js';
+import { ACTIONS } from '../../labels.js';
+import { PR_COMMENT_ASK } from '../../page-ask.js';
 import { href } from '../../route.js';
+import { useServedParts } from '../../served-parts.js';
 import type { CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
 import { CiList, Select } from './CiList.js';
@@ -82,7 +87,7 @@ function CiPanels({ project }: { project: string | null }) {
           setChanged({});
         }}
       />
-      <PullRequestComment o={o} view={view} onSwitch={(on) => toggle({ comment: on }, `The pull request comment is ${on ? 'on' : 'off'}`)} />
+      <PullRequestComment o={o} view={view} toggle={toggle} />
       <FixOnFailure o={o} view={view} set={set} onSwitch={(on) => toggle({ fix: on }, `Fix on failure is ${on ? 'on' : 'off'}`)} />
       <Alerts o={o} view={view} set={set} toggle={toggle} />
       <Gates o={o} view={view} set={set} />
@@ -135,16 +140,53 @@ const OffNote = ({ children }: { children: string }) => (
   </b>
 );
 
-/** The action's comment on each pull request: its switch, what it carries, and what it needs. Its preview is port/pr-comment's. */
-function PullRequestComment({ o, view, onSwitch }: { o: CiWorkflowOptions; view: CiWorkflowsView; onSwitch: (on: boolean) => void }) {
+/**
+ * The action's comment on each pull request: its switch, what it carries, the decisions' switch, its
+ * preview and what posting it needs. The preview is the newest session's that ran every golden, read
+ * as the panel shows and again as the tests feed moves; before one, Preview pull request comment
+ * waits, saying why. The palette's row asks for it here (`PR_COMMENT_ASK`). Its dialog comes from
+ * the served parts (pages/served.tsx), so a press whose script didn't come says so in the error toast.
+ */
+function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: CiWorkflowsView; toggle: (patch: Partial<CiWorkflowOptions>, what: string) => void }) {
+  const { client, feeds } = useApp();
+  const { PrCommentDialog } = useServedParts();
+  const preview = useLoad(() => client.settings.prComment(), 'pr-comment', feeds.tests ?? 0);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (PR_COMMENT_ASK.take()) setOpen(true);
+    return PR_COMMENT_ASK.on(() => setOpen(true));
+  }, []);
+  const s = preview.data?.session ?? null;
+  const waits = !!preview.data && !s;
   return (
-    <Section className={`set cip prpanel${o.comment ? '' : ' off'}`} id="pr-comment" title="Pull request comment" sub="the verdict on every pull request" actions={<Switch on={o.comment} label="Pull request comment" onChange={onSwitch} />}>
+    <Section
+      className={`set cip prpanel${o.comment ? '' : ' off'}`}
+      id="pr-comment"
+      title="Pull request comment"
+      sub="the verdict on every pull request"
+      actions={<Switch on={o.comment} label="Pull request comment" onChange={(on) => toggle({ comment: on }, `The pull request comment is ${on ? 'on' : 'off'}`)} />}
+    >
       <div className="pbody cimain">
-        <Copy className="muted">One comment on each pull request, kept current on every push: each golden’s verdict by its gate, beside the base branch’s last session.</Copy>
+        <Copy className="muted">{`One comment on each pull request, kept current on every push: each golden’s verdict by its gate, beside the base branch’s last session, ${o.decisions ? 'the decisions the branch changes, ' : ''}a run’s cost before and after, and what planted instructions did.`}</Copy>
         {o.comment ? null : <OffNote>{view.comment.offNote}</OffNote>}
+        <div className="setrow tight">
+          <div>
+            <b id="cidecisions-name">The decisions the branch changes</b>
+            <Copy as="span" id="cidecisions-help">
+              Asks the goldens’ models on every push, so the step needs their keys.
+            </Copy>
+          </div>
+          <Switch on={o.decisions} labelledBy="cidecisions-name" describedBy="cidecisions-help" onChange={(decisions) => toggle({ decisions }, `The decisions are ${decisions ? 'on' : 'off'}`)} />
+        </div>
+        <div className="actions">
+          <ActionButton className="btn" reads tip={ACTIONS.previewPrComment.label} sub={s ? previewSub(s) : null} why={waits ? PREVIEW_WAIT.why : null} whyTip={waits ? PREVIEW_WAIT.whyTip : undefined} onClick={() => setOpen(true)}>
+            {ACTIONS.previewPrComment.label}
+          </ActionButton>
+        </div>
         <span className="k cineeds">it needs</span>
         <CiList rows={view.comment.needs} />
       </div>
+      {open && PrCommentDialog ? <PrCommentDialog preview={preview.data} onClose={() => setOpen(false)} /> : null}
     </Section>
   );
 }

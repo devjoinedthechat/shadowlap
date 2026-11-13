@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type ModelsView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
-import { EmptyState, PageHeader } from '../components/bits.js';
+import { EmptyState, PageHeader, SrSpace } from '../components/bits.js';
 import { Code, Copy } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
@@ -88,10 +88,22 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
         <>
           <nav className="stabs" aria-label="Training">
             <a href={href.training('pairs')} aria-current={tab === 'pairs' ? 'page' : undefined}>
-              Pairs{counted ? <b>{view.tabs.pairs.toLocaleString('en-US')}</b> : null}
+              Pairs
+              {counted ? (
+                <>
+                  <SrSpace />
+                  <b>{view.tabs.pairs.toLocaleString('en-US')}</b>
+                </>
+              ) : null}
             </a>
             <a href={href.training('tasks')} aria-current={tab === 'tasks' ? 'page' : undefined}>
-              Tasks{counted ? <b>{view.tabs.tasks.toLocaleString('en-US')}</b> : null}
+              Tasks
+              {counted ? (
+                <>
+                  <SrSpace />
+                  <b>{view.tabs.tasks.toLocaleString('en-US')}</b>
+                </>
+              ) : null}
             </a>
           </nav>
           {tab === 'tasks' ? <TasksTab view={view} /> : <PairsTab view={view} />}

@@ -28,8 +28,13 @@ export interface VerifiedTally {
  */
 export function tallyWords(t: VerifiedTally | null | undefined): string {
   if (!t) return '';
-  const tally = t.undecided ? `${t.attempts > 1 ? `${t.passes} of ${t.attempts - 1}, ` : ''}attempt ${t.attempts} not judged` : `${t.passes} of ${t.attempts}${t.baseline ? `, baseline ${t.baseline.passes} of ${t.baseline.attempts}` : ''}`;
-  return ` · ${tally}${t.bound ? ` · ${t.bound}` : ''}`;
+  return ` · ${tallyCount(t)}${t.bound ? ` · ${t.bound}` : ''}`;
+}
+
+/** A verified run's tally alone, as a row beside its outcome draws it: `12 of 12`, `2 of 2, attempt 3 not judged`; nothing for a run verify didn't take. */
+export function tallyCount(t: VerifiedTally | null | undefined): string {
+  if (!t) return '';
+  return t.undecided ? `${t.attempts > 1 ? `${t.passes} of ${t.attempts - 1}, ` : ''}attempt ${t.attempts} not judged` : `${t.passes} of ${t.attempts}${t.baseline ? `, baseline ${t.baseline.passes} of ${t.baseline.attempts}` : ''}`;
 }
 
 /** How verify found a run, after its verdict: `kept, verified · 12 of 12 · rate >= 0.76 (95%)`; an outcome that is the verdict word (inconclusive) is said once. */

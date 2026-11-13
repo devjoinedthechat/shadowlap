@@ -74,7 +74,7 @@ export function palettePlaceholder(o: { exported: boolean; actions: boolean; off
  * training data asks for first, then what runs the agent, and Keyboard shortcuts last. An action not
  * named here goes before Keyboard shortcuts, in the order it was added.
  */
-export const ACTION_ORDER: readonly string[] = [ACTIONS.updateGoldens.label, ACTIONS.exportPairs.label, ACTIONS.scoreModel.label, ACTIONS.runTests.label, ACTIONS.importCapture.label, ACTIONS.calibrate.label];
+export const ACTION_ORDER: readonly string[] = [ACTIONS.updateGoldens.label, ACTIONS.exportPairs.label, ACTIONS.scoreModel.label, ACTIONS.runTests.label, ACTIONS.importCapture.label, ACTIONS.calibrate.label, ACTIONS.previewModelSwitch.label, ACTIONS.previewChangedPrompt.label];
 
 /** Where an action sits in its group: its place in ACTION_ORDER, then unnamed actions, then Keyboard shortcuts. */
 export function actionRank(label: string): number {
@@ -162,11 +162,13 @@ export function runsById<R extends { runId: string }>(prefix: string, found: rea
 
 /**
  * What the palette says under recorded data while the server is still indexing it (a store whose
- * index is being built, a recording's newest calls): matches from those runs may follow.
+ * index is being built, a recording's newest calls): matches from those runs may follow. `said`: the
+ * words its live region says, with "some runs" for the count, which moves as the index catches up:
+ * they are said once, not each time it is asked again.
  */
-export function indexingNote(indexing: { runs: number; of: number } | null | undefined): string | null {
+export function indexingNote(indexing: { runs: number; of: number } | null | undefined, o: { said?: boolean } = {}): string | null {
   if (!indexing || indexing.runs < 1) return null;
-  const runs = indexing.runs === 1 ? '1 run' : `${indexing.runs.toLocaleString('en-US')} of ${indexing.of.toLocaleString('en-US')} runs`;
+  const runs = o.said ? 'some runs' : indexing.runs === 1 ? '1 run' : `${indexing.runs.toLocaleString('en-US')} of ${indexing.of.toLocaleString('en-US')} runs`;
   return `Still reading what ${runs} recorded: more matches may follow.`;
 }
 

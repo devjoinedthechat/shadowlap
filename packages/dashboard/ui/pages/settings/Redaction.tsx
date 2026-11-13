@@ -185,7 +185,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           onPick={onPick}
         />
         <span className="muted">
-          <Words>{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned) : ''}</Words>
+          <Words>{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned, view.preview.kept) : ''}</Words>
         </span>
       </div>
       {data.config.error ? null : broken ? (

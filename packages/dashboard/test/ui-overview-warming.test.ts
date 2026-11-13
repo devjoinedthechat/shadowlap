@@ -53,13 +53,16 @@ describe('the Overview while the runs’ totals are added up', () => {
       return createElement(AppContext.Provider, { value: app(tick) }, createElement(OverviewPage));
     }
     r = await render(createElement(Host));
-    // The Overview's loading has a status of its own: the warming line takes its place.
+    // The Overview's loading has a status of its own. The warming line in its place is the page's text, with no live
+    // role: it is what the page holds as it opens, and its count moves each second.
     await r.until('how far it has got', () => r!.document.body.textContent.includes('runs so far'));
-    expect(r.all('[role="status"]')).toHaveLength(1);
-    expect(r.one('[role="status"]').textContent).toContain('120 of 9,000 runs so far');
+    const line = r.one('.empty.tall');
+    expect([line.textContent.includes('120 of 9,000 runs so far'), line.hasAttribute('role')]).toEqual([true, false]);
+    expect(r.all('[role="status"], [role="alert"], [aria-live]')).toHaveLength(0);
     // Asked again a second later, without a change in the runs.
     await r.wait(WARMING_ASK_MS + 100);
-    await r.until('further', () => r!.one('[role="status"]').textContent.includes('4,500 of 9,000'));
+    await r.until('further', () => r!.one('.empty.tall').textContent.includes('4,500 of 9,000'));
+    expect(r.all('[role="status"], [role="alert"], [aria-live]')).toHaveLength(0);
     await r.wait(WARMING_ASK_MS + 100);
     await r.until('the Overview', () => r!.all('.ovg').length > 0);
     expect(asked).toBe(3);

@@ -10,6 +10,7 @@ import { useDayPicks } from './day-picks.js';
 import { dayText } from '../overview/model.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { SrSpace } from '../components/bits.js';
 
 /** What the twelve weeks over Runs are drawn from, as the slim row of days or the grid alike. */
 export interface WeeksProps {
@@ -124,6 +125,7 @@ export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, on
                 {busiest && sum.busiest ? (
                   <span>
                     {dayText(busiest.day, true)}
+                    <SrSpace />
                     <small>
                       <Words>{counted(sum.busiest.runs, noun)}</Words>
                     </small>
@@ -157,9 +159,12 @@ export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, on
             <span>
               {sum.failed ? <span className="calerr">{sum.failed.toLocaleString('en-US')}</span> : <span className="calnone">none</span>}
               {sum.all ? (
-                <small>
-                  <Words>{failedOf(sum.failed, sum.all, failedNoun)}</Words>
-                </small>
+                <>
+                  <SrSpace />
+                  <small>
+                    <Words>{failedOf(sum.failed, sum.all, failedNoun)}</Words>
+                  </small>
+                </>
               ) : null}
             </span>
           </dd>

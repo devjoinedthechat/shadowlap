@@ -1,6 +1,7 @@
 import { act, createElement, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
+import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { bisectBlock } from '../src/tests-bisect.js';
 import { JOB_KINDS, type Client, type FoundCommit, type JobView, type NextStep, type TestsView } from '../ui/api.js';
@@ -37,15 +38,18 @@ const SEARCH = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, s
 const NAMED_HINT = 'The agent stopped part way at the commit above: revert it or fix the code, then run the tests.';
 
 /** A golden whose agent exited with an error as it replayed: before the search, and once it named the commit. */
-function crashView(named: boolean): TestsView {
+function crashView(named: boolean): TestsAnswer {
   const s = Store.open(':memory:');
   const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f', startedAt: T0 });
   s.addTestResult({ sessionId: session.sessionId, golden: GOLDEN, ok: false, failure: 'exit', reason: 'the agent exited 1', runId: null, revision: 'd2e8a1f', at: T0 + 1, data: { mode: 'replay', verdict: 'failed', output: "Traceback (most recent call last):\nKeyError: 'total'" } });
   s.finishTestSession(session.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: T0 + 100 });
   const goldens: GoldenSource[] = [{ path: GOLDEN, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: ['issue_refund called 1 time'] }];
   const v = testsView(s, goldens);
+  const shaped: TestsView = { ...v, failures: v.failures.map((f) => ({ ...f, runId: REC, found: named ? FOUND : null })), steps: { [GOLDEN]: named ? REVERT : SEARCH } };
+  // As GET /api/tests answers: the golden's report, built from the view as it is served.
+  const reports = goldenReports(shaped, { store: s, goldens, normalizers: [], project: null });
   s.close();
-  return { ...v, failures: v.failures.map((f) => ({ ...f, runId: REC, found: named ? FOUND : null })), steps: { [GOLDEN]: named ? REVERT : SEARCH } };
+  return { ...shaped, reports };
 }
 
 let r: Rendered | null = null;
@@ -91,7 +95,7 @@ describe('Tests, once a crash’s commit is named', () => {
     expect(r.all('.verdict .lime').map((b) => [b.textContent, b.getAttribute('data-next')])).toEqual([['Revert', 'revert']]);
     expect(r.byText('.ph button', 'Run tests').className).toBe('btn');
     const report = r.one('#report-refund');
-    expect(report.querySelector('.bisect .k')!.textContent).toBe('first bad commit');
+    expect(report.querySelectorAll('.rpx dt').map((d) => d.textContent)).toContain('First bad commit');
     const box = report.querySelector('.bisectdiff')!;
     expect(box.textContent).toContain('agent/refund.py');
     expect(box.querySelectorAll('.cdacts button').map((b) => b.textContent)).toEqual(['Open in editor', 'Copy git revert']);
@@ -108,6 +112,8 @@ describe('Tests, once a crash’s commit is named', () => {
     const find = r.one('#report-refund .actions button');
     expect(find.textContent).toBe('Find breaking commit…');
     expect(r.one('#report-refund .hintx').textContent.replace(/\u00a0/g, ' ')).not.toBe(NAMED_HINT);
+    // Its report open, as it is when its button is pressed.
+    await r.click(r.one('button.grptog'));
     await r.focus(find);
     await notingJobFrom(Promise.resolve({ id: 'job-b' }));
     handOnAtEnd('job-b');

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
 import type { CallDetail, RunListItem } from '../api.js';
-import { Org } from '../components/bits.js';
+import { Org, SrSpace } from '../components/bits.js';
 import { Code, Copy, Words } from '../components/Copy.js';
 import { Decision } from '../components/Decision.js';
 import { DotParts } from '../components/DotParts.js';
@@ -156,7 +156,7 @@ function effectTag(c: Pick<PathCall, 'kind' | 'input' | 'effect'>): ReactNode {
   if (c.kind !== 'tool' || (!c.input && !c.effect)) return null;
   return (
     <>
-      <span className="sr"> </span>
+      <SrSpace />
       {c.input ? <span className="eff input">input</span> : <span className={`eff ${c.effect!}`}>{c.effect}</span>}
     </>
   );

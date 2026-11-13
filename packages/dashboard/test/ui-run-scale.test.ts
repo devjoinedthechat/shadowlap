@@ -9,6 +9,7 @@ import { RunLoading } from '../ui/run/parts.js';
 import { TimelineView } from '../ui/run/TimelineView.js';
 import { turnLines, TurnsView } from '../ui/run/TurnsView.js';
 import { FIRST_ROWS, rowAt, rowOffsets, scrollFor, windowRange } from '../ui/run/windowed.js';
+import { render } from './ui-render.js';
 
 /**
  * A long run's page draws the rows in view, not every call: at 50,000 calls the page held 727,722
@@ -117,10 +118,17 @@ describe('a long list drawn a window at a time', () => {
     expect(count(html, /class="cbar( sel)?"/g)).toBeLessThanOrEqual(MAX_BARS);
   });
 
-  it('says the run page is loading while it does, under its header, the calls in bars of their own', () => {
+  it('says the run page is loading while it does, under its header, the calls in bars of their own', async () => {
     const html = renderToStaticMarkup(createElement(RunLoading, { id: 'run_8f3a2c1d9e7b6a5f', project: 'support-agent' }));
     expect(html).toContain('aria-busy="true"');
-    expect(html).toContain('Loading the run…');
+    // Its live region is there and empty as it is first drawn; it says what is loading once it is.
+    expect(html).toContain('<section class="skel" aria-busy="true"><span class="said"><span class="sr" role="status"></span></span>');
+    const drawn = await render(createElement(RunLoading, { id: 'run_8f3a2c1d9e7b6a5f', project: 'support-agent' }));
+    try {
+      expect(drawn.one('.skel > .said > [role="status"]').textContent).toBe('Loading the run…');
+    } finally {
+      await drawn.unmount();
+    }
     // The header a failed read keeps too, as lazy.tsx's PageFailed draws a run's: the project, then the id.
     expect(html).toMatch(/<div class="ph rerr">.*support-agent · run.*<h1>run_8f3a2c<\/h1>/);
     expect(count(html, /class="rskcall"/g)).toBe(8);

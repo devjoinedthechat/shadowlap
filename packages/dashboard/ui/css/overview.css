@@ -209,7 +209,10 @@ table.daytable tbody tr:hover td { background: none; }
 .rrow .rr2 { grid-column: 2; display: flex; align-items: baseline; margin-top: 3px; min-width: 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; }
 .rrow .rr2 .rab { flex: 0 1 auto; color: var(--faint); }
 .rrow .rr2 .r2s { flex: none; }
-.rrow .rr2 .dot { margin: 0 5px; }
+/* the status's own dot, an inline-block read apart from the about line and the status; with no about line before it (or one
+   that gave up its place, shell.css) there is nothing to set apart */
+.rrow .rr2 .dot { display: inline-block; margin: 0 5px; }
+.rrow .rr2 > .r2s:first-child .dot { display: none; }
 .rrow .rr2 em { font-style: normal; color: var(--err); }
 .rrow .rr2 em.inc { color: var(--warn); }
 @media (max-width: 560px) { .rrow .ms { flex-basis: 72px; width: 72px; } }

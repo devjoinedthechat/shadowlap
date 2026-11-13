@@ -16,7 +16,7 @@ import { useApp, type WatchedJob } from '../state.js';
 import { retoast } from '../toast-place.js';
 import { errorText, type ToastAction } from '../toast.js';
 import { ActionButton } from './ActionButton.js';
-import { Spin } from './bits.js';
+import { Said, Spin } from './bits.js';
 import { Words } from './Copy.js';
 import { DotParts } from './DotParts.js';
 import { Dialog } from './Dialog.js';
@@ -72,20 +72,22 @@ const WORDS = /--?[a-z][\w-]* (?!-)\S+|\S+/g;
 
 const LogLine = memo(function LogLine({ line, tone: as }: { line: string; tone?: string }) {
   const parts: ReactNode[] = [];
+  const tone = as ?? lineTone(line);
   let at = 0;
   for (const m of line.matchAll(WORDS)) {
     if (m.index > at) parts.push(line.slice(at, m.index));
     const word = m[0];
     const pieces = word.length > 30 ? word.split(/(?<=\/)/) : [word];
+    // A command's prompt is drawn only: a screen reader reads the command.
+    const prompt = tone === 'p' && word === '$' && !line.slice(0, m.index).trim();
     parts.push(
-      <span className="tk" key={m.index}>
+      <span className="tk" key={m.index} aria-hidden={prompt || undefined}>
         {pieces.flatMap((p, i) => (i ? [<wbr key={i} />, p] : [p]))}
       </span>,
     );
     at = m.index + word.length;
   }
   if (at < line.length) parts.push(line.slice(at));
-  const tone = as ?? lineTone(line);
   return (
     <span className={tone || undefined}>
       {parts}
@@ -344,7 +346,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           <b id="jtitle">
             <Words>{head.title}</Words>
           </b> {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}{' '}
-          <span className={`st2${head.tone ? ` ${head.tone}` : ''}`}>
+          <span className={`st2${head.tone ? ` ${head.tone}` : ''}`} aria-hidden="true">
             <DotParts parts={[...head.text.split(' · '), ...(cost ? [cost] : [])]} />
           </span>
         </span>
@@ -373,10 +375,9 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         </div>
       ) : null}
       <JobLog job={job} lines={lines} running={running} shown={!hidden && !folded} />
-      {/* What a screen reader hears of the job: how it stands, as that changes, never each line it prints. */}
-      <span className="sr" role="status">
-        {`${head.title}, ${head.text.replace(/ · /g, ', ')}${cost ? `, ${cost.replace('≈', 'about ').replace('<', 'under ')}` : ''}`}
-      </span>
+      {/* What a screen reader hears of the job: how it stands, as that changes (it starts, it moves on), never each line it
+          prints, from a live region there before its words. The status drawn in the header is for the eye. */}
+      <Said words={`${head.title}, ${head.text.replace(/ · /g, ', ')}${cost ? `, ${cost.replace('≈', 'about ').replace('<', 'under ')}` : ''}`} />
     </section>
   );
 }

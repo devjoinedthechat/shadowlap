@@ -278,6 +278,46 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .wfcode .add { color: var(--add); }
 .wfcode .del { color: var(--del); }
 .prpanel .cimain { padding-bottom: 14px; }
+/* Settings → CI: the pull request comment, and its preview: the comment's body under the hairline its facts end on, as
+   github-actions keeps it on every pull request, with no window drawn around it. Only its marks are red, amber and lime:
+   the decisions' verdict reads in ink when nothing is flagged, and rank 2 is amber, as every rank 2 change is. */
+.prpanel .pbody > p.muted { margin-bottom: 12px; max-width: 76ch; }
+.prpanel .cimain > .setrow + .actions { margin-top: 14px; }
+.prpanel .cineeds { display: block; margin-top: 16px; }
+.dialog.prdlg { width: min(860px, 100%); }
+.dialog.prdlg .db { padding-top: 2px; }
+.prc { border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--dim); }
+.prc h4 { margin: 0 0 8px; font: 600 15px var(--body); color: var(--ink); }
+.prc h5 { margin: 12px 0 3px; font: 600 12.5px var(--body); color: var(--ink); }
+.prc p { margin: 0; }
+.prc code { font-size: 12px; color: var(--ink); }
+.prc b.fail { color: var(--cq-red); } .prc b.inc { color: var(--cq-amber); } .prc b.pass { color: var(--ink); }
+.prc-g { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.prc-g li, .prc-i { display: grid; grid-template-columns: 14px minmax(140px, max-content) minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 12.5px; }
+.prc-g li i, .prc-i i { font-style: normal; font-weight: 600; }
+.prc-g li.pass i, .prc-i.pass i { color: var(--cq-lime); }
+.prc-g li.fail i, .prc-i.fail i { color: var(--cq-red); } .prc-g li.inc i, .prc-i.inc i { color: var(--cq-amber); }
+.prc-g li > span, .prc-i > span { text-wrap: pretty; }
+.prc-dh { font-size: 12.5px; }
+.prc-d { margin: 4px 0 0; }
+.prc-d > p:first-child { font-size: 12.5px; }
+.prc-rk { font: 500 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--cq-red); margin-right: 4px; }
+.prc-rk.r2 { color: var(--cq-amber); }
+.prc-a { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; font-size: 12px; margin-top: 2px !important; }
+.prc-a > span { color: var(--faint); }
+.prc-a .prc-call { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prc-dim, .prc-cost, .prc-foot { font-size: 12px; color: var(--faint); }
+.prc-dim { margin-top: 3px !important; }
+.prc-cost { margin-top: 8px !important; }
+.prc-cost > span { margin-right: 6px; }
+.prc-foot { margin-top: 12px !important; padding-top: 8px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) {
+  .prc-g { gap: 8px; }
+  .prc-g li, .prc-i { grid-template-columns: 14px minmax(0, 1fr); row-gap: 1px; }
+  .prc-g li > span, .prc-i > span { grid-column: 2; }
+  .prc-a { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .prc-a .prc-call { white-space: normal; overflow-wrap: break-word; }
+}
 /* Gates: the figures on the left, the preview of what they do on the right, the golden's entry under both. */
 .gatep .gdef { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
 .gatep .gdef code, .gatep .setrow span code { font-size: 11px; color: var(--dim); }

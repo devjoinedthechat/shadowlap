@@ -102,6 +102,34 @@ interface Json {
 const head = () => execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: work }).toString().trim();
 
 describe('shadowlap verify against a baseline', () => {
+  it('holds a good run to --kept-max pairs, over the config and the gate, and keeps the flag in the command it verifies again with', async () => {
+    const failed = await record();
+    const good = await record('B-7');
+    writeFileSync(join(work, 'prompt.txt'), `${GOOD_FIX}\n`);
+    // The config's verify.max and the gate's max would each give a good run more pairs than the flag.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ verify: { max: 50 } }));
+    try {
+      // The 6 pairs the wide margin needs are more than the 3 it may take: the good run stays open.
+      const r = await shadowlap(['verify', '--fixes', failed, '--keeps', good, '--expect', ORACLE, '--gate', '{"max":40}', '--margin', '0.5', '--kept-max', '3', '--json']);
+      expect(r.code, r.out).toBe(3);
+      const report = JSON.parse(r.stdout) as Json;
+      expect(report.kept).toMatchObject({ source: 'paired', margin: 0.5, max: 3 });
+      expect(report.runs.find((x) => x.runId === good)).toMatchObject({ role: 'good', outcome: 'inconclusive', attempts: 3 });
+    } finally {
+      rmSync(join(work, 'shadowlap.config.json'));
+    }
+    // The verdict keeps the flag among those it verifies again with.
+    const store = Store.open(db);
+    try {
+      expect(store.listVerdicts().at(-1)!.rerun!.flags).toEqual(expect.arrayContaining(['--kept-max', '3']));
+    } finally {
+      store.close();
+    }
+    const counted = await shadowlap(['verify', '--fixes', failed, '--keeps', good, '--expect', ORACLE, '--attempts', '3', '--kept-max', '3']);
+    expect(counted.code).toBe(2);
+    expect(counted.out).toContain('--margin, --kept-max, --baseline, --base and --build are for the gate');
+  }, 180_000);
+
   it('keeps a good run the change does not hurt, against the same run at HEAD, attempt for attempt', async () => {
     const failed = await record();
     const good = await record('B-7');

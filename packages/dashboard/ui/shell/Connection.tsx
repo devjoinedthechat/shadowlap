@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { tokenInUse } from '../api.js';
+import { Said } from '../components/bits.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
 import { Code, Copy } from '../components/Copy.js';
 import { Icon } from '../components/Icon.js';
@@ -20,8 +21,10 @@ import { useApp } from '../state.js';
  * which explains where the link comes from.
  */
 
-/** What the bar's live region says while the server can't be reached, once as it comes: never the countdown or the buttons. */
-export const OFFLINE_SAID = 'Offline · actions paused · Can’t reach the dashboard server · showing what loaded';
+/** The bar's words, the ones its line draws and the ones its live region says once as they come: never the countdown or the buttons. */
+const PAUSED = 'Offline · actions paused';
+const UNREACHED = 'Can’t reach the dashboard server';
+const LOADED = 'showing what loaded';
 
 export function OfflineBar() {
   const { conn, loadedAt, retryIn, retrying, retryNow } = useApp();
@@ -36,7 +39,7 @@ export function OfflineBar() {
   // with its words already in it, may never be heard (Safari drops such a box's role). What the bar draws is drawn only.
   const said = (
     <span className="sr" role="status">
-      {offline ? `${OFFLINE_SAID}${when}` : ''}
+      {offline ? `${PAUSED} · ${UNREACHED} · ${LOADED}${when}` : ''}
     </span>
   );
   if (!offline) return said;
@@ -47,10 +50,15 @@ export function OfflineBar() {
         <span className="cdot" />
         <span className="csay">
           <span className="cs" aria-hidden="true">
-            Offline · actions paused
+            {PAUSED}
           </span>
           <span className="ct" aria-hidden="true">
-            <b className="nw">Can’t reach the dashboard server</b> · <span className="nw">showing what loaded{when}</span> · <span className="nw">actions paused ·</span>
+            <b className="nw">{UNREACHED}</b> ·{' '}
+            <span className="nw">
+              {LOADED}
+              {when}
+            </span>{' '}
+            · <span className="nw">actions paused ·</span>
           </span>
         </span>
         <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
@@ -58,7 +66,7 @@ export function OfflineBar() {
         </button>
         {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
         <span className="cw" id="connWhyText">
-          <Copy as="span" className="cwt" phrases>{`Can’t reach the dashboard server, so this shows what loaded${when}.`}</Copy> <span className="cwa">Start it again:</span>
+          <Copy as="span" className="cwt" phrases>{`${UNREACHED}, so this shows what loaded${when}.`}</Copy> <span className="cwa">Start it again:</span>
         </span>
         <span className="cc">
           <span className="cwith">start it with </span>
@@ -79,12 +87,15 @@ export function OfflineBar() {
 /**
  * Paste the new link: the link the dashboard printed, read from the clipboard, opened in this tab
  * (`pastedLink`): the page starts again with its token. Says why when the clipboard holds no
- * dashboard link, the one this page has, or can't be read.
+ * dashboard link, the one this page has, or can't be read: a refusal, said as an alert from a region
+ * there since the card came, again on each press. The line drawn under the button is for the eye.
  */
 function PasteLink() {
   const [why, setWhy] = useState<string | null>(null);
-  const paste = () =>
-    navigator.clipboard.readText().then(
+  const paste = () => {
+    // The last reason goes as the clipboard is read, so the same one is said again.
+    setWhy(null);
+    return navigator.clipboard.readText().then(
       (text) => {
         const step = pastedLink(text, location.origin);
         if (!step) return setWhy('The clipboard holds no dashboard link: copy the one shadowlap dashboard printed, with its #token=.');
@@ -95,16 +106,20 @@ function PasteLink() {
       },
       () => setWhy('The browser didn’t let the page read the clipboard: paste the link into the address bar instead.'),
     );
+  };
   return (
     <>
-      <button className="btn lime" type="button" onClick={() => void paste()}>
-        Paste the new link
-      </button>
-      {why ? (
-        <p className="fieldnote err" role="status">
-          {why}
-        </p>
-      ) : null}
+      <div className="actions">
+        <button className="btn lime" type="button" onClick={() => void paste()}>
+          Paste the new link
+        </button>
+        {why ? (
+          <p className="fieldnote err" aria-hidden="true">
+            {why}
+          </p>
+        ) : null}
+      </div>
+      <Said words={why} alert />
     </>
   );
 }
@@ -139,9 +154,7 @@ export function ExpiredCard() {
             {DOCS.sessionTokens.what} in the docs<span aria-hidden="true">{'\u00a0→'}</span>
           </a>
         </p>
-        <div className="actions">
-          <PasteLink />
-        </div>
+        <PasteLink />
       </div>
     </div>
   );

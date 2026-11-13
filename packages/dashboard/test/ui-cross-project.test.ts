@@ -13,6 +13,7 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { docTitle } from '../ui/title.js';
 import type { RunDetail, RunListItem } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * A page that can't find what its address names asks whether another project holds it before it
@@ -127,7 +128,7 @@ async function open(o: { holding: (n: number) => Promise<HoldingView | null>; se
           }),
     );
   }
-  page = await render(createElement(Harness));
+  page = await render(withServed(createElement(Harness)));
   return w;
 }
 
@@ -362,7 +363,7 @@ async function openPage(hash: string, draw: () => ReactElement, o: Stores & { co
     );
     return createElement(AppContext.Provider, { value: app }, createElement(TabTitle), draw());
   }
-  page = await render(createElement(Harness));
+  page = await render(withServed(createElement(Harness)));
   return said;
 }
 

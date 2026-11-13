@@ -4,7 +4,8 @@ import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { unsettledFirst } from './blame.js';
 import { checkStatus } from './check-status.js';
-import { fixLabelInfo, fixLabels, fixOfRun, GOOD_LABEL, type FixRecords } from './fixes.js';
+import { checkKey, fixLabelInfo, fixLabels, fixOfRun, GOOD_LABEL, type FixRecords } from './fixes.js';
+import { HIDDEN_IN_NAME } from './hidden-characters.js';
 import { isObject } from './is-object.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
 import { recordingsOfRun, testsEntryFor } from './run-checks.js';
@@ -25,11 +26,11 @@ import type { RunRecord } from './types.js';
  */
 
 /**
- * What disguises a command line a person is asked to say yes to: a control character, a format
- * character (a right-to-left override, a zero-width space) or a line or paragraph separator. A value
- * holding one is never run again from here.
+ * What disguises a command line a person is asked to say yes to (HIDDEN_IN_NAME): a control
+ * character, a format character (a right-to-left override, a zero-width space) or a line or
+ * paragraph separator. A value holding one is never run again from here.
  */
-const HIDDEN = /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
+const HIDDEN = HIDDEN_IN_NAME;
 /** A name (a tool's, a scope's): one line, at most 200 characters, never starting like a flag, a file or a space, and nothing hidden in it. */
 const NAME = /^[^\s@-][^\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{0,199}$/u;
 
@@ -50,9 +51,14 @@ export function leftWords(left: readonly string[]): string {
   return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}` : (words[0] ?? '');
 }
 
-/** The blame a fix shows: the latest that found where a run was lost, else the latest. */
-export function shownBlame(rec: FixRecords): StoredBlame | null {
-  return [...rec.blames].reverse().find((b) => b.outcome === 'blamed') ?? rec.blames.at(-1) ?? null;
+/**
+ * The blame a fix shows: the latest that found where a run was lost, else the latest. Once the fix's
+ * check has changed, the same among the blames made under the check it has, when there are any.
+ */
+export function shownBlame(rec: Pick<FixRecords, 'blames' | 'fix' | 'checks'>): StoredBlame | null {
+  const under = rec.checks.length > 1 ? rec.blames.filter((b) => checkKey(b.expect ?? null) === rec.fix.check.key) : [];
+  const blames = under.length ? under : rec.blames;
+  return [...blames].reverse().find((b) => b.outcome === 'blamed') ?? blames.at(-1) ?? null;
 }
 
 /**

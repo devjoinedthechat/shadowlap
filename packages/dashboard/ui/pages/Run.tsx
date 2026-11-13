@@ -19,6 +19,7 @@ import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../record
 import { href, nextView, VIEWS, type View } from '../route.js';
 import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
+import { judgeForkWait } from '../scopes.js';
 import { useApp } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
 import { CallsTable } from '../run/CallsView.js';
@@ -27,19 +28,19 @@ import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
-import { InspectorPlace, useFindingPanel, usePickInView } from '../run/InspectorPanel.js';
+import { InspectorPlace, useFindingPanel, usePickInView, useResultsBodies } from '../run/InspectorPanel.js';
+import { useInjectionArrival } from '../injection/arrival.js';
 import { byKind } from '../run/kinds.js';
-import { useStripCalls } from '../run/RunStrip.js';
 import { StripBar } from '../run/StripKey.js';
-import { firstFailedCall } from '../run/open-at.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
+import type { UntrustedView } from '../types.js';
 import { RunHead, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages } from '../run/paging.js';
 import { useRunExtras } from '../run/run-extras.js';
-import { useRunSelection } from '../run/run-selection.js';
+import { useFailedAt, useRunSelection } from '../run/run-selection.js';
 import { useRunCommands } from '../run/run-commands.js';
 import { useCheckEntry } from '../run/check-entry.js';
 import { useWholeStep } from '../run/NextStepButton.js';
@@ -96,23 +97,27 @@ function viewTabs(v: View, calls: number, turns: number | undefined) {
   });
 }
 
-/** The view shown: Calls as the page draws it (`children`), every other one from its part. */
-function ViewSwitch({ v, run, calls, selected, scoped, byKind: kinds, onSelect, children }: { v: View; run: RunDetail; calls: CallRow[]; selected: number | null; scoped: boolean; byKind: boolean; onSelect: (n: number) => void; children: ReactNode }) {
+/**
+ * The view shown: Calls as the page draws it (`children`), every other one from its part; Turns tags
+ * the untrusted reads as Calls does. Under the judge's chip, Context and Timeline stay the agent's
+ * own calls (`own`), saying so (`agentOnly`).
+ */
+function ViewSwitch({ v, run, calls, own, agentOnly, selected, scoped, byKind: kinds, onSelect, untrusted, children }: { v: View; run: RunDetail; calls: CallRow[]; own: CallRow[]; agentOnly: boolean; selected: number | null; scoped: boolean; byKind: boolean; onSelect: (n: number) => void; untrusted: ReadonlyMap<number, UntrustedView>; children: ReactNode }) {
   switch (v) {
     case 'calls':
       return children;
     case 'turns':
-      return <TurnsView calls={calls} selected={selected} scoped={scoped} onSelect={onSelect} />;
+      return <TurnsView calls={calls} selected={selected} scoped={scoped} onSelect={onSelect} untrusted={untrusted} />;
     case 'context':
-      return <ContextView run={run} calls={calls} selected={selected} onSelect={onSelect} />;
+      return <ContextView run={run} calls={own} agentOnly={agentOnly} selected={selected} onSelect={onSelect} />;
     case 'timeline':
-      return <TimelineView calls={calls} selected={selected} scoped={scoped} byKind={kinds} onSelect={onSelect} />;
+      return <TimelineView calls={own} agentOnly={agentOnly} selected={selected} scoped={scoped} byKind={kinds} onSelect={onSelect} />;
     case 'forks':
       return <ForksView runId={run.run.runId} />;
     case 'provenance':
       return <ProvenanceView run={run} selected={selected} />;
     case 'decisions':
-      return <DecisionsView runId={run.run.runId} selected={selected} onSelect={onSelect} />;
+      return <DecisionsView runId={run.run.runId} selected={selected} onSelect={onSelect} live={run.run.status === 'running'} />;
   }
 }
 
@@ -271,8 +276,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const blame = useMemo(() => blameOf(run), [run]);
   const lostAt = blame?.callNo ?? null;
   // A failed run opens where it first failed, every call's origin read while a long run's pages come;
-  // clock and random reads are never where a run opens (open-at.ts).
-  const failedAt = useMemo(() => ((run.state?.failed ?? run.run.status === 'failed') ? firstFailedCall(calls, paging?.origins ?? null) : null), [run.state?.failed, run.run.status, calls, paging?.origins]);
+  // clock and random reads, and a judge's calls, are never where a run opens (open-at.ts).
+  const failedAt = useFailedAt(run, calls, paging);
   // Its verdict by checks, which a long run's analysis may give after its first answer: its first fact and findings say it.
   const { judged, outcomeAt } = useJudgedAt(run);
   // The call the page shows, the address and the session's memory kept in step with it (run-selection.ts).
@@ -282,7 +287,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // The calls as Calls lists them: the scope, the filter, the groups and what is folded (call-list.ts).
   // A recording's or a capture's strip, key and filter go by what each call was; every other run's by origin (kinds.ts).
   const kinds = useMemo(() => byKind(run), [run]);
-  const { scope, setScope, scopeTree, scoped, scopedCalls, filter, setFilter, text, setText, asked, listed, trace, rows, held, shown, fold, visible, counts } = useCallList({ runId, calls, paging, selected, byKind: kinds, live, spend: !run.summary.imported });
+  const { scope, setScope, pickScope, scopeTree, scoped, bar, judge, judgeOn, scopedCalls, ownCalls, strip, filter, setFilter, text, setText, asked, listed, trace, rows, held, shown, fold, visible, counts, tabCounts } = useCallList({ runId, calls, paging, selected, byKind: kinds, live, spend: !run.summary.imported });
   const [tab, setTabState] = useState<InspectorTab>(lastTab);
   const setTab = (t: InspectorTab) => {
     lastTab = t;
@@ -302,7 +307,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // What the page reads beside the run once it has ended: its offers, a preset's attempt, its notes and the
   // fork that rescued it (run-extras.ts).
   const chain = useAncestors(run);
-  const { offers, preset, notes, rescued } = useRunExtras(run, chain[0] ?? null, forkAt);
+  const { offers, preset, notes, rescued, injection } = useRunExtras(run, chain[0] ?? null, forkAt);
+  const results = useResultsBodies(runId);
   const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
@@ -321,9 +327,12 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
   const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
 
-  const select = useCallback((n: number) => (closePanel(), navigate(href.run(runId, n, v), true)), [runId, v, closePanel]);
+  // A judge's call picked picks the judge's chip, though it is selected already (call-list.ts).
+  const select = useCallback((n: number) => (closePanel(), pickScope(n), navigate(href.run(runId, n, v), true)), [runId, v, closePanel, pickScope]);
   // A row picked below 1160px brings the inspector, under the calls, into view.
   const pickRow = usePickInView(select, selected, detail);
+  // An attempt opened on a call its proof names shows it on the tab that does, as the proof's picks do (injection/arrival.ts).
+  const pickProof = useInjectionArrival({ runId, attempt: injection.attempt, call, detail: detail.data, select, setTab });
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
   // A pick in the key, or a word typed in Filter calls, shows Calls from another view.
   const toCalls = () => (v === 'calls' ? undefined : setView('calls'));
@@ -340,6 +349,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     [listFor, selected, select],
   );
   const canFork = !exported && !live && !actionsOff;
+  // No fork starts at a judge's call, read yet or not: the head's Fork says why, and ⌘K offers none (scopes.ts forksAt).
+  const forkWait = judgeForkWait(selected, judge);
   // Stable, so a row does not redraw when the selection moves elsewhere.
   const selectedNow = useLatest(selected);
   const openAt = forkMenu.openAt;
@@ -356,29 +367,23 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   // This run, in the palette.
   const check = useCheckEntry({ run, row: selectedRow, detail: detail.data });
-  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView, addCheck: check.fromPalette });
+  useRunCommands({ run, selected, canFork: canFork && !forkWait, canMark, labels, mark, offers, judged, actions, forkMenu, setView, addCheck: check.fromPalette });
 
-  const stripCalls = useStripCalls(calls, paging?.origins, paging?.kinds);
-  const inScopeFn = useMemo(() => {
-    if (scope === 'all') return null;
-    const ids = new Set(scopedCalls.map((c) => c.callNo));
-    return (n: number) => ids.has(n);
-  }, [scope, scopedCalls]);
-
-  // While the pages come, Calls counts the run's calls and Turns says nothing until they are all read.
-  const tabs = viewTabs(v, paging && scope === 'all' ? paging.total : scopedCalls.length, paging ? undefined : scopedCalls.filter((c) => c.kind === 'api').length);
+  // While the pages come, Calls counts the run's calls and Turns says nothing until they are all read (call-list.ts).
+  const tabs = viewTabs(v, tabCounts.calls, tabCounts.turns);
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
-      <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
-      {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
+      <RunHeader run={run} call={detail.data} selected={selected} forkWait={forkWait} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} attempt={injection.attempt} onPick={pickProof} />
+      <StripBar strip={{ calls: strip.calls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: strip.inScope, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
+      {bar ? <ScopeBar run={run} scopes={scopeTree} scope={scope} judge={judge.size} onScope={setScope} /> : null}
       <div className="work">
         <section className="views" aria-label="Views of the run">
           <Tabs label="Views" idPrefix="vtab" panelId="vbody" items={tabs} value={v} onChange={setView} listRef={useActiveTabInView<HTMLDivElement>(v)} onPointerEnter={warmViews} onFocus={warmViews} />
+          {/* How much of a long run is read: the view's own text as the page opens, with no live role, as it counts each page. */}
           {paging ? (
-            <div className="toolbar muted" role="status">
+            <div className="toolbar muted">
               {paging.gone
                 ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the run is no longer in ${client.exported ? 'this copy' : 'this store'}.`
                 : paging.error
@@ -390,13 +395,13 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
               of a run whose model called no tool and Context may hold nothing that takes the focus, so
               the view takes it itself, to be scrolled by keyboard. */}
           <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
-            <ViewSwitch v={v} run={run} calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select}>
-              <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} rows={rows} held={held} shown={shown} trace={trace} onFold={fold} />
+            <ViewSwitch v={v} run={run} calls={scopedCalls} own={ownCalls} agentOnly={judgeOn} selected={selected} scoped={scoped} byKind={kinds} onSelect={select} untrusted={injection.untrusted}>
+              <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} rows={rows} held={held} shown={shown} trace={trace} onFold={fold} untrusted={injection.untrusted} />
             </ViewSwitch>
           </div>
         </section>
-        <InspectorPlace panel={panel} run={run} offers={offers} onClose={closePanel} onPick={select}>
-          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} check={check.check} />
+        <InspectorPlace panel={panel} run={run} offers={offers} onClose={closePanel} onPick={select} results={results}>
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} />
         </InspectorPlace>
       </div>
       {actions.dialog}

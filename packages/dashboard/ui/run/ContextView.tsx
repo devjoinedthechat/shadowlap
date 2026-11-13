@@ -5,6 +5,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, usedCache, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
+import { AgentCallsNote } from './agent-note.js';
 import { inputTicks, outputTop, tickLabel } from './context-axis.js';
 import { useWindow } from './window-hook.js';
 
@@ -60,7 +61,19 @@ const TABLE_ROWS = { keyOf: (c: CallRow) => c.callNo, shapeOf: () => 'row', esti
 /** The table's heads for the parts of a call's input: Cache read, Cache creation, Uncached. */
 const HEADS = Object.fromEntries(Object.entries(INPUT_PARTS).map(([k, part]) => [k, `${part.charAt(0).toUpperCase()}${part.slice(1)}`])) as Record<keyof typeof INPUT_PARTS, string>;
 
-export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail; calls: CallRow[]; selected: number | null; onSelect: (n: number) => void }) {
+type ContextProps = { run: RunDetail; calls: CallRow[]; selected: number | null; onSelect: (n: number) => void };
+
+/** Context, of the agent's calls alone under the judge's chip (`agentOnly`), which it says first. */
+export function ContextView({ agentOnly, ...p }: ContextProps & { agentOnly?: boolean }) {
+  return (
+    <>
+      {agentOnly ? <AgentCallsNote /> : null}
+      <ContextBody {...p} />
+    </>
+  );
+}
+
+function ContextBody({ run, calls, selected, onSelect }: ContextProps) {
   const [table, setTableState] = useState(asTable);
   const setTable = (t: boolean) => {
     asTable = t;
@@ -181,6 +194,18 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
 }
 
 /**
+ * The label under bar `i`: every `every`th bar's, and the open call's bar's whatever the step. When
+ * that bar is off the step, the labels nearest it draw none, so its label never touches theirs; on a
+ * phone, where a chart past 22 calls shows every other label, the next ones give way too (`near`).
+ */
+function barLabel(i: number, every: number, open: number): { drawn: boolean; near: boolean } {
+  const off = open < 0 ? Infinity : Math.abs(i - open);
+  if (off === 0) return { drawn: true, near: false };
+  if (open % every !== 0 && off < every) return { drawn: false, near: false };
+  return { drawn: i % every === 0, near: every > 1 && off < 2 * every };
+}
+
+/**
  * The chart: the input's axis and gridlines beside the bars, the output's own axis running down from
  * the baseline beside its bars (context-axis.ts), and the call numbers under both. The axes are drawn
  * for the eye alone: each bar's card and the table say the numbers.
@@ -196,6 +221,7 @@ function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms
   const every = Math.max(1, Math.ceil(bars.length / (many ? 12 : 22)));
   const modelNos = new Set(ms.map((c) => c.callNo));
   const holds = (b: ContextBar) => selected !== null && selected >= b.first && selected <= b.last && modelNos.has(selected);
+  const open = bars.findIndex(holds);
   const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
   return (
     <div className="cplot">
@@ -247,12 +273,15 @@ function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms
         ))}
       </div>
       <span />
-      <div className={`clabels${many ? ' many' : ''}`}>
-        {bars.map((b, i) => (
-          <span key={b.first} className={holds(b) ? 'sel' : undefined}>
-            {i % every === 0 ? `#${num(b.first)}` : ''}
-          </span>
-        ))}
+      <div className={`clabels${many ? ' many' : ''}${every > 1 ? ' thin' : ''}`}>
+        {bars.map((b, i) => {
+          const l = barLabel(i, every, open);
+          return (
+            <span key={b.first} className={i === open ? 'sel' : l.near && l.drawn ? 'near' : undefined}>
+              {l.drawn ? `#${num(b.first)}` : ''}
+            </span>
+          );
+        })}
       </div>
     </div>
   );

@@ -548,7 +548,7 @@ export function Command({ cmd, inline = false, prompt = !inline }: { cmd: string
   const body = (
     <>
       <span ref={(el: HTMLElement | null) => void (ref.current = el)} className={prompt ? 'nw cmdp' : 'nw'}>
-        {prompt ? <b>$</b> : null}
+        {prompt ? <b aria-hidden="true">$</b> : null}
         {head}
       </span>
       <CommandPieces pieces={rest} room={box && text && box.width > 0 ? { width: box.width, text } : null} />
@@ -566,9 +566,10 @@ export const CODE_SET = 2048;
  * its number and an operator the word before it, so no line starts with `>`; a short object stays
  * whole. Never with a <wbr> before a space, which crashed Chromium in a block that balances. Code
  * past `CODE_SET` characters (a file a tool writes, a long answer) is drawn as written, one text a
- * browser breaks where it must (`long`): set, 108 KB of a tool's input was 32,003 pieces.
+ * browser breaks where it must (`long`): set, 108 KB of a tool's input was 32,003 pieces. So is code
+ * an injection attempt's page marks (`mark`, the inspector's marks): a mark may span its pieces.
  */
-export function CodeText({ children, className }: { children: string; className?: string | undefined }) {
-  const long = children.length > CODE_SET;
-  return <code className={['ts-ct', long ? 'long' : null, className].filter(Boolean).join(' ')}>{long ? children : drawn(codePieces(children))}</code>;
+export function CodeText({ children, className, mark }: { children: string; className?: string | undefined; mark?: ((text: string) => ReactNode) | undefined }) {
+  const long = children.length > CODE_SET || !!mark;
+  return <code className={['ts-ct', long ? 'long' : null, className].filter(Boolean).join(' ')}>{mark ? mark(children) : long ? children : drawn(codePieces(children))}</code>;
 }

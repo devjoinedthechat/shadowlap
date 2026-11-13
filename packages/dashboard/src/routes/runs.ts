@@ -1,4 +1,5 @@
 import { addNote, CALLS_PAGE, changeLabels, lookupRun, noSuchRun } from '../api.js';
+import type { ToolTrust } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { ExportError, exportHtmlApart } from '../export-apart.js';
 import { HttpError } from '../http.js';
@@ -139,7 +140,14 @@ export function register(router: Router, ctx: RouteContext): void {
     const n = Number(r.params.n);
     const run = Number.isInteger(n) ? lookupRun(ctx.store, r.params.id!) : null;
     if (!run) throw new HttpError(404, `no call #${r.params.n!} in run ${r.params.id!}`);
-    sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: ctx.read, callNo: n, ...(wantsWhole(r) ? { whole: true } : {}) }, runAffinity(ctx.store, run.runId)));
+    // The config's trust marks name an untrusted read in the fork menu's header; a config mid-edit leaves them out, and the recorded marks still count.
+    let tools: ToolTrust;
+    try {
+      tools = ctx.config().tools ?? {};
+    } catch {
+      tools = {};
+    }
+    sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: { ...ctx.read, tools }, callNo: n, ...(wantsWhole(r) ? { whole: true } : {}) }, runAffinity(ctx.store, run.runId)));
   });
 
   // The run's record for the Provenance tab, with what a copy made now would mask under the

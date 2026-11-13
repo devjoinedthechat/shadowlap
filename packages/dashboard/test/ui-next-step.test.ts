@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { PAUSED } from '../ui/connection.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
 import { fixStatusWords, nextStepOf, stepCard, stepCostLine } from '../ui/run/next-step.js';
@@ -11,6 +12,7 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
 import { render, shownText, type Rendered } from './ui-render.js';
+import { STEP_PARTS } from './ui-served-now.js';
 import { resetSpending } from '../ui/spending.js';
 
 /**
@@ -77,9 +79,9 @@ const lime = (p: Rendered) => p.all('.rhead .actions .lime').map((b) => b.textCo
 const tip = (el: { props: Record<string, unknown> }) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows?: string[][]; cmd?: string };
 
 /** The header and the banner, as the page draws them, with the question a Tests job waits on. */
-/** The header and the banner on the served dashboard, which hands in what only it draws, such as Run blame's dialogs. */
+/** The header and the banner on the served dashboard, which hands in what only it draws, such as Run blame's dialogs, the step dialogs' script already in. */
 const both = (run: RunDetail, offers: RunOffers | null = null, a: AppState = app(), more: Parameters<typeof header>[2] = {}) =>
-  createElement(AppContext.Provider, { value: a }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, createElement('div', null, createElement(RunHeader, header(run, offers, more)), createElement(Banner, bannerProps(run, offers)), createElement(TestsAskHost))));
+  createElement(AppContext.Provider, { value: a }, createElement(ServedPartsContext.Provider, { value: { ...SERVED_PARTS, ...STEP_PARTS } }, createElement('div', null, createElement(RunHeader, header(run, offers, more)), createElement(Banner, bannerProps(run, offers)), createElement(TestsAskHost))));
 
 /** An app that records the jobs it is asked to start. */
 function jobs(o: Partial<AppState> = {}) {
@@ -294,14 +296,18 @@ describe('the run page’s next step', () => {
   it('opens a passing run or a proof, a link as Fix → is', async () => {
     for (const next of [
       { key: 'passing', label: 'Open passing run', runId: PARENT, href: `#/run/${PARENT}`, title: `Opens ${PARENT.slice(0, 10)}` },
-      { key: 'injection-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/6`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'send_email obeyed a planted instruction (8 of 72) · system-notice at #4' },
+      { key: 'injection-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/6`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'send_email obeyed a planted instruction · 8 of 72 · system-notice at #4' },
       { key: 'preset-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/2`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'tool timeout failed · 0 of 1 passed' },
     ] as NextStep[]) {
-      page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, header(detail({ state: passedState, next })))));
+      const said: string[] = [];
+      page = await render(createElement(AppContext.Provider, { value: app({ conn: 'offline', toast: (t: string) => void said.push(t) }) }, createElement(RunHeader, header(detail({ state: passedState, next })))));
       const lead = page.byText('.rhead .actions a', next.label);
       expect(lead.className, next.key).toBe('btn lime');
       expect(lead.props.href).toBe(next.href);
       expect(lead.props['data-next']).toBe(next.key);
+      // A proof opens an attempt, which waits while the server is out of reach, as every link to one does.
+      await page.click(lead);
+      expect(said, next.key).toEqual(next.key === 'passing' ? [] : [PAUSED]);
       await page.unmount();
       page = null;
     }

@@ -1,5 +1,7 @@
 import type { Tone } from '../components/Status.js';
-import { approx, ktok, money, receiptDuration } from '../format.js';
+import { baselineWritesWords, EVERY_WRITE_AGAIN } from '../../../engine/src/trust-words.js';
+import { approx, ktok, money, num, receiptDuration } from '../format.js';
+import type { InjectionFact } from '../injection/model.js';
 import type { OriginCounts } from '../origins.js';
 import { outcomeTip, type OutcomeTip } from '../outcome-tip.js';
 import { outcomeOf, type RunLike, type RunOutcomeWords } from '../runs.js';
@@ -112,14 +114,34 @@ export interface OutcomeFact {
   tip: OutcomeTip | null;
 }
 
-/** What else says how the run came out: a fork blame rescued a run with, an error-path preset's verdict, an attempt's (banner.ts's attemptOutcome). */
+/** What else says how the run came out: a fork blame rescued a run with, an error-path preset's verdict, an attempt's (banner.ts's attemptOutcome), an injection test's replay's. */
 export interface FactVerdicts {
   rescued?: boolean;
   preset?: PresetAttempt | null;
   attempt?: AttemptOutcome | null;
+  injection?: InjectionFact | null;
 }
 
 const card = (title: string, sub: string | null): OutcomeTip => ({ title, sub, rows: [], said: sub });
+
+const TITLE: Readonly<Record<NonNullable<InjectionFact['verdict']>, string>> = { obeyed: 'Obeyed', influenced: 'Influenced', ignored: 'Ignored', inconclusive: 'Inconclusive' };
+
+/**
+ * An injection test's replay as its first fact: an attempt by its verdict, `obeyed at` the call that
+ * carried the canary in red, `influenced` and `inconclusive` amber, `ignored` muted, each with why on
+ * its card; a clean attempt `write gone at` its first recorded write it didn't make again, red, or
+ * `every write made again`, muted; a baseline its own writes after the read, muted. Null until what
+ * it rests on has come (a clean attempt's writes and a baseline's, from the injection read), when
+ * its checks say it.
+ */
+function injectionFact(i: InjectionFact): Omit<OutcomeFact, 'today'> | null {
+  if (i.role === 'clean') return !i.gone ? null : i.gone[0] !== undefined ? { tone: 'err', words: 'write gone at', callNo: i.gone[0], tip: null } : { tone: 'mu', words: EVERY_WRITE_AGAIN, callNo: null, tip: null };
+  if (i.role === 'baseline') return i.writes === null ? null : { tone: 'mu', words: baselineWritesWords(i.writes, num), callNo: null, tip: null };
+  const v = i.verdict;
+  if (!v) return null;
+  const at = v === 'obeyed' ? i.callNo : null;
+  return { tone: v === 'obeyed' ? 'err' : v === 'ignored' ? 'mu' : 'warn', words: at === null ? v : `${v} at`, callNo: at, tip: card(TITLE[v], i.why) };
+}
 
 /**
  * An attempt's verdict as its first fact, which the chip beside the id said before: a rescued fork and
@@ -127,8 +149,9 @@ const card = (title: string, sub: string | null): OutcomeTip => ({ title, sub, r
  * why under it, or `inconclusive`; an attempt's `interrupted` muted, `inconclusive` amber with the
  * check it couldn't decide. A failed attempt says what its checks say (null here), else `failed`.
  */
-function verdictFact(v: FactVerdicts): Omit<OutcomeFact, 'callNo' | 'today'> | null {
+function verdictFact(v: FactVerdicts): (Omit<OutcomeFact, 'callNo' | 'today'> & { callNo?: number | null }) | null {
   if (v.rescued) return { tone: 'ok', words: 'passed', tip: null };
+  if (v.injection) return injectionFact(v.injection);
   const p = v.preset;
   if (p) {
     if (p.verdict === 'passed') return { tone: 'ok', words: 'passed', tip: null };
@@ -161,7 +184,7 @@ export function toolsToCheck(calls: readonly { kind: string; input?: boolean }[]
  */
 export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean; offered?: boolean } & FactVerdicts): OutcomeFact {
   const verdict = verdictFact(o);
-  if (verdict) return { ...verdict, callNo: null, today: false };
+  if (verdict) return { callNo: null, ...verdict, today: false };
   if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
   const out = outcomeOf(r);
   const tip = outcomeTip(r, out, o.tools, !!o.offered);

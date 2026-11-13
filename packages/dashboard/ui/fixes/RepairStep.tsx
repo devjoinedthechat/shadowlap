@@ -61,7 +61,7 @@ function RepairFacts({ r }: { r: RepairStep }) {
     <>
       {r.accepted ? 'Repaired' : 'Ran'} {fixStamp(r.at)}
       {who ? <> · {who}</> : null}
-      {r.verify && !r.verify.counts ? ' · verified under another check, so it doesn’t count for this fix' : ''}
+      {r.verify && !r.verify.counts ? ` · verified under ${r.verify.oldCheck ? 'its old check' : 'another check'}, so it doesn’t count for this fix` : ''}
       {r.accepted && rule ? (
         <span className="pline">
           <Words>{rule}</Words>

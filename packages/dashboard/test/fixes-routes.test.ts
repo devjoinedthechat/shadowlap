@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BLAME_DEFAULTS, blameCheckFor, decideVerify, gateResult, markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type SprtGate, type VerifyReport } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixBundles } from '../src/fixes.js';
+import { verifyMore } from '../src/fix-verify-step.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
 import { crashFixtures, MIN, source, T0 } from './crash-fixtures.js';
 
@@ -853,6 +854,35 @@ describe('what settles an unsettled fix', () => {
     expect((await job({ kind: 'verify', fixId, verifyId: settled })).status).toBe(409);
     expect((await job({ kind: 'verify', fixId: fix.fixId, verifyId: 'vf-nope' })).status).toBe(404);
     expect((await job({ kind: 'verify', fixId: fix.fixId })).status).toBe(400);
+  });
+
+  it('keeps a good run to the pairs it ran under where only a failing run ran out, and doubles a good run’s own where it ran out', async () => {
+    const failing = makeRun(store, { labels: ['double-email'] });
+    const good = makeRun(store, { labels: ['digest'] });
+    const { fix } = blame(failing, { expect: { tools: { send_email: 1 } } });
+    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+    const ranOut = (role: 'target' | 'good') => {
+      const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
+      const at = role === 'target' ? 0 : 1;
+      const n = role === 'target' ? 80 : 200;
+      const x = report.runs[at];
+      report.runs[at] = { ...x, verdict: 'open', decision: 'inconclusive', attempts: Array.from({ length: n }, (_, i) => ({ ...x.attempts[0], passed: i % 2 === 0 })), passes: n / 2 };
+      Object.assign(report, decideVerify(report.runs, null), { gate, attemptsPerRun: 80 });
+      return recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: 'v', rerun: { flags: [], command: null } }).verdict;
+    };
+    // A failing run's attempts double to 160, which alone would cap a good run's pairs at 160 where it ran under 200.
+    const failed = ranOut('target');
+    await start();
+    await started({ kind: 'verify', fixId: fix.fixId, verifyId: failed.verifyId });
+    expect(spawned.at(-1)).toEqual(['verify', '--fixes', failing, '--keeps', good, '--expect', '{"tools":{"send_email":1}}', '--gate', '{"max":160}', '--kept-max', '200']);
+    expect(verifyMore(failed)).toMatchObject({ kind: 'more', max: 160, keptMax: 200 });
+    // The config's verify.max wins over the gate's max: verify keeps a good run to it with no flag.
+    expect(verifyMore(failed, 300)).toMatchObject({ max: 160, keptMax: 300 });
+    expect(verifyMore(failed, 300)!.argv).not.toContain('--kept-max');
+    // A good run that ran out of its 200 pairs takes 400; the failing run's attempts stay as they were.
+    const kept = verifyMore(ranOut('good'))!;
+    expect(kept).toMatchObject({ kind: 'more', max: 80, keptMax: 400 });
+    expect(kept.argv.slice(-2)).toEqual(['--kept-max', '400']);
   });
 
   it('blames again a blame that couldn’t settle, and with the model asked for one nothing rescued, never with a flag for a model', async () => {

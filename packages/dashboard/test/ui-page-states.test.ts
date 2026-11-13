@@ -65,10 +65,10 @@ function app(client: Partial<Record<'run' | 'fix', (id: string) => Promise<unkno
   } as unknown as AppState;
 }
 
-/** What a page waiting for its data must be: busy, saying so once, its bars inert and hidden. */
+/** What a page waiting for its data must be: busy, saying so once, its bars inert and hidden. A region there before its words (Compare's rest) says nothing yet. */
 function waiting(page: Rendered, what: string): void {
   expect(page.one('.page').getAttribute('aria-busy')).toBe('true');
-  expect(page.all('[role="status"]').map(text)).toEqual([`Loading ${what}…`]);
+  expect(page.all('[role="status"]').map(text).filter(Boolean)).toEqual([`Loading ${what}…`]);
   const skin = page.one('.skel .skin');
   expect(skin.getAttribute('aria-hidden')).toBe('true');
   expect(skin.hasAttribute('inert')).toBe(true);

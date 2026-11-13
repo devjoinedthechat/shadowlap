@@ -202,12 +202,12 @@ describe('the Tests screen', () => {
     store.close();
   });
 
-  it('prints each divergence as the CLI does, with the normalizer that fixes it and the commit range to bisect', () => {
+  it('offers each divergence the normalizer that fixes it, its re-run and its update', () => {
     const store = sampleStore();
     const view = testsView(store, goldens);
     expect(view.diverged).toEqual(['goldens/refund-in-limit']);
     const [d] = view.divergences;
-    expect(d.text).toBe(`✗ refund-in-limit: diverged at call 1 (api POST /v1/messages)\n    ✗ Diverged at call 1 (api POST /v1/messages): 0 calls replayed before divergence\n      ~ $.metadata.user_id\n          - "${UUID_A}"\n          + "${UUID_B}"`);
+    expect(d).toMatchObject({ callNo: 1, kind: 'api', callName: 'POST /v1/messages' });
     expect(d.volatile).toMatchObject({ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", args: ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'] });
     expect(d.normalizerFixes).toBe(true);
     expect(d.rerun).toEqual(['test', 'goldens/refund-in-limit']);
@@ -289,7 +289,7 @@ describe('the Tests screen', () => {
     store.close();
   });
 
-  it('shows a failed check as test --markdown prints it, without the normalizer', () => {
+  it('shows a failed check with its checks as the result kept them, without the normalizer', () => {
     const store = Store.open(':memory:');
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234+dirty' });
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', revision: 'abc1234+dirty', data: { checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time' } });
@@ -297,12 +297,12 @@ describe('the Tests screen', () => {
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] }]);
     expect(view.verdict!.title).toBe('0 of 1 golden passed · x check failed: send_email called 0 times');
     expect(view.divergences).toEqual([]);
-    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', output: null, blocked: null, bisect: null, found: null, missed: null, revisions: [], unreadable: null }]);
+    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], blocked: null, bisect: null, found: null, missed: null, revisions: [], unreadable: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
     store.close();
   });
 
-  it('shows what the agent printed last when it exited with an error, as test --markdown does', () => {
+  it('shows an exit with its reason, no checks and no blocked connection, its lines left to its report', () => {
     const store = Store.open(':memory:');
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
     const output = 'Traceback (most recent call last):\n  File "agent.py", line 12\nKeyError: \'refund\'';
@@ -310,7 +310,8 @@ describe('the Tests screen', () => {
     store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]);
     expect(view.verdict!.title).toBe('0 of 1 golden passed · x exited with code 1');
-    expect(view.failures).toMatchObject([{ failure: 'exit', reason: 'the agent exited with code 1', checks: null, details: '30/30 calls replayed', output, blocked: null }]);
+    expect(view.failures).toMatchObject([{ failure: 'exit', reason: 'the agent exited with code 1', checks: null, blocked: null }]);
+    // What it printed is the report's to show (src/golden-report.ts), as the failed check's toEqual above pins.
     store.close();
   });
 
@@ -1110,7 +1111,7 @@ describe('goldens with a gate', () => {
   it('says where each failing golden leads: more attempts for a gate that ran out, an update for a replay golden a judge could not decide, a run again for an injection test, else its run', () => {
     const store = gatedStore();
     const judgeCheck = (detail: string) => ({ status: 'inconclusive' as const, ok: false, label: 'judge "polite" answers yes', detail, judge: { name: 'polite', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0 } });
-    const replayGolden = (path: string): GoldenSource => ({ path, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const replayGolden = (path: string): GoldenSource => ({ path, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: ['judge "polite" answers yes', 'send_email called 1 time'] });
     const unjudged = 'check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict';
     session(store, 'f6a7b8c', T0 + DAY, [
       // A replay golden whose judge has no recorded verdict: updating the golden asks the judge once and keeps its verdict.
@@ -1195,7 +1196,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
       [judgeLabel, 'inconclusive', 'not judged: no recorded verdict and the test runs offline'],
     ]);
     // Not run yet: no status, and nothing added since.
-    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, added: false, detail: null, reason: null, source: null, live: null, attempts: null }]);
+    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null }]);
     s.close();
   });
 
@@ -1216,7 +1217,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
 
   it('counts the attempts of a golden run more than once that passed each check, and none when an attempt\'s run is gone', () => {
     const s = store();
-    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: { passed: 3, of: 4 } }]);
+    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, addedAt: null, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: { passed: 3, of: 4 }, judge: null }]);
     s.deleteRun('A3');
     expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults[0].attempts).toBeNull();
     s.close();
@@ -1249,7 +1250,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     const first = s.listTestResults({ golden: 'goldens/gated', limit: 1 })[0];
     session(s, 'd2e8a1f', T0 + DAY, [{ golden: 'goldens/gated', ok: false, failure: 'check', runId: 'N3', data: { mode: 'fork', verdict: 'failed', checks: [check(false)], attempts: { total: 3, passed: 2, required: null, runs: own }, continued: { sessions: [first.sessionId], attempts: 12 } } }]);
     // Its own runs alone would say 2 of 3 beside a result of 10 of 15: no tally, only what the check found.
-    expect(testsView(s, list).rows[0].checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: null }]);
+    expect(testsView(s, list).rows[0].checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, addedAt: null, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: null, judge: null }]);
     s.close();
   });
 

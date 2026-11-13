@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, t
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { changesHref } from '../changes-tab.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
+import { Said } from '../components/bits.js';
 import { Copy, fontOf, widthIn } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
@@ -95,7 +96,7 @@ function useRowScope(input: RefObject<HTMLInputElement | null>) {
 }
 
 /** What runs recorded, from three characters, through the server's search. It answers from what its index holds; while that is behind, the palette asks again, so matches arrive as it catches up. */
-function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note: string | null } {
+function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note: string | null; noteSaid: string | null } {
   const [hits, setHits] = useState<RecordedHit[]>([]);
   // While the server's index is behind: how many runs it has yet to read.
   const [indexing, setIndexing] = useState<{ runs: number; of: number } | null>(null);
@@ -128,7 +129,9 @@ function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note:
       clearTimeout(timer);
     };
   }, [q, app.client, app.exported]);
-  return { hits, note: q.trim().length >= RECORDED_MIN_CHARS ? indexingNote(indexing) : null };
+  // While the index is behind, the line drawn under the list (`note`), and its live region's words, the count left out (`noteSaid`).
+  const behind = q.trim().length >= RECORDED_MIN_CHARS ? indexing : null;
+  return { hits, note: indexingNote(behind), noteSaid: indexingNote(behind, { said: true }) };
 }
 
 /** A run's id, typed in full or its start, that no run in the list (the newest 500) has: the server looks it up among every run, as Runs' filter does. */
@@ -337,7 +340,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
   }, [sourcesChanged]);
 
-  const { hits, note } = useRecordedHits(app, scope ? '' : q);
+  const { hits, note, noteSaid } = useRecordedHits(app, scope ? '' : q);
   const byId = useRunsById(app, scope ? '' : q);
 
   const shown = useMemo(() => {
@@ -436,16 +439,8 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="empty" role="status">
-              {note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`}
-            </div>
-          )}
-          {note ? (
-            <div className="palnote" role="status">
-              <Copy as="span">{note}</Copy>
-            </div>
           ) : null}
+          <ListNotes none={!shown.length} q={q} note={note} noteSaid={noteSaid} />
         </div>
         <div className="palfoot" aria-hidden="true">
           <span>
@@ -480,9 +475,36 @@ function pickRow(x: PaletteCommand | undefined, o: { offline: boolean; toast: (t
 }
 
 /**
+ * What the list says besides its rows: that nothing matches the words typed, and that matches from
+ * what the server's index has yet to read may follow. Each tells of a change, so each is said by a
+ * region there since the palette opened, as its words come; the lines drawn are for the eye. The
+ * index's note is said without its count (`noteSaid`), which moves each second as the index catches
+ * up: once, and again only when what it says changes.
+ */
+function ListNotes({ none, q, note, noteSaid }: { none: boolean; q: string; note: string | null; noteSaid: string | null }) {
+  const nothing = note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`;
+  return (
+    <>
+      <Said words={none ? nothing : null} />
+      {none ? (
+        <div className="empty" aria-hidden="true">
+          {nothing}
+        </div>
+      ) : null}
+      <Said words={noteSaid} />
+      {note ? (
+        <div className="palnote" aria-hidden="true">
+          <Copy as="span">{note}</Copy>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/**
  * Each word typed says how many rows it found, in the one polite live region: as the words change,
  * not as later rows (recorded data, an older run) arrive. None found says so in the list's own
- * status, so it isn't said twice; opening the palette says nothing.
+ * region (`ListNotes`), so it isn't said twice; opening the palette says nothing.
  */
 function useSayCount(q: string, count: number): void {
   const typedOnce = useRef(false);

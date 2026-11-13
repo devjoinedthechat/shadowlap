@@ -5,15 +5,15 @@ import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type RunDetail } from '../api.js';
 import type { TestsCard } from '../fixes/TestsJobButton.js';
 import { commandText } from '../goldens.js';
-import { onShow } from '../components/OnShow.js';
 import { goldenName } from '../format.js';
 import { ACTIONS } from '../labels.js';
+import { useServedParts } from '../served-parts.js';
 import { sentEstimate } from '../spending.js';
 import { useApp, type AppState } from '../state.js';
 import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
 import type { TestBannerOffer } from '../types.js';
 import type { DivergedAsk } from './DivergedDialogs.js';
-import { divergedActions, updateGoldenCopy, type NormalizerChoice } from './offers.js';
+import { divergedActions, type NormalizerChoice } from './offers.js';
 
 /** What a diverged test's jobs bill, where the page knows: none, or undefined while it is worked out, and each asks. */
 export interface DivergedPrices {
@@ -32,9 +32,6 @@ export function bannerJobsShown(app: Pick<AppState, 'hasKind' | 'actionsOff'>, r
   return (acts.normalizer?.kind === 'job' && !leads('normalizer')) || (!!acts.update && !leads('update-golden'));
 }
 
-/** The dialogs it asks in: rarely opened, so a part of their own, which loads as one first shows. */
-const DivergedDialogs = onShow(() => import('./DivergedDialogs.js').then((m) => m.DivergedDialogs));
-
 /**
  * The jobs of a test that diverged, wherever they are offered: the header's next step and the plain
  * buttons its banner keeps. Add normalizer and re-run adds the rule and runs its golden again, Update
@@ -46,6 +43,8 @@ const DivergedDialogs = onShow(() => import('./DivergedDialogs.js').then((m) => 
  */
 export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, replayChecks: number, prices: DivergedPrices = {}) {
   const app = useApp();
+  // The dialogs it asks in: rarely opened, so a part the served entry hands in, which loads as one first shows. A copy runs no test's job.
+  const { DivergedDialogs } = useServedParts();
   const [dialog, setDialog] = useState<'update' | 'normalize' | null>(null);
   const r = run.run;
   const acts = jobsOffered(app, run, test);
@@ -54,11 +53,11 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
   const ask: DivergedAsk | null = !test
     ? null
     : dialog === 'update'
-      ? { kind: 'update', plan: updateGoldenCopy(test, r.divergence?.callNo ?? 1, add?.kind === 'job', replayChecks), estimate: prices.update }
+      ? { kind: 'update', test, callNo: r.divergence?.callNo ?? 1, canNormalize: add?.kind === 'job', replayChecks, estimate: prices.update }
       : dialog === 'normalize' && add?.kind === 'job' && add.asks
         ? { kind: 'normalize', name: goldenName(test.golden), steps: add.asks, estimate: prices.normalize }
         : null;
-  const dialogs = ask && test ? <DivergedDialogs ask={ask} onNormalize={addNormalizer} onClose={() => setDialog(null)} onUpdate={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: test.golden, ...sentEstimate(prices.update) })))} /> : null;
+  const dialogs = ask && test && DivergedDialogs ? <DivergedDialogs ask={ask} onNormalize={addNormalizer} onClose={() => setDialog(null)} onUpdate={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: test.golden, ...sentEstimate(prices.update) })))} /> : null;
   return {
     acts,
     /** What its jobs bill, as their cards say it and they keep it. */

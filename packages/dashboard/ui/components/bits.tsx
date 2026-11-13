@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { headingRef } from '../focus-manager.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { CopyButton } from './CodeBox.js';
@@ -97,6 +97,25 @@ export function SrSpace() {
   );
 }
 
+/**
+ * A line that tells of a change (nothing found for the words typed, a wait that starts, a paste
+ * refused), said by a live region on the page before its words: one drawn with its words already in
+ * it may never be heard. Drawn hidden and empty from the first, it takes `words` only once it has been
+ * drawn; the line the page draws for them is for the eye (aria-hidden), as the offline bar's is. Its
+ * anchor (`.said`) keeps it where the line is read. `alert`: a refusal, said at once.
+ */
+export function Said({ words, alert = false }: { words: string | null; alert?: boolean }) {
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => setDrawn(true), []);
+  return (
+    <span className="said">
+      <span className="sr" role={alert ? 'alert' : 'status'}>
+        {drawn && words ? words : ''}
+      </span>
+    </span>
+  );
+}
+
 /** A legend of the origins present. */
 export function Legend({ origins, className = 'legend' }: { origins: readonly Origin7[]; className?: string }) {
   return (
@@ -182,14 +201,18 @@ export function CodeBlock({ file, code, copyLabel = 'the code' }: { file: string
   );
 }
 
+/** What LoadFailed says of a page, or a part of one, whose code didn't load. */
+export const loadFailedText = (what: string): string => `This ${what}’s code didn’t come from the dashboard server. Retry loads the page again.`;
+
 /**
  * In place of a page, or a part of one, whose code didn't load (`onShow`'s `failed`): one line in the
  * error tone, and Retry, which loads the page again, since a browser never asks a second time for a
  * script it failed to load. While the dashboard server can't be reached, Retry waits for it
- * (`guard`): loading the page then would leave nothing but the browser's own error.
+ * (`guard`): loading the page then would leave nothing but the browser's own error. A part that opens
+ * on a press says the same in an error toast (pages/served.tsx).
  */
 export function LoadFailed({ what }: { what: string }) {
-  return <ErrorState retry={() => location.reload()}>{`This ${what}’s code didn’t come from the dashboard server. Retry loads the page again.`}</ErrorState>;
+  return <ErrorState retry={() => location.reload()}>{loadFailedText(what)}</ErrorState>;
 }
 
 export interface Step {

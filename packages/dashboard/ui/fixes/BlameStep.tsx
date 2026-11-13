@@ -18,9 +18,11 @@ import { navigate } from '../router.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { FoundCommitLine } from '../revert/FoundLine.js';
 import { useServedParts } from '../served-parts.js';
+import { ErrorPart } from '../tests/ErrorPart.js';
 import type { BlameCrash, BlameStep, FixDetail, FoundCommit } from '../types.js';
 import { type CallCell, callRowCells, headBlameNext, otherBlameWords, probeTone, probeVerdictWords } from './model.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
+import { judgeTip } from './parts.js';
 import { StepLead } from './StepLead.js';
 
 type Probe = BlameStep['probes'][number];
@@ -39,6 +41,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
   const probeGroups = (callNo: number): ProbeGroups | null => (groups?.blame?.blameId === b.blameId ? (groups.blame.probes.find((p) => p.callNo === callNo) ?? null) : null);
   return (
     <>
+      <OldCheckNote b={b} />
       <StepLead line={b.line} facts={<BlameFacts b={b} />} actions={<BlameLinks b={b} />} />
       {b.crash?.commit ? <BlameCommit found={b.crash.commit} /> : null}
       <div className="grid2 fxg secs">
@@ -59,6 +62,24 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
           ))}
         </ul>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Above the step, for a blame found under a check the fix had before: that check, in the Must line's
+ * words, and what runs under the fix's check now with its command (Run blame again, or with a
+ * stronger model for a blame no call rescued).
+ */
+function OldCheckNote({ b }: { b: BlameStep }) {
+  const old = b.oldCheck;
+  if (!old) return null;
+  return (
+    <>
+      <p className="fxreceipt fxold">
+        Found under the fix’s old check, <CodeText>{old.text}</CodeText>.{old.next ? (old.next === 'stronger' ? ' Its next steps run under the new one:' : ' Run blame again searches under the new one:') : null}
+      </p>
+      {old.command ? <CodeBox command={old.command} className="fxoldcmd" /> : null}
     </>
   );
 }
@@ -373,25 +394,44 @@ function checkNote(b: BlameStep, fix: FixDetail): ReactNode {
   return glossed(b.look ?? 'Asking any model call again did not let the run pass often enough: the cause may be before the first model call, in a tool, or in the check itself.');
 }
 
-/** For a blame that placed the failure on no call: what it checked, and how the recording failed it. */
+/**
+ * For a blame that placed the failure on no call: what it checked, and how the recording failed it,
+ * a crash with the exception its agent died of under that, as Tests' report names it.
+ */
 function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
   const note = checkNote(b, fix);
+  const error = b.crash?.error ?? null;
   return (
     <Section title="The check" sub="what a passing run must do">
       <div className="pbody">
         <ul className="fxlist">
-          {b.oracle.map((o) => (
-            <li key={o}>{o}</li>
-          ))}
+          {b.oracle.map((o) => {
+            // A judge's line carries its card: what it asks and reads, the model, and when it is asked.
+            const judge = b.judges.find((j) => j.label === o);
+            return (
+              <li key={o}>
+                {judge ? (
+                  <span tabIndex={0} data-tip={judgeTip(judge)}>
+                    {o}
+                  </span>
+                ) : (
+                  o
+                )}
+              </li>
+            );
+          })}
         </ul>
-        {b.recordedFailures.length ? (
+        {b.recordedFailures.length || error ? (
           <>
             <span className="lbl">As recorded</span>
-            <ul className="fxlist bad">
-              {b.recordedFailures.map((f) => (
-                <li key={f}>{f}</li>
-              ))}
-            </ul>
+            {b.recordedFailures.length ? (
+              <ul className="fxlist bad">
+                {b.recordedFailures.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            ) : null}
+            {error ? <ErrorPart part={error} id={`bte-${b.blameId}`} /> : null}
           </>
         ) : null}
         {note ? <Copy className="fxnote">{note}</Copy> : null}

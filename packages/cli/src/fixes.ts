@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { BLAME_DEFAULTS, ciProvider, commitTitle, fieldValue, messageOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, fieldValue, messageOf, outcomeOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { EXIT_LABEL } from './oracle.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -264,13 +264,14 @@ const runArgs = (r: RunSpecs): string[] => [...(r.fixes?.length ? ['--fixes', ..
 
 const gateArgs = (gate: SprtGate | null, attempts: number, passes: number | undefined) => gateFlags(gate, SPRT_DEFAULTS, { attempts, passes });
 
-export type VerifyFlags = StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean; margin?: number | undefined; baseline?: 'paired' | 'history' | undefined; base?: string | undefined; build?: string | null | undefined };
+export type VerifyFlags = StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; keptMax?: number | undefined; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean; margin?: number | undefined; baseline?: 'paired' | 'history' | undefined; base?: string | undefined; build?: string | null | undefined };
 
 /** Which model calls the change's fields change, and the tools it runs live. */
 const changeArgs = (f: VerifyFlags): string[] => [...(f.from ?? []).flatMap((m) => ['--from', m]), ...f.liveTools.flatMap((t) => ['--live-tool', t])];
 
 /** How good runs were kept, when given (against what, from which commit, by what margin), and the step's flags. */
 const keptArgs = (f: VerifyFlags): string[] => [
+  ...(f.keptMax !== undefined ? ['--kept-max', String(f.keptMax)] : []),
   ...(f.margin !== undefined ? ['--margin', String(f.margin)] : []),
   ...(f.baseline ? ['--baseline', f.baseline] : []),
   ...(f.base ? ['--base', f.base] : []),
@@ -366,8 +367,12 @@ export function recordBlameFix(
   }
 }
 
-/** Keeps a verify's verdict, whatever it was, and links it to the fix of its runs, with the flags it ran with (`verifyRerun`). */
-export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string; rerun?: StepRerun | null }): RecordedVerdict | null {
+/**
+ * Keeps a verify's verdict, whatever it was, and links it to the fix of its runs, with the flags it
+ * ran with (`verifyRerun`); a kept preview's verify names its session in the event, with the
+ * session's name and the runs it verified, which the feed words it by.
+ */
+export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string; rerun?: StepRerun | null; session?: string | null; name?: string | null }): RecordedVerdict | null {
   let store: Store | null = null;
   try {
     store = openStore(opts);
@@ -378,7 +383,7 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
       kind: `verify.${report.verdict}`,
       actor: actor(),
       ref: counted[0] ?? recorded.fixes[0]?.fix.fixId ?? recorded.verdict.verifyId,
-      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3) },
+      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3), ...(input.session ? { session: input.session, ...(input.name ? { name: input.name, runs: report.runs.length, outcomes: report.runs.map((r) => outcomeOf(r)) } : {}) } : {}) },
     });
     return recorded;
   } catch (err) {

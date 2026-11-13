@@ -31,7 +31,7 @@ function leadOf(w: LookWork, rec: FixRecords): FixLead | null {
   const repairer = w.repairer ?? null;
   const actions = fixActions(w.store, rec, { label: fixLabelInfo(w.store, rec.fix).label, repairer, patchInTree: w.patchInTree, rewriteHere: w.rewriteHere });
   const b = rec.fix.status === 'open' ? shownBlame(rec) : null;
-  return fixLead(rec, actions, { repairer, crash: b?.outcome === 'unrescuable' ? fixCrash(w.store, b, { work: w.next, reads: w.reads }) : null });
+  return fixLead(rec, actions, { repairer, crash: b?.outcome === 'unrescuable' ? fixCrash(w.store, b, { work: w.next, reads: w.reads }) : null, keptMax: w.keptMax ?? null });
 }
 
 /** Main's row, kept first under Failing: the fix's page says why it doesn't hold. */

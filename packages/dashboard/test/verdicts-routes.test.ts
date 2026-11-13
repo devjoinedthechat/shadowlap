@@ -217,3 +217,33 @@ describe('GET /api/verdicts/:rev', () => {
     expect(((await res.json()) as { error: string }).error).toBe('no change deadbee checked: no test session ran every golden at it');
   });
 });
+
+describe('a session’s pull request', () => {
+  let prStore: Store;
+  let prDash: Dashboard;
+  let bin = '';
+  beforeAll(async () => {
+    // gh, saying the pull request merged.
+    bin = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-verdicts-gh-')));
+    writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '{"state":"MERGED"}\\n'\n`, { mode: 0o755 });
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    prStore = Store.open(':memory:');
+    const s = prStore.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'a1a1a1a', actor: 'ci', startedAt: T0, owner: null });
+    goldens.forEach((g, i) => prStore.addTestResult({ sessionId: s.sessionId, golden: g.path, ok: !i, ...(i ? { failure: 'exit' as const, reason: 'the agent exited with code 1' } : {}), runId: null, revision: 'a1a1a1a', at: T0 + i + 1, data: { mode: 'replay', verdict: i ? 'failed' : 'passed' } }));
+    prStore.finishTestSession(s.sessionId, { passed: 1, failed: 1, upstreamRequests: 0, endedAt: T0 + 60_000 });
+    prStore.setTestSessionPullRequest(s.sessionId, { number: 142, url: 'https://github.com/northwind/support-agent/pull/142', source: 'GitHub Actions (pull_request)' });
+    prDash = await startDashboard({ store: prStore, spawnCli, project: { path: repo }, goldens: () => goldens });
+  });
+  afterAll(async () => {
+    await prDash?.close();
+    prStore?.close();
+    vi.unstubAllEnvs();
+    if (bin) rmSync(bin, { recursive: true, force: true });
+  });
+
+  it('is asked of gh once Verdicts shows its session, and the next read flags it merged while failing', async () => {
+    const first = await getJson<VerdictsView>(prDash, 'verdicts');
+    expect(first.rows).toMatchObject([{ kind: 'session', pullRequest: { number: 142, url: 'https://github.com/northwind/support-agent/pull/142', state: null }, flag: null }]);
+    await vi.waitFor(async () => expect((await getJson<VerdictRevision>(prDash, 'verdicts/a1a1a1a')).row).toMatchObject({ pullRequest: { number: 142, state: 'merged' }, flag: 'merged while failing' }), { timeout: 10_000, interval: 50 });
+  });
+});

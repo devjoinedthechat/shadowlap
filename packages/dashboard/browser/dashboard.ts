@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type Route } from '@playwright/test';
 import type { BrowserState } from './global-setup.js';
 
 /** What the browser tests share: the dashboard global-setup.ts started, how to start another, and how to read a page. */
@@ -55,7 +55,10 @@ export interface Served {
  */
 export async function serveDashboard(demo: string, project: string): Promise<Served & { stop: () => Promise<void> }> {
   const port = await freePort();
-  const env = { ...process.env, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
+  // No provider's key reaches the dashboard a test drives, so listing the models a switch can take, or
+  // anything else it does, never asks a real provider.
+  const keyless = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/_(API_KEY|AUTH_TOKEN)$/.test(k)));
+  const env = { ...keyless, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
   const child = spawn(process.execPath, [cli, 'dashboard', '--no-open', '--port', String(port)], { cwd: join(demo, project), env, stdio: ['ignore', 'ignore', 'pipe'] });
   const link = await new Promise<string>((resolve, reject) => {
     let said = '';
@@ -126,6 +129,14 @@ export async function openPage(page: Page, path: string, drawn: string, at: Serv
   // Fonts settle the layout that the fitted lines (about lines, hints) are measured against.
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page.waitForTimeout(150);
+}
+
+/** The server's answer to a routed request, changed by `patch`: asked whole (never a 304 with no body to change). */
+export async function patched<T>(route: Route, patch: (body: T) => unknown): Promise<void> {
+  const headers = Object.fromEntries(Object.entries(route.request().headers()).filter(([k]) => k !== 'if-none-match' && k !== 'if-modified-since'));
+  const res = await route.fetch({ headers });
+  const text = await res.text();
+  await route.fulfill(text ? { response: res, json: patch(JSON.parse(text) as T) } : { response: res });
 }
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');

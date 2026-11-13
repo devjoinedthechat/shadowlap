@@ -1,4 +1,4 @@
-import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
+import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, JUDGE_READS, judgeLabel, lostWords, madeUnderOldCheck, noRepairerOf, outcomeOf, parseExpect, type RepairCandidate, shownBlame, type StoredFix, type StoredRepair, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
 import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, notVerified, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
@@ -33,6 +33,8 @@ export interface FixRow {
   labels: string[];
   /** What a passing run does, in words. */
   check: string;
+  /** Its check's first judge, as the Must line's card says it (`judgeOf`), or null: a check with no judge, or one that doesn't parse. */
+  judge: FixJudge | null;
   /**
    * What its failing runs did, in the words blame titled the fix with when it opened it (`send_email
    * called twice, not once`): its title, until someone gives it one of their own. Without that
@@ -53,6 +55,14 @@ export interface FixRow {
   /** What everything behind it took: attempts that ran live, and what they and the repairer cost. */
   attempts: number;
   spent: number;
+}
+
+/** A judge of a fix's check: its label, the question it asks, what it reads and the model asked. */
+export interface FixJudge {
+  label: string;
+  question: string;
+  reads: string;
+  model: string;
 }
 
 export interface FixList {
@@ -98,7 +108,17 @@ function fixedKept(rec: FixRecords): { text: string; kept: number } {
   return { text: [fixed.size ? `${fixed.size} fixed` : '', kept.size ? `${kept.size} kept` : ''].filter(Boolean).join(' · ') || 'verified', kept: kept.size };
 }
 
+/**
+ * The Blame step, or, once the fix's check changed after its blame ran, the old check's: in amber,
+ * the step it was, and that blame again searches under the fix's check (madeUnderOldCheck, by key).
+ */
 function blameStepOf(rec: FixRecords): FixStep {
+  const st = blameStepUnder(rec);
+  const b = shownBlame(rec);
+  return b && madeUnderOldCheck(rec, b) ? { key: 'blame', n: '01', state: 'warn', short: 'old check', title: 'Found under the old check', meta: `${st.short} · blame again under this one` } : st;
+}
+
+function blameStepUnder(rec: FixRecords): FixStep {
   const b = shownBlame(rec);
   if (!b) return { key: 'blame', n: '01', state: 'todo', short: 'not blamed', title: 'Not blamed yet', meta: 'find the call that lost the run' };
   const r = b.report;
@@ -109,6 +129,13 @@ function blameStepOf(rec: FixRecords): FixStep {
   // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
   if (b.outcome === 'unrescuable') return { key: 'blame', n: '01', state: 'warn', short: blameStateWord('unrescuable', unsettledFirst(r)), title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
   return { key: 'blame', n: '01', state: 'warn', short: blameStateWord('stopped', false), title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
+}
+
+/** Why a repair's change doesn't count for the fix, after its meta: verified under the fix's old check, or under another; nothing when it counts. */
+function uncountedRepair(rec: FixRecords, p: StoredRepair): string {
+  if (repairCounts(rec, p)) return '';
+  const old = rec.verdicts.some((v) => v.repairId === p.repairId && rec.standing.get(v.verifyId)?.why === 'old-check');
+  return old ? ' · verified under its old check' : ' · verified under another check';
 }
 
 /** A change made by hand, which verify checked: Repair says so (`by hand`), beside what a repair that ran left, if one did. */
@@ -125,7 +152,7 @@ function repairStepOf(rec: FixRecords): FixStep {
   if (p && c) {
     const n = p.report.candidates.length;
     const by = repairerLabel(p);
-    return { key: 'repair', n: '02', state: 'done', short: changeKind(c), title: commitTitle(c), meta: `candidate ${p.report.candidates.indexOf(c) + 1} of ${n} · ${by ? `proposed by ${by}` : (noRepairerOf(p.report)?.text ?? 'no repairer needed')}${repairCounts(rec, p) ? '' : ' · verified under another check'}` };
+    return { key: 'repair', n: '02', state: 'done', short: changeKind(c), title: commitTitle(c), meta: `candidate ${p.report.candidates.indexOf(c) + 1} of ${n} · ${by ? `proposed by ${by}` : (noRepairerOf(p.report)?.text ?? 'no repairer needed')}${uncountedRepair(rec, p)}` };
   }
   if (!p) return counting(rec).some((v) => v.repairId === null) ? byHand('verify checks it; repair hasn’t run') : { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: 'repair proposes a prompt change' };
   const tried = p.report.candidates.filter((x) => x.state !== 'invalid' && x.state !== 'untried').length;
@@ -134,6 +161,13 @@ function repairStepOf(rec: FixRecords): FixStep {
   const meta = p.report.candidates.length ? `${tried} candidate${s(tried)} tried, none accepted${none ? ` · ${none}` : ''}` : (none ?? p.report.why ?? 'the repair found nothing to try');
   return acceptedVerdict(rec)?.repairId === null ? byHand(meta) : { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta };
 }
+
+/** The Verify step's meta when its newest verdict doesn't count, by why. */
+const UNCOUNTED_META: Partial<Record<string, string>> = {
+  'another-check': 'verified only under another check',
+  'old-check': 'verified only under its old check',
+  'already-passing': 'verified only on runs that already passed',
+};
 
 function verifyStepOf(rec: FixRecords): FixStep {
   const v = acceptedVerdict(rec);
@@ -154,7 +188,7 @@ function verifyStepOf(rec: FixRecords): FixStep {
   }
   if (rec.verdicts.length) {
     const why = rec.standing.get(rec.verdicts.at(-1)!.verifyId)?.why;
-    return { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: why === 'another-check' ? 'verified only under another check' : why === 'already-passing' ? 'verified only on runs that already passed' : 'no verdict on its runs yet' };
+    return { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: (why && UNCOUNTED_META[why]) ?? 'no verdict on its runs yet' };
   }
   return { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: 'checks a fix before it ships' };
 }
@@ -201,6 +235,23 @@ export function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, str
   return opening().get(f.fixId) ?? rec.blames.map((b) => b.report.recordedFailures?.[0]).find((x): x is string => typeof x === 'string' && x.trim() !== '') ?? null;
 }
 
+/**
+ * Each judge of a check, the first first, as its card says it: none for a check with none, or one
+ * that doesn't parse, which a pulled one may not (a teammate's store can hold anything).
+ */
+export function judgesOf(expect: unknown): FixJudge[] {
+  let judges;
+  try {
+    judges = expect === null ? undefined : parseExpect(expect, 'expect').judge;
+  } catch {
+    return [];
+  }
+  return (judges ?? []).map((j) => ({ label: judgeLabel(j), question: j.question, reads: JUDGE_READS.find(([of]) => of === j.of)?.[1] ?? j.of, model: j.model }));
+}
+
+/** The first judge of a check (`judgesOf`), or null. */
+export const judgeOf = (expect: unknown): FixJudge | null => judgesOf(expect)[0] ?? null;
+
 export function rowOf(store: StoreOf<'recording' | 'activity' | 'fixes'>, rec: FixRecords, opening: () => ReadonlyMap<string, string> = openingTitles(store)): FixRow {
   const f = rec.fix;
   const cost = fixCost([rec]);
@@ -213,6 +264,7 @@ export function rowOf(store: StoreOf<'recording' | 'activity' | 'fixes'>, rec: F
     label,
     labels,
     check: f.check.text,
+    judge: judgeOf(f.check.expect),
     failed: failedOf(rec, opening),
     failing: rec.failing.length,
     good: rec.good.length,

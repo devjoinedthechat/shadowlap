@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import { previewRedaction, regexProblem, type Normalizer, type RedactionPreview, type Store } from '@shadowlap/engine';
+import { previewKeepingCanaries, regexProblem, type Normalizer, type RedactionPreview, type Store } from '@shadowlap/engine';
 
 /**
  * The Redaction tab's preview, read where it can't hold up the dashboard server: every rule runs
@@ -37,7 +37,10 @@ export interface PreviewWork {
 }
 
 /** What it posts back: that the store is open (its reading starts), then the preview or why there is none. */
-export type PreviewAnswer = { type: 'open' } | { type: 'answer'; ok: true; preview: RedactionPreview } | { type: 'answer'; ok: false; error: string; busy: boolean };
+/** The preview as a copy of the run counts it: the run's own canaries kept, and how many a rule would have masked (previewKeepingCanaries). */
+export type KeptPreview = RedactionPreview & { kept: number };
+
+export type PreviewAnswer = { type: 'open' } | { type: 'answer'; ok: true; preview: KeptPreview } | { type: 'answer'; ok: false; error: string; busy: boolean };
 
 /** The store is busy, as SQLite says when another command held it past its wait. */
 export const BUSY = /database is locked|SQLITE_BUSY/i;
@@ -81,12 +84,12 @@ export async function previewsEnded(): Promise<void> {
  * (422, naming a rule whose pattern repeats a repeated group), when the page stopped waiting
  * (`signal`), or with what the worker said.
  */
-export function previewApart(work: { dbPath: string; runId: string; rules: Normalizer[] }, o: { signal?: AbortSignal; limits?: PreviewLimitsConfig } = {}): Promise<RedactionPreview> {
+export function previewApart(work: { dbPath: string; runId: string; rules: Normalizer[] }, o: { signal?: AbortSignal; limits?: PreviewLimitsConfig } = {}): Promise<KeptPreview> {
   const limits = o.limits ?? PREVIEW_LIMITS;
   if (o.signal?.aborted) return Promise.reject(new PreviewError(499, 'the page stopped waiting for the preview'));
   if (reading >= limits.workers) return Promise.reject(new PreviewError(503, 'Other previews are still being read: pick the run again in a moment.'));
   reading++;
-  return new Promise<RedactionPreview>((resolve, reject) => {
+  return new Promise<KeptPreview>((resolve, reject) => {
     const data: PreviewWork = { ...work, limits: { maxCalls: limits.maxCalls, maxBytes: limits.maxBytes, softMs: limits.softMs } };
     // A heap of its own, capped: a preview never takes the server's memory with it.
     const worker = new Worker(workerScript(), { workerData: data, resourceLimits: { maxOldGenerationSizeMb: 512 } });
@@ -124,8 +127,8 @@ export function previewApart(work: { dbPath: string; runId: string; rules: Norma
  * The preview in this thread, within the same limits but for the one that ends a call taking too
  * long: for a store with no file of its own, which a worker can't open (a store in memory).
  */
-export function previewHere(store: Store, runId: string, rules: Normalizer[], limits: PreviewLimitsConfig = PREVIEW_LIMITS): RedactionPreview {
-  return previewRedaction(store, runId, rules, { maxCalls: limits.maxCalls, maxBytes: limits.maxBytes, deadline: Date.now() + limits.softMs });
+export function previewHere(store: Store, runId: string, rules: Normalizer[], limits: PreviewLimitsConfig = PREVIEW_LIMITS): KeptPreview {
+  return previewKeepingCanaries(store, runId, rules, { maxCalls: limits.maxCalls, maxBytes: limits.maxBytes, deadline: Date.now() + limits.softMs });
 }
 
 /**

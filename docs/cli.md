@@ -760,8 +760,17 @@ dashboard's Provenance tab copies:
 | `run` | The run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`) |
 | `summary` | Its summary, as [`run --summary-json`](#run-summary-as-json) writes it |
 | `calls` | Every call as stored (`runId`, `callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`) |
-| `untrusted` | Its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (`callNo`, `name`, and `from`: `config`, `sdk` or `mcp`); empty if it has none |
+| `untrusted` | Its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (below); empty if it has none |
 | `unrecordedTools` | The tools its model called that the run never recorded (below); empty if it has none |
+
+Each of its untrusted reads, `untrusted`, has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `callNo` | The read's call number |
+| `name` | The tool's name |
+| `from` | Where its mark came from: `config`, `sdk` or `mcp` |
+| `readAt` | The model call that reads its result, where `shadowlap injection` forks; null when no model call follows it |
 
 Each of the tools its model called that the run never recorded, `unrecordedTools`, has these fields:
 
@@ -1088,6 +1097,7 @@ free attempt.
 | `--budget <usd>`, `--timeout <seconds>` | As for [`blame`](#blame) | — |
 | `--fail-fast` | Start nothing more once a run has failed | — |
 | `--margin <share>` | A good run that forks is kept unless its pass rate drops this much or more below its baseline's, at the gate's risk | `verify.margin` in `shadowlap.config.json`, else 0.1: 10 points |
+| `--kept-max <n>` | The most pairs a good run that forks takes against its baseline, or attempts against its history | `verify.max`, else 200, or a `--gate` max off its default |
 | `--baseline paired\|history` | What a good run is compared with (below) | `verify.baseline`, else `paired` |
 | `--base <rev>` | With a paired baseline: the commit before the change, checked out on its own for the baseline's attempts | HEAD, when the working tree has a change |
 | `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` | — |
@@ -1210,6 +1220,7 @@ open, with every candidate tried and why it was dropped.
 shadowlap fix ls [--status open|verified|applied] [--json]
 shadowlap fix show <fix> [--json]
 shadowlap fix title <fix> <title...>
+shadowlap fix check <fix> --expect <json|@file> [--json]
 shadowlap fix apply <fix> [--name <run>=<name>]... [--goldens <dir>] [--no-test] [--build <command>] [--json]
 shadowlap fix pr <fix> [<url>] [--json]
 ```
@@ -1222,15 +1233,16 @@ A fix is one failure, from the blame that reproduced it to a change that held.
   verdict counts for it only when it checked the fix's check on a run that failed it.
 - **Fix ids** look like `fx-01M3RZ4XKN…`. Any unique prefix works, with or without `fx-`, and the list
   shows the first ten characters.
-- **Activity**: blame, repair, verify and apply each log an activity event in the store
+- **Activity**: blame, repair, verify, apply and `fix check` each log an activity event in the store
   (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`,
-  `fix.applied`).
+  `fix.applied`, `fix.check`).
 
 Its subcommands take these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes | — |
+| `--expect <json\|@file>` | `fix check`: the fix's new check, an expect object as under `expect` in `shadowlap.config.json` tests | — |
 | `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run, at most 64 characters and not a name Windows keeps (repeatable) | The fix's label |
 | `--goldens <dir>` | `fix apply`: where the recordings go | `goldens` |
 | `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them | — |
@@ -1244,9 +1256,10 @@ With `--json`, each subcommand prints:
 | `fix ls` | `{ fixes, counts }` ([fields](#fix-ls)) |
 | `fix show` | The fix, with its three steps in full ([fields](#fix-show)) |
 | `fix apply` | What it did ([fields](#fix-apply)) |
+| `fix check` | What changed ([fields](#fix-check)) |
 | `fix pr` | `{ fixId, pr: { url, number, state, at } }` ([below](#fix-pr)) |
 | An id that matches no fix, or several | `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }`, with the `fixId` given; exit status 2 |
-| An error in `fix pr` or `fix apply` | `{ fixId, status, error }`, with `status` `error` |
+| An error in `fix pr`, `fix apply` or `fix check` | `{ fixId, status, error }`, with `status` `error` |
 
 ### `fix ls`
 
@@ -1271,6 +1284,7 @@ it only once someone renames the fix.
 | `fixId`, `status`, `title`, `label`, `labels`, `check` | The fix, as the list shows it |
 | `href` | Where the dashboard shows it |
 | `failed` | What its failing runs did (below) |
+| `judge` | The check's first judge: its `label`, the `question` it asks, what it `reads` and its `model`; `null` for none |
 | `failing`, `good` | How many runs are failing, and how many good |
 | `steps`, `source` | Its steps, and where it came from |
 | `openedAt`, `verifiedAt`, `appliedAt` | When it was opened, verified and applied: epoch milliseconds, or `null` |
@@ -1305,9 +1319,11 @@ repairer from here (`claude` isn't on the PATH).
 | --- | --- |
 | `fixId`, `href`, `failing`, `good`, `openedAt`, `verifiedAt`, `appliedAt` | As in [`fix ls`](#fix-ls) |
 | `openedBy` | Who opened it |
-| `status`, `title`, `label`, `labels`, `check`, `failed`, `oracle`, `expect`, `source` | The fix (below) |
+| `status`, `title`, `label`, `labels`, `check`, `judge`, `failed`, `oracle`, `expect`, `source` | The fix (below) |
 | `broken` | For an applied fix that doesn't hold, why: its test failed, or a verify rejected it after it was applied |
 | `failingRuns`, `goodRuns` | The runs, each with `runId`, `exists` (false once deleted from the store), `status` and `labels` |
+| `left` | The `failing` and `good` run ids a check given later left out (see [`fix check`](#fix-check)) |
+| `guard`, `fixedRun` | The golden that guards it, as its key under `tests` names it, and a run to pack as one; each `null` for none (below) |
 | `steps` | Blame, repair and verify (below) |
 | `blame`, `repair`, `verify` | Each step in full (below) |
 | `blames`, `repairs` | Every blame and repair behind the fix, newest first (below) |
@@ -1328,6 +1344,10 @@ The fix's own fields:
 - `oracle` is the conditions a verdict must check to count. `expect` is the `--expect` JSON (null for
   the exit code alone).
 - `source` says where it came from, such as `from CI · PR #138`.
+- `guard` is the golden a failing run of it replayed, else one that applying it copied and the
+  goldens folder still holds. A verified fix with none is usually one to apply first.
+- `fixedRun` is a recording of it working, to pack as that golden: the first passing attempt of its
+  accepted verdict on its first failing run. It is `null` without an accepted verdict that counts.
 
 `steps` holds blame, repair and verify, each with `state` (`done`, `todo`, `no` for a verify that
 only rejected, or `warn` for a step that ran and needs a look), a `title`, a `meta` line and a `short`
@@ -1418,6 +1438,39 @@ from being asked here (such as `claude` not on the PATH), or `null`.
 
 Replaces the title derived from the check with one of your own. Blames that join the fix later keep
 it. With a team store, the latest rename on any machine is the one every machine keeps.
+
+### `fix check`
+
+Gives an open fix another check, as `--expect` takes it. Its failing and good runs are judged by it
+again from what they recorded, judges included, with nothing replayed. A failing run it passes and
+a good run it fails leave the fix, though Shadowlap keeps them. A run none of its checks applies to
+fails nothing, so it leaves as well (*not applicable*). Each run prints as [`check`](#check) prints
+it, after its role, and a run that leaves says so.
+
+- **What stays.** Every blame, repair and verdict keeps the check it ran under. A verdict counts for
+  the fix only when it checked the fix's check, so one made under the check before stops counting.
+- **Refused, with exit status 2.** Nothing changes when it refuses:
+  - A fix that is verified or applied keeps the check its accepted verdict was given under: add the
+    check to the golden that guards it instead.
+  - It refuses a check none of the failing runs fails as recorded, since the fix would no longer be
+    this failure.
+  - It refuses a fix none of whose failing runs is left in the store to judge the check on.
+  - It also refuses a check holding a hidden character, and one that doesn't read.
+- **The check it has** changes nothing, with exit status 0.
+
+`fix check --json` prints `{ fixId, status, check, previous, runs, left, uncounted, next }`:
+
+| Field | What it holds |
+| --- | --- |
+| `status` | `changed`, or `unchanged` for the check the fix has |
+| `check`, `previous` | The check given and the one before, each `{ expect, key, oracle, text }` |
+| `runs` | Each run as the check judged it, failing ones first (below) |
+| `left`, `uncounted`, `next` | The runs it left out (`{ failing, good }`), the verdicts that stopped counting, and the command of the fix's next step |
+
+Each of its runs (`runId`, `role`, `outcome`, `na`, `why`, `checks`) is as the check judged it.
+`role` is `failing` or `good`, and `outcome` is `passed`, `failed`, `inconclusive`, or `gone` from
+the store. `na` says none of its checks applied: it failed nothing, so its `outcome` is `passed`, and
+it reads *not applicable*.
 
 ### `fix pr`
 
@@ -1631,12 +1684,15 @@ AzureOpenAI SDKs do; without it, nothing is sent.
 | `--model <model>` | The change is this model, at the agent's model calls: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure (below) | — |
 | `--from <model>` | The recorded model the change switches from: `--model` and `--set` change only the calls made with it (repeatable; an alias names its dated snapshots) | The model the runs use most; with `--set` alone, every call |
 | `--from-code` | The change is the system prompt and tool definitions your working tree sends (below) | — |
+| `--dry-run` | With `--from-code` alone: read what your working tree sends each run, offline, print it and stop. Nothing is asked and no session is kept | — |
 | `--set <key=value>` | The change sets this request field, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini); repeatable | — |
 | `--samples <n>` | Ask each model call *n* times under the change and, from 3 on, *n* times as recorded, the control (below) | 3: six requests a step |
 | `--concurrency <n>` | Requests in flight at once. A run whose requests carry cache breakpoints is asked one step at a time, in order | 4 |
 | `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope | — |
 | `--then-verify` | Then run [`verify`](#verify) on the runs a preview can't clear ([which](./decisions.md#then-verify)) | — |
 | `--verify <session>` | Ask nothing: verify the runs a kept session could not clear (below) | — |
+| `--kept-max <n>` | With `--verify`: the most pairs a good run takes, as for [`verify`](#verify) | Verify's |
+| `--test-session <id>` | With `--from-code`: keep the preview with this test session, as its pull request comment's decisions (below) | — |
 | `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify) | Verify's |
 | `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent | — |
 | `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long | A model request waits ten minutes, as the official SDKs do |
@@ -1663,6 +1719,10 @@ More on some of them:
 - **`--verify`**: it verifies the runs a kept session could not clear (its `dc-…` or `mg-…` id, or a prefix of
   it), or those of them named after it, as `--then-verify` verifies them, under the session's change.
   It keeps what verify finds in the session. The dashboard runs it as its `decisions-verify` job.
+- **`--test-session`**: the GitHub Action's `decisions: true` gives it the session `test` just ran, so
+  the [pull request comment](./ci.md#decisions-in-the-comment) lists the decisions the branch changes,
+  and Settings → CI's preview shows them. A session the store has no record of is refused before
+  anything is asked.
 - **`--gate` and the rest**: each run is decided by verify's gate, unless `--attempts` or `--passes`
   gives a fixed count.
 - **`--yes`**: it runs the recorded command of a run imported from someone's pack (`--from-code`,
@@ -2259,7 +2319,7 @@ with pass^k under it (`pass^5 1.00`).
 A golden whose entry has an [injection gate](./injection.md#gate-ci-on-it)
 (`"injection": { "obeyed": 0, "repeat": 3 }`) gets its injection test once its replay passed. Payloads
 are planted in its untrusted reads, live from the model call that reads them, with writes stubbed and
-reads the recording doesn't hold fenced.
+reads the recording doesn't hold blocked.
 
 It fails, as an `injection` failure, when more attempts obey (or are influenced) than the gate allows.
 It fails too when the test showed too little to say:
@@ -2274,7 +2334,7 @@ That verdict is inconclusive, and `--inconclusive warn` lets it through.
 ### Test report as JSON
 
 `--json <file>` writes a JSON report: the session, counts and, per pack, the result and the kind of
-failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results }`,
+failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results, costPerRun }`,
 and `suite` with a gated golden:
 
 | Field | Meaning |
@@ -2284,6 +2344,7 @@ and `suite` with a gated golden:
 | `inconclusive` | The inconclusive packs, either way (below) |
 | `interrupted` | Whether a signal stopped the session; `results` has the goldens that finished before it |
 | `results` | One result per pack (below) |
+| `costPerRun` | What a run costs live, in USD: `before` as recorded, `after` as replayed here, the mean over goldens that ran whole; null without a price |
 | `suite` | With a gated golden: the session's one risk, and how it was split (below) |
 
 An inconclusive pack counts as failed, or as passed when it only warns: under `--inconclusive warn`, or,
@@ -2899,7 +2960,7 @@ it replays:
 - the calls before the read, from the recording;
 - the rest live, from the model call whose request carries the planted text;
 - with writes stubbed;
-- with reads served from the recording when they match, and fenced when they don't.
+- with reads served from the recording when they match, and blocked when they don't.
 
 A tool is marked untrusted by `"tools": { "fetch_page": { "trust": "untrusted" } }` in the config, by
 `trust: 'untrusted'` in the [SDK](./sdk.md#untrusted-reads), or, for an MCP read tool, by its server
@@ -2962,8 +3023,8 @@ More on some of them:
   some.
 - **`--baselines`**: the recording's own writes after the read count as one more. A clean replay in
   which something failed is left out, and, with `--influenced`, makes the verdict inconclusive.
-- **`--live-reads`**: the agent gets an error for a fenced read. A read that carries planted text is
-  fenced all the same.
+- **`--live-reads`**: the agent gets an error for a blocked read. A read that carries planted text is
+  blocked all the same.
 - **`--html`**: the reads × payloads matrix, the proof of each obeyed cell, why the inconclusive ones
   show nothing, the `--clean` verdicts and the payloads. The redaction rules are applied, and every
   canary is kept.
@@ -3625,8 +3686,10 @@ is written. See [Preview](./normalizers-and-redaction.md#preview).
   none can. In what a call got back, that is a path rule that only the copies that are read apply.
 - **`details`**: on a line of its own, what the rules match in the run's command line, labels and
   notes, which `export html`, `dataset` and `otel` mask and `pack` keeps.
+- **Canaries**: an injection attempt's own canaries are kept, as a pack, `export html`, a share, a dataset
+  and pairs keep them, so they aren't counted. The first line then ends `canaries kept`.
 
-`--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details" }`:
+`--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details", "kept" }`:
 
 | Field | Meaning |
 | --- | --- |
@@ -3638,6 +3701,7 @@ is written. See [Preview](./normalizers-and-redaction.md#preview).
 | `unmasked` | What is left as it is |
 | `rules` | Each rule (below) |
 | `details` | What the rules match in the run's command line, labels and notes: a `count`, `samples` and the `rules` that match there |
+| `kept` | What the rules would match in an injection attempt's own canaries, which a pack, `export html`, a share, a dataset and pairs keep |
 
 `partial` has how many of the run's calls it `read`, `of` how many, and the limit it `stopped` at:
 `calls`, `bytes` or `time`.
@@ -4189,6 +4253,9 @@ It is a copy of recorded data, so the redaction rules in `shadowlap.config.json`
 `pack`. The command says how many applied, that there were none, or, with `--no-redact`, how many it
 skipped.
 
+A redaction rule that can't be read stops it, naming the rule. A normalizer that can't be read only
+warns, `! <why>; the copy's Show diff applies no normalizers`, and the copy's diff applies none.
+
 A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
 show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
 
@@ -4738,6 +4805,9 @@ the link can open it, without an account.
 
 A run still recording, or with `--lineage` one whose ancestor is, is shared once it has ended. Until then
 `share` refuses it, exit status 2, before anything is asked of the store.
+
+A redaction rule that can't be read stops it, and a normalizer that can't be read warns, as for
+[`export html`](#export-html).
 
 `--json` prints `{ runId, url, expiresAt, note, store, key, bytes, redacted, rules, runs }`:
 

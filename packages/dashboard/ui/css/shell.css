@@ -148,7 +148,7 @@ a.livechip:hover { color: var(--ink); }
 .run .r2 em.inc { color: var(--warn); }
 /* a line with no room even for its shortest form gives its place up, and its dot goes with it; before it does, the status after
    it gives way, first to its word ("check failed" keeps "failed"), then altogether (fitAbouts) */
-.rab:empty + .r2s .dot { display: none; }
+.rab:is(:empty, [data-gone]) + .r2s .dot { display: none; }
 [data-gives][data-give] .sgw, [data-gives][data-give="2"] { display: none; }
 
 /* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something

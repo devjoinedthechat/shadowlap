@@ -1,0 +1,118 @@
+import type { ComponentProps } from 'react';
+import type { RunOffers } from '../api.js';
+import { ConfirmDialog, ConsentDialog, PromptDialog, type WayOn } from '../components/Dialog.js';
+import { namedIn } from '../components/Id.js';
+import { goldenName, shortId } from '../format.js';
+import { ACTIONS, confirmWords } from '../labels.js';
+import type { NextStep } from '../types.js';
+import { gateEntry, stepCostLine } from './next-step.js';
+import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share-steps.js';
+
+/*
+ * The dialogs the run page's steps ask in, Pack as golden…'s too: rarely opened, so a part of their
+ * own, which only the served dashboard hands in (served-parts.ts, from pages/served.tsx). A copy's
+ * run page draws no step that asks, so its script holds none of them (test/ui-exported-copy.test.ts). The buttons stay where they show (NextStepButton.tsx, PackAsGolden.tsx), and so does what
+ * each answer runs, so a dialog closed, or a consent asked after it, reads as it did.
+ */
+
+type Step<K extends NextStep['key']> = Extract<NextStep, { key: K }>;
+type Run = ComponentProps<typeof PromptDialog>['onRun'];
+
+/** What a step asks, with what its answer runs. */
+export type StepAsk =
+  | { kind: 'update'; step: Step<'normalizer' | 'update-golden'>; onOk: WayOn }
+  | { kind: 'injection'; step: Step<'injection-test' | 'injection-again'>; onOk: WayOn }
+  | { kind: 'pack-gate'; step: Step<'pack-gate'>; offers: RunOffers | null; onRun: Run }
+  | { kind: 'pack'; runId: string; dir: string; refused: string | null; offers: RunOffers | null; onRun: Run }
+  | { kind: 'consent'; why: string; ok: string; onOk: WayOn };
+
+export interface StepDialogProps {
+  ask: StepAsk;
+  onClose: () => void;
+}
+
+/** What a step that tests for injection says it does: a test run again plants what the last one planted. */
+const INJECTION_LEADS: Record<'injection-test' | 'injection-again', string> = {
+  'injection-test': 'Plants each payload, with its own canary, in the run’s untrusted reads and runs the agent from the call that reads it.',
+  'injection-again': 'Plants the same payloads in the same reads again.',
+};
+
+const CHANGES = { label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' };
+const packRules = (offers: RunOffers | null) => redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null);
+
+export function StepDialog({ ask, onClose }: StepDialogProps) {
+  switch (ask.kind) {
+    case 'update': {
+      const { step } = ask;
+      return (
+        <ConfirmDialog
+          title={`Update ${goldenName(step.golden)}?`}
+          lead={step.sub ? `${step.sub}.` : `Re-records ${goldenName(step.golden)}, for a change you meant.`}
+          doc="goldenUpdates"
+          command={step.command ?? null}
+          cost={stepCostLine(step)}
+          ok={step.label}
+          onClose={onClose}
+          onOk={ask.onOk}
+        />
+      );
+    }
+    case 'injection': {
+      const { step } = ask;
+      const id = shortId(step.runId);
+      return (
+        <ConfirmDialog
+          title={namedIn(`${confirmWords(step.label)} on ${id}`, id)}
+          lead={INJECTION_LEADS[step.key]}
+          doc="injectionTests"
+          warn={step.sub ? { text: step.sub } : null}
+          command={step.command ?? null}
+          cost={stepCostLine(step)}
+          ok={confirmWords(step.label)}
+          onClose={onClose}
+          onOk={ask.onOk}
+        />
+      );
+    }
+    case 'pack-gate': {
+      const { step } = ask;
+      const id = shortId(step.runId);
+      return (
+        <PromptDialog
+          title={namedIn(`Pack ${id} with injection gate?`, id)}
+          lead="Packs the run as a golden that fails while a tool call carries a planted payload’s canary."
+          doc="injectionGate"
+          facts={[CHANGES, PACK_HOLDS, packRules(ask.offers), { label: 'Then', value: 'you add the entry below to `shadowlap.config.json`', quiet: 'it gives the golden its gate' }]}
+          label="Folder, inside the project"
+          initial={step.folder}
+          command={(dir) => packRunCommand(step.runId, dir)}
+          after={(dir: string) => <pre className="codebox gateentry">{gateEntry(dir || '…', step.gate)}</pre>}
+          cost={stepCostLine(step)}
+          ok={confirmWords(step.label)}
+          onClose={onClose}
+          onRun={ask.onRun}
+        />
+      );
+    }
+    case 'pack': {
+      const id = shortId(ask.runId);
+      return (
+        <PromptDialog
+          title={namedIn(`Pack ${id} as golden?`, id)}
+          lead="Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit."
+          doc="makeGolden"
+          {...(ask.refused ? { warn: { text: ask.refused, written: true } } : {})}
+          facts={[CHANGES, PACK_HOLDS, packRules(ask.offers)]}
+          label="Golden"
+          initial={ask.dir}
+          command={(dir) => ({ command: packTestCommands(ask.runId, dir) })}
+          ok={confirmWords(ACTIONS.packAsGolden.label)}
+          onClose={onClose}
+          onRun={ask.onRun}
+        />
+      );
+    }
+    case 'consent':
+      return <ConsentDialog why={ask.why} ok={ask.ok} onClose={onClose} onOk={ask.onOk} />;
+  }
+}

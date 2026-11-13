@@ -30,6 +30,7 @@ import { appliedButton, failingLine, fixAction, fixName, fixStamp, headBlameNext
 import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
 import { failingCard, leadCard, rungStatus, STEP_NAMES } from './list.js';
 import { useFixRead, useFollowJobs } from './page-fix.js';
+import { MustCheckLink, useFixCheckEntry } from './check-entry.js';
 import { FailedMust, FixTitle } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useServerJobs, useTreeBusy } from './tree.js';
@@ -196,9 +197,9 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
             </ActionButton>
           )}
         </p>
-        {/* What failed and what it must do, as the list says it: the title says what failed until someone renames it. */}
+        {/* What failed and what it must do, as the list says it: the title says what failed until someone renames it; then the way to change it. */}
         <p className="chk">
-          <FailedMust fix={fix} />
+          <FailedMust fix={fix} tail={<MustCheckLink fix={fix} />} />
         </p>
         {fix.broken ? <p className="fxbad">This fix doesn’t hold: {fix.broken}.</p> : null}
       </div>
@@ -357,10 +358,14 @@ function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { sh
   const blameNext = headBlameNext(fix);
   const left = spent && !shown && (lime?.key === 'more' || lime?.key === 'again') ? fix.verify.find((v) => v.verifyId === lime.verifyId) : undefined;
   const none = fixAction(fix);
+  // A spent repair's way out, in the notice its press raises: change what the fix must do.
+  const check = useFixCheckEntry(fix);
+  const out = spent && check && !check.wait ? { label: check.label, run: check.open } : undefined;
   return (
     <>
+      {check?.node}
       {repair ? (
-        <ActionButton className={lime?.key === 'repair' ? 'btn lime' : 'btn'} why={spent ? REPAIR_SPENT.why : why} whyTip={spent ? REPAIR_SPENT.tip : undefined} {...repairCard(fix, 'repair', aside, prices)} onClick={() => ask('repair')}>
+        <ActionButton className={lime?.key === 'repair' ? 'btn lime' : 'btn'} why={spent ? REPAIR_SPENT.why : why} whyTip={spent ? REPAIR_SPENT.tip : undefined} whyAct={out} {...repairCard(fix, 'repair', aside, prices)} onClick={() => ask('repair')}>
           {ACTIONS.runRepair.label}
         </ActionButton>
       ) : (

@@ -75,11 +75,12 @@ describe('a cell, a range and the next step, worked out', () => {
     expect([cellWeight(cell({ state: 'left', rank: null })), cellWeight(cell({ state: 'not-asked', rank: null })), cellWeight(cell({})), cellWeight(cell({ state: 'noise', rank: null })), cellWeight(cell({ state: 'ranked', rank: 5 })), cellWeight(cell({ state: 'ranked', rank: 1 }))]).toEqual([0, 1, 2, 2.5, 3, 8]);
   });
 
-  it('picks one next step: Verify the runs left, else Run more attempts, else Migrate, else none', () => {
-    expect(nextStep({ verify: { runs: ['a', 'b'], every: true, gone: 0 }, more: [], migrate: null })).toEqual({ kind: 'verify', label: 'Verify 2 runs', runs: ['a', 'b'], every: true, gone: 0 });
-    expect(nextStep({ verify: null, more: ['b'], migrate: { to: 'claude-haiku-4-5', from: [], goldens: [], runs: ['b'] } })).toEqual({ kind: 'more', label: 'Run more attempts', runs: ['b'] });
-    expect(nextStep({ verify: null, more: [], migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund'], runs: [] } })).toMatchObject({ kind: 'migrate', label: 'Migrate to claude-haiku-4-5' });
-    expect(nextStep({ verify: null, more: [], migrate: null })).toBeNull();
+  it('picks one next step: Verify the runs left, else Run more attempts or Verify again, else Migrate, else none', () => {
+    expect(nextStep({ verify: { runs: ['a', 'b'], every: true, gone: 0 }, more: null, migrate: null })).toEqual({ kind: 'verify', label: 'Verify 2 runs', runs: ['a', 'b'], every: true, gone: 0 });
+    expect(nextStep({ verify: null, more: { kind: 'more', runs: ['b'], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' }, migrate: { to: 'claude-haiku-4-5', from: [], goldens: [], runs: ['b'] } })).toEqual({ kind: 'more', label: 'Run more attempts', runs: ['b'], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' });
+    expect(nextStep({ verify: null, more: { kind: 'again', runs: ['b'], max: null, keptMax: null, flags: [], attempts: 4, limit: '' }, migrate: null })).toMatchObject({ kind: 'more', label: 'Verify again', runs: ['b'] });
+    expect(nextStep({ verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund'], runs: [] } })).toMatchObject({ kind: 'migrate', label: 'Migrate to claude-haiku-4-5' });
+    expect(nextStep({ verify: null, more: null, migrate: null })).toBeNull();
     expect([verifyLabel(1), verifyLabel(3)]).toEqual(['Verify 1 run', 'Verify 3 runs']);
   });
 
@@ -173,7 +174,7 @@ describe('the Preview page', () => {
 
   const listed = (): DecisionSessionView => ({ sessionId: ID, kind: 'decisions', at: AT, change: 'the model claude-haiku-4-5', name: 'Model switch to claude-haiku-4-5', runs: 2, goldens: 1, unit: 'run', samples: 2, flagged: 1, actor: null, revision: null, href: `#/changes/decisions/${ID}` });
   const app = (client: Partial<Client>): AppState =>
-    ({ client: { jobs: () => Promise.resolve([]), estimates: { decisionEstimates: () => Promise.resolve({ verify: null }) }, ...client } as unknown as Client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined }) as unknown as AppState;
+    ({ client: { jobs: () => Promise.resolve([]), estimates: { decisionEstimates: () => Promise.resolve({ verify: null }), previewEstimates: () => Promise.resolve({ ways: null }) }, ...client } as unknown as Client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined }) as unknown as AppState;
   const open = async (client: Partial<Client>, id: string | null = null) => {
     page = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(PreviewTab, { id, run: null, call: null })));
     return page;
@@ -211,7 +212,7 @@ describe('the Preview page', () => {
   });
 
   it('ends a verified run’s row on its outcome and tally, its bound kept whole, and a run it cleared as not run end to end', async () => {
-    const verified: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], verified: { outcome: 'kept', tally: ' · 4 of 4 · rate >= 0.6 (95%)' } }, { ...flagged.matrix[1], cleared: true }] };
+    const verified: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], verified: { outcome: 'kept', tally: ' · 4 of 4 · rate >= 0.6 (95%)', count: '4 of 4' } }, { ...flagged.matrix[1], cleared: true }] };
     const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve(verified) });
     await p.until('the matrix', () => p.all('.dmr').length === 2);
     // The outcome is a defined term, its card's words beside it: its tally follows, the bound glued to its figures.
@@ -360,7 +361,7 @@ describe('the Preview page', () => {
   });
 
   it('asks before Migrate in the one ask a retiring model’s row on Needs a look asks, then starts the migration it names', async () => {
-    const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: [], migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } } } };
+    const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } } } };
     const started: Array<[string, Record<string, unknown>]> = [];
     const client = {
       decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }),
@@ -429,6 +430,9 @@ describe('the Preview page', () => {
     page = p;
     await p.until('the empty state', () => p.all('.stepempty').length === 1);
     expect(shown(p.one('.stepempty'))).toContain('shadowlap decisions goldens/* --model <model>');
+    // The three ways, the first lime, each card with the command its dialog runs.
+    expect(p.all('.stepempty .actions button').map(shown)).toEqual(['Preview model switch…', 'Preview changed prompt', 'Preview field change…']);
+    expect(p.all('.stepempty .actions .btn.lime').length).toBe(1);
     expect(verdictState(flagged.view)).toBe('flagged');
   });
 

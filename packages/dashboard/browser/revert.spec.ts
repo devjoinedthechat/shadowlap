@@ -1,130 +1,25 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
-import type { FailureView, FixDetail, FoundCommit, NextStep, TestsView } from '../ui/types.js';
-import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { expect, test } from '@playwright/test';
+import { FOUND, GOLDEN, NAME, REV, routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
+import { openPage, seriousViolations } from './dashboard.js';
+import { openReport } from './tests-fixture.js';
 
 /**
- * Revert, once Find breaking commit named a crash's first bad commit, on invented data routed over the
- * demo's answers (the demo store has no crashed golden): on a crash's run page the commit's finding
- * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
- * in editor and Run blame plain; on Tests the change sits under the commit's card and Revert leads the
- * verdict; on the crash's fix its Blame step shows the commit, its change and where to look, and
- * Revert leads its head with Open in editor beside it and no Find breaking commit. Each has no
- * serious axe violation at 1440 and 390 with the change open, nor has Revert's
- * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
- * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
- * git refused.
+ * Revert, once Find breaking commit named a crash's first bad commit, on the invented data of
+ * crash-fixture.ts: on a crash's run page the commit's finding leads, Show change opens the change in
+ * the inspector's place, and Revert leads the header with Open in editor and Run blame plain; on
+ * Tests the change sits under the commit in the crash's report and Revert leads the verdict; on the
+ * crash's fix its Blame step shows the commit, its change, the exception the agent died of and where
+ * to look, and Revert leads its head with Open in editor beside it and no Find breaking commit. Each
+ * has no serious axe violation at 1440 and 390 with the change open, nor has Revert's dialog, whose
+ * code box of the change undone keeps to its width. A revert's drawer reads Reverting, then Reverted
+ * where git reverted, its status not saying
+ * reverted again, or Tried reverting where git refused.
  */
+
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 const DIALOG = '[role="dialog"][aria-modal="true"]';
-const REV = '9a3c5e0';
-const GOLDEN = 'goldens/refund-flow';
-const HUNK = '@@ -10,4 +10,4 @@ def refund(order):\n     total = order["amount"]\n-    limit = policy.limit(order)\n+    limit = policy.limit()\n     return min(total, limit)\n';
-const FOUND: FoundCommit = {
-  rev: REV,
-  subject: 'Read the refund limit once per session',
-  author: '',
-  date: '2026-10-30T10:00:00Z',
-  why: 'the agent exited 1',
-  untested: [],
-  replays: 3,
-  tokens: 0,
-  at: Date.now() - 60_000,
-  change: { file: 'agent/refund.py', files: ['agent/refund.py'], hunk: HUNK, line: 12, cut: false, merge: false, path: 'agent/refund.py', outside: 0 },
-};
-const FREE = { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] };
-const step = (runId: string) =>
-  ({
-    key: 'revert',
-    label: 'Revert',
-    golden: GOLDEN,
-    rev: REV,
-    merge: false,
-    live: [],
-    blame: { offer: { from: 'exit', expect: null, failed: [] }, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${runId.slice(0, 10)}`, estimate: FREE },
-    title: `Revert ${REV}`,
-    sub: `${FOUND.subject}: undone in your working tree, then refund-flow replayed offline`,
-    command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`,
-    estimate: FREE,
-  }) as unknown as NextStep;
-
-/** The server's answer to the request, changed by `patch`: asked whole (never a 304 with no body to change). */
-async function patched<T>(route: Route, patch: (body: T) => unknown): Promise<void> {
-  const headers = Object.fromEntries(Object.entries(route.request().headers()).filter(([k]) => k !== 'if-none-match' && k !== 'if-modified-since'));
-  const res = await route.fetch({ headers });
-  const text = await res.text();
-  await route.fulfill(text ? { response: res, json: patch(JSON.parse(text) as T) } : { response: res });
-}
-
-/** Open in editor's form on this machine, and the job kinds with revert among them. */
-async function routeMeta(page: Page): Promise<void> {
-  await page.route(/\/api\/meta(\?.*)?$/, (route) => patched<{ jobKinds: string[] }>(route, (meta) => ({ ...meta, editor: 'code --goto <file>:<line>', jobKinds: [...new Set([...meta.jobKinds, 'revert'])] })));
-}
-
-/** A demo run as a crashed test replay whose golden's first bad commit stands: its step and its offers. */
-async function routeCrash(page: Page): Promise<string> {
-  const run = demoId('ticket');
-  await routeMeta(page);
-  await page.route(new RegExp(`/api/runs/${run}/offers(\\?.*)?$`), (route) => patched<object>(route, (offers) => ({ ...offers, commit: FOUND })));
-  await page.route(new RegExp(`/api/runs/${run}(\\?.*)?$`), (route) => patched<object>(route, (detail) => ({ ...detail, next: step(run) })));
-  return run;
-}
-
-/**
- * The demo's fix as a crash no model rescued, whose run's search named the commit: Revert leads it,
- * and its Blame step shows the commit. Its blame offers a stronger model, as one kept with its flags
- * does on a machine that names one, so its head has the most buttons a named crash's fix draws.
- */
-async function routeCrashFix(page: Page): Promise<string> {
-  const fix = demoId('refundFix');
-  const run = await routeCrash(page);
-  await page.route(new RegExp(`/api/runs/${run}/next(\\?.*)?$`), (route) => route.fulfill({ json: { next: step(run) } }));
-  await page.route(new RegExp(`/api/fixes/${fix}(\\?.*)?$`), (route) =>
-    patched<FixDetail>(route, (d) => ({
-      ...d,
-      status: 'open',
-      lead: { key: 'revert', label: 'Revert', command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`, use: 'writes', runId: run, step: step(run) },
-      actions: { ...d.actions, blameAgain: null, blameStronger: { argv: ['blame', run], command: `shadowlap blame ${run} --model <model>`, attempts: 8, spent: 0, pulled: null, left: [] } },
-      blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false } },
-    })),
-  );
-  return fix;
-}
-
-/** Tests with the demo's first golden crashed at the commit, its failure leading the verdict. */
-async function routeTests(page: Page): Promise<void> {
-  await routeMeta(page);
-  const run = demoId('ticket');
-  await page.route(
-    (url) => url.pathname === '/api/tests',
-    (route) => (route.request().method() !== 'GET' ? route.continue() : patched<TestsView>(route, (real) => {
-      const row = real.rows.find((r) => r.path !== real.divergences[0]?.golden) ?? real.rows[0]!;
-      const crash: FailureView = {
-        golden: GOLDEN,
-        name: row.name,
-        runId: run,
-        failure: 'exit',
-        reason: 'the agent exited with code 1',
-        checks: null,
-        details: null,
-        output: 'Traceback (most recent call last):\n  File "agent/refund.py", line 12, in refund\nTypeError: limit() missing 1 required positional argument: \'order\'',
-        blocked: null,
-        bisect: null,
-        found: FOUND,
-        missed: null,
-        revisions: [],
-        unreadable: null,
-      } as unknown as FailureView;
-      const view = {
-        ...real,
-        rows: real.rows.map((r) => (r.path === row.path ? { ...r, path: GOLDEN } : r)),
-        failures: [crash, ...real.failures],
-        verdict: real.verdict ? { ...real.verdict, state: 'failing', first: { golden: GOLDEN, name: row.name, reason: crash.reason, runId: run } } : real.verdict,
-        steps: { ...(real.steps ?? {}), [GOLDEN]: step(run) },
-      } as TestsView;
-      return view;
-    })),
-  );
-}
 
 for (const [width, height] of [
   [1440, 900],
@@ -171,6 +66,10 @@ for (const [width, height] of [
     await expect(line.locator('b')).toHaveText(FOUND.subject);
     await expect(page.locator('#view .bisect.fxbis + .codewrap.bisectdiff')).toContainText('agent/refund.py');
     await expect(page.locator('#view .fxnote')).toHaveText(`The agent stopped part way from ${REV} on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.`);
+    // Under As recorded, the exception the agent died of where its code raised it, its traceback folded until found.
+    const error = page.locator('#view .rperrw');
+    await expect(error.locator('p.rperr')).toContainText("TypeError: limit() missing 1 required positional argument: 'order' in agent/refund.py, line 12, in refund");
+    await expect(error.locator('pre.report.tail')).toHaveAttribute('hidden', 'until-found');
     const lead = page.locator('.ph .actions .btn.lime[data-next="revert"]');
     await expect(lead).toHaveText('Revert');
     await expect(lead).toHaveAttribute('data-at', String(FOUND.at));
@@ -207,8 +106,9 @@ for (const [width, height] of [
   test(`at ${width}×${height} Tests shows the commit's change under its card and leads with Revert, passing axe`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await routeTests(page);
-    await openPage(page, '/tests', 'main#view .bisectdiff');
-    // The demo's own divergence keeps its commit's change too; the crash's is the invented one.
+    await openPage(page, '/tests', 'main#view table.gt');
+    // The crash's report, folded under its row: open, the change sits under its first bad commit.
+    await openReport(page, NAME);
     await expect(page.locator('#view .bisectdiff', { hasText: 'agent/refund.py' })).toBeVisible();
     await expect(page.locator('#view .btn.lime', { hasText: /^Revert$/ }).first()).toBeVisible();
     await expect(page.locator('#view')).toContainText('The agent stopped part way at the commit above: revert it or fix the code, then run the tests.');

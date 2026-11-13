@@ -108,11 +108,14 @@ export function actionContext(store: StoreOf<'recording'>, call: CallRecord | un
   }
 }
 
-/** What the fork menu's header says: `At #19 · search_web · read tool`. */
-export function forkMenuTitle(call: CallRecord | undefined): string {
+/**
+ * What the fork menu's header says: `At #19 · search_web · read tool`; `untrusted`, a read of a tool
+ * marked untrusted, where `shadowlap injection` plants: `At #4 · get_ticket · untrusted read`.
+ */
+export function forkMenuTitle(call: CallRecord | undefined, o: { untrusted?: boolean } = {}): string {
   if (!call) return 'This run';
   const kind =
-    call.kind === 'api' ? 'model call' : call.kind === 'clock' ? 'clock read' : call.kind === 'random' ? 'random value' : isUserInput(call) ? 'recorded input' : call.effect ? `${call.effect} tool` : 'tool';
+    call.kind === 'api' ? 'model call' : call.kind === 'clock' ? 'clock read' : call.kind === 'random' ? 'random value' : isUserInput(call) ? 'recorded input' : o.untrusted && call.effect === 'read' ? 'untrusted read' : call.effect ? `${call.effect} tool` : 'tool';
   return call.kind === 'api' ? `At #${call.callNo} · ${kind}` : `At #${call.callNo} · ${call.name} · ${kind}`;
 }
 

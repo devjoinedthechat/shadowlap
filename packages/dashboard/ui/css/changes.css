@@ -40,6 +40,12 @@ table.vdt tbody tr.still:hover td, table.vdg tbody tr.still:hover td { backgroun
 .tscroll table.t.fit td:first-child { white-space: normal; }
 /* the local note and the line past the window, under the list */
 .vdlocal { margin: 12px 0 0; font-size: 12.5px; }
+/* A revision's page: the decisions its comment carried, step by step, then its note; On the pull request's rows. A change
+   that merged while its session failed or couldn't decide, in amber under its verdict and in its facts. */
+.vdd + .vdd { margin-top: 14px; }
+.vdnote { margin-top: 12px !important; font-size: 12.5px; }
+.vdkv { grid-template-columns: 130px minmax(0, 1fr); }
+.vdflag { color: var(--cq-amber) !important; }
 /* Compare's pickers on a row of their own under Changes' tabs; a revision's command under its sections */
 .pickers.chpick { margin-bottom: 16px; }
 .cmdline.chcmd { margin-top: 18px; }
@@ -108,10 +114,12 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
    overlap. A touch screen keeps its 6px, as its cells never shrink: its row scrolls (below). */
 @media (max-width: 640px) and (pointer: fine) { .dmc:not(.dense) { gap: clamp(3px, (100% - var(--n, 1) * 18px) / max(var(--n, 1) - 1, 1), 6px); } }
 /* on a touch screen a cell keeps 18px, its tap area 24px, and a row of many scrolls in its own box rather than shrink them:
-   the box reaches 3px past the row's ends, so its first and last cells' tap areas aren't cut, and draws no scrollbar */
+   the box reaches 3px past the row's ends and the cells' grid pads them back in, so its first and last cells' tap areas aren't
+   cut whatever padding the row gives the box (none once a row stacks), and it draws no scrollbar */
 @media (pointer: coarse) {
   .dmc:not(.dense) { grid-template-columns: repeat(var(--n, 1), 18px); }
-  .dmcw { margin-inline: -3px; padding-inline: 3px; scrollbar-width: none; }
+  .dmcw { margin-inline: -3px; scrollbar-width: none; }
+  .dmc { padding-inline: 3px; }
 }
 .dms { font-size: 12.5px; }
 .dsl { margin: 0; text-wrap: pretty; }
@@ -184,7 +192,16 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 .dcell .dspend { margin: 14px 0 0; color: var(--faint); font-size: 12px; line-height: 1.55; text-wrap: pretty; }
 .dconv { padding: 14px 18px 6px; border-top: 1px solid var(--line); }
 @media (max-width: 760px) { .dpair { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+/* A new preview's dialogs (changes/NewPreview.tsx): the working tree's system prompt with its change
+   marked, its labels at the dialog's own .k size, and the line under a field change's fields. */
+.dprompt .k { display: block; }
+.dprompt p { margin: 4px 0 12px; color: var(--dim); font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.dprompt ins { text-decoration: none; color: var(--add); background: var(--add-bg); }
+.dprompt del { color: var(--del); }
+.dlgest { margin: 10px 0 0; }
 @media (forced-colors: active) {
   .dside, .dside.q1, .dside.q2, .dside.q3, .dside.q4 { border-top-color: CanvasText; }
   .drk.q1, .drk.q2 { color: CanvasText; }
+  /* What the working tree adds to a prompt is marked by more than its colour. */
+  .dprompt ins { text-decoration: underline; }
 }

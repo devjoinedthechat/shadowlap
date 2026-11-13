@@ -57,13 +57,14 @@ export function OverviewPage() {
     // Not while that can't be told yet: the Overview waits in its own shape meanwhile.
     if (noRunsYet({ meta, runs }) === true) return <NoRunsSteps />;
     return (
-      // Busy while it works the week out; a warming store says how far it has got in a status of its own, read out as it moves.
+      // Busy while it works the week out. A warming store says how far it has got in the page's own text, with no live
+      // role: it is what the page holds as it opens, and its count moves each second.
       <Page busy={!summary.error && !warming}>
         <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." />
         {summary.error ? (
           <ErrorState retry={summary.reload}>The Overview could not be worked out: {summary.error.message}</ErrorState>
         ) : warming ? (
-          <div className="empty tall" role="status">
+          <div className="empty tall">
             Adding up what each run did: {warming.done.toLocaleString('en-US')} of {warming.total.toLocaleString('en-US')} runs so far. The Overview shows once they all are; every other page works meanwhile.
           </div>
         ) : (
@@ -84,7 +85,6 @@ export function OverviewPage() {
         title="Overview"
         text="What failed, what got fixed and proven, and what it cost."
         facts={overviewFacts(s.outcomes, s.fixes, s.now)}
-        factsLabel="Overview in figures"
         actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
       />
       <div className="ovg">
