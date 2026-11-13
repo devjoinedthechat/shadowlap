@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { demoId, expectAccessible, openPage } from './dashboard.js';
-
-/** A line the copy parts set, as a pattern reads it: each space in `re` may be a no-break one, where the copy glued two words. */
-const glued = (re: RegExp) => new RegExp(re.source.replaceAll(' ', '[ \\u00a0]'), re.flags);
+import { demoId, expectAccessible, glued, openPage } from './dashboard.js';
 
 /**
  * A page, a run's view, a Changes tab or the check builder whose code didn't come from the dashboard

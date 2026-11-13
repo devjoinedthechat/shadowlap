@@ -1,19 +1,23 @@
+import { rmSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { BASELINE_DEFAULTS, gateResult } from '@shadowlap/engine';
+import type { PreviewNext } from '../src/decision-view.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { gateRuleOf } from '../src/verdict.js';
 import { ARTICLES, SMALL } from '../ui/typeset.js';
 import type { DecisionSessionDetail, TestsView } from '../ui/types.js';
-import { dash, sideways } from './dashboard.js';
-import { apiRequests, at, click, DIALOG, escape, fixes, MENU, press, PREVIEW, previewed, ROUTES, run, runs, settled, show, type RouteState } from './routes.js';
+import { dash, demoId, serveDashboard, sideways, type Served } from './dashboard.js';
+import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
+import { asksFirst, at, cardStates, click, DIALOG, dialogWalk, escape, fixes, injectionRoutes, menu, overlayStates, press, PREVIEW, previewed, ROUTES, run, runs, settled, show, type RouteState, type State } from './routes.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
 /**
- * Line breaks at 320, 360, 390 and 430 px on every route of browser/routes.ts, every run of the demo,
- * and every overlay the axe sweep opens (menus, pickers, hover cards, the palette, the shortcuts, a
- * run's inspector tabs, every dialog, a toast, the offline bar, the expired link's card and the token
- * gate), each route loaded fresh at each width and read from the lines the browser drew, as the mock's
- * detector reads them:
+ * Line breaks at 320, 360, 390 and 430 px on every route of browser/routes.ts (an injection test's
+ * pages on a store of their own), every run of the demo, and the overlays and dialogs routes.ts walks
+ * for both sweeps (menus, pickers, hover cards, the palette, the shortcuts, every dialog), with a
+ * run's inspector tabs, a toast, the offline bar, the expired link's card and the token gate, each
+ * route loaded fresh at each width and read from the lines the browser drew, as the mock's detector
+ * reads them:
  * no word, id or nowrap piece broken inside or past its box (a command's pieces and its `$` among
  * them), no lead or heading line ending on a small word (each read whole, whatever its copy draws
  * inside it), no control or field label wrapping, a number kept with its
@@ -28,6 +32,9 @@ import { routeTestsFixture } from './tests-fixture.js';
  */
 
 test.describe.configure({ timeout: 300_000 });
+
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 const WIDTHS = [320, 360, 390, 430];
 /** port/a11y-sweep checks sideways scroll at 390 and 320. */
@@ -187,7 +194,7 @@ async function read(page: Page, width: number, name: string): Promise<string[]> 
 }
 
 /** A step of a walk: its name in a failure, how to take it, and whether what it shows is read (a page on the way there is the routes'). */
-type Step = [name: string, go: () => Promise<void>, read?: true];
+type Step = State;
 
 /** Each flag at a width over the steps given in turn, under the name of the step that showed it. */
 async function walk(page: Page, width: number, steps: readonly Step[]): Promise<string[]> {
@@ -253,7 +260,7 @@ async function routeMigrateNext(page: Page): Promise<string> {
     async (route) => {
       const res = await route.fetch();
       const real = (await res.json()) as DecisionSessionDetail;
-      const next = { verify: null, more: [], migrate: { to: 'claude-sonnet-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund-flow'], runs: [] } };
+      const next: PreviewNext = { verify: null, more: null, migrate: { to: 'claude-sonnet-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund-flow'], runs: [] } };
       return route.fulfill({ response: res, json: { ...real, view: { ...real.view, next } } });
     },
   );
@@ -273,37 +280,14 @@ const unshown = (page: Page): Step[] => [
   ['Migrate’s one ask closed', escape(page)],
 ];
 
-/** Every billed press asks, whatever the suite's one Spending says, so opening a dialog runs nothing. */
-const asking = (page: Page) => page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
-
 /** A demo run's id by its name. */
-const id = (name: string) => dash().runs[name] as string;
-
-/** A menu or a picker opened by a click, read, and closed by Escape. */
-const menu = (page: Page, name: string, selector: string, text?: string, shows = MENU): Step[] => [
-  [name, click(page, selector, text, { shows }), true],
-  [`${name} closed`, escape(page, shows)],
-];
-
-/** A dialog opened from its page by its steps, read, and closed by Escape. */
-const opened = (page: Page, name: string, where: () => Promise<void>, ...open: Array<() => Promise<void>>): Step[] => [
-  [`${name}: its page`, where],
-  ...open.map((o, i): Step => (i === open.length - 1 ? [name, o, true] : [`${name}: step ${i + 1}`, o])),
-  [`${name}: closed`, escape(page)],
-];
-
-/** Tests' Update goldens, as the palette opens it. */
-const updateGoldens = (page: Page) => async () => {
-  apiRequests(page);
-  await page.evaluate(() => {
-    location.hash = '#/tests?update';
-  });
-  await settled(page, { shows: DIALOG });
-};
+const id = demoId;
 
 /**
- * The menus, pickers, hover cards, the palette and the shortcuts, a run's inspector tabs, a toast,
- * and the cards that stand for a page: the offline bar, the expired link's card and the token gate.
+ * The overlays both sweeps open (routes.ts), the sidebar first as on any phone, and their hover
+ * cards; then what only this sweep reads: the help menu, a run's inspector tabs, the check menu, the
+ * shortcuts on pages of each kind, the palette on a row's actions and with results, a toast, and the
+ * cards that stand for a page: the token gate, the offline bar and the expired link's card.
  */
 function overlays(page: Page): Step[] {
   const ticket = id('ticket');
@@ -319,49 +303,13 @@ function overlays(page: Page): Step[] {
   return [
     // First, while the page holds no session token: the address opened without one.
     state('the token gate', '/', '.connblock.gate'),
-    ['Runs', at(page, '/runs', 'main#view table.runst tbody tr')],
-    ['the sidebar', click(page, 'button.menu-toggle', undefined, { shows: 'aside#side.open' }), true],
-    ...menu(page, 'the project switcher', 'button.proj'),
+    ...overlayStates(page, '', true),
+    ...cardStates(page),
     ...menu(page, 'the help menu', '#helpBtn', undefined, '.pop.helpmenu'),
-    ['Compare', at(page, '/compare', 'main#view .pickers .rpick')],
-    ['a run picker', click(page, '.rpick', undefined, { shows: '.pop.picker' }), true],
-    ['a run picker that finds nothing', async () => {
-      await page.locator('.pop.picker input.pfilter').fill('zzzz nothing like it');
-      await settled(page, { shows: '.pop.picker .pnone' });
-    }, true],
-    ['a run picker closed', escape(page, '.pop.picker')],
-    ['Redaction', at(page, '/settings/redaction', 'main#view .pvhead')],
-    ...menu(page, 'Redaction’s run picker', '.pvhead .rpick', undefined, '.pop.picker'),
-    ['Add redaction rule', click(page, 'main#view button', 'Add redaction rule', { shows: DIALOG }), true],
-    ['Add redaction rule, edited', async () => {
-      await page.locator(`${DIALOG} label`, { hasText: 'Replace with' }).locator('input').fill('<GONE>');
-      await settled(page);
-    }],
-    ['Discard what you changed?', press(page, 'Escape', { shows: '.dlgask' }), true],
-    ['Discard what you changed? answered', press(page, 'Escape', { hides: '.dlgask' })],
     ...['ticket', 'failTool', 'chat'].flatMap((name): Step[] => [
       [`run ${name}`, run(page, id(name))],
       ...['Response', 'Request', 'Details', 'Conversation'].map((tab): Step => [`run ${name} · inspector ${tab}`, click(page, '.insp [role="tablist"] button', tab, { shows: `.insp [role="tab"][aria-selected="true"]:has-text("${tab}")` }), true]),
     ]),
-    ['a run', run(page, ticket)],
-    ...menu(page, 'Share', '.rhead .actions button', 'Share'),
-    ...menu(page, 'the fork menu', '#forkBtn'),
-    ...menu(page, 'More', '#moreBtn'),
-    ['a cell’s hover card', async () => {
-      await page.locator('.cells button').first().hover();
-      await settled(page, { shows: '#tip' });
-    }, true],
-    ['a fact’s hover card', async () => {
-      await page.mouse.move(2, 2);
-      await page.locator('main#view .metric .st[data-tip] a').first().focus();
-      await settled(page);
-    }, true],
-    ['a menu row’s hover card', async () => {
-      await page.locator('.rhead .actions button', { hasText: 'Share' }).click();
-      await page.locator(`${MENU} [role="menuitem"]`).nth(1).hover();
-      await settled(page, { shows: '#tip' });
-    }, true],
-    ['a menu row’s hover card closed', escape(page, MENU)],
     ['run refundBug', run(page, id('refundBug'))],
     ['run refundBug · a tool call', click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])')],
     ...menu(page, 'the check menu', '[data-act="ckmenu"]'),
@@ -372,8 +320,6 @@ function overlays(page: Page): Step[] {
       [`the shortcuts on ${where} closed`, escape(page, '.help')],
     ]),
     ['Runs', at(page, '/runs', 'main#view table.runst tbody tr')],
-    ['the palette', press(page, 'Meta+k', { shows: '.palette' }), true],
-    ['the palette closed', escape(page, '.palette')],
     ['Runs · a run ticked', async () => {
       await page.locator('main#view table.runst tbody tr input[type="checkbox"]').first().check();
       await settled(page, { shows: '.bulkbar' });
@@ -397,85 +343,26 @@ function overlays(page: Page): Step[] {
   ];
 }
 
-/** Every dialog the demo can show, each opened as its page opens it (as the axe sweep opens them), in two halves. */
-function dialogs(page: Page): [Step[], Step[]] {
-  // A row or a button that isn't there says so soon: there is no waiting it out.
-  const button = (where: string, text: string) => async () => {
-    apiRequests(page);
-    await page.locator(where, { hasText: text }).first().click({ timeout: 20_000 });
-    await settled(page, { shows: DIALOG });
-  };
-  const tick = async () => {
-    await page.locator('main#view table.runst tbody tr input[type="checkbox"]').first().check({ timeout: 20_000 });
-    await settled(page, { shows: '.bulkbar' });
-  };
-  const onRun = (name: string, of: string, text: string) => opened(page, name, run(page, id(of)), button('.rhead .actions button', text));
-  const fork = (name: string, of: string, row: string) => opened(page, name, run(page, id(of)), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
-  // The call a row belongs to picked first.
-  const forkOn = (call: string) => (name: string, of: string, row: string) => opened(page, name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title${call}])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
-  const forkModel = forkOn('^="POST "');
-  const forceWrite = (name: string, of: string, tool: string) => forkOn(`="${tool}"`)(name, of, `Force ${tool} live`);
-  const share = (name: string, row: string) => opened(page, name, run(page, id('ticket')), click(page, '.rhead .actions button', 'Share', { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
-  const onPage = (name: string, path: string, text: string) => opened(page, name, at(page, path), button('main#view button', text));
-  const bulk = (name: string, text: string) => opened(page, name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
-  const onFix = (name: string, of: string, text: string) => opened(page, name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
-  const check = (name: string, rule: string) => opened(page, name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule));
+/**
+ * The dialogs both sweeps open (routes.ts' dialogWalk), each as its page opens it, in two halves,
+ * so the suite's workers share them; the second ends with Update goldens for two goldens, whose
+ * answers are routed for the page's life (tests-fixture.ts), last.
+ */
+async function dialogs(page: Page, half: 0 | 1): Promise<Step[]> {
+  const groups = (await dialogWalk(page))();
+  const at2 = Math.ceil(groups.length / 2);
+  if (!half) return groups.slice(0, at2).flat();
   return [
-    [
-      ...opened(page, 'Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
-      ...onRun('The consent question', 'packed', 'Replay'),
-      ...onRun('Pack as golden', 'digest', 'Pack as golden'),
-      ...forkModel('Inject instruction', 'ticket', 'Inject instruction'),
-      ...forkModel('Switch model', 'ticket', 'Switch model'),
-      ...forkModel('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
-      ...fork('Override result', 'failTool', 'Override result'),
-      ...fork('Fail with tool error', 'failTool', 'Fail with tool error'),
-      ...fork('Plant instruction', 'failTool', 'Plant instruction'),
-      ...forkOn('="user_input"')('Override user reply', 'chat', 'Override user reply'),
-      ...fork('Repeat fork 5 times', 'override', 'Repeat 5 times'),
-      ...fork('Replay with your command', 'har', 'Replay with your command'),
-      ...forkModel('Find commit that changed it', 'ticket', 'Find commit that changed it'),
-      ...fork('Find breaking commit', 'planted', 'Find breaking commit'),
-      ...forceWrite('Force send_email live', 'twice', 'send_email'),
-      ...opened(page, 'Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),
-      ...check('Add check', 'Never call issue_refund'),
-      ...check('Add check: When… then', 'When… then…'),
-      ...check('Add check: Ask a judge', 'Ask a judge…'),
-    ],
-    [
-      ...share('Pack', 'Pack'),
-      ...share('Export eval dataset', 'Eval dataset'),
-      ...share('Export OpenTelemetry trace', 'OpenTelemetry trace'),
-      ...bulk('Add label', 'Label'),
-      ...bulk('Delete runs', 'Delete'),
-      ...bulk('Pack runs', 'Pack'),
-      ...bulk('Export the dataset of runs', 'Dataset'),
-      ...opened(page, 'Import capture…', at(page, '/runs', 'main#view table.runst tbody tr'), button('main#view button', 'Import capture…')),
-      ...opened(page, 'Update goldens', at(page, '/tests'), updateGoldens(page)),
-      ...onPage('Update golden', '/tests', 'Update golden'),
-      ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
-      ...onPage('Run tests’ question', '/tests', 'Run tests'),
-      ...onPage('Export pairs', '/training', 'Export pairs'),
-      ...onPage('Score model', '/training/tasks', 'Score model'),
-      ...onPage('A task’s Update golden', '/training/tasks', 'Update golden'),
-      ...onPage('Add normalizer', '/settings/matching', 'Add normalizer'),
-      ...onPage('Add MCP server', '/settings/tools', 'Add MCP server'),
-      ...onPage('Remove project', '/settings/project', 'Remove project'),
-      ...onPage('Write file', '/settings/ci', 'Write file'),
-      ...onFix('Run repair', 'emailFix', 'Run repair'),
-      ...onFix('Mark fix applied', 'refundFix', 'Mark applied'),
-      ...opened(page, 'Rename fix', at(page, `/fixes/${id('emailFix')}`, 'fix'), button('main#view button.fxrename', 'Rename')),
-      // Answers the demo can't give, routed for the page's life: last.
-      ['Tests with two goldens to update', async () => {
-        await routeTestsFixture(page);
-        await at(page, '/tests', 'main#view table.gt')();
-      }],
-      ['Update goldens for two', async () => {
-        await click(page, 'main#view button', 'Update goldens', { shows: DIALOG })();
-        await expect(page.locator(DIALOG).getByRole('button', { name: 'Add normalizer and update' })).toBeVisible();
-      }, true],
-      ['Update goldens for two closed', escape(page)],
-    ],
+    ...groups.slice(at2).flat(),
+    ['Tests with two goldens to update', async () => {
+      await routeTestsFixture(page);
+      await at(page, '/tests', 'main#view table.gt')();
+    }],
+    ['Update goldens for two', async () => {
+      await click(page, 'main#view button', 'Update goldens', { shows: DIALOG })();
+      await expect(page.locator(DIALOG).getByRole('button', { name: 'Add normalizer and update' })).toBeVisible();
+    }, true],
+    ['Update goldens for two closed', escape(page)],
   ];
 }
 
@@ -494,19 +381,47 @@ for (const width of WIDTHS) {
     expect(await walk(page, width, runSteps(page))).toEqual([]);
   });
   test(`every fix’s steps, a history gate’s rule and Migrate’s one ask at ${width}px break lines only where the rules allow`, async ({ page }) => {
-    await asking(page);
+    await asksFirst(page);
     expect(await walk(page, width, [...fixSteps(page), ...unshown(page)])).toEqual([]);
   });
   test(`the menus, pickers, hover cards, palette, shortcuts, a toast and the connection’s cards at ${width}px break lines only where the rules allow`, async ({ page }) => {
-    await asking(page);
+    await asksFirst(page);
     expect(await walk(page, width, overlays(page))).toEqual([]);
   });
   for (const half of [0, 1] as const)
     test(`the ${half ? 'second' : 'first'} half of the dialogs at ${width}px breaks lines only where the rules allow`, async ({ page }) => {
-      await asking(page);
-      expect(await walk(page, width, dialogs(page)[half])).toEqual([]);
+      await asksFirst(page);
+      expect(await walk(page, width, await dialogs(page, half))).toEqual([]);
     });
 }
+
+/**
+ * An injection test's pages (routes.ts' injectionRoutes) at each width, on a store real commands made
+ * for them with testing's mock model (injection-fixture.ts) and a dashboard of their own, stopped
+ * after: one test for the four widths, so every width's flags are read, as one store serves them.
+ */
+test.describe('an injection test’s pages', () => {
+  let built: InjectionStore | null = null;
+  let served: (Served & { stop: () => Promise<void> }) | null = null;
+  test.beforeAll(async () => {
+    // Four commands on a mock model, a few seconds, then the dashboard.
+    test.setTimeout(120_000);
+    built = await buildInjectionStore();
+    served = await serveDashboard(built.folder, built.project);
+  });
+  test.afterAll(async () => {
+    await served?.stop();
+    served = null;
+    if (built) rmSync(built.folder, { recursive: true, force: true });
+    built = null;
+  });
+  test(`at ${WIDTHS.join(', ')}px break lines only where the rules allow`, async ({ page }) => {
+    if (!built || !served) throw new Error('the injection store was not built');
+    const found: string[] = [];
+    for (const width of WIDTHS) found.push(...(await walk(page, width, routeSteps(page, injectionRoutes(served, built.runId)))));
+    expect(found).toEqual([]);
+  });
+});
 
 /**
  * The owner's example, Settings → Store with no store, at 1440 and 1180: it broke as "…add CI.

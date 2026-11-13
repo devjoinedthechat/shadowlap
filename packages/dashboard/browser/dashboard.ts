@@ -110,6 +110,9 @@ export async function serverLinks(request: APIRequestContext): Promise<Set<strin
   return links;
 }
 
+/** A line the copy parts set, as a pattern reads it: each space in `re` may be a no-break one, where the copy glued two words. */
+export const glued = (re: RegExp) => new RegExp(re.source.replaceAll(' ', '[ \\u00a0]'), re.flags);
+
 /** How far the page reaches past the window's width: what a phone would scroll sideways, 0 or less when nothing does. */
 export const sideways = (page: Page): Promise<number> => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 

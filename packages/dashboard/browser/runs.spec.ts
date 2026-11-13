@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPage, seriousViolations } from './dashboard.js';
+import { glued, openPage, seriousViolations } from './dashboard.js';
 
 /**
  * Runs as the design draws it, in a real browser: the twelve weeks a slim row of days that a drag
@@ -10,9 +10,6 @@ import { openPage, seriousViolations } from './dashboard.js';
  */
 
 const hash = (page: import('@playwright/test').Page) => page.evaluate(() => location.hash);
-
-/** A line the copy parts set, as a pattern reads it: each space in `re` may be a no-break one, where the copy glued two words. */
-const glued = (re: RegExp) => new RegExp(re.source.replaceAll(' ', '[ \\u00a0]'), re.flags);
 
 test('the months under the row start at its first bar, and the first gives way only where the next runs into it', async ({ page }) => {
   const spans = 'main#view section.cal.hist .hmon span';
