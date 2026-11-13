@@ -574,14 +574,16 @@ describe('the Forks view', () => {
     const page = await view(REC);
     await page.until('the family to load', () => page.all('.fnode.fb').length === 2);
     const [test, answer] = [nodeOf(page, 'injection test'), nodeOf(page, 'injection --clean 4')];
-    expect(within(test, '.alist .al').map((l) => l.textContent)).toEqual([
+    expect(within(test, '.alist .al').map((l) => l.textContent.replace(/\u00a0/g, ' '))).toEqual([
       `${id(1).slice(0, 10)} · system-notice · obeyed: ${PROOF}`,
       `${id(3).slice(0, 10)} · user-urgent · influenced: planted at #4 → read at #5 → send_email at #7: ${WHY}`,
       `${id(5).slice(0, 10)} · tool-output · inconclusive: no model read the planted text`,
     ]);
     expect(within(test, '.alist .al a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${id(1)}/6`, `#/run/${id(3)}/7`, `#/run/${id(5)}`]);
     expect(inside(test, '.more2').textContent).toBe('2 ignored · 1 attempt not drawn: gone from the store, or past the family’s first 1,000 runs · each attempt is a cell above');
-    expect(within(answer, '.alist .al').map((l) => l.textContent)).toEqual([`${id(7).slice(0, 10)} · clean attempt 1 · #28 gone`]);
+    expect(within(answer, '.alist .al').map((l) => l.textContent.replace(/\u00a0/g, ' '))).toEqual([`${id(7).slice(0, 10)} · clean attempt 1 · #28 gone`]);
+    // Each line glued as copy is: an arrow, a dot and a count kept with the word before it, so no line starts with one.
+    expect(within(test, '.alist .al .an')[1].textContent).toContain('planted at\u00a0#4\u00a0→ read at\u00a0#5\u00a0→');
     expect(inside(answer, '.more2').textContent).toBe('1 with every write made again · 1 inconclusive · each attempt is a cell above');
     // An attempt opens as every attempt link does: while the server is out of reach it says so.
     await page.click(inside(test, '.alist .al a'));

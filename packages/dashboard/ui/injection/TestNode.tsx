@@ -49,7 +49,8 @@ export function TestNode({ row, runs, current, rule }: { row: InjectionRow; runs
                 <a className="more rlink" href={href.run(l.runId, l.callNo)} onClick={attemptLink}>
                   <code className="rnm">{shortId(l.runId)}</code>
                 </a>
-                <span className="an"> · {glossed(l.words)}</span>
+                {/* its proof's arrows each kept with the word before it */}
+                <span className="an"> · {glossed(l.words, true)}</span>
               </span>
             ))}
             {v.more ? <span className="more2">{v.more}</span> : null}
