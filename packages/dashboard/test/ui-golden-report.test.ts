@@ -2,7 +2,7 @@ import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateResult, Store, type StoredCheck } from '@shadowlap/engine';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
-import { failedRunsHref, goldenReports, withFailedRuns, withStepHints, type TestsAnswer } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, switchCause, withFailedRuns, withStepHints, type TestsAnswer } from '../src/golden-report.js';
 import { issueKey } from '../src/issue-keys.js';
 import { links } from '../src/links.js';
 import type { NextStep } from '../src/next-step.js';
@@ -44,7 +44,11 @@ describe('a report’s hint', () => {
     expect(hintWords({ key: 'injection' })).toBe('The agent obeyed an instruction planted in what it reads: fix the agent, not the golden.');
     expect(hintWords({ key: 'gate' })).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent.");
     expect(hintWords({ key: 'error' })).toBe('The golden could not be replayed.');
-    for (const key of ['normalizer', 'bisect', 'check', 'crash', 'injection', 'gate', 'undecided', 'no-calls', 'no-preload', 'error', 'checks-changed', 'edit-check'] as const) expect(hintWords({ key }).split(/[.?](?: |$)/).filter(Boolean)).toHaveLength(1);
+    for (const key of ['normalizer', 'switch', 'bisect', 'check', 'crash', 'injection', 'gate', 'undecided', 'no-calls', 'no-preload', 'error', 'checks-changed', 'edit-check'] as const) expect(hintWords({ key }).split(/[.?](?: |$)/).filter(Boolean)).toHaveLength(1);
+  });
+
+  it('says only why Update golden leads for a golden recorded before a migration’s switch, whose cause its Request line says', () => {
+    expect(hintWords({ key: 'switch' })).toBe('A golden recorded before the switch diverges on it: update it once the switch is what you meant.');
   });
 
   it('says what a golden whose checks lead it should do, from its step: Run tests, or edit a check its own recording fails', () => {
@@ -518,6 +522,16 @@ describe('a request part on its own', () => {
     expect([dd.querySelectorAll('.hint').length, dd.querySelectorAll('.rperrw').length, diffs]).toEqual([0, 0, []]);
   });
 
+  it('says the switch of the migration that left its golden waiting once, under the diff, in the server’s words, its id opening the migration', async () => {
+    const cause = switchCause({ migrationId: 'mg-01M5000000000000000000000C', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5' });
+    const dd = await drawPart({ kind: 'request', runId: null, callNo: 1, against: null, bodies: BODIES, followed: FOLLOWED, cause });
+    await r!.until('the diff', () => dd.querySelectorAll('.rpdiff .jd .jl').length > 0);
+    expect(dd.children.map((c) => c.className)).toEqual(['diffpanel jdp rpdiff', 'rpc rpcause', 'rperrw q']);
+    const line = one(dd, 'p.rpcause');
+    expect(shownText(line).replace(/\u00a0/g, ' ')).toBe('The config change of migration mg-01M5000000 switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.');
+    expect(line.querySelectorAll('a').map((a) => [a.getAttribute('href'), a.textContent])).toEqual([['#/changes/migrate/mg-01M5000000000000000000000C', 'mg-01M5000000']]);
+  });
+
   it('draws only what followed where the divergence kept no changes: no diff panel, nothing asked', async () => {
     const dd = await drawPart({ kind: 'request', runId: null, callNo: 4, against: null, bodies: null, followed: FOLLOWED });
     expect([dd.children.map((c) => c.className), diffs]).toEqual([['rperrw q'], []]);
@@ -576,5 +590,33 @@ describe('a request part on its own', () => {
       for (const fn of box.heard('beforematch')) fn({ type: 'beforematch' } as never);
     });
     expect([r.one('button.rptog').textContent, box.hasAttribute('hidden')]).toEqual(['Hide message', false]);
+  });
+});
+
+describe('a golden a migration left waiting', () => {
+  it('says the switch on its Request’s line, and only why Update golden leads in its hint, as the server reads the migration', async () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/switched'], revision: 'abc1234', startedAt: T0 });
+    const command = { argv: ['python', 'refund_agent.py'], cwd: '/work/shop' };
+    const recording = store.createRun({ mode: 'record', command });
+    const replay = store.createRun({ mode: 'replay', command, meta: { test: { golden: 'goldens/switched', session: s.sessionId } } });
+    const divergence = { type: 'request_changed' as const, callNo: 1, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 0 };
+    store.setDivergence(replay.runId, divergence);
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/switched', runId: replay.runId, at: T0, ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', data: { mode: 'replay', calls: calls(0, 1), upstreamRequests: 0, divergence: { ...divergence, diff: [{ path: '$.model', op: 'changed', before: 'claude-sonnet-4-5', after: 'claude-sonnet-5-5' }], text: '' } } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: T0 + 100 });
+    // Applied before that test: the golden, recorded under claude-sonnet-4-5, waits to be re-recorded.
+    const id = 'mg-01M5000000000000000000000C';
+    store.putDecisionSession({ sessionId: id, kind: 'migrate', at: T0 - 2, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data: { migrateId: id, kind: 'migrate', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5' }, runs: [] });
+    store.setMigrationApplied(id, { at: T0 - 1, by: null, outdated: [{ golden: 'goldens/switched', callNo: 1, path: '$.model' }] });
+    const goldens: GoldenSource[] = [{ path: 'goldens/switched', runId: recording.runId, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+    const view = testsView(store, goldens, { folder: 'goldens' });
+    const reports = goldenReports(view, { store, goldens, normalizers: [], project: '/work/shop' });
+    store.close();
+    const page = await draw({ ...view, reports, steps: {} });
+    const s2 = report(page, 'switched');
+    expect(s2.querySelectorAll('dl.rpx > dt').map((dt) => dt.textContent)).toEqual(['Request']);
+    expect(shownText(one(s2, 'dl.rpx > dd > p.rpcause')).replace(/\u00a0/g, ' ')).toBe('The config change of migration mg-01M5000000 switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.');
+    expect(one(s2, 'p.rpcause a').getAttribute('href')).toBe(`#/changes/migrate/${id}`);
+    expect(s2.querySelectorAll('p.hintx').map((p) => p.textContent)).toEqual(['A golden recorded before the switch diverges on it: update it once the switch is what you meant.']);
   });
 });

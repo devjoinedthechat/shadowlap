@@ -9,9 +9,50 @@ import type { Footprint } from './verify.js';
  */
 
 /**
- * A run verify took: its passes of its attempts, under a gate the bound of its pass rate (null for a
- * clean replay or a fixed count), and `undecided`, why its last attempt could not be judged, which
- * stopped it. A good run kept against its baseline has the baseline's tally too.
+ * A run's tally in its parts, as verify's line says it (`verifyTallyLine`) and a page draws it: what
+ * it counted, why an attempt stopped it, the attempts the provider cut short, and the bound.
+ */
+export interface VerifyTally {
+  /**
+   * What it counted: `12 of 12 passed`; against its baseline both tallies, `38 of 38 passed, baseline
+   * 38 of 38`; `clean replay` for a run its first attempt settled. For a run an attempt it could not
+   * judge stopped, the attempts judged before it, one the provider cut short among them (`2 of 3
+   * passed`), or null when none was.
+   */
+  tally: string | null;
+  /**
+   * Why an attempt it could not judge stopped it before its gate decided: `the provider unavailable`
+   * when the provider stayed unavailable attempt after attempt (`unavailableStop`), else `attempt 4
+   * not judged`. Null for a run that was decided.
+   */
+  undecided: string | null;
+  /** The attempts the provider cut short, each counted against either verdict: `2 cut short by the provider, counted against either verdict`. Null when none was, and for a run an attempt stopped. */
+  cutShort: string | null;
+  /**
+   * The bound that bears on its verdict, at the confidence it was decided at: `rate >= 0.76 (95%)`, or
+   * against its baseline `drop <= 0.10 (95%)`. Null for a fixed count, a clean replay and a run an
+   * attempt stopped, and where the figures a report kept can't give one (a report from another
+   * version or another machine): the tally alone then.
+   */
+  bound: string | null;
+}
+
+/**
+ * A run's tally as verify's line says it, from its parts (`verifyTally`), a part left out left out of
+ * the line: `12 of 12 passed · rate >= 0.76 (95%)`; `17 of 18 passed (1 cut short by the provider,
+ * counted against either verdict) · rate >= 0.60 (95%)`; `2 of 3 passed, attempt 4 not judged`.
+ */
+export function verifyTallyLine(t: Partial<VerifyTally>): string {
+  const counted = [t.tally, t.undecided].filter(Boolean).join(', ');
+  return `${counted}${t.cutShort ? ` (${t.cutShort})` : ''}${t.bound ? ` · ${t.bound}` : ''}`;
+}
+
+/**
+ * A run verify took, as a preview or a migration keeps it: its passes of its attempts, under a gate
+ * the bound of its pass rate (null for a clean replay or a fixed count), and `undecided`, why its last
+ * attempt could not be judged, which stopped it. A good run kept against its baseline has the
+ * baseline's tally too. `parts` is its tally in verify's own parts (`verifyTally`), absent from a
+ * session kept before they were.
  */
 export interface VerifiedTally {
   passes: number;
@@ -19,25 +60,39 @@ export interface VerifiedTally {
   bound?: string | null;
   undecided?: string | null;
   baseline?: { passes: number; attempts: number } | null;
+  parts?: VerifyTally | null;
 }
 
 /**
- * A verified run's tally after its outcome: ` · 12 of 12 · rate >= 0.76 (95%)`, and an attempt that
- * could not be judged apart, never as one that failed: ` · 2 of 2, attempt 3 not judged`. Nothing for
- * a run verify didn't take, or one kept before tallies were.
+ * A kept run's tally in verify's parts: the ones it was kept with, else those its figures give, in
+ * the same words, the bound the one kept. What a session kept before the parts never held stays out:
+ * attempts the provider cut short, and a provider that stayed unavailable (its attempt reads as one
+ * not judged).
+ */
+export function tallyParts(t: VerifiedTally): VerifyTally {
+  if (t.parts) return t.parts;
+  if (t.undecided) return { tally: t.attempts > 1 ? `${t.passes} of ${t.attempts - 1} passed` : null, undecided: `attempt ${t.attempts} not judged`, cutShort: null, bound: null };
+  return { tally: `${t.passes} of ${t.attempts} passed${t.baseline ? `, baseline ${t.baseline.passes} of ${t.baseline.attempts}` : ''}`, undecided: null, cutShort: null, bound: t.bound ?? null };
+}
+
+/**
+ * A verified run's tally after its outcome, as verify's line says it: ` · 12 of 12 passed · rate >=
+ * 0.76 (95%)`, and an attempt that could not be judged apart, never as one that failed: ` · 2 of 2
+ * passed, attempt 3 not judged`. Nothing for a run verify didn't take.
  */
 export function tallyWords(t: VerifiedTally | null | undefined): string {
   if (!t) return '';
-  return ` · ${tallyCount(t)}${t.bound ? ` · ${t.bound}` : ''}`;
+  return ` · ${verifyTallyLine(tallyParts(t))}`;
 }
 
-/** A verified run's tally alone, as a row beside its outcome draws it: `12 of 12`, `2 of 2, attempt 3 not judged`; nothing for a run verify didn't take. */
+/** A verified run's tally without its bound, as a row beside its outcome draws it: `12 of 12 passed`, `2 of 2 passed, attempt 3 not judged`; nothing for a run verify didn't take. */
 export function tallyCount(t: VerifiedTally | null | undefined): string {
   if (!t) return '';
-  return t.undecided ? `${t.attempts > 1 ? `${t.passes} of ${t.attempts - 1}, ` : ''}attempt ${t.attempts} not judged` : `${t.passes} of ${t.attempts}${t.baseline ? `, baseline ${t.baseline.passes} of ${t.baseline.attempts}` : ''}`;
+  const { bound: _bound, ...counted } = tallyParts(t);
+  return verifyTallyLine(counted);
 }
 
-/** How verify found a run, after its verdict: `kept, verified · 12 of 12 · rate >= 0.76 (95%)`; an outcome that is the verdict word (inconclusive) is said once. */
+/** How verify found a run, after its verdict: `kept, verified · 12 of 12 passed · rate >= 0.76 (95%)`; an outcome that is the verdict word (inconclusive) is said once. */
 export function verifiedWords(x: { verdict: string; outcome: string; tally: VerifiedTally | null }): string {
   return `${x.outcome === x.verdict ? '' : `${x.outcome}, `}verified${tallyWords(x.tally)}`;
 }

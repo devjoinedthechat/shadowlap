@@ -312,7 +312,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       : [
           ['Overview', href.overview()],
           ['Runs', href.runs()],
-          ['Changes', changesHref(), 'verdicts, compare, preview', goKeyColumn(href.changes())],
+          ['Changes', changesHref(), 'verdicts, compare, preview, migrate', goKeyColumn(href.changes())],
           ['Fixes', href.fixes()],
           ['Tests', href.tests()],
           ['Training', href.training()],

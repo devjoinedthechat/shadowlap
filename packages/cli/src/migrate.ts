@@ -1,15 +1,17 @@
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, byRule, changePct, CLEARED, controlOpen, credentialFreeCommandLine, endToEndWords, fieldValue, judgeOpen, RANK_LABELS, safeLine, decisionLine, usdOrUnknown, verifiedCount, verifiedWords, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { argsDelta, besidesLine, changePct, controlOpen, credentialFreeCommandLine, decisionLine, endToEndWords, fieldValue, givenField, byHandNote, handOf, judgeOpen, leftBehindLines, leftBehindOf, leftBehindSentence, leftOutInFile, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, namedInSentence, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, RANK_LABELS, verifyFlagsLine, remedyText, safeLine, sameModel, shortSessionId, usdOrUnknown, verifiedCount, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type LeftBehind, type RetirementNotice, type SprtGate, type Store, type StoreOf, type VerifyTally } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
 import { keepDecisions, newSessionId, runDecisions, type DecisionTarget } from './decisions.js';
-import { physicalPath } from './real-path.js';
-import { listedFiles, readInside } from './repair-tree.js';
+import { modelMentions, type ConfigChange } from './migrate-mentions.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
+
+export { lineDiff, modelMentions, type ConfigChange, type ModelMention } from './migrate-mentions.js';
+export { remedyText } from '@shadowlap/engine';
 
 /**
  * `shadowlap migrate --to <model>`: the decision diff, packaged for a model switch, such as the one
@@ -63,14 +65,20 @@ export interface MigrateRunPass {
    * it didn't take. A good run kept against its baseline (the old model) has the baseline's tally too,
    * and the bound on its drop from it.
    */
-  tally: { passes: number; attempts: number; bound: string | null; rule: string | null; undecided?: string | null; baseline?: { passes: number; attempts: number } | null } | null;
-}
-
-/** A place a project file names a model the switch changes. */
-export interface ModelMention {
-  path: string;
-  line: number;
-  text: string;
+  tally: { passes: number; attempts: number; bound: string | null; rule: string | null; undecided?: string | null; baseline?: { passes: number; attempts: number } | null; parts?: VerifyTally | null } | null;
+  /**
+   * Where a golden diverges once the config change is in: one that replays exactly (not marked `fork`)
+   * and makes a call with a model the switch changes diverges on `$.model` at the first such call,
+   * until it is re-recorded under the new model. Null for a run, a golden that forks, and when no file
+   * names the model.
+   */
+  diverges: { callNo: number; path: '$.model' } | null;
+  /**
+   * Why a golden stays as recorded once the config change is in: `fork`, its tests entry marks it
+   * fork, so it passes on its checks wherever it forks; `no-call`, it makes no call with a model the
+   * switch changes. Absent for a run, a golden that diverges, and when no file names the model.
+   */
+  stays?: 'fork' | 'no-call';
 }
 
 export interface MigrateReport {
@@ -94,14 +102,14 @@ export interface MigrateReport {
    * text-only changes, verifying.
    */
   costs: { perRun: { before: number | null; after: number | null }; total: { before: number | null; after: number | null }; tokensPerRun: { before: number; after: number }; endToEnd: { recorded: Footprint; now: Footprint } | null; checking: { decisions: number; judge: number; verify: number } };
-  /** What to set: the flags verify took, the fields the switch needs and why, and those given with `--set`. */
-  set: { flags: string[]; fields: DecisionRemedy[]; given: Record<string, unknown> };
   /**
-   * The change to the project's files: where a string value names a model it switches from (in code
-   * and config), the places in each and the patch; and the mentions left for review (prose, history,
-   * tests, an object key, Shadowlap's own config). Null when no file names one.
+   * What to set: the flags verify took, the fields the switch needs and why, those given with `--set`,
+   * and `byHand`, the names of those the config change leaves for the hand: each field it doesn't take
+   * out, and each one given, which verify ran with and no patch writes.
    */
-  configChange: { files: Array<{ path: string; places: number }>; patch: string; review: ModelMention[] } | null;
+  set: { flags: string[]; fields: DecisionRemedy[]; given: Record<string, unknown>; byHand: string[] };
+  /** The change to the project's files (migrate-mentions.ts); null when no file names a model it switches from. */
+  configChange: ConfigChange | null;
   pullRequest: { title: string; body: string };
   /** Where the pull request body and the patch were written (`.shadowlap/migrations/<id>/`), relative to the project; null when they could not be. */
   files: { dir: string; pullRequest: string; patch: string | null } | null;
@@ -118,17 +126,7 @@ const costsSentence = (r: Omit<MigrateReport, 'pullRequest' | 'files'>): string 
 };
 
 /** How a run came to its verdict, in words. */
-const passWords = (x: MigrateRunPass): string => (x.verified ? verifiedWords(x) : x.outcome === 'unchanged' ? CLEARED : x.outcome);
-
-/** The changes besides writes, stops and judged ones, counted: `1 read added or removed, 2 text only (1 judged as recorded, 1 not judged)`. */
-function besides(r: Pick<MigrateReport, 'decisions'>): string {
-  const c = r.decisions.counts;
-  const text = r.decisions.runs.flatMap((x) => x.decisions).filter((s) => s.rank === 5);
-  const judged = text.filter((s) => !judgeOpen(s) && s.judge?.length && s.judge.every((j) => j.changed === false)).length;
-  const open = text.filter((s) => judgeOpen(s)).length;
-  const how = [judged ? `${judged} judged as recorded` : '', open ? `${open} not judged` : ''].filter(Boolean).join(', ');
-  return [c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only${how ? ` (${how})` : ''}`].filter(Boolean).join(', ');
-}
+const passWords = (x: MigrateRunPass): string => migratePassWords(x);
 
 /**
  * The rules the verified runs were decided by, each once, with the runs it decided: one rule, unless
@@ -136,176 +134,47 @@ function besides(r: Pick<MigrateReport, 'decisions'>): string {
  * the one the decisions report's verify states.
  */
 function verifiedRules(r: Pick<MigrateReport, 'passes' | 'decisions'>): Array<{ rule: string; runs: MigrateRunPass[] }> {
-  return byRule(
-    r.passes.runs.filter((x) => x.verified),
-    (x) => x.tally?.rule,
-    r.decisions.verify?.rule ?? null,
-  ).flatMap((g) => (g.rule === null ? [] : [{ rule: g.rule, runs: g.runs }]));
-}
-
-/** Paths whose text is no place the agent names its model: the store, packages, recordings' blobs and lockfiles. */
-const NOT_SOURCE = /(^|\/)(\.shadowlap|node_modules|blobs)\/|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|uv\.lock|poetry\.lock|Cargo\.lock)$/;
-
-/**
- * Files the project tracks or would (not ignored), with text, outside recordings and the store. A link
- * is read as the file it ends at, under that file's own path, and only when git lists that file too
- * and it is not git's own (listedFiles, as repair reads them): the patch's context lines and the
- * review never quote a file git ignores, such as a `.env`, a key file kept elsewhere, nor git's
- * config, which can hold a credential.
- */
-function projectTextFiles(cwd: string): Array<{ path: string; content: string }> | null {
-  let paths: string[];
-  try {
-    paths = listedFiles(cwd, (path) => NOT_SOURCE.test(path));
-  } catch {
-    return null;
-  }
-  const real = physicalPath(cwd);
-  const out: Array<{ path: string; content: string }> = [];
-  for (const path of paths) {
-    // A pack's recording holds the requests the model was sent, not where the agent names it.
-    if (/(^|\/)(run\.json|calls\.jsonl)$/.test(path) && existsSync(join(real, dirname(path), 'run.json'))) continue;
-    try {
-      if (statSync(join(real, path)).size > 1024 * 1024) continue;
-      const content = readInside(real, path);
-      if (!content.includes('\u0000')) out.push({ path, content });
-    } catch {
-      // gone, unreadable, or a file with another name
-    }
-  }
-  return out;
-}
-
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * A unified diff of a file whose lines changed in place (no line added or removed), one hunk per
- * group of changed lines with three lines of context, as `git apply` reads it.
- */
-export function inPlaceDiff(path: string, before: string, after: string): string {
-  const a = before.split('\n');
-  const b = after.split('\n');
-  const changed = a.map((line, i) => line !== b[i]).flatMap((c, i) => (c ? [i] : []));
-  if (!changed.length) return '';
-  const hunks: Array<[number, number]> = [];
-  for (const i of changed) {
-    const last = hunks.at(-1);
-    if (last && i - last[1] <= 6) last[1] = i;
-    else hunks.push([i, i]);
-  }
-  const lines = [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`];
-  // A file that ends without a newline has one line fewer to show than `split` gives.
-  const count = before.endsWith('\n') ? a.length - 1 : a.length;
-  for (const [first, end] of hunks) {
-    const start = Math.max(0, first - 3);
-    const stop = Math.min(count - 1, end + 3);
-    lines.push(`@@ -${start + 1},${stop - start + 1} +${start + 1},${stop - start + 1} @@`);
-    for (let i = start; i <= stop; i++) {
-      const noEol = i === count - 1 && !before.endsWith('\n');
-      if (a[i] === b[i]) lines.push(` ${a[i]!}`);
-      else lines.push(`-${a[i]!}`, ...(noEol ? ['\\ No newline at end of file'] : []), `+${b[i]!}`);
-      if (noEol && a[i] === b[i]) lines.push('\\ No newline at end of file');
-    }
-  }
-  return `${lines.join('\n')}\n`;
-}
-
-/** Prose and history: what a model was, never what the agent sends now. */
-const PROSE = /(^|\/)(CHANGELOG|CHANGES|HISTORY|NEWS|RELEASES?)[^/]*$|\.(md|mdx|markdown|rst|adoc|txt)$/i;
-/** Tests and fixtures: what a run once sent, or what a check expects. */
-const TESTS = /(^|\/)(tests?|__tests__|specs?|fixtures?|__fixtures__|__recordings__|goldens|testdata)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_test\.(py|go)$/i;
-/** Shadowlap's own config: its prices are keyed by model and its judges name theirs; none is the agent's. */
-const SHADOWLAP_CONFIG = /(^|\/)shadowlap\.config\.json$/;
-/** A line that is a comment. */
-const COMMENT = /^\s*(\/\/|#|\*|\/\*|--|;)/;
-
-type FileKind = 'json' | 'yaml' | 'env' | 'toml' | 'code';
-
-function kindOf(path: string): FileKind {
-  if (/\.jsonc?$/i.test(path)) return 'json';
-  if (/\.ya?ml$/i.test(path)) return 'yaml';
-  if (/(^|\/)\.env(\.[\w.-]+)?$|\.env$/i.test(path)) return 'env';
-  if (/\.toml$/i.test(path)) return 'toml';
-  return 'code';
-}
-
-/**
- * Whether the mention at `at` (of `name`) on `line` is a string value naming the model whole: a JSON
- * string that is no key, a YAML, TOML or .env value, a string literal in code that is no object key.
- */
-function isValue(kind: FileKind, line: string, at: number, name: string): boolean {
-  if (COMMENT.test(line)) return false;
-  const before = line.slice(0, at);
-  const after = line.slice(at + name.length);
-  const quote = before.at(-1);
-  const quoted = (quote === '"' || quote === "'" || quote === '`') && after[0] === quote;
-  const rest = quoted ? after.slice(1) : after;
-  switch (kind) {
-    case 'json':
-      return quote === '"' && quoted && !/^\s*:/.test(rest);
-    case 'yaml':
-      return /^(\s*-\s+|\s*[\w.-]+\s*:\s*|\s*-\s+[\w.-]+\s*:\s*)$/.test(quoted ? before.slice(0, -1) : before) && /^\s*(#.*)?$/.test(rest);
-    case 'env':
-      return /^\s*(export\s+)?[A-Za-z_]\w*\s*=\s*$/.test(quoted ? before.slice(0, -1) : before) && /^\s*$/.test(rest);
-    case 'toml':
-      return quoted && /^\s*[\w.-]+\s*=\s*$/.test(before.slice(0, -1)) && /^\s*(#.*)?$/.test(rest);
-    default:
-      return quoted && !/^\s*:(?!:)/.test(rest);
-  }
-}
-
-/**
- * Where the project's files name a model it switches from, and the patch that names the new one
- * there: only where a string value in code or config names the model whole. A mention in prose or
- * history, in a test, as an object key (a price table's), or in Shadowlap's own config is listed for
- * review and left as it is.
- */
-export function modelMentions(cwd: string, from: readonly string[], to: string): MigrateReport['configChange'] | 'no-git' {
-  const files = projectTextFiles(cwd);
-  if (!files) return 'no-git';
-  const names = [...new Set(from.filter((m) => m && m !== to))].sort((x, y) => y.length - x.length);
-  if (!names.length) return null;
-  // A name whole: no id character on either side, though a sentence may end on it (`… to claude-sonnet-4-6.`).
-  const re = new RegExp(`(?<![\\w.-])(${names.map(escape).join('|')})(?![\\w-]|\\.\\w)`, 'g');
-  const touched: Array<{ path: string; places: number }> = [];
-  const review: ModelMention[] = [];
-  let patch = '';
-  for (const f of files) {
-    if (!re.test(f.content)) continue;
-    re.lastIndex = 0;
-    const reviewOnly = PROSE.test(f.path) || TESTS.test(f.path) || SHADOWLAP_CONFIG.test(f.path);
-    const kind = kindOf(f.path);
-    let places = 0;
-    const lines = f.content.split('\n').map((line, i) => {
-      let changed = '';
-      let last = 0;
-      for (const m of line.matchAll(re)) {
-        const at = m.index;
-        if (!reviewOnly && isValue(kind, line, at, m[0])) {
-          changed += `${line.slice(last, at)}${to}`;
-          last = at + m[0].length;
-          places++;
-        } else review.push({ path: f.path, line: i + 1, text: safeLine(line.trim().slice(0, 160)) });
-      }
-      return last ? `${changed}${line.slice(last)}` : line;
-    });
-    if (!places) continue;
-    touched.push({ path: f.path, places });
-    patch += inPlaceDiff(f.path, f.content, lines.join('\n'));
-  }
-  // One entry per line, however many mentions it holds.
-  const seen = new Set<string>();
-  const listed = review.filter((r) => !seen.has(`${r.path}:${r.line}`) && seen.add(`${r.path}:${r.line}`));
-  return touched.length || listed.length ? { files: touched, patch, review: listed } : null;
+  return migrateRules(r.passes.runs, r.decisions.verify?.rule ?? null);
 }
 
 const name = (r: { runId: string; golden: string | null }) => r.golden ?? shortId(r.runId);
 
-/** What to set for one field, in words: `temperature` left out, `thinking` = `{"type":"adaptive"}`, `max_completion_tokens` in place of `max_tokens`. */
-export function remedyText(f: DecisionRemedy, code: (s: string) => string = (s) => s): string {
-  if (f.renamedTo) return `send ${code(f.renamedTo)} in place of ${code(f.field)}, with the value it has`;
-  if (f.leftOut) return `leave ${code(f.field)} out${f.value !== null ? ` (the requests were sent ${code(`${f.field}=${fieldValue(f.value)}`)}, its default, meanwhile)` : ''}`;
-  return `${code(f.field)} = ${code(fieldValue(f.value))}`;
+/** The goldens the config change leaves behind, each with the first call it makes with a model the switch changes, and the command that re-records them. */
+export const leftBehind = (r: Pick<MigrateReport, 'passes'>): { left: LeftBehind[]; update: string } => leftBehindOf(r.passes.runs);
+
+/** A line of the engine's words as a sentence starts it, or as the terminal lists it under its heading. */
+const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** The fields the config change takes out, each once, in the order it found them. */
+const takenOut = (c: ConfigChange | null): string[] => [...new Set((c?.leftOut ?? []).map((x) => x.field))];
+
+/** What still passes in the pull request: each run, the rule verify decided them by, how many ran end to end, and the goldens the switch leaves behind. */
+function passesBlock(r: Omit<MigrateReport, 'pullRequest' | 'files'>, tick: (s: string) => string): string[] {
+  const lines = ['', '### What still passes', ''];
+  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict} (${passWords(x)})`);
+  // The rule verify decided them by, said once; each over its own runs when more than one did.
+  const rules = verifiedRules(r);
+  if (rules.length === 1) lines.push('', `Verified by ${tick('shadowlap verify')}, ${rules[0]!.rule}.`);
+  else if (rules.length) lines.push('', `Verified by ${tick('shadowlap verify')}, each run under the rule that decided it:`, '', ...rules.map((g) => `- ${g.runs.map(name).join(', ')}: ${g.rule}`));
+  lines.push('', `${verifiedCount(r.passes.runs)}.`);
+  const notRun = r.decisions.verify?.verdict === 'not-run' ? notVerifiedYet(r.decisions.verify.reasons) : '';
+  if (notRun) lines.push('', `${notRun}.`);
+  for (const w of r.decisions.verify?.warnings ?? []) lines.push('', `Note: ${w}.`);
+  const { left, update } = leftBehind(r);
+  if (left.length) lines.push('', leftBehindSentence(left, r.to, update, tick));
+  return lines;
+}
+
+/** What to set in the pull request: each field and why, those given, and where the model is named, with what the config change takes out. */
+function setBlock(r: Omit<MigrateReport, 'pullRequest' | 'files'>, tick: (s: string) => string): string[] {
+  const lines = ['', '### What to set', ''];
+  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`${onlyTheModel(r.to)}.`);
+  for (const f of r.set.fields) lines.push(`- ${remedyText(f, tick)}: ${f.why}`);
+  for (const [k, v] of Object.entries(r.set.given)) lines.push(`- ${tick(k)} = ${tick(fieldValue(v))} (given)`);
+  if (r.configChange?.files.length) lines.push('', namedInSentence(r.configChange.files.map((f) => f.path), takenOut(r.configChange), tick));
+  if (r.configChange?.review.length) lines.push('', `Left as they are, for review: ${r.configChange.review.length} other mention${r.configChange.review.length === 1 ? '' : 's'} in ${[...new Set(r.configChange.review.map((x) => x.path))].slice(0, 6).map(tick).join(', ')}.`);
+  return lines;
 }
 
 /**
@@ -320,27 +189,14 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const lines: string[] = [`## ${title}`, '', `Checked with \`${credentialFreeCommandLine(r.command)}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and ${verifiedCount(r.passes.runs)}.`];
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
-  if (!r.changes.steps.length) lines.push(`No write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}.`);
+  if (!r.changes.steps.length) lines.push(`${noChangeWords(!!r.decisions.counts.notAsked)}.`);
   for (const s of r.changes.steps.slice(0, 12)) lines.push(`- ${name(s)} #${s.callNo}: ${s.detail}${s.arguments.length ? `: ${s.arguments.map(tick).join(', ')}` : ` (${tick(s.recorded)} → ${tick(s.now)})`}`);
   if (r.changes.steps.length > 12) lines.push(`- and ${r.changes.steps.length - 12} more`);
-  const c = r.decisions.counts;
-  if (c[3] + c[4] + c[5]) lines.push('', `Besides: ${besides(r)}.`);
-  lines.push('', '### What still passes', '');
-  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict} (${passWords(x)})`);
-  // The rule verify decided them by, said once; each over its own runs when more than one did.
-  const rules = verifiedRules(r);
-  if (rules.length === 1) lines.push('', `Verified by ${tick('shadowlap verify')}, ${rules[0]!.rule}.`);
-  else if (rules.length) lines.push('', `Verified by ${tick('shadowlap verify')}, each run under the rule that decided it:`, '', ...rules.map((g) => `- ${g.runs.map(name).join(', ')}: ${g.rule}`));
-  lines.push('', `${verifiedCount(r.passes.runs)}.`);
-  if (r.decisions.verify?.verdict === 'not-run' && r.decisions.verify.reasons.length) lines.push('', `Not verified yet: ${r.decisions.verify.reasons.join('; ')}.`);
-  for (const w of r.decisions.verify?.warnings ?? []) lines.push('', `Note: ${w}.`);
+  const besides = besidesLine(r.decisions);
+  if (besides) lines.push('', `${upperFirst(besides)}.`);
+  lines.push(...passesBlock(r, tick));
   lines.push('', '### What it costs', '', costsSentence(r));
-  lines.push('', '### What to set', '');
-  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`Only the model: ${r.to}.`);
-  for (const f of r.set.fields) lines.push(`- ${remedyText(f, tick)}: ${f.why}`);
-  for (const [k, v] of Object.entries(r.set.given)) lines.push(`- ${tick(k)} = ${tick(fieldValue(v))} (given)`);
-  if (r.configChange?.files.length) lines.push('', `The model is named in ${r.configChange.files.map((f) => tick(f.path)).join(', ')}.`);
-  if (r.configChange?.review.length) lines.push('', `Left as they are, for review: ${r.configChange.review.length} other mention${r.configChange.review.length === 1 ? '' : 's'} in ${[...new Set(r.configChange.review.map((x) => x.path))].slice(0, 6).map(tick).join(', ')}.`);
+  lines.push(...setBlock(r, tick));
   return { title, body: `${lines.join('\n')}\n` };
 }
 
@@ -356,15 +212,41 @@ export function passesOf(runs: readonly DecisionRun[], toVerify: readonly string
   const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
   return runs.map((r): MigrateRunPass => {
     const v = verified.get(r.runId);
-    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null, rule: v.rule ?? verify?.rule ?? null, undecided: v.undecided ?? null, ...(v.baseline ? { baseline: v.baseline } : {}) } };
+    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null, rule: v.rule ?? verify?.rule ?? null, undecided: v.undecided ?? null, ...(v.baseline ? { baseline: v.baseline } : {}), ...(v.parts ? { parts: v.parts } : {}) }, diverges: null };
     // A step whose request as recorded got no answer for now waits on it (controlOpen): its change is not told from the model's own.
     const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked) || (!toVerify.includes(r.runId) && r.decisions.some((x) => controlOpen(x)));
-    if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null };
-    if (toVerify.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };
-    if (r.decisions.some((x) => judgeOpen(x))) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null };
+    if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null, diverges: null };
+    if (toVerify.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null, diverges: null };
+    if (r.decisions.some((x) => judgeOpen(x))) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null, diverges: null };
     const passed = recorded(r.runId);
-    return { runId: r.runId, golden: r.golden, verdict: passed === true ? 'passed' : passed === false ? 'failed' : 'inconclusive', outcome: 'unchanged', verified: false, tally: null };
+    return { runId: r.runId, golden: r.golden, verdict: passed === true ? 'passed' : passed === false ? 'failed' : 'inconclusive', outcome: 'unchanged', verified: false, tally: null, diverges: null };
   });
+}
+
+/**
+ * Marks each golden the config change leaves behind (`diverges`): one that replays exactly, since a
+ * golden marked `fork` passes on its checks wherever it forks, and makes a call with a model the
+ * switch changes, at the first such call. Which agent reads the files the patch changes can't be told,
+ * so every such golden is named, "once applied": `migrate apply` replays them to see. Each other
+ * golden says why it stays as recorded (`stays`).
+ */
+export function markDiverges(passes: MigrateRunPass[], runs: readonly DecisionRun[], targets: readonly DecisionTarget[], from: readonly string[]): void {
+  for (const x of passes) {
+    const t = targets.find((y) => y.run.runId === x.runId);
+    if (!x.golden || !t) continue;
+    const steps = runs.find((r) => r.runId === x.runId)?.decisions ?? [];
+    const first = steps.filter((d) => from.some((m) => sameModel(d.model.recorded, m))).sort((a, b) => a.callNo - b.callNo)[0];
+    // Its tests entry says whether `shadowlap test` lets it fork, whatever checks verify took.
+    if (!first) x.stays = 'no-call';
+    else if (t.spec?.fork) x.stays = 'fork';
+    else x.diverges = { callNo: first.callNo, path: '$.model' };
+  }
+}
+
+/** The names of the fields the config change leaves for the hand: each the patch doesn't take out, and each given, which no patch writes. */
+function byHandOf(remedies: readonly DecisionRemedy[], given: Record<string, unknown>, change: ConfigChange | null): string[] {
+  const out = new Set(takenOut(change));
+  return [...remedies.map((f) => f.field).filter((f) => !out.has(f)), ...Object.keys(given)];
 }
 
 /** The `--set` flags verify takes for the switch: the fields given, and those sent with a value in place of what the new model refuses. */
@@ -415,11 +297,13 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   // What the switch sets: the fields given, with what the new model needs in place of any it refuses.
   const remedied = new Set(decisions.remedies.map((r) => r.field));
   const given = Object.fromEntries(Object.entries(s.fields).filter(([k]) => !remedied.has(k)));
-  const mentions = modelMentions(process.cwd(), from, s.to);
+  const mentions = modelMentions(process.cwd(), from, s.to, decisions.remedies);
+  const change = mentions === 'no-git' ? null : mentions;
+  if (change?.files.length) markDiverges(passes, decisions.runs, input.targets, from);
   const notes = [...decisions.notes];
   const warnings = [...decisions.warnings];
   const blocked = decisions.verify?.verdict === 'not-run' ? decisions.verify.reasons[0] : undefined;
-  if (blocked) warnings.push(`Not verified: ${blocked}`);
+  if (blocked) warnings.push(notVerifiedWarning(blocked));
   if (mentions === 'no-git') notes.push('The project is not a git repository, so its files were not searched for the model it switches from.');
   else if ((mentions === null || !mentions.files.length) && from.length) notes.push(`No string in the project's code or config names ${from.join(' or ')}: set ${s.to} where your agent reads its model (an environment variable, a deployment setting).`);
   if (mentions && mentions !== 'no-git' && mentions.review.length) notes.push(`${mentions.review.length} other mention${mentions.review.length === 1 ? '' : 's'} of ${from.join(' or ')} (prose, history, tests, object keys, Shadowlap's config) ${mentions.review.length === 1 ? 'is' : 'are'} left as ${mentions.review.length === 1 ? 'it is' : 'they are'}, for review.`);
@@ -440,8 +324,8 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
       tokensPerRun: { before: runsAsked.length ? Math.round(runsAsked.reduce((n, r) => n + tokens(r.tokens.before), 0) / runsAsked.length) : 0, after: runsAsked.length ? Math.round(runsAsked.reduce((n, r) => n + tokens(r.tokens.after), 0) / runsAsked.length) : 0 },
       checking: { decisions: decisions.cost.spent, judge: decisions.judge?.spent ?? 0, verify: decisions.verify?.spent ?? 0 },
     },
-    set: { flags: verifyFlags(given, decisions.remedies), fields: decisions.remedies, given },
-    configChange: mentions === 'no-git' ? null : mentions,
+    set: { flags: verifyFlags(given, decisions.remedies), fields: decisions.remedies, given, byHand: byHandOf(decisions.remedies, given, change) },
+    configChange: change,
     retirements: decisions.retirements,
     notes,
     warnings,
@@ -480,43 +364,26 @@ function writeMigrateFiles(r: MigrateReport, id: string): MigrateReport['files']
   }
 }
 
-/**
- * The report's first line. It claims nothing What still passes doesn't: a run that is inconclusive there
- * (a step not answered, a run that needed verify and did not get it, a recording its checks can't
- * settle) leaves it not settled, and a run that failed as recorded is not one the switch keeps passing.
- * It claims only what ran: a run the preview cleared decided the same there, which is all that is known of it.
- */
+/** The report's first line, from the engine's words (migrateHeadline): its mark, the words, then the switch. */
 function firstLine(r: MigrateReport): string {
-  const v = r.passes.verdict;
-  const unsure = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
-  const failing = r.passes.runs.some((x) => x.verdict === 'failed');
-  const verified = r.passes.runs.filter((x) => x.verified).length;
-  const cleared = r.passes.runs.some((x) => !x.verified && x.verdict === 'passed');
-  const kept = !cleared ? `every run${failing ? ' that passed' : ''}` : verified === 1 ? 'the run it verified' : `the ${verified} runs it verified`;
-  const head =
-    v === 'rejected'
-      ? `${p.red('✗')} ${p.bold(`${r.to} breaks runs`)}`
-      : unsure
-        ? `${p.yellow('!')} ${p.bold('Not settled')}`
-        : v === 'accepted'
-          ? `${p.green('✓')} ${p.bold(`${r.to} keeps ${kept} passing`)}`
-          : verified === 0 && v === 'not-run'
-            ? `${p.green('✓')} ${p.bold(`${r.to} decided the same in the preview`)}`
-            : `${p.yellow('!')} ${p.bold('Not settled')}`;
-  return `${head}: ${r.from.length ? `${r.from.join(', ')} → ` : ''}${r.to}, ${r.decisions.runs.length} run${r.decisions.runs.length === 1 ? '' : 's'}${unsure ? `, ${unsure} inconclusive` : ''}`;
+  const h = migrateHeadline({ from: r.from, to: r.to, runs: r.decisions.runs.length, passes: r.passes });
+  const mark = h.tone === 'fail' ? p.red('✗') : h.tone === 'pass' ? p.green('✓') : p.yellow('!');
+  return `${mark} ${p.bold(h.text)}: ${h.rest}`;
 }
 
-/** The report as the terminal shows it: the four blocks in order. */
-export function formatMigrate(r: MigrateReport): string {
-  const lines: string[] = [];
-  lines.push(firstLine(r));
-  for (const n of r.retirements) lines.push(p.dim(`  ${safeLine(n.text)}`));
-  lines.push('', p.bold('What changes'));
-  if (!r.changes.steps.length) lines.push(`  no write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}`);
+/** What changes: each write, stop and judged change, then what changed besides. */
+function changesLines(r: MigrateReport): string[] {
+  const lines = ['', p.bold('What changes')];
+  if (!r.changes.steps.length) lines.push(`  ${lowerFirst(noChangeWords(!!r.decisions.counts.notAsked))}`);
   for (const s of r.changes.steps) lines.push(`  ${s.rank === 1 ? p.red(`rank ${s.rank}`) : p.yellow(`rank ${s.rank}`)}  ${safeLine(name(s))} #${s.callNo}  ${safeLine(s.detail)}`, ...(s.arguments.length ? s.arguments.map((a) => p.dim(`          ${a}`)) : [p.dim(`          ${s.recorded} → ${s.now}`)]));
-  const c = r.decisions.counts;
-  if (c[3] + c[4] + c[5]) lines.push(p.dim(`  besides: ${besides(r)}`));
-  lines.push('', p.bold('What still passes'));
+  const besides = besidesLine(r.decisions);
+  if (besides) lines.push(p.dim(`  ${besides}`));
+  return lines;
+}
+
+/** What still passes: each run, the rule the verified runs were decided by, how many ran end to end, and the goldens the config change leaves behind. */
+function passesLines(r: MigrateReport): string[] {
+  const lines = ['', p.bold('What still passes')];
   for (const x of r.passes.runs) {
     const word = x.verdict === 'passed' ? p.green(x.verdict) : x.verdict === 'failed' ? p.red(x.verdict) : p.yellow(x.verdict);
     lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(` · ${passWords(x)}`)}`);
@@ -526,26 +393,64 @@ export function formatMigrate(r: MigrateReport): string {
   if (rules.length === 1) lines.push(p.dim(`  ${safeLine(rules[0]!.rule)}`));
   else for (const g of rules) lines.push(p.dim(`  ${safeLine(g.rule)}: ${g.runs.map((x) => safeLine(name(x))).join(', ')}`));
   lines.push(p.dim(`  ${verifiedCount(r.passes.runs)}`));
-  lines.push('', p.bold('What it costs'));
-  lines.push(`  per run      ${usdOrUnknown(r.costs.perRun.before)} → ${usdOrUnknown(r.costs.perRun.after)}${changePct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
-  if (r.costs.endToEnd) lines.push(`  end to end   ${endToEndWords(r.costs.endToEnd)}`);
+  const { left, update } = leftBehind(r);
+  const [head, then] = leftBehindLines(left.map((x) => ({ ...x, golden: safeLine(x.golden) })), r.to, update);
+  if (head) lines.push(`  ${p.yellow('!')} ${head}`, p.dim(`    ${then!}`));
+  return lines;
+}
+
+/** What it costs: per run, end to end, and checking it, with the models no price covers. */
+function costsLines(r: MigrateReport): string[] {
   // Asking's models and the judge's with no price: what they cost is not in the figures.
   const unknown = [...new Set([...r.decisions.cost.unknownModels, ...(r.decisions.judge?.unknownModels ?? [])])];
-  const unpriced = unknown.length ? ` (no price for ${unknown.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';
-  lines.push(p.dim(`  checking it  ${usdOrUnknown(r.costs.checking.decisions)} asking, ${r.decisions.judge ? `${usdOrUnknown(r.costs.checking.judge)} judging, ` : ''}${usdOrUnknown(r.costs.checking.verify)} verifying${unpriced}`));
-  lines.push('', p.bold('What to set'));
-  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`  only the model: ${r.to}`);
+  const lines = migrateCostLines(r.costs, { judged: !!r.decisions.judge, unknown }).map((l) => (l.label === 'checking it' ? p.dim : String)(`  ${l.label.padEnd(13)}${l.text}`));
+  return ['', p.bold('What it costs'), ...lines];
+}
+
+/** What to set: each field and why, those given, and the flags verify took them as. */
+function setLines(r: MigrateReport): string[] {
+  const lines = ['', p.bold('What to set')];
+  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`  ${lowerFirst(onlyTheModel(r.to))}`);
   for (const f of r.set.fields) lines.push(`  ${remedyText(f)}  ${p.dim(safeLine(f.why))}`);
-  for (const [k, v] of Object.entries(r.set.given)) lines.push(`  ${k}=${fieldValue(v)}  ${p.dim('as given')}`);
-  if (r.set.flags.length) lines.push(p.dim(`  verify takes them as: ${r.set.flags.join(' ')}`));
-  if (r.configChange?.files.length) {
-    lines.push('', p.bold('The config change'), ...r.configChange.files.map((f) => `  ${f.path}  ${p.dim(`${f.places} place${f.places === 1 ? '' : 's'}`)}`));
+  for (const [k, v] of Object.entries(r.set.given)) lines.push(`  ${givenField(k, v)}  ${p.dim('as given')}`);
+  if (r.set.flags.length) lines.push(p.dim(`  ${verifyFlagsLine(r.set.flags)}`));
+  return lines;
+}
+
+/** The config change: each file with its places and the fields it takes out there, what it leaves for the hand, and the mentions left for review. */
+function configLines(r: MigrateReport): string[] {
+  const c = r.configChange;
+  const lines: string[] = [];
+  if (c?.files.length) {
+    const fieldsIn = (path: string) => [...new Set(c.leftOut.filter((x) => x.path === path).map((x) => x.field))];
+    lines.push('', p.bold('The config change'), ...c.files.map((f) => `  ${f.path}  ${p.dim(`${f.places} place${f.places === 1 ? '' : 's'}${leftOutInFile(fieldsIn(f.path))}`)}`));
+    const hand = handOf(r.set);
+    if (hand.length) lines.push(`  ${p.yellow('by hand:')} ${byHandWordsOf(hand)}`);
   }
-  if (r.configChange?.review.length) {
-    lines.push(p.dim(`  left for review:`), ...r.configChange.review.slice(0, 8).map((m) => p.dim(`    ${m.path}:${m.line}  ${m.text}`)), ...(r.configChange.review.length > 8 ? [p.dim(`    and ${r.configChange.review.length - 8} more`)] : []));
+  if (c?.review.length) {
+    lines.push(p.dim(`  left for review:`), ...c.review.slice(0, 8).map((m) => p.dim(`    ${m.path}:${m.line}  ${m.text}`)), ...(c.review.length > 8 ? [p.dim(`    and ${c.review.length - 8} more`)] : []));
   }
+  return lines;
+}
+
+/** The terminal's by-hand line, after `by hand:`: the engine's note without its `Also` and full stop. */
+const byHandWordsOf = (hand: ReturnType<typeof handOf>): string => byHandNote(hand).replace(/^Also /, '').replace(/\.$/, '');
+
+/** Where the report's files are, and how the config change goes in: `migrate apply` where nothing stands in its way, else git apply. */
+function filesLine(r: MigrateReport): string | null {
+  if (!r.files) return null;
+  const apply = r.files.patch && r.migrateId && !migrateApplyProblem(r) ? `shadowlap migrate apply ${shortSessionId(r.migrateId)}, or ` : '';
+  return p.dim(`  the pull request body: ${r.files.pullRequest}${r.files.patch ? ` · the config change: ${r.files.patch} (${apply}git apply ${r.files.patch})` : ''}`);
+}
+
+/** The report as the terminal shows it: the four blocks in order, the config change, then what to know. */
+export function formatMigrate(r: MigrateReport): string {
+  const lines: string[] = [firstLine(r)];
+  for (const n of r.retirements) lines.push(p.dim(`  ${safeLine(n.text)}`));
+  lines.push(...changesLines(r), ...passesLines(r), ...costsLines(r), ...setLines(r), ...configLines(r));
   if (r.warnings.length) lines.push('', ...r.warnings.map((w) => `${p.yellow('!')} ${safeLine(w)}`));
   lines.push('', ...r.notes.map((n) => p.dim(`  ${safeLine(n)}`)));
-  if (r.files) lines.push(p.dim(`  the pull request body: ${r.files.pullRequest}${r.files.patch ? ` · the config change: ${r.files.patch} (git apply ${r.files.patch})` : ''}`));
+  const files = filesLine(r);
+  if (files) lines.push(files);
   return lines.join('\n');
 }
