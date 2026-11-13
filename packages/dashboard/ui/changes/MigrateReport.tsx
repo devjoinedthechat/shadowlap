@@ -3,8 +3,7 @@ import { JOB_KINDS, type JobView } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
 import { asWords, CodeText, Copy } from '../components/Copy.js';
-import { Dialog } from '../components/Dialog.js';
-import { codeWords, DialogSteps, inCode } from '../components/DialogFacts.js';
+import { codeWords, inCode } from '../components/DialogFacts.js';
 import { DotNodes } from '../components/DotParts.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
@@ -19,17 +18,19 @@ import { glossed } from '../components/Term.js';
 import { UpdateOutdated } from '../components/UpdateOutdated.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { useConsentStart } from '../fixes/FixJobButton.js';
-import { outdatedOf, patchLines } from '../fixes/model.js';
+import { outdatedOf } from '../fixes/model.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { goldenName, shortId } from '../format.js';
 import { addJobFooter } from '../job-actions.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
+import { useServedParts } from '../served-parts.js';
 import { tipEst } from '../spending.js';
 import { useApp } from '../state.js';
 import type { DecisionSessionView, MigrateApplyOffer, MigrateRetiring, MigrateUse, MigrateView, PreviewSession } from '../types.js';
 import { DecisionCellPanel, openCell, openedCell } from './DecisionCell.js';
 import { DecisionMatrix } from './DecisionMatrix.js';
+import { Patch } from './Patch.js';
 import { rowTone } from './model.js';
 import { SessionPicker } from './SessionPicker.js';
 
@@ -252,11 +253,6 @@ function ToSet({ m }: { m: MigrateView }) {
   );
 }
 
-/** A patch drawn as Apply fix draws one: a change's box, each line marked and in its colour, a stop for the keys, since a dialog scrolls it. */
-function Patch({ text }: { text: string }) {
-  return <CodeBox lines={patchLines(text)} className="fxpatch" />;
-}
-
 /** The config change: its files and places, the patch, what it leaves out and leaves for the hand, the review, `git apply`, and Copy config change. */
 function ConfigChange({ m }: { m: MigrateView }) {
   const c = m.config;
@@ -327,9 +323,13 @@ function Foot({ m }: { m: MigrateView }) {
   );
 }
 
-/** Apply config change, lime while the tree is free: it asks first, then starts `migrate-apply`. Only where the server runs it. */
+/**
+ * Apply config change, lime while the tree is free: it asks first, in its dialog, a part the served
+ * dashboard hands in (changes/ApplyConfigDialog.tsx), then starts `migrate-apply`. Only where the server runs it.
+ */
 function ApplyButton({ sessionId, m, offer }: { sessionId: string; m: MigrateView; offer: MigrateApplyOffer }) {
   const app = useApp();
+  const { ApplyConfigDialog } = useServedParts();
   const busy = useTreeBusy('writes', 'apply the config change');
   const [asking, setAsking] = useState(false);
   const { start, consent } = useConsentStart(JOB_KINDS.migrateApply, { migrationId: sessionId });
@@ -340,53 +340,9 @@ function ApplyButton({ sessionId, m, offer }: { sessionId: string; m: MigrateVie
       <ActionButton className={busy ? 'btn' : 'btn lime'} why={busy} tip={label} sub="Asks first: it changes your working tree" command={`$ ${offer.command}`} onClick={() => setAsking(true)}>
         {label}
       </ActionButton>
-      {asking ? <ApplyDialog m={m} offer={offer} onOk={() => app.guard(() => void start({}))} onClose={() => setAsking(false)} /> : null}
+      {asking && ApplyConfigDialog ? <ApplyConfigDialog m={m} offer={offer} onOk={() => app.guard(() => void start({}))} onClose={() => setAsking(false)} /> : null}
       {consent}
     </>
-  );
-}
-
-/** Apply config change?: what it does in steps, what it leaves out, the patch, the goldens left behind (else why none diverges), and the command. */
-function ApplyDialog({ m, offer, onOk, onClose }: { m: MigrateView; offer: MigrateApplyOffer; onOk: () => void; onClose: () => void }) {
-  const behind = offer.leftBehind;
-  const one = behind.length === 1;
-  const steps = [
-    { what: 'Patch applied', where: <>{inCode(offer.files.map((f) => `\`${f}\``).join(', '))}, with git apply</> },
-    { what: 'Goldens replayed', where: 'offline, any that diverge are named' },
-    ...(behind.length ? [{ what: 'Update goldens next', where: `to re-record ${one ? 'it' : 'them'} under ${m.to}` }] : []),
-  ];
-  return (
-    <Dialog
-      title={`${ACTIONS.applyConfigChange.label}?`}
-      lead="Applies the migration’s config change to your working tree, for you to review before you commit."
-      doc="migrate"
-      facts={[
-        offer.leftOut ? { label: 'Leaves out', value: inCode(offer.leftOut), quiet: 'as What to set says' } : null,
-        // The goldens left behind are listed under the patch; with none, why each stays as recorded.
-        behind.length ? null : { label: 'Diverges', value: 'no golden', quiet: offer.stays ?? undefined },
-      ]}
-      command={offer.command}
-      ok={ACTIONS.applyConfigChange.label}
-      onOk={onOk}
-      onClose={onClose}
-    >
-      <DialogSteps steps={steps} />
-      {m.config.patch ? <Patch text={m.config.patch} /> : null}
-      {behind.length ? (
-        <div className="ondisk">
-          <span className="k">Left behind</span>
-          <ul className="plain">
-            {behind.map((g) => (
-              <li key={g.golden}>
-                <i aria-hidden="true" />
-                <span>{goldenName(g.golden)}</span>
-                <code>{`#${g.callNo} · $.model`}</code>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </Dialog>
   );
 }
 

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { demoId, expectAccessible, glued, openPage } from './dashboard.js';
+import { allClear, migrated, MIGRATED } from './routes.js';
 
 /**
  * A page, a run's view, a Changes tab or the check builder whose code didn't come from the dashboard
@@ -157,5 +158,34 @@ test('Preview pull request comment, whose code didn’t come, says so in the err
   await page.locator('main#view .prpanel').waitFor();
   await preview.click();
   await expect(page.locator('[role="dialog"]', { hasText: 'Preview pull request comment' })).toBeVisible();
+  await expect(toast).toHaveCount(0);
+});
+
+test('Apply config change?, whose code didn’t come, says so in the error toast and opens no dialog, closed again so the next press says it again, until Retry loads it again', async ({ page }) => {
+  const part = /\/assets\/chunks\/ApplyConfigDialog-\w+\.js$/;
+  await page.route(part, (route) => route.abort());
+  // A migration all clear, whose one next step is Apply config change: the demo's isn't.
+  await allClear(page);
+  await openPage(page, (await migrated(page)).report, MIGRATED);
+  const toast = page.locator('.toasts .toast.err');
+  const apply = page.locator(`${MIGRATED} .actions button`, { hasText: 'Apply config change' });
+  for (const time of [1, 2]) {
+    await apply.click();
+    await expect(toast, `press ${time}`).toContainText('This dialog’s code didn’t come from the dashboard server. Retry loads the page again.');
+    await expect(toast.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(apply).toBeFocused();
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+    if (time === 1) {
+      await toast.getByRole('button', { name: 'Dismiss' }).click();
+      await expect(toast).toHaveCount(0);
+    }
+  }
+  await expectAccessible(page);
+  // The server sends it: Retry loads the page again, and the dialog opens.
+  await page.unroute(part);
+  await toast.getByRole('button', { name: 'Retry' }).click();
+  await page.locator(MIGRATED).waitFor();
+  await apply.click();
+  await expect(page.locator('[role="dialog"]', { hasText: 'Apply config change?' })).toBeVisible();
   await expect(toast).toHaveCount(0);
 });

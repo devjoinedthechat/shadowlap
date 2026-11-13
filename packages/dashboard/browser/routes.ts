@@ -378,8 +378,8 @@ const migrationAs = (over: (m: MigrationRead, id: string) => Record<string, unkn
 };
 /** The golden the demo's switch leaves behind, at the call its replay diverges on once the change is in. */
 const LEFT = { golden: CHECKED, callNo: 3 };
-/** All clear: Apply config change its next step, leaving that golden behind. */
-const allClear = migrationAs((m, id) => ({ applied: null, next: 'apply', apply: { files: m.config.files.map((f) => f.path), leftOut: null, leftBehind: [LEFT], stays: null, command: `shadowlap migrate apply ${id.slice(0, 13)}` } }));
+/** All clear: Apply config change its next step, leaving that golden behind (load-failed.spec.ts asks it too). */
+export const allClear = migrationAs((m, id) => ({ applied: null, next: 'apply', apply: { files: m.config.files.map((f) => f.path), leftOut: null, leftBehind: [LEFT], stays: null, command: `shadowlap migrate apply ${id.slice(0, 13)}` } }));
 /** Applied an hour ago, the golden it left behind waiting: Update goldens its next step. */
 const appliedWaiting = migrationAs((m) => ({
   word: { text: 'applied', tone: 'ok' },
