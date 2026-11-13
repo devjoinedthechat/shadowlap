@@ -561,6 +561,14 @@ test('a screen reader hears a judge no attempt of its fork golden asked by its m
   expect(lines[lines.indexOf(mark) + 1]).toBe(`- text: ${JSON.stringify(`${JUDGE} ${JUDGE_ASKED_IN_NONE}`)}`);
 });
 
+test('Tests at 430 and 768px, a golden’s checks under its name, has no serious axe violation: where its error-path presets wrap, their link and their counts’ link stay 24px apart', async ({ page }) => {
+  for (const width of [430, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/tests', 'main#view table.gt .gin .gpstrip a.gpn');
+    expect(await seriousViolations(page)).toEqual([]);
+  }
+});
+
 test('in a forced-colours theme the fork’s cell in the strip keeps its mark, a 2px band in the text colour round it', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   await page.emulateMedia({ forcedColors: 'active' });
