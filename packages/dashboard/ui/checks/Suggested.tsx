@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import type { CheckSuggestion, CheckSuggestions, SuggestionsAsk } from '../checks-api.js';
+import { CodeText } from '../components/Copy.js';
 import { ErrorState } from '../components/States.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
@@ -95,7 +96,8 @@ export function Suggested({ ask, verb, onUse }: SuggestedProps) {
         <ul className="cb-sugs" ref={focus.list}>
           {rows.map((s, i) => (
             <li className="cb-sug" key={s.label}>
-              <code id={`${id}-${i}`}>{s.label}</code>
+              {/* a rule breaks only between its parts, an operator kept with the word before it */}
+              <CodeText id={`${id}-${i}`}>{s.label}</CodeText>
               <button
                 type="button"
                 className="linkbtn"

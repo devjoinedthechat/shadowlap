@@ -569,7 +569,11 @@ export const CODE_SET = 2048;
  * browser breaks where it must (`long`): set, 108 KB of a tool's input was 32,003 pieces. So is code
  * an injection attempt's page marks (`mark`, the inspector's marks): a mark may span its pieces.
  */
-export function CodeText({ children, className, mark }: { children: string; className?: string | undefined; mark?: ((text: string) => ReactNode) | undefined }) {
+export function CodeText({ children, className, id, mark }: { children: string; className?: string | undefined; id?: string | undefined; mark?: ((text: string) => ReactNode) | undefined }) {
   const long = children.length > CODE_SET || !!mark;
-  return <code className={['ts-ct', long ? 'long' : null, className].filter(Boolean).join(' ')}>{mark ? mark(children) : long ? children : drawn(codePieces(children))}</code>;
+  return (
+    <code id={id} className={['ts-ct', long ? 'long' : null, className].filter(Boolean).join(' ')}>
+      {mark ? mark(children) : long ? children : drawn(codePieces(children))}
+    </code>
+  );
 }

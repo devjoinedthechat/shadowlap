@@ -7,6 +7,7 @@ import type { CheckContext, CheckPreview, CheckSuggestions, ChecksConfig, Sugges
 import { Builder } from '../ui/checks/Builder.js';
 import { blankUnit, fileUnit, fragmentOf, haveOf, ruleOf, settle, suggestVerb, withRule, withSuggestion, type Fragment, type Units } from '../ui/checks/model.js';
 import type { BuilderProps } from '../ui/run/check-part.js';
+import { codePieces } from '../ui/typeset.js';
 import { noMedia, shell } from './ui-overlays-page.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -114,7 +115,13 @@ describe('Suggested in the builder', () => {
     expect(said(section.querySelector('.cb-k')!)).toBe('Suggestedeach fails 01K5CQ4V3H and not its good run, 01K5CQ1AAA');
     expect(r!.all('.cb-sug').map(said)).toEqual([`${labels(VALUE)[0]}Use rule`, `${labels(WHEN)[0]}Use rule`]);
     const [first] = r!.all('.cb-sug button');
-    expect(r!.all('.cb-sug code').find((c) => c.id === first.getAttribute('aria-describedby'))?.textContent).toBe(labels(VALUE)[0]);
+    const rule = r!.all('.cb-sug code').find((c) => c.id === first.getAttribute('aria-describedby'))!;
+    expect(rule.textContent).toBe(labels(VALUE)[0]);
+    // Drawn as code shown as text: it breaks only between its parts, its operator kept with the word before it.
+    expect(rule.className).toBe('ts-ct');
+    const whole = rule.querySelectorAll('span.nw').map((p) => p.textContent);
+    expect(whole).toEqual(codePieces(labels(VALUE)[0]).flatMap((p) => ('text' in p && p.whole ? [p.text] : [])));
+    expect(whole.some((p) => p.endsWith('amount <='))).toBe(true);
     // The section comes between the recordings judged and The change.
     const order = r!.all('.cb-sec').map((x) => said(x.querySelector('.k') ?? x));
     expect(order.indexOf(order.find((k) => k.startsWith('Suggested'))!)).toBe(order.findIndex((k) => k.startsWith('Against your recordings')) + 1);
