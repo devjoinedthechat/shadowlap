@@ -154,7 +154,7 @@ async function moreAttempts(page: Page, preview: string): Promise<{ preview: str
       if (!more.on) return route.continue();
       // Read whole, with the session's cookie, never a 304 the page's cache would answer.
       const headers = Object.fromEntries(Object.entries(await route.request().allHeaders()).filter(([k]) => k !== 'if-none-match'));
-      const res = await route.fetch({ headers });
+      const res = await route.fetch({ headers, ...RESET_RETRY });
       const s = (await res.json()) as { matrix: Array<{ runId: string; verified: unknown }>; view: { next: Record<string, unknown> } };
       const runId = s.matrix[0]!.runId;
       s.matrix[0]!.verified = { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' };

@@ -344,13 +344,13 @@ test('a preview’s link opens Preview and a migration’s its report on Migrate
 
 test('Migrate’s bare tab, the demo’s migration with its pull request body shown, Migrate to’s menu and the dialogs have no serious or critical axe violation, and a phone never scrolls the pages sideways', async ({ page, request }) => {
   const { origin, token } = dash();
-  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; href: string }> };
+  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { sessions: Array<{ kind: string; href: string }> };
   const migration = sessions.find((s) => s.kind === 'migrate')?.href;
   expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
   // The demo's migration breaks a run, so it offers no Apply: its answer, served with Apply offered
   // and leaving a golden behind, opens Apply config change? as an all-clear migration would.
   const id = migration!.split('/')[3]!;
-  const kept = (await (await request.get(`${origin}/api/decisions/${id}`, { headers: { 'x-shadowlap-token': token } })).json()) as { migration: Record<string, unknown> };
+  const kept = (await (await request.get(`${origin}/api/decisions/${id}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { migration: Record<string, unknown> };
   const offer = { files: ['agent.config.json'], leftOut: '`temperature`', leftBehind: [{ golden: 'goldens/refund', callNo: 1 }], stays: null, command: `shadowlap migrate apply ${id.slice(0, 13)}` };
   await page.route(`**/api/decisions/${id}`, (route) => route.fulfill({ json: { ...kept, migration: { ...kept.migration, applied: null, apply: offer, next: 'apply' } } }));
   const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
