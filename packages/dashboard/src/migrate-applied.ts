@@ -1,4 +1,5 @@
-import { migrateApplyProblem, migrateHeadline, sameModel, type MigrateApplyInput, type MigratePasses, type MigrateSetInput, type MigrationApplied, type StoreOf } from '@shadowlap/engine';
+import { isObject, migrateApplyProblem, migrateHeadline, sameModel, type MigrateApplyInput, type MigratePasses, type MigrateSetInput, type MigrationApplied, type StoreOf } from '@shadowlap/engine';
+import { strings } from './fields.js';
 
 /**
  * A migration's applied state as the dashboard reads it: when its config change went into the
@@ -63,8 +64,6 @@ export function goldensLeftWaiting(store: StoreOf<'decisions' | 'tests'>): Golde
   return out;
 }
 
-const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-
 /**
  * What `migrateApplyProblem` reads from a kept migration, its report as `migrate --json` printed it,
  * each part a migration kept before it had one read as missing: no runs passed, no config change,
@@ -95,7 +94,7 @@ export interface MigrationFrom {
 }
 
 const sameEither = (a: string, b: string): boolean => sameModel(a, b) || sameModel(b, a);
-const asRecord = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+const asRecord = (v: unknown): Record<string, unknown> | null => (isObject(v) ? v : null);
 
 /**
  * Whether a preview and a migration make the same switch: the preview changes only the model (no

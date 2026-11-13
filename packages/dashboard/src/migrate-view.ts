@@ -1,4 +1,5 @@
 import { andList, besidesLine, byHandNote, givenField, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, quoteArgv, remedyText, retirementOf, shortSessionId, staysWords, verifiedCount, verifyFlagsLine, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice } from '@shadowlap/engine';
+import { strings } from './fields.js';
 import { applyInputOf, type AppliedState } from './migrate-applied.js';
 import { goldenName } from './needs-look/row.js';
 import type { VerdictTone } from './verdict.js';
@@ -78,7 +79,6 @@ export interface MigrateView {
 
 type Kept = Record<string, unknown>;
 const list = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-const strings = (v: unknown): string[] => list<unknown>(v).filter((x): x is string => typeof x === 'string');
 /** What a migration kept before it priced anything says it cost: nothing known. */
 const NO_COSTS: MigrateCosts = { perRun: { before: null, after: null }, tokensPerRun: { before: 0, after: 0 }, endToEnd: null, checking: { decisions: 0, judge: 0, verify: 0 } };
 const NO_FILE = /^No string in the project's code or config names /;
