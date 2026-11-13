@@ -156,7 +156,8 @@ describe('the Training page', () => {
     await r.click(r.byText('button', 'Score model…'));
     await r.until('the models to be listed', () => r!.all('.dialog .cmdline').length === 1);
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap tasks score goldens/01M5GS0TFN goldens/01M5GS0VWV --model claude-haiku-4-5 --attempts 5');
-    expect(r.one('.dialog p.trnotes').textContent).toBe("Not listed: Ollama, on this machine (isn't running)");
+    // Set as copy: its words glued with no-break spaces, so a provider's name is never broken inside.
+    expect(r.one('.dialog p.trnotes').textContent.replace(/\u00a0/g, ' ')).toBe("Not listed: Ollama, on this machine (isn't running)");
   });
 });
 
