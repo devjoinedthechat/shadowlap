@@ -100,6 +100,8 @@ export const JOB_KINDS = {
   decisionsRead: 'decisions-read',
   migrate: 'migrate',
   decisionsVerify: 'decisions-verify',
+  // Apply a migration's config change to the working tree, its goldens replayed offline (`shadowlap migrate apply`).
+  migrateApply: 'migrate-apply',
   // Injection tests: plant payloads in a run's or a golden's untrusted reads, or ask whether a read caused its writes.
   injection: 'injection',
   // Error-path presets on a golden or a run, and production coverage: scan again, pack goldens.
@@ -725,6 +727,7 @@ export function createExportedClient(data: StaticPayload): Client {
     verdictRevision: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     runDecisions: () => Promise.resolve({ runId: '', sessions: [], later: null }),
     retirements: () => Promise.resolve({ version: '', notices: [] }),
+    migrateStart: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),

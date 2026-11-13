@@ -55,15 +55,30 @@ describe('the type, radius and spacing tokens', () => {
     expect(base.get('font-weight')).toBe('600');
   });
 
+  /** A selector with its :not()s left out, which may hold a list or a space of their own. */
+  const shorn = (selector: string) => selector.replace(/:not\([^)]*\)/g, '');
   /** A compound's tag and classes, its :not() left out. */
   const parts = (compound: string) => {
-    const c = compound.replace(/:not\([^)]*\)/g, '');
+    const c = shorn(compound);
     return { tag: /^[a-z][\w-]*/.exec(c)?.[0] ?? null, classes: [...c.matchAll(/\.([\w-]+)/g)].map((m) => m[1]) };
+  };
+  /** A selector list split at its own commas, never at one inside a :not(). */
+  const listOf = (list: string) => {
+    const out = [''];
+    let depth = 0;
+    for (const ch of list) {
+      if (ch === ',' && !depth) out.push('');
+      else {
+        depth += ch === '(' ? 1 : ch === ')' ? -1 : 0;
+        out[out.length - 1] += ch;
+      }
+    }
+    return out.map((x) => x.trim()).filter(Boolean);
   };
   /** Whether an element `s` names is one `x` names too: x's last compound in s's, and x's other classes around it. */
   const covers = (x: string, s: string) => {
-    const xs = x.trim().split(/\s+/);
-    const ss = s.trim().split(/\s+/);
+    const xs = shorn(x).trim().split(/\s+/);
+    const ss = shorn(s).trim().split(/\s+/);
     const [xl, sl] = [parts(xs.at(-1)!), parts(ss.at(-1)!)];
     const around = new Set(ss.slice(0, -1).flatMap((c) => parts(c).classes));
     return (!xl.tag || xl.tag === sl.tag) && xl.classes.every((c) => sl.classes.includes(c)) && xs.slice(0, -1).every((c) => parts(c).classes.every((k) => around.has(k)));
@@ -72,7 +87,10 @@ describe('the type, radius and spacing tokens', () => {
   it('raises every label under 11px to the label size on a phone, its avatars’ initials aside', () => {
     const floor = styleRules().find((r) => r.conditions.includes('@media (max-width: 640px)') && r.selectors.some((s) => s.startsWith(':is(#root, body) :is(')) && r.decls.some(([p, v]) => p === 'font-size' && v === 'var(--fs-label)'));
     expect(floor).toBeDefined();
-    const raised = floor!.selectors.flatMap((s) => /^:is\(#root, body\) :is\(([\s\S]*)\)$/.exec(s)?.[1].split(',').map((x) => x.trim()) ?? []);
+    const raised = floor!.selectors.flatMap((s) => {
+      const list = /^:is\(#root, body\) :is\(([\s\S]*)\)$/.exec(s)?.[1];
+      return list ? listOf(list) : [];
+    });
     const small: string[] = [];
     for (const r of styleRules()) {
       if (r.conditions.some((c) => /forced-colors/.test(c))) continue;

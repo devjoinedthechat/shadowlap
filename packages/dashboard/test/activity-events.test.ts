@@ -29,7 +29,7 @@ describe('a preview and a migration in the feed', () => {
     expect(textAt(5_000)).toBe('Migration previewed: the model claude-sonnet-5-5 on 3 runs · 1 with a write, stop or judged change');
   });
 
-  it('opens a preview at its session on its tab under Changes, settled or not, and a migration at its run', () => {
+  it('opens a preview at its session on its tab under Changes, settled or not, and a migration at its report under Changes › Migrate', () => {
     const id = 'dc-01M5000000000000000000000A';
     recordEvent(store, { kind: 'decisions.done', ref: id, data: { change: 'temperature=0', runs: 2, flagged: 1, why: null }, at: 1_000 });
     recordEvent(store, { kind: 'decisions.done', ref: id, data: { change: 'temperature=0', runs: 2, flagged: 0, why: '1 run could not be asked' }, at: 2_000 });
@@ -37,6 +37,20 @@ describe('a preview and a migration in the feed', () => {
     recordEvent(store, { kind: 'decisions.done', ref: 'not-a-session', data: { change: 'temperature=0', runs: 1, flagged: 0 }, at: 3_000 });
     recordEvent(store, { kind: 'migrate.done', ref: 'mg-01M5000000000000000000000B', runId: 'run-1', data: { change: 'the model gpt-5-mini', runs: 1, flagged: 0, why: null }, at: 4_000 });
     const hrefs = new Map(activity(store, { limit: 50 }).items.map((i) => [i.at, i.href ?? null]));
-    expect([1_000, 2_000, 3_000, 4_000].map((at) => hrefs.get(at))).toEqual([`#/changes/decisions/${id}`, `#/changes/decisions/${id}`, null, '#/run/run-1']);
+    expect([1_000, 2_000, 3_000, 4_000].map((at) => hrefs.get(at))).toEqual([`#/changes/decisions/${id}`, `#/changes/decisions/${id}`, null, '#/changes/migrate/mg-01M5000000000000000000000B']);
+  });
+
+  it('says a migration’s config change was applied, the switch and the goldens it left to update, opening the migration', () => {
+    const id = 'mg-01M5000000000000000000000B';
+    recordEvent(store, { kind: 'migrate.applied', ref: id, data: { from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', files: ['agent.py'], outdated: ['goldens/a', 'goldens/b', 'goldens/c'], patch: 'put' }, at: 1_000 });
+    recordEvent(store, { kind: 'migrate.applied', ref: id, data: { from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', files: ['agent.py'], outdated: ['goldens/a'], patch: 'put' }, at: 2_000 });
+    recordEvent(store, { kind: 'migrate.applied', ref: id, data: { from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', files: ['agent.py'], outdated: [], patch: 'put' }, at: 3_000 });
+    expect([1_000, 2_000, 3_000].map(textAt)).toEqual([
+      'Config change applied · claude-sonnet-4-5 → claude-sonnet-5-5 · 3 goldens to update',
+      'Config change applied · claude-sonnet-4-5 → claude-sonnet-5-5 · 1 golden to update',
+      'Config change applied · claude-sonnet-4-5 → claude-sonnet-5-5',
+    ]);
+    const item = activity(store, { limit: 50 }).items.find((i) => i.at === 1_000)!;
+    expect([item.kind, item.href]).toEqual(['setting', `#/changes/migrate/${id}`]);
   });
 });

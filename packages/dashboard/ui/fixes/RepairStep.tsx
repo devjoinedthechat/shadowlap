@@ -9,7 +9,8 @@ import { Status } from '../components/Status.js';
 import { plural, shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
 import { candidateTone, changeParts, fixStamp, footWarnings, repairBy, repairReceipt, roleStatuses } from './model.js';
-import { Flagged, Markdown } from './parts.js';
+import { Markdown } from '../components/Markdown.js';
+import { Flagged } from './parts.js';
 import { StepLead } from './StepLead.js';
 
 /**

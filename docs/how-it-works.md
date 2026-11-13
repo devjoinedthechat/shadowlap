@@ -324,6 +324,9 @@ whole, breaks the agent's connection the same way (an HTTP/2 stream is reset). I
 connection error and retries as it would without Shadowlap. The call is recorded with no answer and
 why, and the run's summary names the host.
 
+One break isn't the host's own: an HTTP/1.1 connection Shadowlap kept from an earlier call, closed by
+the host just as the next call goes out on it. That call goes once more, on a fresh connection.
+
 **An answer the sidecar gives itself** is recorded with its bytes and headers. It answers a call an
 offline replay can't serve, a call with a placeholder key or an intervention it can't take, a failure
 `--fail-at` plays in, and a write blocked after a fork.

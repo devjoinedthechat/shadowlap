@@ -47,14 +47,16 @@ function planOf(g: ChecksGroup, input: VerifyRunsInput) {
  * A run verified, as the report keeps it, in verify --json's words: fixed, not-fixed, kept, broken,
  * inconclusive, unsettled; with why its last attempt could not be judged, when one stopped it, and the
  * rule that decided it. A good run kept against its baseline reads under the baseline test's rule, its
- * bound the drop's. Its bound is the one verify's line gives (engine `verifyTally`): none for a run an
- * attempt stopped or a clean replay, nor where a report's figures give none.
+ * bound the drop's. Its tally is kept in verify's own parts (engine `verifyTally`), which every report
+ * of the session words it from, and its bound is theirs: none for a run an attempt stopped or a clean
+ * replay, nor where a report's figures give none.
  */
 export function entryOf(report: VerifyReport, rule: string): (r: VerifiedRun) => DecisionsVerify['runs'][number] {
   const keptRule = report.kept ? describeBaselineRule({ ...report.kept, revision: report.kept.label ?? report.kept.revision ?? null }) : null;
   return (r) => {
     const against = r.baseline && keptRule;
-    return { runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound: verifyTally(r).bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule };
+    const parts = verifyTally(r);
+    return { runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound: parts.bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule, parts };
   };
 }
 

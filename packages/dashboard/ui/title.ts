@@ -67,18 +67,19 @@ export function onOpenRunAbout(f: () => void): () => void {
 function sectionOnly(route: Route, facts: TitleFacts): string | null {
   if (!facts.unshown && !facts.setup) return null;
   if (route.page === 'run') return 'Runs';
-  if (route.page === 'changes' && route.id) return route.tab === 'decisions' ? 'Preview · Changes' : 'Verdicts · Changes';
+  if (route.page === 'changes' && route.id) return route.tab === 'decisions' ? 'Preview · Changes' : route.tab === 'migrate' ? 'Migrate · Changes' : 'Verdicts · Changes';
   return route.page === 'fixes' && route.id ? 'Fixes' : null;
 }
 
 /**
- * Changes by its tab, a revision by its key before it (`d2e8a1f · Verdicts · Changes`), a preview by
- * its tab alone, its cell open or not. A migration's address reads as Verdicts, which it opens until
- * its tab lands. An exported copy's Compare is a page of its own.
+ * Changes by its tab, a revision by its key before it (`d2e8a1f · Verdicts · Changes`), a preview
+ * and a migration by its tab alone, its cell open or not. An exported copy's Compare is a page of its
+ * own.
  */
 function changesTitle(route: Extract<Route, { page: 'changes' | 'compare' }>, facts: TitleFacts): string {
   if (route.page === 'compare') return facts.exported ? 'Compare' : 'Compare · Changes';
   if (route.tab === 'decisions') return 'Preview · Changes';
+  if (route.tab === 'migrate') return 'Migrate · Changes';
   return `${route.tab === 'verdicts' && route.id ? `${route.id} · ` : ''}Verdicts · Changes`;
 }
 

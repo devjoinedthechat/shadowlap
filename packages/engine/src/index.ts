@@ -146,7 +146,7 @@ export { isObject } from './is-object.js';
 export { messageOf } from './message-of.js';
 // A count with its noun, a run's and a fix's short id, a part of a date, a tool failure in words: said
 // the same way by the CLI, the terminal UI, the dashboard and its pages.
-export { plural, pluralS, shortFixId, shortRunId, toolFailure, twoDigits } from './words.js';
+export { plural, pluralS, shortFixId, shortRunId, shortSessionId, toolFailure, twoDigits } from './words.js';
 export { rollBack } from './sqlite.js';
 export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, expectFlag, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
@@ -162,7 +162,7 @@ export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSI
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
 // The blame a repair reuses on a failing run rather than search again, as the CLI and Run repair's estimate read it.
 export { reusedBlame, type ReusedBlame } from './blame-reuse.js';
-export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, verifyTally, verifyTallyLine } from './verify.js';
+export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, verifyTally } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.
 export { afterForkLines, afterForkOf, afterForkSentence, afterForkWarnings, type AfterFork } from './after-fork.js';
 // Blame's calibrated search (the risk spent across its probes, the range it reports and its bound),
@@ -196,7 +196,7 @@ export { fileThatRuns, modelSwitch, patchFiles, repairNeverRewrites, repairNever
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
 export { CHARS_PER_TOKEN, placeholders, rewriteGrowth, templateSyntax } from './repair.js';
 export type { Placeholder, TemplateSyntax } from './repair.js';
-export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole, VerifyTally } from './verify.js';
+export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
 export type { RepeatAttempt, RepeatAttemptInput, RepeatReport } from './repeat.js';
 export { parseSse } from './sse.js';
 export { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages, type EventStreamFrame } from './eventstream.js';
@@ -252,13 +252,14 @@ export { DECISIONS_ID, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
-export { decisionsHeadline, NOTHING_TO_ASK, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, needsVerify, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
+export { codeChangeNeeded, decisionsHeadline, NOTHING_TO_ASK, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, needsVerify, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, openRunWhy, outcomeCounts, runOutcomeWord, sessionTally, verdictWord, verifyHead } from './verdict-words.js';
+export { besidesLine, besidesWords, byHandNote, givenField, migrateCostLines, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, verifyFlagsLine, handOf, handWords, leftBehindLines, leftBehindOf, migrateCostWords, migratePassWords, migrateRules, type MigrateCosts, type MigratePassRun, leftBehindSentence, staysWords, leftOutInFile, leftOutNote, migrateApplyProblem, migrateHeadline, namedInSentence, remedyText, type CodeMark, type LeftBehind, type MigrateApplyInput, type MigrateHeadlineInput, type MigrateSetInput, type MigrateTone } from './migrate-words.js';
 export { COMMENT_FOOT, commentDecisions, commentHead, commentInjection, commentMarkdown, commentRows, commentVerdict, costPerRunLine, injectionGateLine, JUDGED_IN_RECORDED_STATE_SHORT, PR_DECISIONS_SUFFIX, commentVerdictLine, worstFirst } from './pr-comment.js';
 export type { CommentBase, CommentDecision, CommentDecisionsSource, CommentFix, CommentParts, CommentResult } from './pr-comment.js';
-export { CLEARED, changePct, endToEndWords, tallyCount, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifiedTally } from './verified-words.js';
+export { CLEARED, changePct, endToEndWords, tallyCount, tallyParts, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, verifyTallyLine, type VerifiedTally, type VerifyTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
 export { UNTESTED_WORDS } from './bisect-words.js';

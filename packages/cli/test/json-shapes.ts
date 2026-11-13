@@ -120,6 +120,9 @@ export const SHAPES = {
   migratePass: { section: 'migrate', grows: true, fields: ['runId', 'golden', 'verdict', 'outcome', 'verified', 'tally'] },
   migrateConfigChange: { section: 'migrate', grows: true, fields: ['files', 'patch', 'review'] },
   migrateError: { section: 'migrate', fields: ['kind', 'outcome', 'error'] },
+  // `migrate apply`: what it put in the working tree and the goldens it left behind, or why it refused.
+  migrateApply: { section: 'migrate apply', fields: ['migrateId', 'status', 'patch', 'files', 'leftOut', 'outdated', 'update'] },
+  migrateApplyError: { section: 'migrate apply', fields: ['migrateId', 'status', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
   test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'inconclusive', 'interrupted', 'results', 'costPerRun'] },
   testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'verdict', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'gate', 'expect', 'updated', 'judge', 'injection'] },

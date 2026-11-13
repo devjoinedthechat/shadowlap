@@ -13,7 +13,7 @@ import { previewBody, type PreviewEstimates, type PreviewQuery } from '../estima
 import { useConsentStart } from '../fixes/FixJobButton.js';
 import { pickSession } from '../run/decisions-pick.js';
 import { useTreeBusy } from '../fixes/tree.js';
-import { useLoad } from '../hooks.js';
+import { useLoad, useSettled } from '../hooks.js';
 import { draftCommand } from '../job-title.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { untilDone } from '../runspage/push.js';
@@ -58,16 +58,6 @@ export function previewCommand(o: DecisionsArgs): CommandRowProps {
   if (o.targets.length <= CUT) return { command: full };
   const flags = draftCommand(argv.slice(1 + o.targets.length)).slice('shadowlap '.length);
   return { command: `${draftCommand(['decisions', ...o.targets.slice(0, SHOWN)])} … and ${o.targets.length - SHOWN} more ${flags}`.trimEnd(), full };
-}
-
-/** `value`, once it has held still for `ms`: a form's read waits for the typing to stop. */
-function useSettled(value: string, ms = 300): string {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return settled;
 }
 
 /** What the change would ask and bill, read again as the form settles: `est` undefined while it is read, `failed` why it couldn't be, in the line every page says (`failedRead`). `off` reads nothing. */
