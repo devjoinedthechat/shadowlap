@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openPage, seriousViolations } from './dashboard.js';
+import { openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
 
 /**
  * Dismiss on the Overview's Needs a look in Chromium over the demo store: the × on advice, shown on
@@ -14,6 +14,8 @@ const ROWS = 'main#view .attn .arow';
 const LOCAL = `${ROWS}[data-rowkey="attn:local"]`;
 const COVERAGE = `${ROWS}[data-rowkey^="attn:coverage:"]`;
 const fold = (page: Page, group: string) => page.locator(`main#view [data-fold="${group}"]`);
+
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 interface Sent {
   method: string;
@@ -37,6 +39,18 @@ async function answerWrites(page: Page): Promise<Sent[]> {
     return route.fulfill({ json: { key, restored: true, dismissals: ++n } });
   });
   return sent;
+}
+
+/**
+ * Takes the step away from the rows whose key starts with `prefix` in the summary the server answers,
+ * so each says Open →: every advice row the demo store has carries one (Pack as golden, Push local runs).
+ */
+async function withoutStep(page: Page, prefix: string): Promise<void> {
+  await page.route(/\/api\/summary(\?.*)?$/, async (route) => {
+    const body = (await (await route.fetch(RESET_RETRY)).json()) as { needsLook: { items: Array<{ key: string }> } };
+    const items = body.needsLook.items.map((r) => (r.key.startsWith(prefix) ? { ...r, step: null } : r));
+    await route.fulfill({ json: { ...body, needsLook: { ...body.needsLook, items } } });
+  });
 }
 
 /** Where the focus is: its row, or the group whose Dismissed (n) it is on; whether it is on the row's link; and its name. */
@@ -111,6 +125,7 @@ test('Tab reaches a row’s × after its link and its step, Enter puts the row a
 
 test('Tab goes from a row’s link straight to its × where its step is Open →, which takes no focus', async ({ page }) => {
   const sent = await answerWrites(page);
+  await withoutStep(page, 'attn:coverage:');
   await openPage(page, '/', 'main#view .ovg');
   const key = await page.locator(COVERAGE).getAttribute('data-rowkey');
   const named = await page.locator(`${COVERAGE} .adis`).getAttribute('aria-label');

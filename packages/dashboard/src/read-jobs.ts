@@ -31,6 +31,8 @@ import { FIX_CHECK_READS } from './fix-check.js';
 import { CROSS_PROJECT_READS } from './cross-project.js';
 import { GATE_READS } from './tests-gate.js';
 import { INJECTION_READS } from './injection-security.js';
+import { PRESETS_READS } from './presets-plan.js';
+import { COVERAGE_READS } from './coverage.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, stepReads, type NextStepWork } from './next-step.js';
 import { failedChecks, ISSUES_READS } from './issues.js';
@@ -358,7 +360,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ISSUES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, CHECK_READS, SUGGEST_READS, DECISION_READS, FIX_CHECK_READS, GOLDEN_REPORT_READS, MIGRATE_READS, MIGRATE_ESTIMATE_READS, INJECTION_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ISSUES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, CHECK_READS, SUGGEST_READS, DECISION_READS, FIX_CHECK_READS, GOLDEN_REPORT_READS, MIGRATE_READS, MIGRATE_ESTIMATE_READS, INJECTION_READS, PRESETS_READS, COVERAGE_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

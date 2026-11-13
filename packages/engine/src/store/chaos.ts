@@ -3,6 +3,7 @@
  * each preset came out on each recording it forked (chaos_results), and the process running a
  * session not ended yet (chaos_session_owners).
  */
+import type { ChaosJudge } from '../chaos-judge.js';
 import { currentOwner, type RunOwner } from '../liveness.js';
 import { parseJsonColumn, StorePart, ulidNow } from './core.js';
 
@@ -67,6 +68,10 @@ export interface ChaosResultData {
   revision?: string | null;
   upstreamRequests?: number;
   spent?: number;
+  /** What judged every attempt besides the agent exiting 0, and where it came from. A result kept before it was kept has none. */
+  judge?: ChaosJudge | null;
+  /** Attempts the provider cut short that the gate counted against either verdict, which its bound reads; absent when none. */
+  cutShort?: number;
 }
 
 export type NewChaosSession = Partial<Pick<ChaosSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> &
@@ -172,11 +177,16 @@ export abstract class Chaos extends StorePart {
       .map(rowToChaosResult);
   }
 
-  /** The newest result of each preset on each golden's recording (and each run presets ran on alone): one row per golden, recording and preset, newest first. */
-  latestChaosResults(): ChaosResult[] {
+  /**
+   * The newest result of each preset on each golden's recording (and each run presets ran on alone):
+   * one row per golden, recording and preset, newest first. Given a run, only those on that recording,
+   * read through its index (the run is in the window's partition, so the rows are the same).
+   */
+  latestChaosResults(runId?: string): ChaosResult[] {
+    const where = runId === undefined ? '' : 'WHERE run_id = ?';
     return this.db
-      .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY coalesce(golden, ''), run_id, preset ORDER BY at DESC, session_id DESC) AS n FROM chaos_results) WHERE n = 1 ORDER BY at DESC, run_id ASC, preset ASC`)
-      .all()
+      .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY coalesce(golden, ''), run_id, preset ORDER BY at DESC, session_id DESC) AS n FROM chaos_results ${where}) WHERE n = 1 ORDER BY at DESC, run_id ASC, preset ASC`)
+      .all(...(runId === undefined ? [] : [runId]))
       .map(rowToChaosResult);
   }
 }

@@ -59,6 +59,9 @@ export const updatePart = (one: boolean, judges: boolean): string => (judges ? (
 /** An injection test's attempts, and an injection gate's: each live from the read it plants in, the writes after it stubbed. */
 export const INJECTION_PART = 'live from each read, writes stubbed';
 
+/** Error-path presets' attempts: each live from the call its preset hits, the writes after it stubbed. */
+export const PRESETS_PART = 'live from each preset’s call, writes stubbed';
+
 /** Blame's probes, each live from the call it probes, the writes after it stubbed, or blocked. */
 export const probesPart = (blocked = false): string => `live from each probe, writes ${blocked ? 'blocked' : 'stubbed'}`;
 

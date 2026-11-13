@@ -5,7 +5,7 @@ import { Store } from '@shadowlap/engine';
 import { runJob } from '../src/read-jobs.js';
 import type { OutcomeWork, RunJudged } from '../src/run-outcome.js';
 import { normalizeJudged, normalizeRunDetail, normalizeRuns } from '../ui/normalize.js';
-import { outcomeTip } from '../ui/outcome-tip.js';
+import { factCard, outcomeTip } from '../ui/outcome-card.js';
 import { outcomeFact, toolsToCheck } from '../ui/run/metrics.js';
 import { Metrics } from '../ui/run/parts.js';
 import { RunsTable } from '../ui/runspage/RunsTable.js';
@@ -52,7 +52,9 @@ describe('Status, judged by checks', () => {
     expect(sideStatus(blamed)).toEqual({ text: 'lost at #3', tone: 'err' });
     const fact = outcomeFact(blamed, { tools: 3 });
     expect(fact).toMatchObject({ tone: 'err', words: 'check failed at', callNo: 4 });
-    expect(fact.tip).toMatchObject({ title: 'Check failed', sub: 'every issue_refund call: amount <= 200, but issue_refund #4: amount 300 > 200' });
+    expect(factCard(fact)).toMatchObject({ title: 'Check failed', sub: 'every issue_refund call: amount <= 200, but issue_refund #4: amount 300 > 200' });
+    // What a screen reader is told of it stays on the page, which loads the card as the status is reached.
+    expect(fact).toMatchObject({ tip: null, said: 'every issue_refund call: amount <= 200, but issue_refund #4: amount 300 > 200' });
     // Without the server's verdict, the check it failed, with no call to name.
     const { judged: _verdict, ...unjudged } = blamed;
     expect(runOutcome(unjudged)).toEqual({ tone: 'err', text: 'check failed' });
@@ -145,9 +147,13 @@ describe('the card on hover', () => {
 
 describe("a run's first fact", () => {
   it('is its outcome, the call a link apart; no checks in grey with how one comes to judge it; nothing yet while it is judged', () => {
-    expect(outcomeFact({ ...BASE, judged: { ...judged(), checks: CHECKS } }, { tools: 3 })).toMatchObject({ tone: 'err', words: 'check failed at', callNo: 6, today: true, tip: { title: 'Today’s checks, judged from the recording' } });
+    const today = outcomeFact({ ...BASE, judged: { ...judged(), checks: CHECKS } }, { tools: 3 });
+    expect(today).toMatchObject({ tone: 'err', words: 'check failed at', callNo: 6, today: true });
+    expect(factCard(today)).toMatchObject({ title: 'Today’s checks, judged from the recording' });
     // No check judges it: a clean replay and a fork say so too, by a grey dot.
-    expect(outcomeFact({ ...BASE, judged: null }, { tools: 3 })).toMatchObject({ tone: 'mu', words: 'no checks', tip: { title: 'No check applies to this run' } });
+    const none = outcomeFact({ ...BASE, judged: null }, { tools: 3 });
+    expect(none).toMatchObject({ tone: 'mu', words: 'no checks', said: null });
+    expect(factCard(none)).toMatchObject({ title: 'No check applies to this run' });
     expect(outcomeFact({ ...BASE, kind: 'fork', mode: 'replay', divergence: { callNo: 2, type: 'request_changed' }, origins: 'rlb', judged: null }, { tools: 1 }).words).toBe('no checks');
     // Interrupted is no verdict: muted, as Status draws every such word.
     expect(outcomeFact({ ...BASE, status: 'crashed', judged: null }, { tools: 3 })).toMatchObject({ tone: 'mu', words: 'interrupted' });

@@ -569,6 +569,7 @@ export type { CommentDecision } from '../../engine/src/pr-comment.js';
 export type { CodeChange } from '../src/compare.js';
 // Error-path presets (a run's presets matrix) and production coverage (Tests' Not covered panel).
 export type { ChaosCell, ChaosMatrix, ChaosPresetInfo, ChaosSessionView, ChaosView } from '../src/chaos.js';
+export type { PresetsPicks, PresetsPlan } from '../src/presets-plan.js';
 export type { CoverageGroupView, CoverageLook, CoverageView } from '../src/coverage.js';
 /** `GET /api/compare`: the engine's comparison, and the code card's commits (absent from an exported copy, which has no git behind it). */
 export type CompareView = Omit<import('../src/compare.js').CompareView, 'code' | 'pair'> & { code?: import('../src/compare.js').CodeChange | null; pair?: import('../src/fork-differences.js').PairDifferences | null };

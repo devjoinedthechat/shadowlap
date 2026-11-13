@@ -35,6 +35,18 @@ export const PRESET_LABELS: Readonly<Record<ChaosPreset, string>> = {
   '500': 'provider 500',
 };
 
+/**
+ * A session's presets in a few words, as the CLI's last line, the activity feed and the dashboard's
+ * Forks view say them: passed and failed always, then inconclusive and not applicable where any are
+ * (`2 passed, 0 failed, 1 inconclusive`).
+ */
+export function presetTotals(n: { passed: number; failed: number; inconclusive: number; notApplicable: number }): string {
+  return [`${n.passed} passed`, `${n.failed} failed`, ...(n.inconclusive ? [`${n.inconclusive} inconclusive`] : []), ...(n.notApplicable ? [`${n.notApplicable} not applicable`] : [])].join(', ');
+}
+
+/** The checks an error path must pass, as the CLI's hint and the dashboard's field show them by example. */
+export const CHAOS_EXPECT_EXAMPLE = '{"tools":{"issue_refund":"<= 1"}}';
+
 /** The length an oversized result grows to by default, in characters: past what a model's context takes. */
 export const OVERSIZE_CHARS = 1_000_000;
 
@@ -98,6 +110,23 @@ export function chaosTargets(calls: readonly CallRecord[], o: { tool?: string | 
   const pick = after ?? models[0];
   const model: ChaosTarget = pick ? { callNo: pick.callNo, name: pick.name } : { none: 'the recording makes no model call' };
   return { tool, model };
+}
+
+/**
+ * The tools the tool presets can hit on a recording, each at its first call whose answer the agent
+ * reads (chaosTargets' rule: it answered when it was recorded, nobody typed it, it is not the judge's
+ * scope), in call order; a pure tool, the agent's own code, is left out. The tool chaosTargets picks
+ * by default is among them: Run error-path presets… offers the rest in its place.
+ */
+export function chaosToolChoices(calls: readonly CallRecord[]): Array<{ name: string; callNo: number; effect: CallRecord['effect'] }> {
+  const seen = new Set<string>();
+  const out: Array<{ name: string; callNo: number; effect: CallRecord['effect'] }> = [];
+  for (const c of [...calls].sort((a, b) => a.callNo - b.callNo)) {
+    if (c.kind !== 'tool' || c.end?.outcome !== 'ok' || c.meta.input === true || !agentCall(c) || c.effect === 'pure' || seen.has(c.name)) continue;
+    seen.add(c.name);
+    out.push({ name: c.name, callNo: c.callNo, effect: c.effect });
+  }
+  return out;
 }
 
 // ---- what a preset answers ----

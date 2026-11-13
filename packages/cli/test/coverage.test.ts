@@ -59,18 +59,21 @@ afterAll(async () => {
   rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
+/** Runs the CLI; with `events`, as a dashboard job does, its job events read from fd 3. */
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { events?: boolean } = {}): Promise<{ code: number | null; out: string; stdout: string; events: Array<Record<string, unknown>> }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: work,
-      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home'), SHADOWLAP_AUTHOR: 'dana@example.com', ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home'), SHADOWLAP_AUTHOR: 'dana@example.com', ...(o.events ? { SHADOWLAP_EVENTS_FD: '3' } : {}), ...env },
+      stdio: ['ignore', 'pipe', 'pipe', o.events ? 'pipe' : 'ignore'],
     });
     let out = '';
     let stdout = '';
-    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    child.on('exit', (code) => resolve({ code, out, stdout }));
+    let events = '';
+    child.stdout!.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+    child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
+    (child.stdio[3] as NodeJS.ReadableStream | null)?.on('data', (d: Buffer) => (events += d.toString()));
+    child.on('close', (code) => resolve({ code, out, stdout, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) }));
   });
 }
 const runIdIn = (out: string) => /(?:recording|replaying) run (\w{26})/.exec(out)![1];
@@ -154,8 +157,10 @@ describe('shadowlap coverage', () => {
     expect(escalate).toMatchObject({ covered: true, coveredBy: ['goldens/escalate'], runs: 1, command: null, nearest: null });
 
     // Read by a person: not covered first, the nearest golden and where they part.
-    const shown = await shadowlap(['coverage']);
+    const shown = await shadowlap(['coverage'], {}, { events: true });
     expect(shown.stdout).toContain('Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1 golden read)');
+    // A dashboard job's way on: Open Tests, secondary, as a pack's drawer leads with Run test.
+    expect(shown.events.filter((e) => e.type === 'link')).toEqual([{ type: 'link', label: 'Open Tests', href: '#/tests', secondary: true }]);
     expect(shown.stdout).toMatch(/✗ 2 runs\s+lookup_order → read_policy → issue_refund/);
     expect(shown.stdout).toContain('writes issue_refund · answered · seen');
     expect(shown.stdout).toContain('nearest golden: goldens/escalate, the same for 2 steps;\n             then it calls issue_refund where the golden calls escalate\n');

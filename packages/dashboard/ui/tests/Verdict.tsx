@@ -30,6 +30,8 @@ export interface LeadPress {
   runTests: ReturnType<typeof testsJob> | null;
   /** The check builder on a golden at a check, by its label, and its script asked for ahead: null where the page has no builder. */
   edit: { open: (golden: string, check: string) => void; preload: () => void } | null;
+  /** Run error-path presets… on a golden's recording, from its row's strip: opens their dialog. */
+  onPresets?: (runId: string) => void;
 }
 
 /**

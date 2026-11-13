@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { TestsView } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
 import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
@@ -60,16 +61,22 @@ export function TestsFailed({ error, retry }: { error: Error; retry: () => void 
  * No golden yet: what the page will hold and the step that gets there, Pack <id> as golden… for the
  * newest run whose listed step is to pack it, with its command for a terminal under it; with none,
  * the command that packs one. The command names a run, so a project with no run yet is offered
- * none, and Set up <project> instead: recording one comes first.
+ * none, and Set up <project> instead: recording one comes first. `under`: what shows under it, told
+ * whether its own step leads, either lime (Not covered, whose pack makes the first golden).
  */
-export function TestsEmpty({ view, runs }: { view: Pick<TestsView, 'commands'>; runs: readonly RunListItem[] | null }) {
+export function TestsEmpty({ view, runs, under }: { view: Pick<TestsView, 'commands'>; runs: readonly RunListItem[] | null; under?: (leads: boolean) => ReactNode }) {
   const hidden = usePendingHidden();
   const none = useNoRunsYet();
   const run = runs ? newestToPack(runs, hidden) : null;
   const own = run ? (run.next.command ?? packRunCommand(run.runId, run.next.folder)) : null;
   // The project's runs not yet listed: the command, as it may well have one.
   const command = own ?? (none ? undefined : view.commands.pack);
-  return <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." step={run && own ? <PackRun run={run} command={own} /> : none ? <SetUpStep /> : undefined} command={command} />;
+  return (
+    <>
+      <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." step={run && own ? <PackRun run={run} command={own} /> : none ? <SetUpStep /> : undefined} command={command} />
+      {under?.(!!(run && own) || none)}
+    </>
+  );
 }
 
 type ToPack = RunListItem & { next: NextStepRow & { folder: string } };

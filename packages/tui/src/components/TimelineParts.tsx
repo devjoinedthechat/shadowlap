@@ -49,7 +49,8 @@ function headerStats(run: RunRecord, calls: readonly CallRecord[], summary: RunS
   return [
     `${calls.length} calls`,
     summary.byOrigin.replayed ? `${summary.byOrigin.replayed} replayed` : '',
-    summary.byOrigin.live - summary.injected ? `${summary.byOrigin.live - summary.injected} ${summary.imported ? 'captured' : 'live'}` : '',
+    // Calls that went upstream are live wherever they ran, as the store and the dashboard call them; what they cost elsewhere is `captured`.
+    summary.byOrigin.live - summary.injected ? `${summary.byOrigin.live - summary.injected} live` : '',
     summary.injected ? `${summary.injected} injected` : '',
     summary.byOrigin.blocked ? `${summary.byOrigin.blocked} blocked` : '',
     summary.byOrigin.stubbed ? `${summary.byOrigin.stubbed} stubbed` : '',

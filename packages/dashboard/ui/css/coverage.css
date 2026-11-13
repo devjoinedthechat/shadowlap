@@ -1,0 +1,88 @@
+/* Tests › Not covered (ui/not-covered/): the strips' key under the lead, then a row a behaviour: its two lines at the left,
+   how many runs (the toggle of its details) and when the newest was seen quiet beside them, its one action at the right
+   (Pack as golden; Pack with checks… for a behaviour the agent no longer does, main's words for why in amber on line 2);
+   its details under it on request. Where a row has less than 980px, the count and the date go under the two lines. */
+.cov { margin-top: 16px; }
+.covl { list-style: none; margin: 0; padding: 0; container-type: inline-size; }
+/* its lead, a sub as every section's is: where the header is too narrow for it on one line beside Rescan coverage, it
+   shrinks and balances between them, so the button keeps its place at the right; on a phone, a line a clause */
+@media (min-width: 641px) {
+  #notcovered > header { align-items: baseline; }
+  #notcovered > header .sub { flex: 1 1 0; min-width: 0; }
+  #notcovered > header .sp { flex: 0 0 0; }
+}
+.covl li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 8px 16px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.covl li > .rpx { grid-column: 1 / -1; margin: 6px 0 4px; }
+.cvhead { margin: 12px 0 2px; }
+.cvhead .cvkey { gap: 6px 14px; }
+.cvkey i.lg { width: 8px; height: 8px; }
+.cvkey i.lg.k-write { background: var(--k-write); }
+.cvkey i.lg.k-err { background: var(--k-err); }
+/* a behaviour in two lines from where it parts from its nearest golden, its writes teal, a failure red; where the two
+   part under it, quiet */
+.cvs { min-width: 0; padding-top: 2px; }
+.cvln { display: grid; gap: 4px; }
+.cvln .l1 { font-size: 13px; line-height: 1.5; color: var(--ink); }
+.cvln .l1 code { font: 12.5px var(--mono); color: var(--ink); }
+.cvln .l1 code.wr { color: var(--k-write); }
+.cvln .l1 .ar { color: var(--faint); }
+.cvln .l1 .cvend { color: var(--dim); }
+.cvln .l1 .cvend.err { color: var(--cq-red); }
+/* the fold is one piece, "… 3 more": a line breaks after the arrow before it or the one after it, never inside it */
+.cvln .l1 .cvmore { color: var(--faint); cursor: default; white-space: nowrap; }
+.cvln .l2 { font-size: 12px; line-height: 1.5; color: var(--faint); }
+.cvln .l2 .cvp { display: inline-block; max-width: 100%; }
+.cvln .l2 code { font: 12px var(--mono); color: var(--dim); }
+.cvst { font-size: 12px; color: var(--cq-amber); white-space: nowrap; cursor: default; }
+/* how many runs, the toggle of its details, then when the newest was seen, on one line */
+.covl li .cvm { display: flex; align-items: center; gap: 0; padding-top: 1px; white-space: nowrap; }
+.covl li .cvm > .cvw::before { content: "·"; margin: 0 6px 0 1px; color: var(--faint); }
+.xbtn.cvn { width: auto; height: 22px; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; margin: -2px -6px 0 0; font: 500 12.5px var(--body); color: var(--ink); }
+.xbtn.cvn svg { color: var(--faint); }
+.xbtn.cvn:hover svg { color: var(--ink); }
+.xbtn.cvn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.cvw { font-size: 12px; color: var(--faint); }
+.cvacts { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+@container (max-width: 979.98px) {
+  .covl li { grid-template-columns: minmax(0, 1fr) auto; }
+  .covl li > .cvs { grid-row: 1; grid-column: 1; }
+  .covl li > .cvacts { grid-row: 1; grid-column: 2; }
+  .covl li > .cvm { grid-row: 2; grid-column: 1; justify-content: flex-start; padding-top: 0; }
+  .xbtn.cvn { margin: 0 0 0 -6px; }
+}
+.cvx dd code { font-size: 12.5px; color: var(--dim); }
+.cvx .cvq { display: block; margin-top: 6px; }
+.cvnone { margin: 0; }
+.cov .cvfoot { font-size: 12.5px; color: var(--faint); padding-top: 12px; padding-bottom: 14px; }
+.cvcov { border-bottom: 1px dotted var(--line2); cursor: default; }
+/* the pack dialog draws the behaviour's whole path in the call strip's language, on the dialog's own ground under a
+   hairline: a step a swatch the colour of its kind and its name in mono, then how the run ended */
+.dialog .cvbox { padding-top: 12px; border-top: 1px solid var(--line); }
+.cvk.flat { display: grid; grid-template-columns: minmax(0, 1fr); }
+.cvb { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; min-width: 0; }
+/* the last step and how the run ended go together, so a line that wraps never leaves the ending alone */
+.cvcl { display: inline-flex; gap: 8px; white-space: nowrap; }
+.cvc { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font: 12.5px/18px var(--mono); color: var(--ink); }
+.cvc > i { flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--k-read); }
+.cvc > i.k-write { background: var(--k-write); }
+.cvc > i.k-model { background: var(--k-model); }
+.cvc > i.k-err { background: var(--k-err); }
+.cvc code { font: inherit; color: inherit; }
+.cvc.end { font: 12.5px/18px var(--body); color: var(--dim); }
+.dialog .cvform { margin: 12px 0 10px; }
+.dialog input.cvin { font-family: var(--mono); font-size: 12.5px; }
+.cvmsg { font-size: 12px; color: var(--faint); text-wrap: pretty; }
+/* in forced colours the swatches keep their kind's colour, outlined */
+@media (forced-colors: active) {
+  .cvc > i, .cvkey i.lg { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+}
+/* on a touch screen the count's toggle is a taller tap */
+@media (pointer: coarse) { .xbtn.cvn { height: 32px; } }
+/* on a phone the two lines take the whole row; the count and the date on one line under them, the action beside them */
+@media (max-width: 640px) {
+  .covl li { grid-template-columns: minmax(0, 1fr) auto; }
+  .covl li > .cvs { grid-row: 1; grid-column: 1 / -1; }
+  .covl li > .cvm { grid-row: 2; grid-column: 1; flex-wrap: wrap; justify-content: flex-start; padding-top: 0; align-self: center; }
+  .covl li > .cvacts { grid-row: 2; grid-column: 2; align-self: center; }
+  .xbtn.cvn { margin: 0 0 0 -6px; }
+}
