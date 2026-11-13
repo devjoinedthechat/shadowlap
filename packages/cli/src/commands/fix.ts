@@ -2,6 +2,7 @@ import { Command, Option } from 'commander';
 import { ACTIONS, applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, NAME_MAX, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, goldensFolderIn, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
+import { changeCheck, FixCheckError, reportFixCheck, reportFixCheckRefused } from '../fix-check.js';
 import { parseNameFlag } from '../fix-apply-names.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
 import { emitJobEvent } from '../job-events.js';
@@ -210,6 +211,26 @@ function registerFixes(program: Command): void {
       try {
         const updated = setFixTitle(store, requireFix(store, arg).fixId, words.join(' '));
         process.stdout.write(`${shortFixId(updated.fixId)} · ${safe(updated.title)}\n`);
+      } finally {
+        store.close();
+      }
+    });
+
+  fix
+    .command('check')
+    .description("Change an open fix's check: judge its failing and good runs again from their recordings, nothing replayed, and keep its blames, repairs and verdicts with the check each ran under")
+    .argument('<fix>', 'a fix id or a unique prefix of it')
+    .requiredOption('--expect <json|@file>', 'the fix\'s new check, an expect object as under "expect" in shadowlap.config.json tests')
+    .option('--json', 'print what changed as JSON: the check, how it judged each run, the runs it left out and the verdicts that stopped counting')
+    .action((arg: string, flags: { expect: string; json?: boolean }) => {
+      const store = readStore(program.opts<GlobalOpts>());
+      try {
+        const found = requireFix(store, arg);
+        reportFixCheck(changeCheck(store, found, flags.expect, { cwd: process.cwd() }), flags, found.title);
+      } catch (err) {
+        if (err instanceof FixIdError) return fixIdFailed(err, arg, flags.json);
+        if (!(err instanceof FixCheckError)) throw err;
+        reportFixCheckRefused(err, flags);
       } finally {
         store.close();
       }

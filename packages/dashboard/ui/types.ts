@@ -4,6 +4,7 @@ import type { NextStep, NextStepRow } from '../src/next-step.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 import type { RunAbout } from '../../engine/src/about.js';
+import type { JudgeOutcome } from '../../engine/src/types.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
 export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-step.js';
 
@@ -165,6 +166,8 @@ export interface CheckView {
   count?: number;
   of?: number;
   detail?: string;
+  /** A judge check's judge, as the run endpoint keeps it: its verdict, where that came from, what it cost and read, and its call in the run. */
+  judge?: JudgeOutcome;
 }
 
 /** How a check came out: passed, failed, inconclusive (it could not be decided) or not applicable (a `when` whose condition never held). */
@@ -525,6 +528,8 @@ export interface LabelRunsResult {
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
 export type { BisectChoices, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
 export type { BisectMiss, FoundChange, FoundCommit } from '../src/tests-bisect.js';
+export type { CrashError } from '../src/crash-error.js';
+export type { Followed, GoldenReport, HintKey, Piece, ReportLine, ReportPart, ReportTone, TestsAnswer } from '../src/golden-report.js';
 /** `GET /api/tests/evidence`: a gated golden's attempts, each judged from its own run, and the words its evidence says why its gate stopped with. */
 export type { EvidenceAttempt, EvidenceWords, TestEvidence } from '../src/tests-evidence.js';
 /** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */

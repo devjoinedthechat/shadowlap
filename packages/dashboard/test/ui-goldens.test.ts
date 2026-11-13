@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
-import { leadStep } from '../ui/tests/lead.js';
-import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
+import { leadStep, staleSub } from '../ui/tests/lead.js';
+import { asksUpdate, changedLine, checkMark, ciQuery, commandText, dayClock, divergenceButtons, findCommitButton, foundLine, missedLine, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { goodCommits } from '../ui/tests/good-commits.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { jobStatus } from '../ui/jobs.js';
-import type { DivergenceView, FailureView, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView, UnjudgedCheck } from '../ui/types.js';
+import type { DivergenceView, GoldenCheck, GoldenRow, HistoryCell, TestsView, UnjudgedCheck } from '../ui/types.js';
 
 /**
  * The Tests screen's words and choices, without a browser: the verdict's line, a history cell's
- * hover, the reports as the CLI prints them, the buttons a divergence gets, and the Update golden
- * dialog, against the shapes `GET /api/tests` sends.
+ * hover, the buttons a divergence gets, a first bad commit's line, and the Update golden dialog,
+ * against the shapes `GET /api/tests` sends.
  */
 const T = new Date(2026, 9, 1, 10, 2).getTime();
 const UUID = { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed' as const, certain: true, normalizer: { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, args: [], command: '' };
@@ -24,7 +24,8 @@ const row = (name: string, over: Partial<GoldenRow> = {}): GoldenRow => ({
   modeHint: 'must send exactly the requests it recorded',
   gate: null,
   checks: ['issue_refund called 1 time', 'send_email called 1 time'],
-  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', added: false, detail: null, reason: null, source: null, live: null, attempts: null })),
+  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null })),
+  changed: null,
   injection: false,
   history: [],
   last: { result: 'pass', verdict: 'passed', failure: null, line: '8/8 replayed · checks passed', at: T, updated: false, gate: null },
@@ -40,7 +41,6 @@ const divergence = (name: string, over: Partial<DivergenceView> = {}): Divergenc
   callNo: 1,
   kind: 'api',
   callName: 'POST /v1/messages',
-  text: `✗ ${name}: diverged at call 1 (api POST /v1/messages)\n    ✗ Diverged at call 1 (api POST /v1/messages): 0 calls replayed before divergence\n      ~ $.metadata.user_id\n          - "3f1c9a2e-5b7d-4e21-9c0a-8d6f2b1e7a43"\n          + "b84e07d1-2c9f-4a63-8e15-6f0d3a9c2b78"`,
   volatile: UUID,
   normalizerFixes: true,
   maybeReal: false,
@@ -162,6 +162,21 @@ describe('the verdict\'s step', () => {
     expect(led(step, {}, (kind) => kind !== 'test-update')).toBeNull();
     expect(led({ key: 'bisect', label: 'Find breaking commit…', golden: GOLDEN, starts: false, blame: null }, { divergences: [divergence('refund-in-limit', { unreadable: 'no run.json' })] })).toBeNull();
   });
+
+  it('leads with Edit check where the page has the builder, and never with Run tests, whose line the header\'s own button says', () => {
+    const sub = 'It fails refund-in-limit’s own recording: edit the check, or update the golden if the agent should now do this';
+    const edit = { key: 'edit-check' as const, label: 'Edit check…', golden: GOLDEN, check: 'escalate called 1 time', sub };
+    expect(leadStep(view({ steps: { [GOLDEN]: edit } }), all, false, true)).toEqual({ kind: 'edit', label: 'Edit check…', golden: GOLDEN, check: 'escalate called 1 time', sub });
+    // No builder (a stand-in page), or a session running every golden: no step, so Run tests is lime.
+    expect(led(edit)).toBeNull();
+    expect(leadStep(view({ steps: { [GOLDEN]: edit } }), all, true, true)).toBeNull();
+    const stale = { key: 'run-tests' as const, label: 'Run tests', golden: GOLDEN, gone: ['issue_refund called 0 times'], sub: 'Its checks changed since its last test: the session judges them as they are now' };
+    const v = view({ steps: { [GOLDEN]: stale } });
+    expect(leadStep(v, all, false, true)).toBeNull();
+    // Its line is the header's Run tests' (ui-tests-check-entries.test.ts draws it there).
+    expect(staleSub(v)).toBe(stale.sub);
+    expect([staleSub(v, true), staleSub(view({ steps: { [GOLDEN]: edit } }))]).toEqual([undefined, undefined]);
+  });
 });
 
 describe('the goldens table', () => {
@@ -215,61 +230,44 @@ describe('the goldens table', () => {
     expect(cellShare(cell({ rate: { passes: 64, attempts: 80 } }))).toBe(0.8);
   });
 
-  it('prints an inconclusive golden\'s report with its gate\'s evidence, and what more attempts would take', () => {
-    const gate = { tally: '16 of 20 passed · rate 0.58 to 0.92 (95%) · pass^5 0.28', more: { args: ['test', 'goldens/flaky', '--max-attempts', '40', '--continue'], job: { golden: 'goldens/flaky', maxAttempts: 40, continue: true as const }, attempts: 40, most: 20, expected: 17.17, settles: 0.378, cost: 0.34 } };
-    const v = { golden: 'goldens/flaky', name: 'flaky', runId: null, reason: 'inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: `${gate.tally}\nattempt 1  ✓ passed`, gate } as unknown as InconclusiveView;
-    expect(inconclusiveLines(v).map((l) => l.text)).toEqual([
-      '? flaky: inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts',
-      `    ${gate.tally}`,
-      '    ✗ send_email called 0 times: called 1 time',
-      '    attempt 1  ✓ passed',
-    ]);
-    // Its ? line in amber: neither passed nor failed.
-    expect(inconclusiveLines(v)[0].tone).toBe('y');
-    expect(inconclusiveHint(v)).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent. Run more attempts continues it to 40: about 17 more on average, about $0.34, settling it 38% of the time.");
-    expect(inconclusiveHint({ ...v, gate: null })).toBe('A check could not be decided, as its line above says, so the golden is neither passed nor failed: settle what it lacks and run it again.');
-    // An injection gate that showed too little to say: its own hint.
-    expect(inconclusiveHint({ ...v, gate: null, failure: 'injection', reason: 'injection inconclusive: 5 of 5 attempts could not be judged' })).toContain('its injection test showed too little to say');
+  it('says under the last result of a golden whose checks changed since that they did, the checks its last test judged that are gone on its card', () => {
+    const changed = [
+      { label: 'issue_refund called 0 times', status: 'failed' as const },
+      { label: 'judge "calm" answers yes', status: 'inconclusive' as const },
+    ];
+    expect(changedLine({ changed })).toEqual({ text: 'checks changed since · not tested yet', why: 'Its last test judged issue_refund called 0 times; judge "calm" answers yes, no longer in shadowlap.config.json: Run tests judges its checks as they are now' });
+    expect(changedLine({ changed: null })).toBeNull();
   });
 
-  it('says what settles a judge check with no verdict: Update golden offline, the key for a golden that forks', () => {
-    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
-    const v = { golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge } as InconclusiveView;
-    // Offline, no key settles it: the old hint asked for one.
-    expect(inconclusiveHint(v)).toBe('Its pack holds no verdict for the judge check explains-escalation, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.');
-    expect(inconclusiveHint({ ...v, judge: { ...judge, update: null, keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] } })).toBe('The test runs this golden live, and the judge check explains-escalation had no key to ask claude-haiku-4-5 with: set ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) where the tests run, in CI as a secret, and run it again.');
-    // A verdict the pack holds, given to an older form of the request: no "no verdict", and the update asks again.
-    const older = inconclusiveHint({ ...v, judge: { ...judge, held: 'older', why: "not judged: the recording's verdict was given to an older form of the judge's request, and the test runs offline: record it again with shadowlap test --update" } });
-    expect(older).toBe('The verdict its pack holds for the judge check explains-escalation was given to an older form of the judge’s request, which a replay no longer sends, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.');
-    // One given on other material: a value made anew on every run needs its normalizer before the update, which alone would leave the next test where this one is.
-    const material = inconclusiveHint({ ...v, judge: { ...judge, held: 'material', changed: 'it read "order 8f3a" where it now reads "order 1b2c"' } });
-    expect(material).toBe('The verdict its pack holds for the judge check explains-escalation was given on other material than the replay reads now, as its line above says, and the test replays offline, so the judge can’t be asked. If what changed is a value that changes every run, such as an id the agent prints, a normalizer for it is the lasting fix: add it first, since a verdict on one run’s value answers no other, and the next test would read not judged again. Update golden then asks the judge once, live, and keeps its verdict in the pack.');
-    expect(material.indexOf('normalizer')).toBeLessThan(material.indexOf('Update golden'));
-    for (const hint of [older, material]) expect(hint).not.toContain('holds no verdict');
-  });
-
-  it('marks each check by its last status, as the CLI does, with no mark before a result', () => {
-    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, detail: null, reason: null, source: null, live: null, attempts: null, ...over });
-    expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund never called', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
+  it('marks each check by its last status, as the CLI does, with no mark before a result, and names it by the CLI\'s label', () => {
+    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null, ...over });
+    expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund called 0 times', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
     // Failed: what it found, and over several attempts how many passed it.
     expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)' }), true)).toMatchObject({ mark: '✗', sub: 'called 1 time (1 blocked or stubbed)', tip: { label: 'failed', value: 'called 1 time (1 blocked or stubbed)', color: 'var(--err)' } });
     expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)', attempts: { passed: 8, of: 12 } }), true).sub).toBe('8 of 12 attempts passed · the others: called 1 time (1 blocked or stubbed)');
     // Inconclusive: a ? with why, in amber; not applicable: a dash, and why on hover.
     expect(checkMark(c({ label: 'judge "calm" answers yes', status: 'inconclusive', detail: 'not judged: no recorded verdict and the test runs offline' }), true)).toMatchObject({ mark: '?', status: 'inconclusive', sub: 'not judged: no recorded verdict and the test runs offline', tip: { color: 'var(--warn)' } });
-    expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held' }), true)).toMatchObject({ mark: '–', word: 'not applicable', sub: 'not applicable', tip: { value: 'the condition never held' } });
-    // A judge's verdict says where it came from, as the CLI's check line does: free from the recording, and live at what it cost.
-    expect(checkMark(c({ source: 'recording', reason: 'It names the limit.' }), true)).toMatchObject({ sub: 'judged from the recording · free', tip: { value: '“It names the limit.”' } });
-    expect(checkMark(c({ source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · ≈$0.0004');
-    expect(checkMark(c({ source: 'live', live: { cost: 0.0021, asked: 5 }, attempts: { passed: 5, of: 5 } }), true).sub).toBe('judged live in 5 attempts · ≈$0.0021');
-    // A model with no price: where it came from, and no figure.
-    expect(checkMark(c({ source: 'live' }), true).sub).toBe('judged live');
+    expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held' }), true)).toMatchObject({ mark: '–', word: 'not applicable', sub: 'not applicable · the condition never held', tip: { value: 'its condition never held' } });
+    // The engine's detail says what the calls had instead: the line says why, the hover the values.
+    expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held: lookup_order #2: result.amount 45 <= 100' }), true)).toMatchObject({ sub: 'not applicable · the condition never held', tip: { title: 'not applicable · issue_refund called 0 times', value: 'lookup_order #2: result.amount 45 <= 100', color: 'var(--faint)' } });
+    // A judge's verdict says where it came from, in the engine's words as a page joins them: free from the recording, and live at what it cost.
+    const judged = (how: string, cost: string | null): Partial<GoldenCheck> => ({ judge: { question: null, model: 'claude-haiku-4-5', verdict: 'yes', judged: { how, cost, read: [] }, held: null } });
+    expect(checkMark(c({ ...judged('judged from the recording', 'free'), source: 'recording' }), true).sub).toBe('judged from the recording · free');
+    expect(checkMark(c({ ...judged('judged live', '<$0.001'), source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · <$0.001');
+    expect(checkMark(c({ ...judged('judged live', '≈$0.0021'), source: 'live', live: { cost: 0.0021, asked: 5 }, attempts: { passed: 5, of: 5 } }), true).sub).toBe('judged live in 5 attempts · ≈$0.0021');
+    // A model with no price: where it came from, and that it has none; a cost the result doesn't say: no figure.
+    expect(checkMark(c({ ...judged('judged live', 'no price for claude-haiku-4-5'), source: 'live' }), true).sub).toBe('judged live · no price for claude-haiku-4-5');
+    expect(checkMark(c({ ...judged('judged live', null), source: 'live' }), true).sub).toBe('judged live');
     // A pass over attempts that weren't all passes says so.
     expect(checkMark(c({ attempts: { passed: 17, of: 18 } }), true)).toMatchObject({ sub: '17 of 18 attempts passed', tip: { value: 'passed in 17 of 18 attempts' } });
     expect(checkMark(c({ attempts: { passed: 12, of: 12 } }), true)).toMatchObject({ sub: null, tip: { value: 'passed in every attempt, 12 of 12' } });
     // Not tested yet: no mark, never a tick, and the hover says why: no result yet, a golden its last test couldn't run, or a check added since.
     expect(checkMark(c({ status: null }), false)).toMatchObject({ mark: null, word: 'not tested yet', sub: null, tip: { title: 'not tested yet · issue_refund called 0 times', value: 'its golden hasn’t run yet' } });
     expect(checkMark(c({ status: null }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: null, tip: { value: 'its last test couldn’t run the golden, so no check has a result' } });
-    expect(checkMark(c({ status: null, added: true }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: 'added since its last test', tip: { value: 'Added to shadowlap.config.json since its last test: its next test judges it' } });
+    expect(checkMark(c({ status: null, added: true }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: 'added since its last test · not tested yet', tip: { value: 'Added to shadowlap.config.json since its last test: its next test judges it' } });
+    // One the builder added within the minute reads just now.
+    expect(checkMark(c({ status: null, added: true, addedAt: Date.now() - 5_000 }), true).sub).toBe('added just now · not tested yet');
+    expect(checkMark(c({ status: null, added: true, addedAt: Date.now() - 120_000 }), true).sub).toBe('added since its last test · not tested yet');
     // "not judged" is the CLI's word for a judge check that couldn't be decided, never for one not tested.
     for (const ran of [false, true]) expect(checkMark(c({ status: null }), ran).tip.title).not.toContain('not judged');
   });
@@ -282,88 +280,6 @@ describe('the goldens table', () => {
 });
 
 describe('the reports', () => {
-  it('colours a divergence as the mock does: the golden\'s line, then what was and what is', () => {
-    const lines = reportLines(divergence('refund-in-limit').text);
-    expect(lines.map((l) => l.tone)).toEqual(['no', '', '', 'del', 'add']);
-    expect(lines[0].text).toBe('✗ refund-in-limit: diverged at call 1 (api POST /v1/messages)');
-  });
-
-  it('prints a failed check, a non-zero exit or no calls as test --markdown does', () => {
-    const f: FailureView = {
-      golden: 'goldens/refund-over-limit',
-      name: 'refund-over-limit',
-      runId: null,
-      failure: 'check',
-      reason: 'check failed: issue_refund called 0 times, but called 1 time',
-      checks: [
-        { ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' },
-        { ok: true, label: 'exits 0', detail: null },
-      ],
-      details: '⑂ Forked at call 5: 4 calls replayed, then 4 live\n',
-      output: 'Issuing the refund.\nDone.',
-      blocked: null,
-      bisect: null,
-      found: null,
-      missed: null,
-      revisions: [],
-      unreadable: null,
-    };
-    expect(failureLines(f)).toEqual([
-      { text: '✗ refund-over-limit: check failed: issue_refund called 0 times, but called 1 time', tone: 'no' },
-      { text: '    ✗ issue_refund called 0 times: called 1 time', tone: 'no' },
-      { text: '    ✓ exits 0', tone: '' },
-      { text: '    ⑂ Forked at call 5: 4 calls replayed, then 4 live', tone: '' },
-      { text: '    │ Issuing the refund.', tone: 'dim' },
-      { text: '    │ Done.', tone: 'dim' },
-    ]);
-    expect(failureHint(f)).toBe('A failed check means the agent did something its checks in shadowlap.config.json rule out. Fix the agent; the golden is right.');
-  });
-
-  it('says each check under a golden as the CLI does: passed, failed, inconclusive or not applicable', () => {
-    expect(checkReportLine({ status: 'not-applicable', ok: true, label: 'when lookup_order has result.total > 200: escalate called at least 1 time', detail: 'the condition never held' })).toEqual({ text: '    – when lookup_order has result.total > 200: escalate called at least 1 time: not applicable · the condition never held', tone: '' });
-    // Inconclusive in amber, as the CLI's reports and every page colour it.
-    expect(checkReportLine({ status: 'inconclusive', ok: false, label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict' })).toEqual({ text: '    ? judge "explains" answers yes: inconclusive · not judged: no recorded verdict', tone: 'y' });
-    expect(checkReportLine({ status: 'failed', ok: false, label: 'judge "explains" answers yes', detail: 'it answered no', reason: 'the reply never says why' })).toEqual({ text: '    ✗ judge "explains" answers yes: it answered no · the reply never says why', tone: 'no' });
-    // A result kept before checks had a status reads as its ok says.
-    expect(checkReportLine({ ok: true, label: 'exits 0', detail: null })).toEqual({ text: '    ✓ exits 0', tone: '' });
-    expect(checkReportLine({ ok: false, label: 'exits 0', detail: 'exited 1' })).toEqual({ text: '    ✗ exits 0: exited 1', tone: 'no' });
-  });
-
-  it('says a connection the network guard blocked is what the agent tripped on', () => {
-    const f: FailureView = {
-      golden: 'goldens/notify-ops',
-      name: 'notify-ops',
-      runId: null,
-      failure: 'exit',
-      reason: 'the agent exited with code 1',
-      checks: null,
-      details: '✓ Replay clean: 1/1 calls replayed',
-      output: '[shadowlap] blocked an outbound connection to hooks.example.com:443: it bypasses Shadowlap (SHADOWLAP_GUARD=block).',
-      blocked: ['hooks.example.com:443'],
-      bisect: null,
-      found: null,
-      missed: null,
-      revisions: [],
-      unreadable: null,
-    };
-    expect(failureHint(f)).toBe('The agent connected to hooks.example.com:443 directly, past Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=hooks.example.com:443.');
-    expect(failureHint({ ...f, blocked: null })).toBe('The agent exited with an error while it replayed: its last lines of output are above.');
-  });
-
-  it('names checks in the table as the mock does, and leaves any other label as the CLI wrote it', () => {
-    expect(['issue_refund called 0 times', 'escalate called 1 time', 'send_email with {"to":"a@b.c"} called 1 time', 'at most 6000 input tokens', 'at least 1 output token', 'cost at most $0.02', 'issue_refund called 2 times', 'at most 3 model calls', 'cost exactly $0.50', 'final answer includes "refund"'].map(checkWords)).toEqual([
-      'issue_refund never called',
-      'escalate called once',
-      'send_email with {"to":"a@b.c"} called once',
-      'input tokens ≤ 6,000',
-      'output tokens ≥ 1',
-      'cost ≤ $0.02',
-      'issue_refund called 2 times',
-      'at most 3 model calls',
-      'cost exactly $0.50',
-      'final answer includes "refund"',
-    ]);
-  });
 
   it('names what Find the commit found, with who, when and its cost', () => {
     expect(foundLine({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T09:30:00+02:00', why: '', untested: [], replays: 3, tokens: 0, at: T, change: null })).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', meta: 'Ravi · Sep 30 · 0 tokens' });
@@ -509,7 +425,7 @@ describe('waiting for a test job', () => {
 describe('the Update golden dialog', () => {
   it('asks the judge once for a golden that replays clean and only lacks its verdict, re-recording nothing', () => {
     const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
-    const v = view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge }] });
+    const v = view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], gate: null, judge }] });
     const plan = updatePlan(v, ['goldens/judged']);
     // As the mock's dialog has it: no card, since nothing diverged and the title names the golden.
     expect(plan).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, instead: null, note: null, command: 'shadowlap test goldens/judged --update', ok: 'Update golden' });
@@ -530,7 +446,7 @@ describe('the Update golden dialog', () => {
 
   it('words the judge\'s update by what its pack holds: an older form of the request, or other material, where a normalizer comes first', () => {
     const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: '', held: 'older', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
-    const plan = (j: UnjudgedCheck) => updatePlan(view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge: j }] }), ['goldens/judged']);
+    const plan = (j: UnjudgedCheck) => updatePlan(view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], gate: null, judge: j }] }), ['goldens/judged']);
     const older = plan(judge);
     expect(older).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, ok: 'Update golden', command: 'shadowlap test goldens/judged --update' });
     expect(older.facts[0]).toEqual({ label: 'Holds', value: 'a verdict given to an older form of the judge’s request' });

@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { bisectBlocked, bisectCopy } from '../ui/run/offers.js';
+import { bisectCopy } from '../ui/run/dialog-copy.js';
+import { bisectBlocked } from '../ui/run/offers.js';
 import type { BisectOffer } from '../ui/types.js';
 import { blameOf } from './read-model-store.js';
 

@@ -6,7 +6,7 @@
 .dialog.ckb > .db { padding: 4px 20px 6px; }
 .dialog.ckb > .db > .dcost { bottom: -6px; padding-bottom: 6px; margin: 12px 0 -6px; }
 .dialog.ckb > footer { border-top: 1px solid var(--line); padding-top: 12px; }
-.dialog.ckb, .dialog.ckb :is(select, input, textarea, code), .cb-file .codebox { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+.dialog.ckb, .dialog.ckb :is(select, input, textarea, code), .cb-file .codebox, .fm .fmx { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 .cb-sec { padding: 12px 0 14px; border-top: 1px solid var(--line); }
 .cb-sec:first-child { border-top: 0; padding-top: 6px; }
 .cb-sec:empty { display: none; }
@@ -80,6 +80,17 @@
 .cb-d { color: var(--faint); min-width: 0; overflow-wrap: anywhere; text-wrap: pretty; }
 .dialog .cmdline.cb-cmd { margin-top: 10px; font-size: var(--fs-label); }
 .cb-cmdn { margin: 6px 0 0; color: var(--faint); font-size: var(--fs-small); }
+/* A fix's runs, in fix mode and beside a golden: a run's role (drawn as a dialog's field label, overlays.css), its id, its
+   mark, then what the check says of it; what would change for the fix in amber. No mark is lime: a run passing here is no
+   way on. */
+.cb-fixr .cb-row { grid-template-columns: 56px auto 12px minmax(0, 1fr); }
+.cb-row.y .cb-d { color: var(--cq-amber); }
+
+/* Remove check's lead sets the check as code in prose: it breaks only between its phrases, each whole where its line holds
+   it and one wider than its line at its spaces (an inline block, laid out on a line of its own where it doesn't fit the
+   rest of one), the first kept with "Removes" by a no-break space. */
+code.ckl { white-space: normal; }
+code.ckl .ckp { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
 
 /* The change: the golden's entry as the file will hold it, its kept lines faint, the version at the header's right. */
 .cb-file { margin-top: 2px; }
@@ -87,6 +98,11 @@
 .cb-ver { color: var(--faint); }
 .cb-file .codebox.wfcode { margin: 0; padding: 10px 12px; font: var(--fs-label)/1.6 var(--mono); color: var(--faint); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow-y: auto; }
 .cb-warn { margin: 0 0 8px; color: var(--cq-amber); font-size: var(--fs-quiet); line-height: 1.5; text-wrap: pretty; }
+/* Suggested: a rule a row, its label then what a click does. */
+.cb-sugs { list-style: none; margin: 0; padding: 0; }
+.cb-sug { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; }
+.cb-sug code { flex: 1; min-width: 0; font-size: var(--fs-quiet); line-height: 1.5; color: var(--dim); overflow-wrap: anywhere; }
+.cb-sug .linkbtn { flex: none; color: var(--ink); }
 .dialog .cb-file + .cb-note { margin-top: 8px; }
 
 @media (max-width: 640px) {
@@ -100,4 +116,6 @@
   .cb-ua { width: 100%; justify-content: flex-end; }
   .cb-row { grid-template-columns: 12px minmax(0, 1fr); }
   .cb-row .cb-d { grid-column: 2; }
+  .cb-fixr .cb-row { grid-template-columns: 56px minmax(0, 1fr) 12px; }
+  .cb-fixr .cb-row .cb-d { grid-column: 1 / -1; }
 }

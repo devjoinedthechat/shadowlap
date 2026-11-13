@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { asNumber } from '../../../engine/src/checks/grammar.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import type { CallDetail, CallRow, RunDetail } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
-import { LoadFailed } from '../components/bits.js';
-import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
-import { Popover, useMenu } from '../components/Popover.js';
+import { useMenu } from '../components/Popover.js';
 import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
-import { BuilderFailed, type CheckKind } from './check-part.js';
+import type { NextStep } from '../types.js';
+import { BuilderFailed, builderTitle, NoBuilder, type CheckKind } from './check-part.js';
 
 /**
  * Add check… on a run's page: first in a tool call's row menu, on the inspector's summary line and in
- * ⌘K, each opening the check menu at the call, whose pick opens the check builder (checks/), a part
- * of its own. Nothing here imports the builder's code, so the run's page carries only the entries.
+ * ⌘K, each opening the check menu at the call, whose pick opens the check builder (checks/). Both are
+ * parts of their own that the served dashboard hands the page (served-parts.ts): nothing here imports their
+ * code, so the run's page carries only the entries, and an exported copy, handed neither, none.
  */
 
 /** Where Add check… opens the check menu, and its builder's script asked for ahead. */
@@ -42,55 +41,6 @@ export function argsOf(detail: CallDetail): Record<string, unknown> {
   return isObject(args) ? args : {};
 }
 
-/** The check menu's rules for a call, each with the key of the check it writes, as the fork menu shows a flag. */
-export function checkMenuItems(name: string, args: Record<string, unknown>): Array<{ kind: CheckKind; label: string; keys: string }> {
-  const keys = Object.keys(args);
-  const [first] = keys;
-  // A number as a check compares one: the engine's rule, which the builder's argument picker reads by too.
-  const num = keys.find((k) => asNumber(args[k]) !== null);
-  return [
-    { kind: 'never', label: `Never call ${name}`, keys: 'tools' },
-    ...(first !== undefined
-      ? [
-          { kind: 'neverargs' as const, label: 'Never with these arguments', keys: 'tools · args' },
-          { kind: 'must' as const, label: `Must call with ${first} = …`, keys: 'tools · args' },
-        ]
-      : [{ kind: 'must' as const, label: `Must call ${name}`, keys: 'tools' }]),
-    { kind: 'after', label: 'Only after…', keys: 'calls · after' },
-    ...(num === undefined ? [] : [{ kind: 'every' as const, label: `${num.charAt(0).toUpperCase()}${num.slice(1).replace(/_/g, ' ')} at most…`, keys: 'calls · args' }]),
-    { kind: 'when', label: 'When… then…', keys: 'when' },
-  ];
-}
-
-/** The check menu at a call: its rules, then a judge's question about the whole run. It waits for the call, as the fork menu does. */
-function CheckMenu({ anchor, call, onPick, onClose }: { anchor: HTMLElement; call: CallDetail | null; onPick: (kind: CheckKind) => void; onClose: () => void }) {
-  if (!call) {
-    return (
-      <Popover key="loading" anchor={anchor} onClose={onClose} className="fkm ckm" label="Add check">
-        <div className="pnote">Loading the call…</div>
-      </Popover>
-    );
-  }
-  const c = call.call;
-  const item = (kind: CheckKind, label: string, keys: string) => (
-    <button key={kind} type="button" role="menuitem" onClick={() => onPick(kind)}>
-      <b>{label}</b>
-      <small>{keys}</small>
-    </button>
-  );
-  return (
-    <Popover key="menu" anchor={anchor} onClose={onClose} className="fkm ckm" label={`Add check at #${c.callNo}`}>
-      <div className="pk">
-        Add check · #{c.callNo} <code className="rnm">{c.name}</code>
-      </div>
-      {checkMenuItems(c.name, argsOf(call)).map((i) => item(i.kind, i.label, i.keys))}
-      <hr />
-      <div className="pk">The whole run</div>
-      {item('judge', 'Ask a judge…', 'judge')}
-    </Popover>
-  );
-}
-
 /** The inspector's Add check…, on its summary line: it opens the check menu at itself. */
 export function AddCheckLink({ check }: { check: CheckEntry }) {
   return (
@@ -101,40 +51,35 @@ export function AddCheckLink({ check }: { check: CheckEntry }) {
   );
 }
 
-/** In the builder's place when its script didn't come: a small dialog with LoadFailed's line and Retry. */
-function NoBuilder({ onClose }: { onClose: () => void }) {
-  return (
-    <Dialog title="Add check" cancel="Close" onClose={onClose}>
-      <LoadFailed what="check builder" />
-    </Dialog>
-  );
-}
-
 /**
  * Add check… for the selected call: the entry the row menu, the inspector and ⌘K open the check menu
- * through, undefined where the call takes none (`addsCheck`) or where nothing hands the page the
- * builder (an exported copy); and what to draw, the check menu and the builder once a rule is picked.
+ * through, undefined where the call takes none (`addsCheck`) or where nothing hands the page the menu
+ * and the builder (an exported copy); and what to draw, the check menu and the builder once a rule is
+ * picked. A menu whose script didn't come draws the builder's small dialog in its place.
  */
 export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: CallDetail | null }): { check: CheckEntry | undefined; fromPalette: (() => void) | undefined; offered: boolean; node: ReactNode } {
   const app = useApp();
-  const Builder = useServedParts().CheckBuilder;
+  const { CheckBuilder: Builder, CheckMenu: Menu } = useServedParts();
   const menu = useMenu();
   const [start, setStart] = useState<{ call: CallDetail; kind: CheckKind } | null>(null);
-  const can = !!Builder && addsCheck(o.run, o.row, app);
+  const handed = !!Builder && !!Menu;
+  const can = handed && addsCheck(o.run, o.row, app);
   const openAt = menu.openAt;
-  const entry = useMemo<CheckEntry | undefined>(
-    () =>
-      Builder
-        ? {
-            open: (el) => {
-              Builder.preload();
-              openAt(el);
-            },
-            preload: () => Builder.preload(),
-          }
-        : undefined,
-    [Builder, openAt],
-  );
+  const entry = useMemo<CheckEntry | undefined>(() => {
+    if (!Builder || !Menu) return undefined;
+    // Both scripts asked for at once, as Add check… is reached: the menu, then the builder its pick opens.
+    const preload = () => {
+      Menu.preload();
+      Builder.preload();
+    };
+    return {
+      open: (el) => {
+        preload();
+        openAt(el);
+      },
+      preload,
+    };
+  }, [Builder, Menu, openAt]);
   const call = o.detail && o.row && o.detail.call.callNo === o.row.callNo ? o.detail : null;
   const close = useCallback(() => setStart(null), []);
   const callNo = o.row?.callNo;
@@ -150,24 +95,53 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
   }, [can, closeMenu]);
   const node = (
     <>
-      {menu.anchor ? (
-        <CheckMenu
-          anchor={menu.anchor}
-          call={call}
-          onPick={(kind) => {
-            menu.close();
-            if (call) setStart({ call, kind });
-          }}
-          onClose={menu.close}
-        />
+      {menu.anchor && Menu ? (
+        <BuilderFailed.Provider value={<NoBuilder title="Add check" onClose={menu.close} />}>
+          <Menu
+            anchor={menu.anchor}
+            call={call}
+            onPick={(kind) => {
+              menu.close();
+              if (call) setStart({ call, kind });
+            }}
+            onClose={menu.close}
+          />
+        </BuilderFailed.Provider>
       ) : null}
       {start && Builder ? (
-        <BuilderFailed.Provider value={<NoBuilder onClose={close} />}>
+        <BuilderFailed.Provider value={<NoBuilder title="Add check" onClose={close} />}>
           <Builder run={o.run} call={start.call} kind={start.kind} onClose={close} />
         </BuilderFailed.Provider>
       ) : null}
     </>
   );
   // Whether the run's tool calls take Add check… here, as no checks' hover tells it.
-  return { check: can ? entry : undefined, fromPalette: can ? fromPalette : undefined, offered: !!Builder && takesChecks(o.run, app), node };
+  return { check: can ? entry : undefined, fromPalette: can ? fromPalette : undefined, offered: handed && takesChecks(o.run, app), node };
+}
+
+/**
+ * Edit check…, a test replay's step where its golden's own recording fails a check added since: the
+ * builder on the golden at that check (`check`, its label, found in the entry as the builder reads
+ * it). None where nothing hands the page the builder (an exported copy); on a dashboard that can't
+ * act it keeps its place and says why. Lime as the run's lead; Needs a look's row draws it plain
+ * (`className`).
+ */
+export function EditCheckStep({ step, className = 'btn lime' }: { step: Extract<NextStep, { key: 'edit-check' }>; className?: string }) {
+  const Builder = useServedParts().CheckBuilder;
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  if (!Builder) return null;
+  const ahead = () => Builder.preload();
+  return (
+    <>
+      <ActionButton className={className} data-next={step.key} tip={step.label} sub={step.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => setOpen(true)}>
+        {step.label}
+      </ActionButton>
+      {open ? (
+        <BuilderFailed.Provider value={<NoBuilder title={builderTitle(step.golden, { edit: true, fromCall: false })} onClose={close} />}>
+          <Builder golden={step.golden} edit={step.check} onClose={close} />
+        </BuilderFailed.Provider>
+      ) : null}
+    </>
+  );
 }

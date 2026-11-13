@@ -74,6 +74,9 @@ export const ACTIONS = {
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // What a run's page leads with besides those: a page to open, a test run again, a pack made a golden.
   openFix: { label: 'Open fix' },
+  // A check changed in the check builder: a golden's its own recording fails (Tests, a run's page, Needs a
+  // look), or an open fix's (`shadowlap fix check`), whose Save is the builder's confirm.
+  editCheck: { label: 'Edit check…', confirm: 'Save check', doing: 'Changing check' },
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
   openCandidates: { label: 'Open candidates' },

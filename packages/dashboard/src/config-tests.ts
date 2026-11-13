@@ -224,6 +224,8 @@ export interface TestsWritten {
   removed: string[];
   changed: boolean;
   event: ConfigEvent | null;
+  /** The entry under `key` as the write found it, which its Undo puts back: undefined where there was none (the golden followed a pattern, or had no entry), which Undo deletes. */
+  prior: { key: string; entry: unknown };
 }
 
 /** The labels of an entry's checks, or none for an entry that has no checks or none that can be read. */
@@ -273,10 +275,32 @@ export function writeTestsEntry(dir: string, golden: string, edit: EntryEdit, o:
     }
     tests[key] = next;
     checkTests(tests);
-    return { key, added: without(labelsOf(next), labelsOf(was)), removed: without(labelsOf(was), labelsOf(next)) };
+    const prior = { key, entry: key === found ? structuredClone(was) : undefined };
+    return { key, added: without(labelsOf(next), labelsOf(was)), removed: without(labelsOf(was), labelsOf(next)), prior };
   });
-  const event: ConfigEvent | null = changed ? { kind: 'checks.changed', ref: golden, data: { key: result.key, added: result.added, removed: result.removed } } : null;
-  return { ...result, version: file.version, changed, event };
+  return { ...result, version: file.version, changed, event: entryEvent(golden, result, changed) };
+}
+
+/** A write of a golden's checks in the activity feed, as `checks.changed` with the labels it added and removed; none for a write that changed nothing. */
+const entryEvent = (golden: string, r: { key: string; added: string[]; removed: string[] }, changed: boolean): ConfigEvent | null =>
+  changed ? { kind: 'checks.changed', ref: golden, data: { key: r.key, added: r.added, removed: r.removed } } : null;
+
+/**
+ * Undo of a write of `golden`'s entry: puts back the entry as that write found it (`prior`, which the
+ * server held), deleting one the write made, against the version the write left (`expect`), whatever
+ * the page sends: ConfigConflictError when the file changed since, so an edit made there stays.
+ */
+export function restoreTestsEntry(dir: string, golden: string, prior: TestsWritten['prior'], o: { expect: string; wait?: number }): TestsWritten {
+  const { file, result, changed } = editConfigFile(dir, o, (data) => {
+    const tests = isObject(data.tests) ? data.tests : {};
+    const now: unknown = tests[prior.key];
+    if (prior.entry === undefined) delete tests[prior.key];
+    else tests[prior.key] = structuredClone(prior.entry);
+    data.tests = tests;
+    checkTests(tests);
+    return { key: prior.key, added: without(labelsOf(prior.entry), labelsOf(now)), removed: without(labelsOf(now), labelsOf(prior.entry)), prior: { key: prior.key, entry: now } };
+  });
+  return { ...result, version: file.version, changed, event: entryEvent(golden, result, changed) };
 }
 
 /** `tests` checked as `shadowlap test` checks it, refused with its words. */

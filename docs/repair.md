@@ -402,7 +402,7 @@ What the repair does to the fix depends on how it ends:
 | None is accepted | Stays open; repair exits 1 |
 | Handing the fix over fails part way | Turns verified, or applied when the change was applied before the failure; repair exits 1 |
 
-**An accepted candidate.** Its verification is kept as a verdict of its own. It counts when it was checked under the fix's check, or one that asks for more. With `--apply`, repair copies no goldens into the project unless `--goldens` says where, and runs no test, which [`shadowlap fix apply`](./cli.md#fix) does later.
+**An accepted candidate.** Its verification is kept as a verdict of its own. It counts when it was checked under the fix's check, or one that asks for more. An open fix's check can be changed with [`shadowlap fix check`](./cli.md#fix-check), and a repair then counts under the check as it is when the repair ends. With `--apply`, repair copies no goldens into the project unless `--goldens` says where, and runs no test, which [`shadowlap fix apply`](./cli.md#fix) does later.
 
 **None accepted.** `shadowlap fix show` lists each candidate it tried, rejected or set aside, with why.
 

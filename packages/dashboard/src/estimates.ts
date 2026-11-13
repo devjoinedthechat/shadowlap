@@ -24,7 +24,6 @@ import {
   selectedRuns,
   shownBlame,
   STRONGER_MODEL,
-  testsEstimate,
   unsettledFirst,
   updateEstimate,
   verifyEstimate,
@@ -46,13 +45,12 @@ import { nextBlameRule } from './fix-blame-step.js';
 import { acceptedVerdict, sprtGate } from './fix-shared.js';
 import { verdictRule, verifyLeftExpected } from './fix-verify-step.js';
 import { fixDetail } from './fixes.js';
-import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate } from './next-step.js';
+import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, runTestsEstimate } from './next-step.js';
 import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { parseWork, type OutcomeWork } from './run-outcome.js';
-import { sessionLiveGoldens, type LiveReason } from './tests-live.js';
-import { gateResultView, normalizeAndTestJob, runTestsJob, unreadable, type GoldenSource } from './tests.js';
+import { gateResultView, normalizeAndTestJob, unreadable, type GoldenSource } from './tests.js';
 
 /**
  * What a billed job would cost, for the cards and asks of the controls that start one: worked out
@@ -293,20 +291,6 @@ async function goldenEstimates(store: Store, index: RunIndex, source: GoldenSour
   return { rerun, update, ...(more ? { more } : {}), ...(normalize ? { normalize } : {}) };
 }
 
-/**
- * Run tests: what each golden it runs live spent the last time it ran, as the mock adds them up (a
- * session that re-ran one golden says nothing of the others): the newest test of each that forks,
- * and each injection gate's newest; none until each has run once, and Free when every golden replays
- * offline.
- */
-function runTestsEstimate(store: Store, job: TestsEstimatesJob): Estimate {
-  const live = sessionLiveGoldens(job.goldens, runTestsJob(job.goldens, {}, { folder: job.folder }));
-  const by = (kind: LiveReason['kind']) => live.filter((g) => g.why.some((w) => w.kind === kind));
-  const results = by('fork').map((g) => store.listTestResults({ golden: g.path, limit: 1 })[0] ?? null);
-  const gates = by('injection').map((g) => newestGate(store, g.path)?.cost ?? null);
-  return testsEstimate(live.length, { results, injection: gates });
-}
-
 async function testsEstimates(store: Store, job: TestsEstimatesJob): Promise<ReadAnswer> {
   const pricing = pricingOf(store, job.prices);
   const index = loadRunIndex(store);
@@ -315,7 +299,7 @@ async function testsEstimates(store: Store, job: TestsEstimatesJob): Promise<Rea
   for (const source of job.goldens) if (!unreadable(source)) goldens[source.path] = await goldenEstimates(store, index, source, pricing, job);
   const updating = job.goldens.filter((g) => job.update?.includes(g.path) && !unreadable(g));
   const update = updating.length ? { update: await estimateOf(updateOf(store, updating), pricing) } : {};
-  const body: TestsEstimates = { run: await estimateOf(() => runTestsEstimate(store, job), pricing), goldens, ...update };
+  const body: TestsEstimates = { run: await estimateOf(() => runTestsEstimate(store, job.goldens, job.folder), pricing), goldens, ...update };
   return answer(body, { tagged: true });
 }
 

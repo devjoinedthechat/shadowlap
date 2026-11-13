@@ -2,6 +2,7 @@ import { rmSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { expectAccessible, openPage, serveDashboard, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
+import { openReport } from './tests-fixture.js';
 
 /**
  * Injection tests' results in a real browser, on a project real commands made for them
@@ -223,6 +224,25 @@ test("Share's Security report asks in a dialog that says what it masks and keeps
   const saved = page.waitForEvent('download');
   await dialog.getByRole('button', { name: 'Download report' }).click();
   expect((await saved).suggestedFilename()).toBe(`shadowlap-injection-${tested().slice(0, 10).toLowerCase()}.html`);
+});
+
+test("Tests' report of the golden its gate failed draws its proof as the attempt's finding does, and its Security report asks in Share's dialog", async ({ page }) => {
+  await openPage(page, '/tests', 'main#view table tbody tr', here());
+  await openReport(page, 'research');
+  const report = page.locator('main#view section[id="report-research"]');
+  const calls = report.locator('.injline button.pbn');
+  await expect(calls.first()).toBeVisible();
+  await report.getByRole('button', { name: 'Security report' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Download report' })).toBeVisible();
+  await expectAccessible(page);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+  // A call the proof names opens the attempt there.
+  await calls.last().click();
+  await page.waitForSelector('main#view .rhead .rnm', { state: 'visible' });
+  await expect(page.locator('main#view .rhead .ebk')).toHaveText('injection attempt');
 });
 
 test.describe('on a phone', () => {

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { Fragment, useId, useState } from 'react';
 import { plural } from '../format.js';
 import { Icon } from './Icon.js';
 import { Id } from './Id.js';
@@ -46,7 +46,7 @@ function moreWords(attempts: readonly Attempt[], shown: readonly Attempt[]): str
  * or failed, those not judged first, then how many more of each. `rescued`, the attempt that is the
  * rescued fork, says so.
  */
-export function AttemptList({ attempts, rescued, id }: { attempts: readonly Attempt[]; rescued?: string | null; id?: string }) {
+export function AttemptList({ attempts, rescued, id, carried = 0 }: { attempts: readonly Attempt[]; rescued?: string | null; id?: string; /** Attempts carried over from an earlier session: a hairline in the picture where this one took over. */ carried?: number }) {
   const line = (a: Attempt) => (
     <span key={a.runId} className="al">
       <i className={MARK[a.outcome]} aria-hidden="true" />
@@ -72,7 +72,10 @@ export function AttemptList({ attempts, rescued, id }: { attempts: readonly Atte
       {/* a picture of the attempts in the order they ran: each cell's attempt on hover, its words said once for a screen reader */}
       <div className="astrip" role="img" aria-label={`${plural(attempts.length, 'attempt')} in the order they ran: ${counts.map(([o, n]) => `${n} ${o}`).join(', ')}`}>
         {attempts.map((a, i) => (
-          <i key={a.runId} className={`ac${MARK[a.outcome] ? ` ${MARK[a.outcome]}` : ''}`} data-tip={JSON.stringify({ t: `attempt ${i + 1} · ${a.runId}`, s: [a.outcome, a.note].filter(Boolean).join(' · ') })} />
+          <Fragment key={a.runId}>
+            {carried > 0 && i === carried ? <span className="acsep" /> : null}
+            <i className={`ac${MARK[a.outcome] ? ` ${MARK[a.outcome]}` : ''}`} data-tip={JSON.stringify({ t: `attempt ${i + 1} · ${a.runId}`, s: [a.outcome, a.note].filter(Boolean).join(' · ') })} />
+          </Fragment>
         ))}
       </div>
       <div className="alist">

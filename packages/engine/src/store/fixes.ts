@@ -152,7 +152,29 @@ export interface StoredFixCheck {
   actor: string | null;
   /** The check, as a fix holds it. */
   check: StoredFix['check'];
+  /** How it judged the fix's runs when the fix was given it (`shadowlap fix check`); null for the first. */
+  judged: FixCheckJudged | null;
 }
+
+/**
+ * How a check judged one of a fix's runs from its recording: `passed` (a run none of whose checks
+ * applied included, which fails nothing), `failed`, `inconclusive` (a judge with no verdict kept), or
+ * `gone` (its recording is no longer in the store).
+ */
+export type FixRunOutcome = 'passed' | 'failed' | 'inconclusive' | 'gone';
+export const FIX_RUN_OUTCOMES: readonly FixRunOutcome[] = ['passed', 'failed', 'inconclusive', 'gone'];
+
+/**
+ * How a check a fix was given judged the runs it had then, by run id. The newest check decides: a
+ * failing run it passes and a good run it fails leave the fix (runsLeft), though their links stay.
+ */
+export interface FixCheckJudged {
+  failing: Record<string, FixRunOutcome>;
+  good: Record<string, FixRunOutcome>;
+}
+
+/** One of a fix's checks as another copy of the fix carries it (the team store): its place is the order. */
+export type FixCheckEntry = Pick<StoredFixCheck, 'at' | 'actor' | 'check' | 'judged'>;
 
 /** One `shadowlap repair`: its report.json, and where its files are. */
 export interface StoredRepair {
@@ -257,7 +279,7 @@ export abstract class Fixes extends StorePart {
    * is the caller's to say. False, with nothing written, when it is the fix's check already; an
    * unknown fix throws.
    */
-  setFixCheck(fixId: string, check: StoredFix['check'], o: { at?: number; actor?: string | null } = {}): boolean {
+  setFixCheck(fixId: string, check: StoredFix['check'], o: { at?: number; actor?: string | null; judged?: FixCheckJudged | null } = {}): boolean {
     const write = (): boolean => {
       const columns = checkColumns(check);
       const done = this.db.prepare(`UPDATE fixes SET check_key = ?, check_expect = ?, check_oracle = ?, check_text = ? WHERE fix_id = ? AND check_key <> ?`).run(...columns, fixId, check.key);
@@ -267,13 +289,31 @@ export abstract class Fixes extends StorePart {
       }
       this.db
         .prepare(
-          `INSERT INTO fix_checks (fix_id, position, at, check_key, check_expect, check_oracle, check_text, actor)
-           SELECT ?, COALESCE(MAX(position) + 1, 0), ?, ?, ?, ?, ?, ? FROM fix_checks WHERE fix_id = ?`,
+          `INSERT INTO fix_checks (fix_id, position, at, check_key, check_expect, check_oracle, check_text, actor, judged)
+           SELECT ?, COALESCE(MAX(position) + 1, 0), ?, ?, ?, ?, ?, ?, ? FROM fix_checks WHERE fix_id = ?`,
         )
-        .run(fixId, o.at ?? Date.now(), ...columns, o.actor ?? null, fixId);
+        .run(fixId, o.at ?? Date.now(), ...columns, o.actor ?? null, o.judged ? JSON.stringify(o.judged) : null, fixId);
       return true;
     };
     return this.db.isTransaction ? write() : this.transaction(write);
+  }
+
+  /**
+   * Gives a fix the checks another copy of it holds (a pull from the team store), the first first:
+   * its checks become these, numbered in order, and its check the last of them. Nothing is written
+   * for no entries. In the caller's transaction, else one of its own.
+   */
+  replaceFixChecks(fixId: string, entries: readonly FixCheckEntry[]): void {
+    const newest = entries.at(-1);
+    if (!newest) return;
+    const write = () => {
+      if (Number(this.db.prepare(`UPDATE fixes SET check_key = ?, check_expect = ?, check_oracle = ?, check_text = ? WHERE fix_id = ?`).run(...checkColumns(newest.check), fixId).changes) === 0) throw new Error(`unknown fix ${fixId}`);
+      this.db.prepare(`DELETE FROM fix_checks WHERE fix_id = ?`).run(fixId);
+      const insert = this.db.prepare(`INSERT INTO fix_checks (fix_id, position, at, check_key, check_expect, check_oracle, check_text, actor, judged) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      entries.forEach((e, i) => insert.run(fixId, i, e.at, ...checkColumns(e.check), e.actor, e.judged ? JSON.stringify(e.judged) : null));
+    };
+    if (this.db.isTransaction) write();
+    else this.transaction(write);
   }
 
   putBlame(b: StoredBlame): void {
@@ -410,7 +450,15 @@ function rowToFix(row: Record<string, unknown>): StoredFix {
 }
 
 function rowToFixCheck(row: Record<string, unknown>): StoredFixCheck {
-  return { fixId: String(row.fix_id), position: Number(row.position), at: Number(row.at), actor: row.actor === null || row.actor === undefined ? null : String(row.actor), check: checkOf(row) };
+  const judged = typeof row.judged === 'string' ? (record(row.judged) as Partial<FixCheckJudged>) : null;
+  return {
+    fixId: String(row.fix_id),
+    position: Number(row.position),
+    at: Number(row.at),
+    actor: row.actor === null || row.actor === undefined ? null : String(row.actor),
+    check: checkOf(row),
+    judged: judged ? { failing: { ...judged.failing }, good: { ...judged.good } } : null,
+  };
 }
 
 function rowToFixLink(row: Record<string, unknown>): FixLink {

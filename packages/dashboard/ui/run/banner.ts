@@ -1,6 +1,7 @@
 import { approx, goldenName, num, plural } from '../format.js';
 import { blameStateWord, INCONCLUSIVE_FIRST, unrescuedWords } from '../../../engine/src/blame-words.js';
-import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
+import { fencedLabel, judgeSourceParts, notApplicableParts, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
+import type { JudgeOutcome } from '../../../engine/src/types.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
 import { toolFailure } from '../../../engine/src/words.js';
@@ -55,14 +56,14 @@ export interface BannerInput {
   blame: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; short?: string | null } | null;
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
-  checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
+  checks: ReadonlyArray<JudgedCheck & { label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
   fix: { id: string; status: string; title: string } | null;
   upstreamRequests: number;
   /** What the run spent live, in dollars, which a test that went live from its fork says. */
   spent?: number;
   /** A capture its import judged failed, by the rules on calls: the check that failed, in its words. */
   judged?: string | null;
-  /** A test replay whose agent crashed (`offers.crash`): its last line, and the call it stopped at of the recorded ones. */
+  /** A test replay whose agent crashed (`offers.crash`): the exception it died of, else its last line that says something, and the call it stopped at of the recorded ones. */
   crash?: { line: string; at: number | null; of: number | null } | null;
   /** A test replay whose golden diverged on a value made anew on every run: what it looks like. */
   volatile?: { looks: string } | null;
@@ -167,7 +168,7 @@ export type Banner =
   /** `words`: where blame found the run lost, in the engine's words (lostWords): at the call, or around or between two. */
   | { kind: 'lost'; callNo: number; words: string; why: string; rescuedRunId: string | null }
   | { kind: 'not-recorded'; why: string }
-  | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string }>; why: string | null }
+  | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string; judge?: { callNo: number | null; why: string }; values?: string }>; why: string | null }
   | { kind: 'interrupted'; why: string }
   /**
    * `lead`: what failed, which the outcome's `check failed` or `exited` stands on, said first in ink; `why`: how its blame
@@ -437,10 +438,47 @@ export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' |
  * (`not judged`), the outcome saying inconclusive; else how many attempts it held in.
  */
 function checkText(c: BannerInput['checks'][number]): string {
+  if (c.judge?.source) return c.label;
   const why = c.detail ? ` · ${c.detail.split(':')[0]!}` : '';
   if (c.status === 'not-applicable') return `${c.label} · not applicable${why}`;
   if (c.status === 'inconclusive') return `${c.label}${why}`;
   return `${c.label}${c.count !== undefined && c.of !== undefined ? ` · ${c.count} of ${c.of}` : ''}`;
+}
+
+/** A judge check's verdict as the run endpoint keeps it: its reason, and how its judge came out (where it came from, what it cost and read, its call). */
+export interface JudgedCheck {
+  reason?: string;
+  judge?: JudgeOutcome;
+}
+
+/**
+ * Where a judge's verdict came from, after its reason, in the engine's words (`judgeSourceParts`):
+ * `the reply names the escalation · judged live · <$0.001`. Null for a check no judge decided.
+ */
+export function judgeWhy(c: JudgedCheck): string | null {
+  const parts = c.judge ? judgeSourceParts(c.judge) : null;
+  return parts ? [c.reason ?? null, parts.how, parts.cost, ...parts.read].filter(Boolean).join(' · ') : null;
+}
+
+/** A judge verdict on the run, a finding of its own: its call, whether it passed, its line as the CLI labels the check (and what the judge answered where it failed), and why. */
+export interface JudgeVerdict {
+  callNo: number | null;
+  passed: boolean;
+  line: string;
+  why: string | null;
+}
+
+/** Each of the run's checks a judge gave a verdict on, in the order the checks come. */
+export function judgeVerdicts(checks: BannerInput['checks']): JudgeVerdict[] {
+  return checks.flatMap((c) => (c.judge?.verdict ? [{ callNo: c.judge.callNo ?? null, passed: c.ok, line: c.ok || !c.detail ? c.label : `${c.label}: ${c.detail}`, why: judgeWhy(c) }] : []));
+}
+
+/** What a check's line in the checks finding carries besides its words: a judge's call and why; for one that didn't apply, the values the calls had instead, for its hover. */
+function checkExtras(c: BannerInput['checks'][number]): { judge?: { callNo: number | null; why: string }; values?: string } {
+  const why = judgeWhy(c);
+  if (why) return { judge: { callNo: c.judge?.callNo ?? null, why } };
+  const values = c.status === 'not-applicable' && c.detail ? notApplicableParts(c.detail).values : null;
+  return values === null ? {} : { values };
 }
 
 /** An interrupted run's line: what stopped, and what it kept. */
@@ -648,7 +686,7 @@ function checksBanner(i: BannerInput): Banner | null {
   const d = i.divergence;
   const unsure = i.checks.some((c) => c.status === 'inconclusive') && i.callCount !== undefined;
   const why = unsure ? `${plural(i.callCount ?? 0, 'call')} replayed` : i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest(i) && d ? liveFrom(i, d.callNo) : null;
-  const checks = i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) }));
+  const checks = i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}), ...checkExtras(c) }));
   return { kind: 'checks', checks: [...checks.filter((c) => c.status === 'inconclusive'), ...checks.filter((c) => c.status !== 'inconclusive')], why };
 }
 
@@ -680,7 +718,7 @@ function failedBanner(i: BannerInput): Banner | null {
   }
   // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !i.checks.some(checkFailed) ? 'blame needs a run that ended on its own' : null;
-  // A test replay whose agent crashed leads with the last line it printed, then where it stopped.
+  // A test replay whose agent crashed leads with the exception it died of (else its last line that says something), then where it stopped.
   const crash = i.crash && failure === FAILURE_WORDS.exit ? i.crash : null;
   const stopped = crash && crash.at !== null && crash.of !== null ? `at call ${crash.at}, ${crash.at - 1} of ${crash.of} recorded calls replayed` : null;
   return { kind: 'failed', lead: crash?.line ?? failure.replace(/^check failed: /, ''), why: stopped ?? fixState(i.fix) ?? unblamable ?? 'not blamed yet', fix: i.fix, blamed: !!b };

@@ -25,7 +25,7 @@ beforeAll(() => {
 
 const RUN = '01K5CQ4V3H8M2XWQH6V3T9RB1D';
 const GOLD = '01K5CQ0F9B7M2XWQH6V3T9RA0Z';
-const run = { run: { runId: RUN, status: 'completed', mode: 'record' }, source: null, judged: null } as unknown as RunDetail;
+const run = { run: { runId: RUN, status: 'completed', mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' } }, source: null, judged: null, calls: [], summary: { cost: { spent: 0, saved: 0, captured: 0 }, imported: null } } as unknown as RunDetail;
 const args = { order_id: 'A-1042', amount: 240 };
 const call = { call: { callNo: 3, name: 'issue_refund', kind: 'tool' }, request: { args } } as unknown as CallDetail;
 
@@ -73,6 +73,7 @@ function stub(o: { cfg?: ChecksConfig; save?: ChecksApi['save'] } = {}) {
     goldens: vi.fn(async () => o.cfg ?? config()),
     context: vi.fn(async () => context),
     preview: vi.fn(async () => preview),
+    suggestions: vi.fn(async () => ({ runId: RUN, goods: [], suggestions: [] })),
     save: vi.fn(o.save ?? (async () => ({ key: 'goldens/refund-flow', version: 'b'.repeat(64), added: ['issue_refund called 0 times'], removed: [], changed: true }))),
   };
   return { checks, toast: vi.fn(), refresh: vi.fn(), onClose: vi.fn() };
@@ -233,13 +234,28 @@ describe('the check builder on a golden', () => {
     expect(r!.one('.dlg-ok').getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('changes one of its checks, opened in the editor', async () => {
+  it('changes one of its checks, found by its label and opened in the editor', async () => {
     const s = stub();
-    await open(s, { golden: 'goldens/refund-flow', edit: 0 });
+    await open(s, { golden: 'goldens/refund-flow', edit: 'send_email called 0 times' });
     expect(text('.dialog.ckb header h3')).toBe('Edit check of refund-flow');
     expect(text('.dialog.ckb header p')).toContain('Changes refund-flow’s check, judged on your recordings as you build it.');
     expect(r!.one('.cb-kinds [aria-pressed="true"]').textContent).toBe('Never');
     expect(text('.dlg-ok')).toBe('Save change');
     expect(s.checks.goldens).toHaveBeenCalledWith({ golden: 'goldens/refund-flow' });
+  });
+
+  it('finds a check among a unit\'s several labels, such as a when rule\'s checks', async () => {
+    const when = { if: { tool: 'lookup_order', result: { total: { '>': 200 } } }, then: { tools: { escalate: '>= 1' } } };
+    const s = stub({ cfg: config({ goldens: [golden({ entry: { expect: { tools: { send_email: 0 }, when: [when] } } })] }) });
+    await open(s, { golden: 'goldens/refund-flow', edit: 'when lookup_order has result.total > 200: escalate called at least 1 time' });
+    expect(r!.one('.cb-kinds [aria-pressed="true"]').textContent).toBe('When… then');
+  });
+
+  it('closes on a check the entry doesn\'t yield as written, and says to edit it there', async () => {
+    const s = stub();
+    r = await render(shell({ client: { checks: s.checks } as never, toast: s.toast, refresh: s.refresh, guard: (fn: () => void) => (fn(), true) }, createElement(Builder, { golden: 'goldens/refund-flow', edit: 'escalate called 1 time', onClose: s.onClose })));
+    await r.until('it closes', () => s.onClose.mock.calls.length > 0);
+    expect(s.toast).toHaveBeenCalledWith('This check isn’t in shadowlap.config.json as written: edit it there');
+    expect(r.all('.dialog.ckb')).toEqual([]);
   });
 });

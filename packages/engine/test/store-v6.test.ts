@@ -65,7 +65,7 @@ describe('store schema v6', () => {
     // What a v5 build kept reads back as it was.
     expect(second.listFixes().map((f) => f.check.key)).toEqual([checkKey(EMAIL), checkKey(EXPECT)]);
     // Each fix's check is its first, from when the fix was opened, by whoever opened it.
-    expect(second.fixChecks(opened.fixId)).toEqual([{ fixId: opened.fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', check: { expect: EXPECT, key: checkKey(EXPECT), oracle: ORACLE, text: 'issue_refund with {"amount":240} called 0 times' } }]);
+    expect(second.fixChecks(opened.fixId)).toEqual([{ fixId: opened.fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', judged: null, check: { expect: EXPECT, key: checkKey(EXPECT), oracle: ORACLE, text: 'issue_refund with {"amount":240} called 0 times' } }]);
     expect(second.fixChecks(nobody.fixId)).toMatchObject([{ position: 0, at: 2_500, actor: null, check: { key: checkKey(EMAIL) } }]);
     // A session kept before ran for no pull request and kept no comment; a migration kept before was never applied.
     expect(second.getTestSession(session.sessionId)).toMatchObject({ revision: 'd2e8a1f', passed: 1, pullRequest: null, comment: null });
@@ -110,7 +110,7 @@ describe('store schema v6', () => {
     // Data that doesn't read as JSON never reaches json_type, which would refuse it and the store with it.
     const second = Store.open(path);
     expect(second.schemaVersion()).toBe(6);
-    expect(fixes.map((fix) => second.fixChecks(fix.fixId))).toEqual(fixes.map((fix, i) => [{ fixId: fix.fixId, position: 0, at: fix.openedAt, actor: i === 4 ? 'dana@northwind.example' : null, check: emailCheck }]));
+    expect(fixes.map((fix) => second.fixChecks(fix.fixId))).toEqual(fixes.map((fix, i) => [{ fixId: fix.fixId, position: 0, at: fix.openedAt, actor: i === 4 ? 'dana@northwind.example' : null, judged: null, check: emailCheck }]));
     second.close();
   });
 
@@ -355,7 +355,7 @@ describe('each check a fix has had', () => {
   it('starts a fix with the check its first blame was made under, and adds each it is given after it', () => {
     const store = Store.open(':memory:');
     const fix = blame(store, makeRun(store), { at: 2_000, actor: 'dana@northwind.example' });
-    expect(store.fixChecks(fix.fixId)).toEqual([{ fixId: fix.fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', check: fix.check }]);
+    expect(store.fixChecks(fix.fixId)).toEqual([{ fixId: fix.fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', judged: null, check: fix.check }]);
 
     const before = store.changeCounts().fixes;
     expect(store.setFixCheck(fix.fixId, emailCheck, { at: 3_000, actor: 'maya@northwind.example' })).toBe(true);
@@ -389,7 +389,7 @@ describe('each check a fix has had', () => {
     const store = Store.open(':memory:');
     const fix: StoredFix = { fixId: 'fx-01M3RZ0000000000000000PULL', title: 'Pulled', labels: [], check: emailCheck, status: 'verified', openedAt: 1_000, verifiedAt: 1_500, appliedAt: null, data: { openedBy: 'jonas@northwind.example' } };
     store.transaction(() => store.insertFix(fix));
-    expect(store.fixChecks(fix.fixId)).toEqual([{ fixId: fix.fixId, position: 0, at: 1_000, actor: 'jonas@northwind.example', check: emailCheck }]);
+    expect(store.fixChecks(fix.fixId)).toEqual([{ fixId: fix.fixId, position: 0, at: 1_000, actor: 'jonas@northwind.example', judged: null, check: emailCheck }]);
     // A fix kept twice is refused whole: neither it nor a second first check is kept.
     expect(() => store.insertFix({ ...fix, check: { ...emailCheck, key: 'check:other' } })).toThrow();
     expect(store.fixChecks(fix.fixId)).toHaveLength(1);

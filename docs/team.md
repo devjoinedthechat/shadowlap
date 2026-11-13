@@ -210,6 +210,7 @@ Each part of a run syncs its own way:
 - **They go with the runs they are about.** A push sends a [fix](./cli.md#fix) (its blames, repairs and verdicts) once one of its failing or good runs is in the store. A pull brings the team's, so a teammate's Fixes page shows its three steps.
 - **Two copies merge.** A fix only grows, so two machines' copies merge: every blame, repair and verdict either made, open turned verified by either, and a title someone gave it.
 - **Titles.** A fix renamed on both machines keeps the latest rename; `fix title` again after a sync replaces the title both had.
+- **Its check.** A check given with [`fix check`](./cli.md#fix) goes with the fix: the latest change wins on every machine, and each keeps the checks before it. A run the check left out of the fix is left out on every machine. A fix verified on one machine keeps the check its verdict counted under, whatever another machine changed.
 - **A push that meets a teammate's newer copy** merges it the same way.
 - **Command lines.** A fix goes with the command line each of its blames, verdicts and repairs ran, and the flags kept to run each again, a command after `--` and a `--build` included. A key on them goes as `<CREDENTIAL>`, as in a run's command line.
 - **Too large to read.** A fix over 16 MB, the size a pull reads of a run's record, stays on the machine that has it, and the push says so. A pull that meets one in the store names it and brings the others.

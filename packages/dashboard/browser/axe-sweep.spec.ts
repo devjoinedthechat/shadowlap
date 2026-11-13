@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Request, type Route } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
-import { routeTestsFixture } from './tests-fixture.js';
+import { openReport, routeTestsFixture } from './tests-fixture.js';
 
 /**
  * axe-core's WCAG 2.2 A and AA rules over everything the whole demo shows: every page, every run with
@@ -319,22 +319,30 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
 
 /**
  * Tests as the demo can't draw it (tests-fixture.ts): a gated golden's evidence open under its row,
- * then Update goldens for two goldens, with Add normalizer and update, wide and on a phone.
+ * a crash's and a failed gate's reports open with their tracebacks and lines as printed, the demo's
+ * divergence's with its request diffed, then Update goldens for two goldens, with Add normalizer and
+ * update, wide and on a phone.
  */
-test('Tests with a gated golden’s evidence open, and Update goldens for two goldens, have no serious or critical axe violation, wide and on a phone', async ({ page }) => {
+test('Tests with a gated golden’s evidence open, reports open, and Update goldens for two goldens, have no serious or critical axe violation, wide and on a phone', async ({ page }) => {
   // Every billed press asks, so Update goldens opens its dialog and starts nothing.
   await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
-  await routeTestsFixture(page);
+  const { crash, gate, diverged } = await routeTestsFixture(page);
   const states = (on: string): Array<[string, () => Promise<void>]> => [
     [`Tests${on}`, at(page, '/tests', 'main#view table.gt')],
-    [`a gated golden’s evidence${on}`, click(page, 'main#view button.gev', undefined, { shows: 'main#view tr.gevrow .alist' })],
+    [`a gated golden’s evidence${on}`, click(page, 'main#view button.gev:not(.grptog)', undefined, { shows: 'main#view tr.gevrow .alist' })],
+    [`a crash’s report, its traceback and its lines as printed${on}`, () => openReport(page, crash)],
+    [`a failed gate’s report${on}`, () => openReport(page, gate)],
+    [`a divergence’s report, its request diffed${on}`, async () => {
+      await openReport(page, diverged);
+      await page.locator(`main#view section[id="report-${diverged}"] .rpdiff .jl`).first().waitFor();
+    }],
     [`Update goldens for two${on}`, async () => {
       await click(page, 'main#view button', 'Update goldens', { shows: DIALOG })();
       await expect(page.locator(DIALOG).getByRole('button', { name: 'Add normalizer and update' })).toBeVisible();
     }],
     [`Update goldens for two closed${on}`, escape(page)],
     // Closed again, as a page that stays drawn keeps it open: the phone's sweep opens it anew.
-    [`a gated golden’s evidence closed${on}`, click(page, 'main#view button.gev', undefined, { hides: 'main#view tr.gevrow' })],
+    [`a gated golden’s evidence closed${on}`, click(page, 'main#view button.gev:not(.grptog)', undefined, { hides: 'main#view tr.gevrow' })],
   ];
   const wide = await sweep(page, states(''));
   await page.setViewportSize({ width: 390, height: 844 });
@@ -412,10 +420,10 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const ids = dash().runs;
   const id = (name: string) => ids[name] as string;
   // A row or a button that isn't there says so soon: there is no waiting it out.
-  const button = (where: string, text: string) => async () => {
+  const button = (where: string, text: string, shows = DIALOG) => async () => {
     apiRequests(page);
     await page.locator(where, { hasText: text }).first().click({ timeout: 20_000 });
-    await settled(page, { shows: DIALOG });
+    await settled(page, { shows });
   };
   // Its page again is the page as it was: what is ticked stays ticked.
   const tick = async () => {
@@ -433,9 +441,18 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const forceWrite = (name: string, of: string, tool: string) => opened(name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title="${tool}"])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, `Force ${tool} live`));
   const share = (name: string, row: string) => opened(name, run(page, id('ticket')), click(page, '.rhead .actions button', 'Share', { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
   const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
+  // A golden's own buttons sit in its report, folded under its row: Tests' reports are opened first, as a person opens one.
+  const reportsOpen = async () => {
+    await page.locator('main#view button.grptog').first().waitFor({ timeout: 20_000 });
+    const folded = page.locator('main#view button.grptog[aria-expanded="false"]');
+    while (await folded.count()) await folded.first().click();
+  };
+  const inReport = (name: string, text: string) => opened(name, at(page, '/tests'), reportsOpen, button('main#view section.gpanel button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
-  const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule));
+  // The builder from a call of the refund bug, a failed recording: swept once Suggested has drawn the rules the demo's
+  // good run gives, which it asks for after the builder settles, so the read can come after the dialog's own.
+  const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule, `${DIALOG} .cb-sug`));
   const states = (): Array<[string, () => Promise<void>]> => [
     ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
     ...onRun('The consent question', 'packed', 'Replay'),
@@ -464,8 +481,8 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...bulk('Pack runs', 'Pack'),
     ...bulk('Export the dataset of runs', 'Dataset'),
     ...opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
-    ...onPage('Update golden', '/tests', 'Update golden'),
-    ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
+    ...inReport('Update golden', 'Update golden'),
+    ...inReport('Add normalizer and update', 'Add normalizer and update'),
     ...onPage('Run tests’ question', '/tests', 'Run tests'),
     ...onPage('Export pairs', '/training', 'Export pairs'),
     ...onPage('Score model', '/training/tasks', 'Score model'),

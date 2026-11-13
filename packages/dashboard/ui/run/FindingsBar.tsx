@@ -21,7 +21,7 @@ import { fixedByWords, runType } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
-import { findingPath, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
+import { findingPath, judgeVerdicts, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput, type JudgeVerdict } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
@@ -171,9 +171,11 @@ interface Draw {
   leads: (key: NextStepKey) => boolean;
   /** The header's bisect or revert step has Run blame beside it. */
   blameBeside: boolean;
+  /** The checks its result failed or couldn't decide that the config no longer holds, where its step is Run tests: null otherwise. */
+  gone: readonly string[] | null;
   checks: number;
   off: boolean;
-  call: (n: number) => ReactNode;
+  call: (n: number, tip?: string) => ReactNode;
   diffToggle: ReactNode;
   /** Show change, for the first bad commit's finding: none where it kept no change to show. */
   changeToggle: ReactNode;
@@ -416,14 +418,40 @@ function InterruptedFinding({ b, s }: { b: Of<'interrupted'>; s: Slot }) {
   );
 }
 
-function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
+/** A judge's call, which selects it, and where its verdict came from: on its line in the checks finding, and on its own finding. */
+function JudgeWhy({ callNo, why, x }: { callNo: number | null; why: string | null; x: Draw }) {
+  return (
+    <>
+      {callNo === null ? null : x.call(callNo, 'Open the judge’s call')}
+      {why ? <span className="why">{glued(why)}</span> : null}
+    </>
+  );
+}
+
+/** A judge's verdict on the run, never tinted: its call first, as the design draws it, then ✓ or ✗ and the check as the CLI labels it, then its reason and where it came from. */
+function JudgeFinding({ j, x, s }: { j: JudgeVerdict; x: Draw; s: Slot }) {
+  return (
+    <section className={cls('jv', s)}>
+      <span className="bk">verdict</span>
+      {j.callNo === null ? null : x.call(j.callNo, 'Open the judge’s call')}
+      <span className="jvw">
+        <b className={j.passed ? 'ok' : 'no'}>{j.passed ? '✓' : '✗'}</b> {j.line}
+      </span>
+      <JudgeWhy callNo={null} why={j.why} x={x} />
+      {s.more}
+    </section>
+  );
+}
+
+function ChecksFinding({ b, x, s }: { b: Of<'checks'>; x: Draw; s: Slot }) {
   return (
     <section className={cls(bannerSeverity(b) === 1 ? 'inc ck' : 'live ck', s)}>
       <span className="bk">checks</span>
       {b.checks.map((c) => (
-        <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}`} key={c.label}>
+        <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}${c.judge ? ' jvc' : ''}`} key={c.label} data-tip={c.values ? tipText(c.values) : undefined}>
           <i />
           {glued(wholeTallies(c.text))}
+          {c.judge ? <JudgeWhy callNo={c.judge.callNo} why={c.judge.why} x={x} /> : null}
         </span>
       ))}
       {b.why ? <Why gloss>{b.why}</Why> : null}
@@ -435,13 +463,19 @@ function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
 /** Its weight's colour: amber to look at, muted for a test replay its golden passed since, else red. */
 const failedTone = (b: Of<'failed'>): string => (bannerSeverity(b) === 1 ? 'inc' : b.fixedBy ? 'n' : 'blame');
 
+/**
+ * A failed or inconclusive result: its words, then the fix that holds it or Run blame. Where its
+ * golden's checks changed since, it names the checks gone on a line of its own and ends on nothing,
+ * as neither is for a check the config no longer holds: the header leads with Run tests.
+ */
 function FailedFinding({ b, x, s }: { b: Of<'failed'>; x: Draw; s: Slot }) {
-  const end = b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
+  const end = x.gone ? null : b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
   return (
     <section className={cls(failedTone(b), s)}>
       {b.label ? <span className="bk">{b.label}</span> : null}
       <Why lead={b.lead}>{b.why}</Why>
       {end ? <span className="end">{end}</span> : null}
+      {x.gone ? <span className="ckline">{`checks changed since: ${x.gone.join('; ')}, no longer in shadowlap.config.json · not tested yet`}</span> : null}
       {s.more}
     </section>
   );
@@ -469,7 +503,7 @@ function BannerFinding({ b, x, s }: { b: BannerView; x: Draw; s: Slot }) {
     case 'interrupted':
       return <InterruptedFinding b={b} s={s} />;
     case 'checks':
-      return <ChecksFinding b={b} s={s} />;
+      return <ChecksFinding b={b} x={x} s={s} />;
     case 'failed':
       return <FailedFinding b={b} x={x} s={s} />;
   }
@@ -480,8 +514,8 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
   const app = useApp();
   // The header leads with the run's next step; a finding doesn't offer it again.
   const next = nextStepOf(p.run);
-  const call = (n: number) => (
-    <button className="bn" type="button" onClick={() => p.onSelect(n)} {...jumpMark(n, p.jump)}>
+  const call = (n: number, tip?: string) => (
+    <button className="bn" type="button" data-tip={tip ? tipText(tip) : undefined} onClick={() => p.onSelect(n)} {...jumpMark(n, p.jump)}>
       #{n}
     </button>
   );
@@ -497,7 +531,7 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       {p.showChange ? 'Hide change' : 'Show change'}
     </button>
   ) : null;
-  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction, attempt: p.attempt ?? null, pick: p.onPick ?? p.onSelect };
+  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, gone: next?.key === 'run-tests' ? next.gone : null, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction, attempt: p.attempt ?? null, pick: p.onPick ?? p.onSelect };
 }
 
 /**
@@ -591,6 +625,7 @@ function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSe
   const { InjectionFinding } = useServedParts();
   if (f.commit) return <CommitFinding c={f.commit} x={x} s={s} />;
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
+  if (f.judge) return <JudgeFinding j={f.judge} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
   if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
@@ -604,7 +639,7 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection });
+  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {
