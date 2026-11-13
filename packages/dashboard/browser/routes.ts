@@ -1,6 +1,6 @@
 import { expect, type Page, type Request } from '@playwright/test';
 import { NAME as CRASH, routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
-import { dash, demoId, openPage, seriousViolations, type Served } from './dashboard.js';
+import { dash, demoId, openPage, RESET_RETRY, seriousViolations, type Served } from './dashboard.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
@@ -86,7 +86,7 @@ export const VERDICTS = 'main#view table.vdt tbody tr';
  */
 async function toRevision(page: Page): Promise<void> {
   const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token } })).json()) as { lead: { key: string } | null };
+  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { lead: { key: string } | null };
   if (!view.lead) throw new Error('the demo store has no test session that ran every golden');
   await page.evaluate((key) => {
     location.hash = `#/changes/verdicts/${encodeURIComponent(key)}`;
@@ -110,7 +110,7 @@ interface Previewed {
 /** The demo's preview, a cell of it opened and its run's Decisions view, by the addresses the API gives. */
 export async function previewed(page: Page): Promise<Previewed> {
   const { origin, token } = dash();
-  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json()) as T;
+  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as T;
   const { sessions } = await get<{ sessions: Array<{ kind: string; sessionId: string }> }>('decisions');
   const s = sessions.find((x) => x.kind === 'decisions');
   if (!s) throw new Error('the demo store has no preview');
@@ -133,7 +133,7 @@ export async function moreAttempts(page: Page, preview: string): Promise<{ previ
       if (!more.on) return route.continue();
       // Read whole, with the session's cookie, never a 304 the page's cache would answer.
       const headers = Object.fromEntries(Object.entries(await route.request().allHeaders()).filter(([k]) => k !== 'if-none-match'));
-      const res = await route.fetch({ headers });
+      const res = await route.fetch({ headers, ...RESET_RETRY });
       const s = (await res.json()) as { matrix: Array<{ runId: string; verified: unknown }>; view: { next: Record<string, unknown> } };
       const runId = s.matrix[0]!.runId;
       s.matrix[0]!.verified = { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' };

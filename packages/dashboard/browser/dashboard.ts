@@ -143,7 +143,7 @@ export async function openPage(page: Page, path: string, drawn: string, at: Serv
 /** The server's answer to a routed request, changed by `patch`: asked whole (never a 304 with no body to change). */
 export async function patched<T>(route: Route, patch: (body: T) => unknown): Promise<void> {
   const headers = Object.fromEntries(Object.entries(route.request().headers()).filter(([k]) => k !== 'if-none-match' && k !== 'if-modified-since'));
-  const res = await route.fetch({ headers });
+  const res = await route.fetch({ headers, ...RESET_RETRY });
   const text = await res.text();
   await route.fulfill(text ? { response: res, json: patch(JSON.parse(text) as T) } : { response: res });
 }

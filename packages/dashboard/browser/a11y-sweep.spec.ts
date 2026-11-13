@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, patched, seriousViolations, serveDashboard, sideways, startJob, type Served } from './dashboard.js';
+import { dash, demoId, openPage, patched, RESET_RETRY, seriousViolations, serveDashboard, sideways, startJob, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
 import { DIALOG, injectionRoutes, previewed, ROUTES, show, type RouteState } from './routes.js';
 
@@ -708,7 +708,7 @@ test.describe('on a touch screen', () => {
     // A label of the demo's own, routed onto a run, so its × is drawn.
     const good = demoId('good');
     await page.route(new RegExp(`/api/runs/${good}(\\?.*)?$`), async (route) => {
-      const res = await route.fetch();
+      const res = await route.fetch(RESET_RETRY);
       const json = (await res.json()) as { run: { meta?: { labels?: string[] } } };
       json.run.meta = { ...json.run.meta, labels: [...(json.run.meta?.labels ?? []), 'refunds'] };
       await route.fulfill({ response: res, json });
