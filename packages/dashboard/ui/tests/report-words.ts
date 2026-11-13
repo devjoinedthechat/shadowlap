@@ -11,6 +11,8 @@ export function hintWords(hint: HintKey, o: { named?: boolean } = {}): string {
   switch (hint.key) {
     case 'normalizer':
       return 'Normalizers apply at match time, so older goldens keep working.';
+    case 'switch':
+      return 'A golden recorded before the switch diverges on it: update it once the switch is what you meant.';
     case 'rules-added':
       return hint.update ? `The normalizer for ${hint.path} is in shadowlap.config.json now and masks the value, but the request also carries what the recording never had: update the golden.` : `The normalizer for ${hint.path} is in shadowlap.config.json now: run the golden again to see it pass.`;
     case 'bisect':

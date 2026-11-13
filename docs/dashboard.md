@@ -1577,6 +1577,8 @@ A divergence's report offers:
 - **Update golden**, beside that step only. A divergence another step leads offers that step and Find breaking commit.
 - **Find breaking commit**, whose answer then shows as the report's last part, above its steps, while the golden keeps failing as it did when the search started.
 
+**A golden a migration left behind.** Once a migration's [config change](#apply-config-change) is applied, a golden recorded under the old model diverges on `$.model` at the call it was left at, until it is updated. Its report says the cause once, on its **Request** line: *The config change of migration `mg-01M58W9A7S` switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.* The id opens the migration's report. **Update golden** leads, and the hint says why: *A golden recorded before the switch diverges on it: update it once the switch is what you meant.*
+
 Find breaking commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find breaking commit…** to search from an older one.
 
 - **An answer given while the golden passed**, or about an earlier failure, never shows over a later one.
@@ -2978,6 +2980,8 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - its lines as `shadowlap test` prints them (`printed`, each with its `tone`).
 
 A divergence's `request` part names the call it diverged at (`callNo`), the replay to ask its diff of (`runId`), and the recording's call it is compared with (`against`, null where the golden's recording isn't known). Where the replay is gone, `bodies` holds the changes its result kept. `followed`, null where nothing followed, is what followed from it, such as the offline 503 the agent exited on: its `line`, and the body the agent got as `message`, null where none was kept. A divergence that changed no request sends only `followed`.
+
+Where an applied migration left the golden waiting at that call, the part adds `cause`: the migration whose config change switched the model, in pieces, its id as `code` with the `href` of its report. The report's `hint` is then `switch`.
 
 An injection gate's `proof` part names its attempt (`runId`) and holds the proof in `parts`, as the attempt's page reads it: where the payload was planted (`plantedAt`) and read (`readAt`), and what carried the canary (`evidence`), with `why` for an attempt that showed nothing. Its `injection-attempts` part names the kept result Security report writes and the run that result tested (`security`), null once the store no longer has it.
 
