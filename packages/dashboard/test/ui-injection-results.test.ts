@@ -89,7 +89,7 @@ describe('the untrusted tag', () => {
 
   it('draws nothing for a call that is no untrusted read, and leaves out a read no model call follows', () => {
     expect(renderToStaticMarkup(createElement(UntrustedTag, { read: undefined }))).toBe('');
-    const view = runInjectionView({ untrusted: [read(), read({ callNo: 9, readAt: null })], results: [], attempt: null }, null);
+    const view = runInjectionView({ untrusted: [read(), read({ callNo: 9, readAt: null })], results: [], rule: null, answers: [], cause: [], attempt: null }, null);
     expect([...view.untrusted.keys()]).toEqual([4]);
   });
 });
@@ -125,7 +125,7 @@ describe('the run’s finding', () => {
   });
 
   it('takes the results read as runs move over those the run’s read held', () => {
-    const view = runInjectionView({ untrusted: [], results: [row({ resultId: 'inj-first' })], attempt: null }, [row({ resultId: 'inj-later', gate: 'passed' })]);
+    const view = runInjectionView({ untrusted: [], results: [row({ resultId: 'inj-first' })], rule: null, answers: [], cause: [], attempt: null }, [row({ resultId: 'inj-later', gate: 'passed' })]);
     expect(view.finding).toMatchObject({ resultId: 'inj-later', gate: 'passed' });
   });
 
@@ -193,7 +193,7 @@ describe('the finding as the bar draws it', () => {
 describe('an exported copy', () => {
   it('keeps no injection results: its run’s read answers none, and a result’s read and its report’s preview are refused in its words', async () => {
     const client = createExportedClient({ responses: {}, runIds: [] } as never);
-    await expect(client.injectionRun(RUN)).resolves.toEqual({ untrusted: [], results: [], attempt: null });
+    await expect(client.injectionRun(RUN)).resolves.toEqual({ untrusted: [], results: [], rule: null, answers: [], cause: [], attempt: null });
     await expect(client.injectionResults(RUN)).resolves.toEqual({ results: [] });
     await expect(client.injectionResult('inj-01PLANT')).rejects.toMatchObject({ status: 404, message: 'this is an exported copy, and injection tests are not part of it' });
     await expect(client.injectionPreview('inj-01PLANT')).rejects.toMatchObject({ status: 404 });

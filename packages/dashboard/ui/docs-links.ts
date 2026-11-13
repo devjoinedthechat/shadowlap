@@ -29,6 +29,7 @@ export const DOCS = {
   injectionTests: { page: 'injection#what-a-test-does', what: 'Injection tests' },
   injectionGate: { page: 'injection#gate-ci-on-it', what: 'Injection tests' },
   injectionReport: { page: 'injection#the-security-report', what: 'Injection tests' },
+  proveCause: { page: 'injection#prove-cause-on-an-incident', what: 'Injection tests' },
   imports: { page: 'cli#import', what: 'Imports' },
   packs: { page: 'cli#pack-unpack', what: 'Packs' },
   datasets: { page: 'cli#export-dataset', what: 'Datasets' },

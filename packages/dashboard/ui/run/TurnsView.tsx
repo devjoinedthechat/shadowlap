@@ -5,7 +5,8 @@ import { ktok, num } from '../format.js';
 import { agentOf, scopesOf } from '../scopes.js';
 import { UntrustedTag } from '../injection/UntrustedTag.js';
 import type { UntrustedView } from '../types.js';
-import { originOf, tokensText, turnsOf, type Turn } from './model.js';
+import { originOf, tokensText } from './model.js';
+import { turnsOf, type Turn } from './view-model.js';
 import { useWindow } from './window-hook.js';
 
 /**

@@ -206,7 +206,7 @@ describe('a golden’s presets on Tests', () => {
   it('says its presets failed, which attempt to open, and never that it has not run', async () => {
     const v = view();
     (globalThis as { location?: unknown }).location = { hash: '#/tests' };
-    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]) } as unknown as Client;
+    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]), injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }) } as unknown as Client;
     const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined };
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage)));
     await r.until('the golden to load', () => r!.all('td.glast').length === 1);

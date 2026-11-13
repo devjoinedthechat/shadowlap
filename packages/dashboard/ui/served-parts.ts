@@ -4,10 +4,14 @@ import type { PrCommentDialog } from './ci/PrCommentDialog.js';
 import type { OnShow } from './components/OnShow.js';
 import type { RunBlameAsks } from './fixes/RunBlameAsks.js';
 import type { AttemptPage } from './injection/AttemptPage.js';
+import type { CauseFinding } from './injection/CauseFinding.js';
+import type { FindCause } from './injection/FindCause.js';
 import type { InjectionFinding } from './injection/InjectionFinding.js';
 import type { InjectionResults } from './injection/InjectionResults.js';
+import type { PackWithGate } from './injection/PackWithGate.js';
 import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
+import type { TestDialog } from './injection/TestDialog.js';
 import type * as JobWordsModule from './jobs.js';
 import type { ElsewhereProps } from './pages/held-elsewhere.js';
 import type { ChangeBoxProps } from './revert/ChangeBox.js';
@@ -37,6 +41,10 @@ export type StepDialogProps = ComponentProps<typeof StepDialog>;
 export type SecurityReportProps = ComponentProps<typeof SecurityReportDialog>;
 export type ProofProps = ComponentProps<typeof Proof>;
 export type InjectionFindingProps = ComponentProps<typeof InjectionFinding>;
+export type TestDialogProps = ComponentProps<typeof TestDialog>;
+export type PackWithGateProps = ComponentProps<typeof PackWithGate>;
+export type FindCauseProps = ComponentProps<typeof FindCause>;
+export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
 export type { FailedIssuesProps };
 /** What the shell's parts a copy never draws take: the palette and Remove project's dialog (the job's drawer takes nothing). */
 export type PaletteProps = ComponentProps<typeof Palette>;
@@ -59,12 +67,14 @@ export type JobWords = typeof JobWordsModule;
  * no Share, so nothing there opens Share's menu, no Fork at #n in its header or on a row and no …,
  * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the check
  * menu or the builder; a copy's next step is only ever Compare, so it draws no Run blame either,
- * and no step that asks; its Runs keeps Failed a filter, so draws no issues; New preview waits in a
- * copy, as every server action does, so its menu never opens there. test/ui-revert-copy.test.ts: a
- * copy's run has no revert step and no offers, so no first bad commit to show, and its Tests page is
- * not in it. test/ui-injection-results.test.ts: a copy keeps no injection results, so its run page
- * draws no test's finding to open them from, and no Share to download a report from; a copy keeps
- * no attempt's read, so an attempt's page there draws no proof and marks nothing. And the shell's
+ * and no step that asks; it draws no Run injection test… (its fork menu, step and palette rows are
+ * the served dashboard's) nor Pack with injection gate…, and no Find cause… nor the answers it
+ * finds; its Runs keeps Failed a filter, so draws no issues; New preview waits in a copy, as every
+ * server action does, so its menu never opens there. test/ui-revert-copy.test.ts: a copy's run has
+ * no revert step and no offers, so no first bad commit to show, and its Tests page is not in it.
+ * test/ui-injection-results.test.ts: a copy keeps no injection results, so its run page draws no
+ * test's finding to open them from, and no Share to download a report from; a copy keeps no
+ * attempt's read, so an attempt's page there draws no proof and marks nothing. And the shell's
  * and a run's page's parts a copy never draws (test/ui-exported-copy.test.ts again): its client
  * starts and follows no job, so it draws no job's drawer and needs none of its words; its actions
  * wait (`actionsOff`), so no action and no Find breaking commit asks in a dialog; it runs no job of
@@ -99,6 +109,14 @@ export interface ServedParts {
   InjectionResults?: OnShow<InjectionResultsProps>;
   /** The dialogs the run page's steps ask in, Pack as golden…'s too (run/StepDialogs.tsx): loaded as one first shows. */
   StepDialog?: OnShow<StepDialogProps>;
+  /** Run injection test…'s dialog (injection/TestDialog.tsx): the fork menu's whole run, the lime step, a read's row on Settings → Tools, Tests' Security and the palette open it. Loaded as it first shows. */
+  TestDialog?: OnShow<TestDialogProps>;
+  /** Pack with injection gate…'s dialog (injection/PackWithGate.tsx), which the run's lime step opens where a read caused a write or an attempt obeyed. Loaded as it first shows. */
+  PackWithGate?: OnShow<PackWithGateProps>;
+  /** Find cause… on a write after an untrusted read, the inspector's link and its dialog (injection/FindCause.tsx): loaded as the inspector first shows on a run that has a write to ask about. */
+  FindCause?: OnShow<FindCauseProps>;
+  /** The run's `--clean` answers as a finding (injection/CauseFinding.tsx): loaded as a run's page first draws one. */
+  CauseFinding?: OnShow<CauseFindingProps>;
   /** A kept injection result's Security report, its masks and canaries read first (injection/SecurityReportDialog.tsx): Share's row opens it. */
   SecurityReportDialog?: OnShow<SecurityReportProps>;
   /** A kept injection test's finding on the run it tested (injection/InjectionFinding.tsx), with its Show results: loaded as a run's page first draws one. */

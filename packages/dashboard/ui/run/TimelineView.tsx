@@ -6,7 +6,8 @@ import { ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { agentOf, scopeDepth, scopeLeaf, scopesOf } from '../scopes.js';
 import { AgentCallsNote } from './agent-note.js';
 import { callKind, KIND_COLOR, kindLabel } from './kinds.js';
-import { originOf, ticksFor, timelineOf, type TimelineRow } from './model.js';
+import { originOf } from './model.js';
+import { ticksFor, timelineOf, type TimelineRow } from './view-model.js';
 import { useWindow } from './window-hook.js';
 
 /**

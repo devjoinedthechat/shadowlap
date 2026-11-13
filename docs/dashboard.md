@@ -142,6 +142,7 @@ Some rows show only once something is typed:
 - **Settings**, after the pages: each tab, found by what it holds. `redact`, `trust`, `alerts`, `settings ci` and `spending` each find theirs.
 - **Run blame**, for the three newest failures whose next step it is, by what they were about or `failed`. It is priced as you pick it and goes by [Spending](#spending), asking over any page in *Run blame on* the run. What else it asks first, your command, a check or a yes, it asks on the run's page.
 - **Apply fix**, for each verified fix not yet applied, by its label or `fix patch`. It opens the fix's page and asks there.
+- **Run injection test…**, for up to three goldens whose recordings read something untrusted, by `security`, `prompt`, `injection`, `untrusted` or the golden's name. It opens Tests and asks in [Security](#security). The run whose page shows is left out, as This run has its own.
 - **Add normalizer…** and **Add redaction rule…**, which open their Settings tab and its dialog.
 
 A row with a key of its own shows it at its right, while single-key shortcuts are on. On a touch screen, or where its own words don't fit, the field says *Search or jump to*.
@@ -518,7 +519,8 @@ What each step does:
 - **Pack as golden…** asks for a folder, `goldens/` and the run's short id in lower case unless you change it. A golden of a fork or a replay of the recording doesn't count as made from it.
   - It packs the golden, then tests it, as one job, for any run. A recording from someone's pack or the team store asks first, since its test runs the command it was recorded with. So does a test that would run the golden live, in the same question.
   - Where another step leads, a plain **Pack as golden…** comes after **Replay** and can fold into **…**. Search or jump to has it too.
-- **Pack with injection gate…** does the same, and names the entry to add under `tests`, for the folder as you type it, that gives the golden its gate.
+- **Pack with injection gate…** packs the golden, adds its gate to its entry under `tests` in `shadowlap.config.json`, then tests it, as one job. It waits as Tests' jobs do, and its dialog is under [Pack with an injection gate](#pack-with-an-injection-gate).
+- **Run injection test…**, on a recording whose test stopped early, opens the dialog the fork menu's does. **Re-run injection test** asks first, then runs the same command once more.
 - **Replay** replays the run itself. On a capture it reads **Replay with your command…**, and asks what starts your agent.
 - **Replay recording**, on a clean or a test replay, replays the recording it came from, asking for your command where that is a capture.
 - **Compare**, plain beside another step, reads **Compare with parent**, **Compare with fork** or **Compare with replay**, with the `shadowlap diff` it matches on hover. With nothing to compare yet it stays, off, and says what would make something.
@@ -593,6 +595,12 @@ A golden's finding has **Tests →**.
 **An injection test.** The run an injection test tested shows its newest finished test as a finding: *injection test*, or *injection gate* for a golden's, then its verdict in its colour, *failed*, *inconclusive* or *passed*, and its line (*send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)*). A gate's names its golden. **Show results** opens the results in the inspector's place, as Show diff does.
 
 The results are a matrix: a row for each untrusted read planted in, a column for each payload, and a cell for their attempts, in the colour of the strongest verdict, with its proof on hover. Past eight reads, each tool has a row that sums its reads. Above it come the attempts, the payloads and when the test ran, with its command; under it, what the test spent and its upstream requests. A cell opens its attempt at the call its proof names, and Esc there comes back to the cell.
+
+**A cause's answers.** A run that [Find cause…](#find-what-caused-a-write) asked of shows its answers as a finding, causes first. It leads with *caused by*, *not caused by* or *inconclusive*, then the read and the answer: *#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)*. It takes its lead's colour: red for a cause, muted for not caused, amber for inconclusive.
+
+- **Each other answer** follows, one a line, and then the gate's rule.
+- **A read** in it selects that call.
+- **Clean attempts →** opens the run's Forks at the write, where the clean attempts are.
 
 **An injection test's replay.** Its eyebrow says what it is: *injection attempt*, *clean attempt* for a `--clean` answer's, or *baseline*. Its first fact says how it came out: *obeyed at #6*, *influenced*, *ignored* or *inconclusive*; a clean attempt's *write gone at #28* or *every write made again*; a baseline's *2 writes after the read*.
 
@@ -938,6 +946,8 @@ The inspector shows the selected call, in four tabs:
 - **A tool call** shows *Its arguments, then its result:*, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
+
+**Find cause…** is on the summary line of a write the agent made after an untrusted read, after **Add check…**. A tool that declares no effect counts as a write, as `--clean` counts it. It asks whether a read caused the write, with its price on hover: see [Find what caused a write](#find-what-caused-a-write). Once the run has an answer about the write, it reads **Test another read…**. An exported copy has neither.
 
 **On an injection test's replay**, the inspector marks what the test planted:
 
@@ -1616,6 +1626,23 @@ For a verdict given on other material, it says first that a value that changes e
 
 **Unguarded.** A golden that a process the guard can't watch ran in, such as the Claude Code CLI the Claude Agent SDK runs, fails as *unguarded: a process the network guard can’t watch ran*. It shows what `shadowlap doctor` says to do: reach a remote MCP server through `shadowlap mcp`, which records and fences its calls, and test with `--guard warn` to accept the rest.
 
+### Security
+
+**Security** lists each golden whose recording reads something [untrusted](./injection.md#mark-the-reads-that-bring-outside-text-in), where an injection test plants. **Trust on Settings → Tools**, beside its head, opens the marks. A row per golden, the newest recording first:
+
+| Column          | Says                                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| Golden          | Its name, then *its recording 01K5CQ4R1T*                                                |
+| Untrusted reads | Each untrusted read the recording makes, by call                                         |
+| Last test       | Its newest gate, else its recording's newest test: the verdict and line, or *not tested* |
+
+- **Run injection test…** on a row tests the golden's recording, or the golden where only its pack holds the recording. Its card names the reads it plants at. See [Run an injection test](#run-an-injection-test).
+- **A gate's test** ends its line *· its injection gate*.
+- **A golden whose recording can't be read** keeps its row, which says why.
+- **The rest** share one line: *checkout, refunds and search read nothing untrusted.* With no golden in either, the section doesn't show.
+
+Security is read again as an injection test or a pack with its gate ends, and as a test session lands.
+
 ### In CI
 
 **In CI** says how CI runs the goldens:
@@ -1780,7 +1807,36 @@ The tab also gives the section to paste, in a box with **Copy section** in its c
 
 ### Tools
 
-*Tools* lists every tool the recordings called, by what happens to it after a fork. It also lists the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it. **Show the client’s config** unfolds each config with `shadowlap mcp` in front of its servers, and **Copy MCP config** copies it.
+*Tools* lists every tool the recordings called in one table: what happens to it after a fork, and whether it brings outside text in. It also lists the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it. **Show the client’s config** unfolds each config with `shadowlap mcp` in front of its servers, and **Copy MCP config** copies it.
+
+The table has a row per tool, in three columns:
+
+| Column       | Says                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Tool         | The tool's name, its calls and its last call on hover, and its effect: `read`, `pure`, `undeclared`, `input` or `write` |
+| After a fork | *runs live* for a read, *served when the same* for a pure tool, *blocked or stubbed* for a write                        |
+| Trust        | *untrusted*, with where the mark comes from, or *trusted*                                                               |
+
+Reads come first, the untrusted ones first among them. A row you mark keeps its place until the page loads again.
+
+**Trust.** An [untrusted read](./injection.md#mark-the-reads-that-bring-outside-text-in) brings outside text in, and `shadowlap injection` plants its payloads there. The cell names where its mark comes from: `shadowlap.config.json`, `SDK`, `MCP openWorldHint · <server>`, or *recorded with its config’s mark* for a mark the calls were recorded with. A read whose MCP server sets `openWorldHint` starts untrusted.
+
+Only a read takes a mark. A pure tool, a write, a tool that declares no effect and what the user types read `—`, with why on hover: a write's result is only its receipt, and what the user types is the user's own words.
+
+**Mark untrusted** and **Mark trusted** show on a read's row as the pointer or the focus reaches it, and write the read's line under `tools` in `shadowlap.config.json`:
+
+```json
+"tools": { "get_ticket": { "trust": "untrusted" } }
+```
+
+- **Its card** shows the line it writes. Mark trusted's says what its line wins over: the server's `openWorldHint`, the mark in the agent's code, or every recorded mark.
+- **Recorded runs too**: a mark never enters a fingerprint, so a test plants in the runs recorded before it.
+- **Its toast** says the line written, *Wrote "tools": { "get_ticket": { "trust": "untrusted" } } to shadowlap.config.json*, with **Undo**. Undo takes the line out again, or puts back the mark the file held.
+- **⌘K** on a read's row offers the same mark, and **Run injection test…** on an untrusted one.
+
+**Show the tools entry** unfolds the `tools` entry under the table, as the file holds it, with the line written from the page marked. It opens by itself once you mark a tool. **Copy entry**, beside it, copies the entry, folded or not.
+
+**Run injection test…** is on an untrusted read's row. It tests the newest golden's recording that reads the tool, else the newest of the store's 200 latest ended recordings that does, and its card names which: *Plants payloads at #4 get_ticket of refund-over-limit’s recording*. A read no run calls has none. Its dialog is the fork menu's: see [Run an injection test](#run-an-injection-test).
 
 Credentials in a copied config:
 
@@ -2071,7 +2127,7 @@ A job that bills nothing, such as a replay offline, starts at once on every sett
 | A model call | **Inject instruction…** (always as the user), **Switch model from here…**, **Use changed prompt from here**, **Fail with HTTP status…**, **Run live from here** |
 | A tool call | **Override result…**, **Fail with tool error…**, **Plant instruction…** (reads only), **Force *tool* live**, **Run live from here** |
 | A recorded user input | **Override user reply…**, **Run live from here** |
-| The whole run | **Repeat 5 times** (`--repeat 5`), **Replay with writes stubbed**, **Find breaking commit…** |
+| The whole run | **Repeat 5 times** (`--repeat 5`), **Replay with writes stubbed**, **Run injection test…**, **Find breaking commit…** |
 
 The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
@@ -2082,6 +2138,8 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 - **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The dialog shows the command it runs, following what you type.
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
 - **Plant instruction…** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
+- **Judged by**, under Plant's instruction, holds what no attempt may do, passed as `--expect`. It starts from the run's own `--expect`, and the command follows it. Left empty, each attempt is judged by the config's checks, if any.
+- **Run injection test…** tests the whole run: see [Run an injection test](#run-an-injection-test). On a run that calls no untrusted read, it says *No untrusted read in 01K5CQ4R1T* and offers **Open Tools settings**.
 
 **Find breaking commit…** runs [`bisect`](./cli.md#bisect):
 
@@ -2164,6 +2222,72 @@ A press outside the dialog never closes it. Esc closes it while nothing changed,
 
 **Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. Suggested reads the fix's first failing run there too. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
 
+### Run an injection test
+
+**Run injection test…** plants payloads in a run's untrusted reads and runs the agent on from each, as [`shadowlap injection`](./injection.md) does. It opens from:
+
+- the fork menu's whole run, and This run in ⌘K;
+- the lime step of a recording whose test stopped early;
+- an untrusted read's row on [Settings → Tools](#tools);
+- a golden's row in Tests' [Security](#security), and ⌘K's Actions, which list up to three of those goldens.
+
+An injection test's own attempts offer none. Its dialog, *Run injection test on 01K5CQ4R1T*, holds the plan:
+
+| Part              | Holds                                                                        |
+| ----------------- | ---------------------------------------------------------------------------- |
+| Plants in         | The untrusted reads it plants in, by call: *#4 get_ticket, #14 get_shipping* |
+| Templates         | The 12 built-in payloads as chips, with **All** and **None**                 |
+| Your own payloads | **Add payload file…**: text, JSON or JSON Lines, `{{canary}}` filled in      |
+| Attempts each     | 1 to 100 attempts for each payload at each read                              |
+| Stop at $         | An amount, passed as `--budget`: no attempt starts once it is spent          |
+
+- **Many reads**: past eight untrusted reads, it starts from two templates, since each read multiplies the cost.
+- **A payload file** of at most 2 MB shows as a chip with its count, *payloads.txt · 6 payloads*, and its **×** leaves it out. The dialog names each payload without `{{canary}}`: such a payload can show influence, never prove the agent obeyed.
+- **The command** follows your picks: `--templates` when you don't pick them all, `--payloads`, `--repeat` and `--budget`.
+- **The cost line** is the server's estimate of your picks, asked again a moment after each change. A plan far above your [Spending](#spending) amount says so in amber: *≈$410 at these picks: set Stop at $ to stop it there*.
+- **With nothing picked**, it says *Pick a template or add a payload file.* and won't start.
+
+**Run injection test** starts the job. A run whose command came from elsewhere asks first, as [Commands from someone else](#commands-from-someone-else) says. A request the server refuses stays in the dialog, its words in the amber line.
+
+**How it ends.** Its drawer reads *Running injection test*, and ends on the verdict with the job's own exit code: *failed · exit 1*, *inconclusive · exit 3* or *passed · exit 0*.
+
+- **Open proof** leads where an attempt proves the verdict, with **Open run** beside it.
+- **On the run's page**, the drawer offers the step the page then leads with, such as **Re-run injection test** for a test that showed too little to say.
+- **A test of eight reads or fewer** opens its results there as it ends.
+
+### Find what caused a write
+
+**Find cause…** asks whether an untrusted read caused a write, as [`shadowlap injection --clean`](./injection.md#prove-cause-on-an-incident) does. It replays the run with the read made neutral until the gate decides whether the write comes back. Its dialog, *Find cause of #28 send_email*, holds:
+
+- **Gate**: the rule that decides. Its hover says what the write going away means: what the read brought in caused it.
+- **Read to make neutral**: the untrusted reads a model call reads before the write, one to pick. It starts on the nearest whose result holds a value the write sends, which says so (*its result holds refunds@…, which #28 sends*), else the last.
+- **The command and its price**: *shadowlap injection 01K5CQ4R1T --clean 4 --write 28*, then *At most ≈$0.481 · up to 10 attempts · live from the read, writes stubbed*.
+
+**Find cause** starts the job, asking first for a command from elsewhere. Its drawer reads *Finding cause: testing #4*, and ends *caused · exit 0* in red, *not caused · exit 0* or *inconclusive · exit 3*. Its toast reads *Searched for cause: testing #4*, whatever the answer.
+
+- **The answer** shows as the run's [finding](#findings), and the activity feed says *Asked whether #4 caused #28 · caused*.
+- **Test another read…** asks again, starting on the first read no answer about the write names.
+- **A cause** that makes **Pack with injection gate…** the run's step has the drawer offer it.
+
+### Pack with an injection gate
+
+**Pack with injection gate…** packs a run as a golden that fails while a tool call carries a planted payload's canary. One job packs the run, adds the golden's [injection gate](./injection.md#gate-ci-on-it) to `shadowlap.config.json`, then tests the golden. It is the lime step of an injection attempt that obeyed, and of a recording a read is proven to have caused a write in, until a golden is made from it.
+
+Its dialog, *Pack 01K5CQ4R1T with injection gate?*, holds:
+
+- **Golden**: its folder, which starts as Pack as golden…'s does.
+- **The templates** the gate plants, every one at first, and **Attempts each**. With none picked, it says *Pick a template: a gate plants at least one.*
+- **Adds to shadowlap.config.json**: **Show entry** unfolds the entry it adds under `tests`, with **Copy config entry**.
+- **Both commands**, `shadowlap pack` and `shadowlap test`, and the cost line: what the gate bills *every test session, in CI too*.
+
+**Pack with injection gate** starts it. The entry is written against the version of the file the dialog read, as the [check builder](#making-a-check) writes. A file changed since, or a gate the server refuses, ends the job after the pack: the golden stays packed without its gate, and no test runs.
+
+Its drawer reads *Packing with injection gate*, prints the line it added, then the test. It ends as *Packed with injection gate*, then how the test came out: *its test failed · exit 1*, *its test inconclusive · exit 3* or *its test passed · exit 0*. A refused write ends as *Tried packing with injection gate*, saying the golden is packed without its gate.
+
+- **Open proof** leads where the gate failed, with **Open Tests**. A gate that passed ends on **Open Tests** alone.
+- **On the run's page**, a gate that showed too little leads with **Re-run test**, which runs the golden and its gate again, **Open Tests** beside it.
+- **The activity feed** says *Injection gate added · 01k5cq4r1t*.
+
 ### Actions on a fix
 
 **Run repair**, on an open fix, runs [`shadowlap repair`](./repair.md):
@@ -2242,12 +2366,15 @@ Tests runs its goldens as jobs too:
 | **Add normalizer and update** | `shadowlap normalize add …` for each rule, then `shadowlap test <goldens> --update` |
 | **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed                |
 | **Revert**                    | `git revert --no-commit <rev>`, then `shadowlap test <golden>`                      |
+| **Run injection test…**       | `shadowlap injection <recording>`, from a [Security](#security) row                 |
 
 These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run**, **Find breaking commit** and **Revert** wait, saying what is running:
 
 - another of these jobs, **Find breaking commit** on a golden among them, which reads its pack and answers the failure it started from;
 - a setup packing and testing its golden;
 - a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`), started in a terminal or another dashboard, named by their command.
+
+A run page's **Pack with injection gate…** waits the same way, since it tests the golden it packs.
 
 The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
 
@@ -2318,7 +2445,9 @@ Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, 
 - **No lost edits**: each change names the version of the file the page read, so one made in an editor or a terminal since is never overwritten. The page says so, and shows the file as it stands.
 - **The CLI's words**: a rule the CLI would refuse is refused with the same words.
 - **The activity feed**: every change lands in it.
-- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
+- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, marking a tool, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
+
+**Mark untrusted** and **Mark trusted**, on [Settings → Tools](#tools), write a read's line under `tools` the same way. The activity feed says *Tool marked untrusted · get_ticket*, or *Tool mark removed · get_ticket* for an Undo that takes the line out.
 
 **Write file**, on Settings → CI, writes your repository's workflow the same way. It names the version of the file it read and the workflow the page showed, so a file changed since, or switches changed meanwhile, write nothing. It lands in the activity feed, as *Wrote .github/workflows/agent.yml · 8 lines added, 1 line taken out*. Its **Undo** puts the file back, or removes the file it made, and is refused once the file changed since. The dashboard keeps its last 20 Undos until it stops.
 
@@ -2722,12 +2851,13 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
-- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset, OpenTelemetry trace and Security report dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset, OpenTelemetry trace and Security report dialogs, Find breaking commit… and Delete run. So do the dialogs Run injection test… and Pack with injection gate… open. Each loads the first time it opens.
 - **A run's menus**, Share's, the fork menu and the header's **…**, each have a script of their own. Each is asked for once the pointer or the focus reaches its button, or a row's fork button, so it opens at once.
 - **An injection test's finding** has a script of its own, which loads as the run's page first draws it. A finding whose script can't be loaded says so in its place, with **Retry**. Its results have their own script, asked for once the pointer or the focus reaches **Show results**. An attempt's proof and marks have theirs too, which load as the attempt's page opens.
+- **Find cause…** and its answers have a script of their own, which loads as the run's page first shows a write to ask about or an answer. Where it can't be loaded, the write's link and the answers' finding say so in their place, with **Retry**.
 - **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
 - **What a fork did differently**, a finding of a fork's page alone, has a script of its own. It is asked for with the differences, once the fork has ended, so the two come together.
-- **The check builder** has a script of its own, asked for as its menu opens, or as the pointer or the focus reaches the inspector's **Add check…**. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
+- **The check builder** and **Add check…**'s menu have scripts of their own, asked for as the pointer or the focus reaches **Add check…**, the builder's also as its menu opens. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 - **A menu or a dialog whose script can't be loaded** draws nothing, and says so in a toast with the same **Retry**. The focus stays on the button that opened it.
@@ -2829,6 +2959,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
 - **A list's rows** carry `next` too, with only `key`, `label`, `href`, `off`, `title`, `command` and `capture` (a capture's Run blame, which asks for your command on its page), as a list reads no run's calls for it.
 - **Its estimates**: `/api/runs/:id/estimates` answers `blame` and `actions`, each the engine's estimate of the job as it runs, worked out beside the server. A row that runs nothing live is Free, such as Repeat on a recording, and one with nothing to bill has none: Replay, a normalizer, Pack. `model` prices Switch model at that model; without it, as recorded.
+- **An injection test's estimates**: the whole run's `/api/runs/:id/estimates`, without `at`, also answers `injection`, Run injection test… at the plan nobody picked. Find cause… asks its price one read at a time, from `/api/injection/estimate`.
 - **Its Replay**: `replay` is what its Replay button replays: `label` and `runId`, with the `action` that asks for your command where that run has none.
 - **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
 - **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
@@ -3033,6 +3164,7 @@ It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+di
 | `GET /api/settings/matching`, `/redaction[?run=]`, `/redaction/preview?run=`, `/agents`, `/tools`, `/tools/mcp?command=\|url=`, `/project`, `/store` | Settings, one read per tab; a tab that edits the config also gets its `version` |
 | `POST /api/settings/rules/normalize\|redact`, `DELETE /api/settings/rules/:list/:n?expect=`, `PUT /api/settings/clock`, `PUT /api/settings/store/ci-push`, `POST /api/settings/calibrate/write` | Changes to `shadowlap.config.json`, each with the `version` it read as `expect`; the last adds what a calibrate job proposed |
 | `POST /api/settings/rules/:list/:n/restore { rule, expect }` | A removed rule's Undo: the rule back at its number, as the file held it |
+| `PUT /api/settings/tools/trust { tool, trust, expect }` | Mark untrusted and Mark trusted: a tool's line under `tools`, `trust` being `trusted`, `untrusted` or `null` for no mark; it answers `was`, for Undo |
 | `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.
@@ -3040,6 +3172,8 @@ It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+di
 - **A change** to a file changed since is a 409, and a rule the CLI refuses a 400.
 - **An Undo** names the `version` the change it undoes wrote. The clock and Push from CI answer what they replaced (`was`), and `null` takes the key out of the file again.
 - **`/store`** also carries `policy`: what `shadowlap store policy` prints, which Copy access policy copies.
+- **`/tools`** also carries each tool's `trust`, where its mark comes from (`from`, `where`) and the line that marks it the other way (`flip`). An untrusted read has the run its test runs on (`test`), and `entry` is the config's `tools` entry, a line a tool.
+- **A trust mark** to a file changed since is a 409, and `tools.unrecorded`, which declares the tools Shadowlap doesn't record, is no tool to mark (a 400). An Undo names the `version` the mark wrote and sends `was` back. The mark lands in the activity feed.
 - **Spending** (`askAbove`) is in dollars: a billed job asks first when its estimate is above it, so 0 asks of every job that bills. With `null`, Never ask, no amount asks. A job with no estimate still asks, as do a form, a price per unit and a job that asks for what it does, such as Run repair.
 - **Where it is kept**: it is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
 
@@ -3101,6 +3235,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | `GET /api/model-choices` | The models a preview's switch can take, beside the ones its runs use |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
+| `GET /api/injection/estimate?run=\|golden=&payloads=&repeat=&budget=\|gate=1\|clean=`, `/api/injection/payloads?upload=`, `/api/injection/security` | A dialog's plan priced, a payload file once sent, and Tests' Security |
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
 | `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan and what it found |
 
@@ -3153,6 +3288,10 @@ The `matrix` has a row per run and a cell per model call. A row is named by its 
 - `/api/injection/runs/:id`: a run's untrusted reads, each with the model call that reads it (`readAt`), its tests, and the test it is an attempt of: the canary, the line that joins the read to the write, and what was planted where.
 - `/api/injection/templates`: the built-in payload templates, versioned.
 - `/api/injection/tools`: every recorded tool with its trust and where that comes from, for Settings → Tools.
+- `/api/injection/estimate`: the price of a dialog's picks, `payloads` planted with `repeat` attempts each and `budget` as Stop at $, from the engine's estimators. With `gate=1`, a gate's price every test session; with `clean=<read>`, Find cause's on that read. It prices a run of the store, or a golden by its path (`golden=`), from its pack where the store doesn't hold its recording, and is revalidated as a run's estimates are.
+- `/api/injection/payloads`: a payload file the dialog sent, before a test takes it: its `name`, `count` and the payloads with no `{{canary}}` (`noCanary`). A file that can't be read is a 400 in the test's words, and one gone a 404.
+- `/api/injection/security`: each golden whose recording reads something untrusted (`goldens`), with its reads a model call reads, its last test or gate and its test's price; the rest by name (`none`); and those whose recording can't be read, with why (`unread`). It is revalidated from the store's changes, the goldens and the trust marks.
+- **A run's untrusted reads** (`/api/injection/runs/:id`) also carry Find cause's facts (`cause`): each live write after an untrusted read a model call reads, and the read to start on. The reads before it are the run's own `untrusted`. With them come the run's `--clean` answers, causes first (`answers`), and the gate's rule (`rule`).
 
 **Error-path presets:**
 
@@ -3175,7 +3314,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 
 | Job | What it runs |
 | --- | --- |
-| `action { runId, key, callNo?, value?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
+| `action { runId, key, callNo?, value?, expect?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
 | `apply { fixId, names? }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens named by their runs as `names` says, and tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
@@ -3194,12 +3333,12 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
-| `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }` | `injection <run\|golden> --json` |
+| `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, budget?, clean?, writes?, liveReads?, again?, yes? }` | `injection <run\|golden> --json` |
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
 | `migrate-apply { migrationId }` | `migrate apply`: the migration's config change into your working tree, its goldens replayed offline. Refused with `migrate apply`'s own words when it can't go in |
 | `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
-| `pack-test { runId?, golden?, yes? }` | Pack, then test: with `runId`, any ended run into `golden`; `yes` answers a recording from elsewhere or a live test. Once packed, the test alone |
+| `pack-test { runId?, golden?, gate?, version?, read?, yes? }` | Pack, then test: with `runId`, any ended run into `golden`; `yes` answers a recording from elsewhere or a live test. Once packed, the test alone |
 | `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
 | `push { runIds }`, `pull` | Push runs to the team store, or `{ all: true }`; pull from it |
 | `repair { fixId, repairer?, yes? }` | An open fix, from its failing and good runs, by the repairer its confirm dialog named |
@@ -3234,6 +3373,9 @@ What some of them do:
 - **`decisions-verify` with `max` or `keptMax`** is Run more attempts: `max` raises a failing run's attempts, as `--gate` with the figures the session's verify was decided by, and `keptMax` a good run's pairs, as `--kept-max`. Each is a whole number up to 1000.
 - **`decisions-read`** holds your working tree as a run of your agent does, and asks the consent a golden's command from elsewhere needs. Its result is what Preview changed prompt shows.
 - **`injection`** plants the templates (`all`, `none` or their ids) or an uploaded payload file at every untrusted read. With `clean`, a call number (a run only), it tests whether that read caused the run's writes; `writes` picks them by call number.
+- **`injection`'s `budget`** is Stop at $, in dollars above 0 to the cent, passed as `--budget`. `again` titles it *Re-running injection test*. Its title is *Running injection test*, or with `clean`, *Finding cause: testing #4*.
+- **`pack-test` with `gate`** is Pack with injection gate…: `{ obeyed: 0, repeat, templates? }`, checked as a tests entry's `injection` is. Once packed, it writes the gate under `tests` against `version`, the file's version the dialog read, and `read`, the prints of what it read, then tests. A file changed since, or a gate refused, ends it there, packed without its gate.
+- **`action`'s `expect`** is Plant instruction…'s Judged by, the text of its `--expect`, checked as the CLI checks it.
 - **`injection` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only with `yes`. That is the `confirm` of the 409 that named both its command and the test's own line, so a yes to one test runs no other.
 
 ### Job events
@@ -3274,7 +3416,7 @@ Settings is checked at a phone's width too: no tab scrolls sideways, each row's 
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
 - **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a heavy part it lists loads with a page, not through `onShow`: Compare, the structural diff (`ui/components/JsonDiff.tsx`), the results matrix (`ui/components/ResultsMatrix.tsx`), everything under `ui/changes/` but its head, `Head.tsx`, and the check builder (`ui/checks/`).
-- **Parts only the served dashboard draws**, Share's menu, Run blame's dialogs, the check menu and the check builder, are handed to the pages by its entry (`ui/served-parts.ts`, from `ui/pages/served.tsx`). An exported copy never offers Share, Run blame or Add check…, so its one script holds none of them.
+- **Parts only the served dashboard draws**, Share's menu, Run blame's dialogs, the check menu, the check builder and an injection test's dialogs, are handed to the pages by its entry (`ui/served-parts.ts`, from `ui/pages/served.tsx`). An exported copy never offers Share, Run blame, Add check…, Run injection test…, Find cause… or Pack with injection gate…, so its one script holds none of them.
 - **Share's words** load with its menu (`ui/run/share.ts`). A run's header, steps and keys read what they say of a copy from `ui/run/share-steps.ts`, so opening a run loads none of the menu's words.
 
 ## Troubleshooting

@@ -55,7 +55,8 @@ export function AddCheckLink({ check }: { check: CheckEntry }) {
  * Add check… for the selected call: the entry the row menu, the inspector and ⌘K open the check menu
  * through, undefined where the call takes none (`addsCheck`) or where nothing hands the page the menu
  * and the builder (an exported copy); and what to draw, the check menu and the builder once a rule is
- * picked. A menu whose script didn't come draws the builder's small dialog in its place.
+ * picked. A menu whose script didn't come closes, saying so in the error toast every part a press
+ * opens says it in (pages/served.tsx); a builder's draws its small dialog in its place.
  */
 export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: CallDetail | null }): { check: CheckEntry | undefined; fromPalette: (() => void) | undefined; offered: boolean; node: ReactNode } {
   const app = useApp();
@@ -96,17 +97,15 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
   const node = (
     <>
       {menu.anchor && Menu ? (
-        <BuilderFailed.Provider value={<NoBuilder title="Add check" onClose={menu.close} />}>
-          <Menu
-            anchor={menu.anchor}
-            call={call}
-            onPick={(kind) => {
-              menu.close();
-              if (call) setStart({ call, kind });
-            }}
-            onClose={menu.close}
-          />
-        </BuilderFailed.Provider>
+        <Menu
+          anchor={menu.anchor}
+          call={call}
+          onPick={(kind) => {
+            menu.close();
+            if (call) setStart({ call, kind });
+          }}
+          onClose={menu.close}
+        />
       ) : null}
       {start && Builder ? (
         <BuilderFailed.Provider value={<NoBuilder title="Add check" onClose={close} />}>

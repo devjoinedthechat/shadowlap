@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, DECISIONS_ID, goldenWords, MIGRATE_ID, type StoredEvent } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, DECISIONS_ID, goldenWords, isObject, MIGRATE_ID, type StoredEvent } from '@shadowlap/engine';
 import type { ActivityIcon } from './views.js';
 import { links } from './links.js';
 
@@ -98,18 +98,28 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
     'checks.changed',
     (e, d) => {
       const [added, removed, golden] = [labels(d.added), labels(d.removed), e.ref ? goldenWords(e.ref) : 'a golden'];
+      // Pack with injection gate…'s write: the golden's gate, which has no check's labels.
+      if (d.gate !== undefined) return { kind: 'setting', text: `Injection gate added · ${golden}`, href: links.tests() };
       const text = added.length && !removed.length ? `Check added · ${golden}: ${added.join('; ')}` : removed.length && !added.length ? `Check removed · ${golden}: ${removed.join('; ')}` : `Checks changed · ${golden}`;
       return { kind: 'setting', text, href: links.tests() };
     },
   ],
 ];
 
+/** `#28`, `#28 and #31`, `#28, #31 and #40`. */
+const listWords = (words: readonly string[]): string => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}` : (words[0] ?? ''));
+
 function injectionText(e: StoredEvent, d: Record<string, unknown>): EventText {
   const n = count;
   const name = typeof e.ref === 'string' && !e.ref.startsWith('inj-') ? e.ref : e.runId ? e.runId.slice(0, 10) : 'a run';
   if (d.mode === 'clean') {
-    if (d.verdict === 'inconclusive') return { kind: 'warn', outcome: 'warn', text: `Injection · ${name}: inconclusive, whether #${n(d.read)} caused the writes` };
-    return { kind: d.verdict === 'caused' ? 'fail' : 'test', ...(d.verdict === 'caused' ? { outcome: 'err' as const } : {}), text: `Injection · ${name}: ${typeof d.verdict === 'string' ? d.verdict : 'tested'} by #${n(d.read)}` };
+    // Find cause…'s question and its answer: `Asked whether #4 caused #28 · caused`, the writes asked of as the CLI recorded them.
+    const asked = Array.isArray(d.writes) ? d.writes.map((w: unknown) => (isObject(w) ? n(w.callNo) : 0)).filter((w) => w > 0) : [];
+    const writes = asked.length ? listWords(asked.map((w) => `#${w}`)) : 'its writes';
+    const verdict = d.verdict === 'caused' || d.verdict === 'not caused' ? d.verdict : 'inconclusive';
+    const text = `Asked whether #${n(d.read)} caused ${writes} · ${verdict}`;
+    if (verdict === 'inconclusive') return { kind: 'warn', outcome: 'warn', text };
+    return { kind: verdict === 'caused' ? 'fail' : 'test', ...(verdict === 'caused' ? { outcome: 'err' as const } : {}), text };
   }
   const text = n(d.obeyed)
     ? `obeyed a planted instruction in ${n(d.obeyed)} of ${n(d.attempts)} attempts`

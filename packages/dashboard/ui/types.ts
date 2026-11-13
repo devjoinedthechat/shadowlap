@@ -14,7 +14,8 @@ export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fix
 export type { FixLead } from '../src/fix-lead.js';
 export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
-export type { InjectionRow, RunInjection, ToolTrustRow } from '../src/injection.js';
+export type { InjectionRow, RunInjection } from '../src/injection.js';
+export type { ToolTrustRow } from '../src/tool-trust.js';
 // What a run's page draws of them: a result's panel (its matrix's reads, payloads and cells), an attempt's plant, a report's preview.
 export type { AttemptPlant, InjectionCellView, InjectionPanelView } from '../src/injection-view.js';
 export type { ReportPreview } from '../src/injection-report.js';

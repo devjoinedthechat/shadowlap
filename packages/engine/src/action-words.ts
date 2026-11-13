@@ -103,8 +103,15 @@ export const ACTIONS = {
   compare: { label: 'Compare' },
   replayRecording: { label: 'Replay recording', doing: 'Replaying' },
   rerunTest: { label: 'Re-run test', doing: 'Re-running test' },
-  runInjectionTest: { label: 'Run injection test…', doing: 'Testing for injection' },
-  rerunInjectionTest: { label: 'Re-run injection test', doing: 'Testing for injection' },
+  runInjectionTest: { label: 'Run injection test…', doing: 'Running injection test' },
+  rerunInjectionTest: { label: 'Re-run injection test', doing: 'Re-running injection test' },
+  // Find cause… on a write after an untrusted read: the read made neutral (`injection --clean`); once
+  // the finding has its answer, the same dialog asks of another read.
+  findCause: { label: 'Find cause…', doing: 'Finding cause' },
+  testAnotherRead: { label: 'Test another read…', confirm: 'Test another read' },
+  // Settings → Tools: a tool's trust in shadowlap.config.json.
+  markUntrusted: { label: 'Mark untrusted' },
+  markTrusted: { label: 'Mark trusted' },
   packAsGolden: { label: 'Pack as golden…', doing: 'Packing as golden' },
   packWithGate: { label: 'Pack with injection gate…', doing: 'Packing with injection gate' },
   // Runs and Training. Import capture… takes a trace from a store too, which Activity names.

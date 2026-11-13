@@ -67,6 +67,11 @@ export interface SettingsApi {
   /** Null takes the key out (the Undo of a file that had none); `was` is what the file said before, null for nothing. */
   setClock(mode: 'auto' | 'exact' | null, expect: string): Promise<{ clock: 'auto' | 'exact'; was: 'auto' | 'exact' | null; changed: boolean; version: string }>;
   setCiPush(on: boolean | null, expect: string): Promise<{ ciPush: boolean; was: boolean | null; changed: boolean; version: string }>;
+  /**
+   * Mark untrusted and Mark trusted on Settings → Tools: `tools.<tool>.trust`, null taking the key out
+   * (the Undo of a file that had none). `line` is the line written, the box's marked one.
+   */
+  setToolTrust(tool: string, trust: 'trusted' | 'untrusted' | null, expect: string): Promise<{ tool: string; trust: 'trusted' | 'untrusted' | null; was: 'trusted' | 'untrusted' | null; changed: boolean; version: string; line: string | null }>;
   /** "Add normalizer": the normalizers a finished calibrate job proposed, read from its result on the server. */
   writeCalibration(jobId: string): Promise<{ added: number[]; already: number[]; version: string }>;
   /**
@@ -102,6 +107,7 @@ export function settingsApi(request: Request): SettingsApi {
     restoreRule: (list, n, rule, expect) => send('POST', `settings/rules/${list}/${n}/restore`, { rule, expect }),
     setClock: (mode, expect) => send('PUT', 'settings/clock', { mode, expect }),
     setCiPush: (on, expect) => send('PUT', 'settings/store/ci-push', { on, expect }),
+    setToolTrust: (tool, trust, expect) => send('PUT', 'settings/tools/trust', { tool, trust, expect }),
     writeCalibration: (jobId) => send('POST', 'settings/calibrate/write', { jobId }),
     writeWorkflow: (options, expect, shown) => send('PUT', 'ci/workflow', { options, expect, shown }),
     undoWorkflow: (was) => send('POST', 'ci/workflow/undo', { was }),
@@ -126,6 +132,7 @@ export function noSettings(refuse: () => Promise<never>): SettingsApi {
     restoreRule: refuse,
     setClock: refuse,
     setCiPush: refuse,
+    setToolTrust: refuse,
     writeCalibration: refuse,
     writeWorkflow: refuse,
     undoWorkflow: refuse,

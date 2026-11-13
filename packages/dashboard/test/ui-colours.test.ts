@@ -132,6 +132,8 @@ describe('what each colour may mean', () => {
   it('draws a write in teal, on the run page, in Compare and in Settings → Tools, never in the failure red', () => {
     expect(value('.eff.write', 'color')).toBe('var(--k-write)');
     expect(value('.tchip.w em', 'color')).toBe('var(--k-write)');
+    // The Trust table's write, its name in the write's colour.
+    expect(value('.trusttab td code.wr', 'color')).toBe('var(--k-write)');
     // What a fork did differently: the change of rank 1 is a write, its words and its tool teal.
     expect(value('.fdiff li.r1 .rk', 'color')).toBe('var(--k-write)');
     expect(value('.fdiff b.w', 'color')).toBe('var(--k-write)');
@@ -444,6 +446,7 @@ describe('amber', () => {
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',
     '.cb-row.y .cb-d': 'a fix’s run the check being built would change for it: a failing run it passes, a good one it fails, or one it can’t settle',
     '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
+    '.injdlg .injfile small.err': 'a payload file Run injection test… can’t read, so the test plants none of it: a look before pressing',
     'i.dg.s': 'a preview key’s swatch for a change of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
     'i.dg.jw': 'a preview key’s swatch for a step that waits on a judge: its ring',
     '.dc.s': 'a decision cell of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',

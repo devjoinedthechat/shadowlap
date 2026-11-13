@@ -1,6 +1,6 @@
-import { createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { ulid } from '@shadowlap/engine';
 import { HttpError, refuseOversized, safeFileName, tooLarge } from './http.js';
 import type { ProjectInfo, UploadSource } from './jobs.js';
@@ -25,6 +25,8 @@ export const UPLOAD_MAX_IDLE_MS = 60 * 60 * 1000;
 export const MAX_UPLOADS = 32;
 const SWEEP_EVERY_MS = 5 * 60 * 1000;
 const FILE = /^[0-9A-Z]{26}-[\w.-]+$/;
+/** The folder of its own a claimed upload moved into, by its id. */
+const FOLDER = /^[0-9A-Z]{26}$/;
 
 interface Upload {
   id: string;
@@ -38,6 +40,8 @@ interface Upload {
   jobId: string | null;
   /** The project it arrived in, the one current then: only a job of that project may claim it. */
   project: { path: string; name: string };
+  /** The folder of its own it was moved into, under the name it arrived with (`claim`'s `named`), or null. */
+  folder: string | null;
 }
 
 /**
@@ -48,6 +52,15 @@ interface Upload {
 export function pickedName(given: string): string | null {
   const name = given.trim();
   return name && name.length <= 200 && !/[\\/]/.test(name) && !/[\u0000-\u001f\u007f]/.test(name) ? name : null;
+}
+
+/** A claimed upload's own folder, once its file is gone; left for the next sweep while it can't go. */
+function removeFolder(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // still open on Windows: the next sweep of leftovers takes it
+  }
 }
 
 function removeFile(path: string): void {
@@ -157,7 +170,7 @@ export class UploadStore implements UploadSource {
       if (!this.arriving) this.removeDirs();
       throw new HttpError(503, 'the dashboard is stopping');
     }
-    this.uploads.set(id, { id, name, original: pickedName(given), path, bytes, lastUsed: this.now(), jobId: null, project: { path: project.path, name: project.name } });
+    this.uploads.set(id, { id, name, original: pickedName(given), path, bytes, lastUsed: this.now(), jobId: null, project: { path: project.path, name: project.name }, folder: null });
     this.schedule();
     return { uploadId: id, name, bytes };
   }
@@ -202,12 +215,40 @@ export class UploadStore implements UploadSource {
    * A job of another project than the one the file arrived in is refused: the dashboard switched
    * between the upload and the job, and the file would be read in a project it wasn't sent to.
    */
-  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null): { path: string; name: string; original: string | null; bytes: number } | null {
+  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null, o: { named?: boolean } = {}): { path: string; name: string; original: string | null; bytes: number } | null {
     if (typeof uploadId !== 'string' || !/^[0-9A-Z]{26}$/.test(uploadId)) return null;
     const u = this.uploads.get(uploadId);
     if (!u || (u.jobId !== null && u.jobId !== jobId)) return null;
     if (project && project.path !== u.project.path) throw new HttpError(409, `${u.name} was sent to ${u.project.name}, and the dashboard has switched to ${project.name} since. Send it again.`);
+    if (o.named && !u.folder) this.moveNamed(u);
     u.jobId = jobId;
+    u.lastUsed = this.now();
+    return { path: u.path, name: u.name, original: u.original, bytes: u.bytes };
+  }
+
+  /**
+   * A job that names what it reads by the file's name (a payload file's ids read `payloads.txt#2`):
+   * the file moves into a folder of its own, `<uploads>/<id>/<name>`, under the name it arrived
+   * with (safeFileName's), inside the uploads folder the guard keeps in the project.
+   */
+  private moveNamed(u: Upload): void {
+    const folder = join(dirname(u.path), u.id);
+    const to = join(folder, u.name);
+    mkdirSync(folder, { recursive: true });
+    renameSync(u.path, to);
+    u.folder = folder;
+    u.path = to;
+  }
+
+  /**
+   * An upload nobody has claimed yet, read before a job takes it (Run injection test…'s payload
+   * file, counted once it arrives): null for an unknown id, one a job holds, or one sent to another
+   * project than `project`.
+   */
+  peek(uploadId: unknown, project?: ProjectInfo | null): { path: string; name: string; original: string | null; bytes: number } | null {
+    if (typeof uploadId !== 'string' || !/^[0-9A-Z]{26}$/.test(uploadId)) return null;
+    const u = this.uploads.get(uploadId);
+    if (!u || u.jobId !== null || (project && project.path !== u.project.path)) return null;
     u.lastUsed = this.now();
     return { path: u.path, name: u.name, original: u.original, bytes: u.bytes };
   }
@@ -261,6 +302,7 @@ export class UploadStore implements UploadSource {
   private remove(u: Upload): void {
     this.uploads.delete(u.id);
     removeFile(u.path);
+    if (u.folder) removeFolder(u.folder);
     if (!this.uploads.size && this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -312,11 +354,13 @@ export class UploadStore implements UploadSource {
     }
     const now = this.now();
     for (const n of names) {
-      if (!FILE.test(n)) continue;
+      if (!FILE.test(n) && !FOLDER.test(n)) continue;
       const path = join(dir, n);
       try {
         const st = lstatSync(path);
-        if (st.isFile() && now - st.mtimeMs >= this.maxIdleMs) removeFile(path);
+        if (now - st.mtimeMs < this.maxIdleMs) continue;
+        if (st.isFile() && FILE.test(n)) removeFile(path);
+        else if (st.isDirectory() && FOLDER.test(n)) removeFolder(path);
       } catch {
         // gone already
       }
