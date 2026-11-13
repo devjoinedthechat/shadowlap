@@ -30,6 +30,9 @@ function addressBar(start: string) {
   const bar = {
     pathname: '/',
     search: '',
+    get href() {
+      return `http://127.0.0.1:4100/${hash}`;
+    },
     get hash() {
       return hash;
     },
@@ -133,6 +136,20 @@ describe("Runs' place in its list", () => {
     await bar.went(ALL);
     await r.wait(10);
     expect(page.scrollTop).toBe(100);
+  });
+
+  it('reads an old address given without its origin against the page’s, and the route is still drawn', async () => {
+    addressBar(REC);
+    r = await render(createElement(Runs, { api: {} }));
+    const page = laidOut(r);
+    page.scrollTop = 250;
+    location.hash = ALL;
+    await act(async () => void window.dispatchEvent(Object.assign(new Event('hashchange'), { oldURL: REC, newURL: ALL })));
+    page.scrollTop = 0;
+    location.hash = REC;
+    await act(async () => void window.dispatchEvent(Object.assign(new Event('hashchange'), { oldURL: ALL, newURL: REC })));
+    await r.wait(10);
+    expect(page.scrollTop).toBe(250);
   });
 
   it('keeps the view still drawn for an address move the page tells of itself, with no old address', async () => {

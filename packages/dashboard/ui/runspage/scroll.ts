@@ -43,9 +43,10 @@ export function useKeptScroll(href: string, ready: boolean): void {
     // The address has moved (Back, Forward, a link, a commit), heard before the route it brings is
     // drawn: the view kept is the one the old address names, as `href` may already be the view landed
     // on (a commit's words, typed in its place, show it). An event the page sends itself has no old
-    // address: then `at`, the view still drawn, is the one left.
+    // address: then `at`, the view still drawn, is the one left. One given without its origin is read
+    // against the page's, so it can't throw in the router's handler and keep the route from being drawn.
     return onAddressMove((e) => {
-      const was = e.oldURL ? runsView(new URL(e.oldURL).hash) : at.current;
+      const was = e.oldURL ? runsView(new URL(e.oldURL, location.href).hash) : at.current;
       if (was !== null) keepScroll(was);
     });
   }, [at]);
