@@ -70,6 +70,11 @@ describe('the stylesheet', () => {
     expect(stacked.flatMap((x) => x.decls)).toContainEqual(['grid-template-columns', 'minmax(0, 1fr)']);
   });
 
+  it('keeps an agent’s scope tag whole on its line, and in the inspector’s one-line head lets it give way as the call’s name does', () => {
+    expect(values('.scopetag', 'white-space')).toEqual(['nowrap']);
+    expect([values('.ihead .scopetag', 'min-width'), values('.ihead .scopetag', 'overflow'), values('.ihead .scopetag', 'text-overflow')]).toEqual([['0'], ['hidden'], ['ellipsis']]);
+  });
+
   it('stacks a key and value list at 340px and under', () => {
     const stacked = rules.filter((x) => x.selectors.includes('.kvs') && x.conditions.some((c) => /max-width:\s*340px/.test(c)));
     expect(stacked.flatMap((x) => x.decls)).toContainEqual(['grid-template-columns', 'minmax(0, 1fr)']);

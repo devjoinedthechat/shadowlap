@@ -86,7 +86,11 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
           {kindName}
         </span>
         <Org origin={originOf(call)} />
-        {agentOf(call) ? <span className="scopetag">{agentOf(call)}</span> : null}
+        {agentOf(call) ? (
+          <span className="scopetag" title={agentOf(call)!}>
+            {agentOf(call)}
+          </span>
+        ) : null}
         <span className="nav">
           <button className="ibtn" type="button" aria-label="Previous call" data-tip={tipText(shortcutCard('prevCall')!)} onClick={() => onStep(-1)} {...shortcut('prevCall')}>
             <Icon name="up" />

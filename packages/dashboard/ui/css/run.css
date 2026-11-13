@@ -561,6 +561,9 @@ table.calls .det.err { color: var(--err); }
 .cells button.dim { opacity: .22; }
 td.scopecell code { font-size: 11.5px; color: var(--dim); }
 .scopetag { font: 11px var(--mono); color: var(--dim); white-space: nowrap; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--line2); }
+/* In the inspector's one-line head it gives way as the call's name does, cut where the line can't hold it, its name on hover:
+   at 320 an agent's `research-agent`, kept whole, took the head 2px past the window (browser/a11y-sweep.spec.ts). */
+.ihead .scopetag { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tgroup { display: flex; align-items: baseline; gap: 10px; padding: 14px 18px 6px; border-bottom: 1px solid var(--line); }
 .tgroup code { font-weight: 500; color: var(--ink); }
 .tgroup span { color: var(--faint); font-size: 12px; }
