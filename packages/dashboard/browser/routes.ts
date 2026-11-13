@@ -99,12 +99,16 @@ export const revision = (page: Page) => async () => {
 };
 /** Tests › Not covered, drawn: the demo's scan left behaviours no golden covers, the refund HAR's one the agent no longer does. */
 export const NOT_COVERED = 'main#view #notcovered';
-/** The recording the demo's error-path presets ran on, by the matrices the API gives: its page leads with their finding. */
-export const presetsRecording = (page: Page) => async () => {
+/** The address of the recording the demo's error-path presets ran on, by the matrices the API gives: its page leads with their finding. */
+async function presetsPath(page: Page): Promise<string> {
   const view = await apiGet<{ matrices: Array<{ runId: string; golden: string | null }> }>(page, 'chaos');
   const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
   if (!m) throw new Error('the demo store has no error-path presets');
-  await run(page, m.runId)();
+  return `/run/${m.runId}`;
+}
+/** That recording's page, opened. */
+export const presetsRecording = (page: Page) => async () => {
+  await at(page, await presetsPath(page), 'run')();
 };
 /** Changes' Preview, drawn with its matrix's cells; an opened cell, drawn with its head; a run's Decisions view, drawn with its session's line. */
 export const PREVIEW = 'main#view .dmx button.dc';
@@ -421,6 +425,42 @@ const noMigration = async (page: Page): Promise<void> => {
 };
 
 /** Every route state, for a sweep to show one at a time with `show`. */
+/** Tests › Not covered (port/presets-coverage) as its link opens it, drawn with its rows: a behaviour production took that no golden covers, a row each. */
+const notCovered = (): string => '/tests?at=notcovered';
+const COVERED = `${NOT_COVERED} ul.covl > li`;
+/** The row of a behaviour the agent no longer does, its details opened by its count where they are closed. */
+const AGENT_GONE = `${NOT_COVERED} li:has(.cvst)`;
+const rowDetails = async (page: Page): Promise<void> => {
+  if ((await page.locator(`${AGENT_GONE} button.cvn`).first().getAttribute('aria-expanded')) !== 'true') await click(page, `${AGENT_GONE} button.cvn`, undefined, { shows: `${AGENT_GONE} .cvx` })();
+};
+/** Not covered's pack dialogs: Pack as golden from those details, and Pack with checks…, that row's action. */
+const packAsGolden = async (page: Page): Promise<void> => {
+  await rowDetails(page);
+  await click(page, `${AGENT_GONE} .cvx .cvq button`, 'Pack as golden', { shows: DIALOG })();
+};
+const packWithChecks = (page: Page) => click(page, `${AGENT_GONE} .cvacts button`, 'Pack with checks', { shows: DIALOG })();
+/** Needs a look's coverage row on the Overview: its step opens Not covered's dialog on the newest behaviour no golden covers. */
+const LOOK_PACK = 'main#view .arow[data-rowkey^="attn:coverage:"] .ast button';
+const packFromLook = (page: Page) => click(page, LOOK_PACK, undefined, { shows: DIALOG })();
+/** The presets' finding on their recording, and their results in the inspector's place, which stay open on the run's page once opened. */
+const PRESETS = 'main#view [data-finding="presets"]';
+const PRESETS_RESULTS = 'main#view section.rmxp[data-kind="presets"]';
+const presetsResults = async (page: Page): Promise<void> => {
+  if (!(await page.locator(PRESETS_RESULTS).isVisible())) await click(page, 'main#view button[data-act="results"][data-which="presets"]', undefined, { shows: PRESETS_RESULTS })();
+};
+/** Run error-path presets… from a run's fork menu, drawn once what the presets hit is read: its toggle chips, its command and its cost line. */
+const presetsDialog = async (page: Page): Promise<void> => {
+  if (await page.locator(`${DIALOG} .togchips`).isVisible()) return;
+  if (!(await page.locator(MENU).isVisible())) await click(page, '#forkBtn', undefined, { shows: MENU })();
+  await click(page, `${MENU} [role="menuitem"]`, 'Run error-path presets', { shows: `${DIALOG} .togchips`, hides: `${DIALOG} .skel` })();
+};
+/** That dialog with its first preset taken out, struck through, once the picks are priced again. */
+const presetOff = async (page: Page): Promise<void> => {
+  await presetsDialog(page);
+  await click(page, `${DIALOG} .togchips button[aria-pressed="true"]`, undefined, { shows: `${DIALOG} .togchips button[aria-pressed="false"]` })();
+  await settled(page, { shows: `${DIALOG} .dlg-ok:not([data-why])` });
+};
+
 export const ROUTES: readonly RouteState[] = [
   route('/', 'overview'),
   route('/runs', 'main#view table.runst tbody tr'),
@@ -456,6 +496,20 @@ export const ROUTES: readonly RouteState[] = [
   route('/training'),
   { name: 'Remove’s dialog from a golden’s check on Tests', path: () => '/tests', drawn: 'main#view table.gt', then: removeFromTests },
   route('/training/tasks'),
+  // Tests › Not covered (port/presets-coverage): its rows with Rescan coverage, the details of a behaviour the agent no longer
+  // does, then the pack dialogs, from those details, from Needs a look's step and as that row's action, each closed by the next page.
+  { name: 'Tests › Not covered', path: notCovered, drawn: COVERED },
+  { name: 'a Not covered row’s details', path: notCovered, drawn: COVERED, then: rowDetails },
+  { name: 'Pack as golden from a Not covered row’s details', path: notCovered, drawn: COVERED, then: packAsGolden },
+  { name: 'Pack as golden from Needs a look’s step', path: () => '/', drawn: LOOK_PACK, then: packFromLook },
+  { name: 'Pack with checks… from a Not covered row', path: notCovered, drawn: COVERED, then: packWithChecks },
+  // Error-path presets: their finding on the recording they ran on, their results, their node in its Forks view, then Run
+  // error-path presets… from a run's fork menu, as it opens and with a preset taken out, closed by the next page.
+  { name: 'the presets’ recording with their finding', path: presetsPath, drawn: PRESETS },
+  { name: 'the presets’ results', path: presetsPath, drawn: PRESETS, then: presetsResults },
+  { name: 'the presets’ recording · forks', path: async (p) => `${await presetsPath(p)}/forks`, drawn: 'main#view .fnode[data-node="presets"]' },
+  { name: 'Run error-path presets… from the fork menu', path: () => `/run/${demoId('ticket')}`, drawn: 'run', then: presetsDialog },
+  { name: 'Run error-path presets… with a preset taken out', path: () => `/run/${demoId('ticket')}`, drawn: 'run', then: presetOff },
   ...SETTINGS.map((t): RouteState => ({ name: `Settings → ${t}`, path: () => `/settings/${t}`, drawn: SETTAB })),
   route('/new'),
   route('/setup'),
