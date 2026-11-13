@@ -143,9 +143,10 @@ describe('a link another project holds', () => {
     await page!.until('the In page', () => page!.all('h1').length > 0);
     expect(w.holding).toEqual([['run', [RUN]]]);
     expect(page!.one('h1').textContent).toBe(`In ${THERE}`);
-    expect(page!.one('.ph p').textContent).toBe(`The run ${RUN} is in ${THERE}’s store, not ${HERE}’s.`);
-    // The id whole in mono, each name whole.
+    expect(page!.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe(`The run ${RUN} is in ${THERE}’s store, not ${HERE}’s.`);
+    // The id whole in mono, each name whole: the lead's own words set by its Copy, each part an element it keeps whole.
     expect(page!.one('.ph p code.rnm').textContent).toBe(RUN);
+    expect(page!.all('.ph p ts-w.ts-a').map((e) => e.textContent)).toEqual([RUN, `${THERE}’s`, `${HERE}’s`]);
     expect(page!.all('.ph .nw').map((e) => e.textContent)).toEqual([THERE, `${THERE}’s`, `${HERE}’s`]);
     expect(page!.one('.ph .actions button').className).toBe('btn lime');
     expect(page!.one('.ph .actions button').textContent).toBe(`Switch to ${THERE}`);
@@ -370,7 +371,7 @@ async function openPage(hash: string, draw: () => ReactElement, o: Stores & { co
 /** The In page for what `id` names: its title, its line, Switch in lime, and the tab's title naming the project that holds it. */
 async function inPage(id: string, what = 'run'): Promise<void> {
   await page!.until('the In page', () => page!.all('h1').some((h) => h.textContent === `In ${THERE}`));
-  expect(page!.one('.ph p').textContent).toBe(`The ${what} ${id} is in ${THERE}’s store, not ${HERE}’s.`);
+  expect(page!.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe(`The ${what} ${id} is in ${THERE}’s store, not ${HERE}’s.`);
   const button = page!.one('.ph .actions button');
   expect([button.className, button.textContent]).toEqual(['btn lime', `Switch to ${THERE}`]);
   expect(page!.one('.tabtitle').textContent).toBe(`In ${THERE} — shadowlap`);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActionButton } from '../components/ActionButton.js';
 import { PageHeader } from '../components/bits.js';
 import { Id } from '../components/Id.js';
@@ -117,8 +117,8 @@ function InPage({ held, current, what, busy, onSwitch }: { held: NonNullable<Hol
       {at ? <Unshown at={at} heldBy={holder} /> : null}
       <PageHeader
         eyebrow={words.eyebrow}
-        title={<Parts parts={words.title} what={what} />}
-        text={<Parts parts={words.line} what={what} />}
+        title={partNodes(words.title, what)}
+        text={partNodes(words.line, what)}
         actions={
           <ActionButton className="btn lime" disabled={busy} onClick={onSwitch}>
             {switchToLabel(holder)}
@@ -129,27 +129,27 @@ function InPage({ held, current, what, busy, onSwitch }: { held: NonNullable<Hol
   );
 }
 
-/** Words in parts: a run's id as every run's id is drawn, another id in mono, a project's name kept whole. */
-function Parts({ parts, what }: { parts: readonly LinePart[]; what: HeldAsk['what'] }) {
-  return (
-    <>
-      {parts.map((p, i) =>
-        p.face === 'id' ? (
-          what === 'run' ? (
-            <Id key={i} id={p.text} />
-          ) : (
-            <code key={i} className="nw">
-              {p.text}
-            </code>
-          )
-        ) : p.face === 'nw' ? (
-          <span key={i} className="nw">
-            {p.text}
-          </span>
-        ) : (
-          p.text
-        ),
-      )}
-    </>
+/**
+ * Words in parts, handed to the header as they are, so the lead's `Copy` sets its words (`is in`
+ * kept with the project's name) and each part is an element it keeps whole: a run's id as every
+ * run's id is drawn, another id in mono, a project's name.
+ */
+function partNodes(parts: readonly LinePart[], what: HeldAsk['what']): ReactNode[] {
+  return parts.map((p, i) =>
+    p.face === 'id' ? (
+      what === 'run' ? (
+        <Id key={i} id={p.text} />
+      ) : (
+        <code key={i} className="nw">
+          {p.text}
+        </code>
+      )
+    ) : p.face === 'nw' ? (
+      <span key={i} className="nw">
+        {p.text}
+      </span>
+    ) : (
+      p.text
+    ),
   );
 }
