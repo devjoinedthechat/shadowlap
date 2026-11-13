@@ -23,6 +23,7 @@
     "packages/dashboard/test/ui-revert.test.ts",
     "packages/dashboard/test/ui-revert-run.test.ts",
     "packages/dashboard/test/ui-revert-tests.test.ts",
+    "packages/dashboard/test/ui-golden-report.test.ts",
     "packages/dashboard/test/ui-context-axis.test.ts",
     "packages/dashboard/test/ui-check-words.test.ts",
     "packages/dashboard/test/ui-inspector-notes.test.ts",

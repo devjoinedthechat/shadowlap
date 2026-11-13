@@ -6,14 +6,16 @@ import { sentence } from '../normalize.js';
 import { CodeBox } from './CodeBox.js';
 import { Code, Copy } from './Copy.js';
 import { Id } from './Id.js';
+import { JsonDiffPart } from './JsonDiffPart.js';
 
 /**
  * What Show diff says around the structural diff (JsonDiff.tsx), from the server's answer
  * (src/request-diff.ts): the heads that name both sides, and under the diff the sentence, a line for
  * each changed path with what fixes it, what matching masks and what no line of the body shows, then
- * every normalizer's command in one box. No run page's state, so a test's report and Compare can draw
- * them beside their own diffs. The words are UI copy (`Copy`), each path in `Code`; the server decides
- * every fix, never the browser.
+ * every normalizer's command in one box; the whole answer drawn with the diff between (`DiffAnswer`),
+ * and the line where there is no answer (`NoDiffAnswer`). No run page's state, so a test's report and
+ * Compare can draw them beside their own diffs. The words are UI copy (`Copy`), each path in `Code`;
+ * the server decides every fix, never the browser.
  */
 
 type Normalizing = Extract<PathFix, { kind: 'normalizer' }>;
@@ -247,4 +249,27 @@ export function DiffNotes({ diff: d, lines }: { diff: RequestDiff; lines: readon
       {commands.length ? <CodeBox command={commands.length === 1 ? commands[0]! : commands} /> : null}
     </div>
   );
+}
+
+/**
+ * Show diff's answer drawn: the heads, the structural diff (a script of its own, JsonDiffPart.tsx) and
+ * the notes under it; where both sides are the same, the words alone. A run's finding and a golden's
+ * report on Tests draw it, `as` the heads' level there.
+ */
+export function DiffAnswer({ diff, as }: { diff: RequestDiff; as?: 'h2' | 'h3' | 'h4' }) {
+  // The server says whether the two sides are the same (`same`): no render reads both bodies to find out.
+  if (diff.same) return <DiffNotes diff={diff} lines={[]} />;
+  return (
+    <>
+      <DiffHead diff={diff} {...(as ? { as } : {})} />
+      <JsonDiffPart was={diff.was} now={diff.now} leftOut={diff.leftOut}>
+        {(lines) => <DiffNotes diff={diff} lines={lines} />}
+      </JsonDiffPart>
+    </>
+  );
+}
+
+/** Show diff's line where the server has no answer, the run keeping no call `at` to compare: `This run` on its page, `The replay` in a golden's report. */
+export function NoDiffAnswer({ who, at }: { who: 'This run' | 'The replay'; at: number | undefined }) {
+  return <Copy as="div" className="hint">{`${who} kept no call #${at ?? ''} to compare.`}</Copy>;
 }

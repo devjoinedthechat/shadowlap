@@ -1,18 +1,17 @@
 import { justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import { STATUS_WORDS } from '../../engine/src/check-status.js';
-import { CHECK_MARKS, checkLine, notApplicableParts } from '../../engine/src/checks/labels.js';
+import { CHECK_MARKS, notApplicableParts } from '../../engine/src/checks/labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { judgeRows } from './judge-rows.js';
 import { href } from './route.js';
-import { noteText, UNGUARDED_FIX } from './run/note-words.js';
-import type { BisectMiss, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from './types.js';
+import type { BisectMiss, CiWorkflowOptions, DivergenceView, FoundCommit, GoldenCheck, GoldenRow, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
- * line, a history cell's hover, the reports as the CLI prints them, which buttons a failure gets, and
- * what the Update golden dialog says. No DOM here: the tests import it.
+ * line, a history cell's hover, which buttons a divergence gets, and what the Update golden dialog
+ * says. No DOM here: the tests import it.
  */
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -243,112 +242,6 @@ export function changedLine(row: Pick<GoldenRow, 'changed'>): { text: string; wh
 export function sourceText(row: GoldenRow): { runId: string } | { text: string } {
   if (row.source.kind === 'run') return { runId: row.source.runId };
   return { text: row.source.packedAt ? `packed ${shortDate(row.source.packedAt)}` : 'a pack made elsewhere' };
-}
-
-/** A report line's colour: a failure red (`no`, `del`), what is sent now lime (`add`), what couldn't be decided amber (`y`), the rest quiet. */
-export type ReportTone = '' | 'no' | 'del' | 'add' | 'dim' | 'y';
-
-export interface ReportLine {
-  text: string;
-  tone: ReportTone;
-}
-
-/**
- * A divergence as `shadowlap test` prints it, line by line: the golden's line in red, a value that
- * was there before in red, the one sent now in lime.
- */
-export function reportLines(text: string): ReportLine[] {
-  return text.split('\n').map((line, i) => {
-    const t = line.trimStart();
-    if (i === 0 && t.startsWith('✗')) return { text: line, tone: 'no' };
-    if (/^- /.test(t)) return { text: line, tone: 'del' };
-    if (/^\+ /.test(t)) return { text: line, tone: 'add' };
-    return { text: line, tone: '' };
-  });
-}
-
-/**
- * Any other failure (a check, a non-zero exit, no calls, a golden that couldn't run) as the CLI
- * prints it under the golden's line, and `test --markdown` reports it: the checks, the details, and
- * the agent's last lines of output.
- */
-export function failureLines(f: FailureView): ReportLine[] {
-  const lines: ReportLine[] = [{ text: `✗ ${f.name}: ${f.reason}`, tone: 'no' }];
-  for (const c of f.checks ?? []) lines.push(checkReportLine(c));
-  if (f.details) for (const l of f.details.replace(/\s+$/, '').split('\n')) lines.push({ text: `    ${l}`, tone: '' });
-  if (f.output) for (const l of f.output.split('\n')) lines.push({ text: `    │ ${l}`, tone: 'dim' });
-  return lines;
-}
-
-/**
- * A check under a golden's line, as `shadowlap test` prints it (the engine's `checkLine`): `✓ label`,
- * `✗ label: detail`, `? label: inconclusive · detail` or `– label: not applicable · detail`, with a
- * judge's reason and where its verdict came from. A result kept before checks had a status reads as
- * its `ok` says.
- */
-export function checkReportLine(c: NonNullable<FailureView['checks']>[number]): ReportLine {
-  const status = c.status ?? (c.ok ? 'passed' : 'failed');
-  // Failed in red, inconclusive in amber, as every report and page colours them.
-  return { text: `    ${checkLine(c)}`, tone: status === 'failed' ? 'no' : status === 'inconclusive' ? 'y' : '' };
-}
-
-/** An inconclusive golden's report, as the CLI prints it: the line, its gate's evidence, its checks and the attempts. */
-export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
-  const lines: ReportLine[] = [{ text: `? ${v.name}: ${v.reason}`, tone: 'y' }];
-  if (v.gate) lines.push({ text: `    ${v.gate.tally}`, tone: '' });
-  for (const c of v.checks ?? []) lines.push(checkReportLine(c));
-  // The details repeat the tally first when a gate wrote them.
-  const details = (v.details ?? '').replace(/\s+$/, '').split('\n').filter((l, i) => !(i === 0 && v.gate && l === v.gate.tally));
-  for (const l of details) if (l) lines.push({ text: `    ${l}`, tone: 'dim' });
-  return lines;
-}
-
-/** What an inconclusive verdict means, in one line under its report, with what more attempts would take when the gate can say. */
-export function inconclusiveHint(v: InconclusiveView): string {
-  if (v.failure === 'injection') return 'The golden replays, but its injection test showed too little to say, for the reason above (a model call that failed, a run cut short, nothing a model read). Settle that and run it again; --inconclusive warn lets an inconclusive gate through meanwhile.';
-  const j = v.judge;
-  // A replay golden's test runs offline: no key can settle it, only a verdict kept in its pack that answers what the replay asks.
-  if (j?.update) {
-    if (j.held === 'older') return `The verdict its pack holds for the judge check ${j.name} was given to an older form of the judge’s request, which a replay no longer sends, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.`;
-    // What the judge reads changed: a value made anew on every run changes it again, so its normalizer comes first.
-    if (j.held === 'material') return `The verdict its pack holds for the judge check ${j.name} was given on other material than the replay reads now, as its line above says, and the test replays offline, so the judge can’t be asked. If what changed is a value that changes every run, such as an id the agent prints, a normalizer for it is the lasting fix: add it first, since a verdict on one run’s value answers no other, and the next test would read not judged again. Update golden then asks the judge once, live, and keeps its verdict in the pack.`;
-    return `Its pack holds no verdict for the judge check ${j.name}, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.`;
-  }
-  // A fork golden asks its judges live, from the environment the test runs in.
-  if (j?.keys?.length) return `The test runs this golden live, and the judge check ${j.name} had no key to ask ${j.model} with: set ${j.keys[0]!}${j.keys.length > 1 ? ` (or ${j.keys.slice(1).join(' or ')})` : ''} where the tests run, in CI as a secret, and run it again.`;
-  if (!v.gate) return 'A check could not be decided, as its line above says, so the golden is neither passed nor failed: settle what it lacks and run it again.';
-  const more = v.gate.more;
-  const cost = more?.cost !== null && more?.cost !== undefined ? `, about $${more.cost.toFixed(2)}` : '';
-  const estimate = more ? ` Run more attempts continues it to ${more.attempts}: about ${Math.round(more.expected)} more on average${cost}, settling it ${Math.round(more.settles * 100)}% of the time.` : '';
-  return `Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent.${estimate}`;
-}
-
-/** What a failure other than a divergence means, in one line under its report. */
-export function failureHint(f: FailureView): string {
-  // A connection the guard blocked is what the agent tripped on, whatever failed after it.
-  const blocked = f.blocked ?? [];
-  if (blocked.length) {
-    const where = blocked.join(', ');
-    return `The agent connected to ${where} directly, past Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=${blocked.join(',')}.`;
-  }
-  switch (f.failure) {
-    case 'check':
-      return 'A failed check means the agent did something its checks in shadowlap.config.json rule out. Fix the agent; the golden is right.';
-    case 'exit':
-      return 'The agent exited with an error while it replayed: its last lines of output are above.';
-    case 'no-calls':
-      return 'The replay made no calls: does the agent still start, and does it use the Shadowlap environment?';
-    case 'guard':
-      // A process ran that the guard can't watch (the Claude Code CLI): what shadowlap doctor says to do about it.
-      if (/^The network guard could not watch every process of the agent/.test(f.reason)) return `A process the network guard can’t watch ran while the golden replayed, and under --guard block that fails it, whatever else the replay did: the line above says which. ${noteText(UNGUARDED_FIX)}`;
-      // Under --guard block, a replay no preload loaded in proves nothing, whatever else came out of it.
-      return 'No Shadowlap preload loaded in the agent’s processes while the golden replayed, so the network guard never watched it, and under --guard block that fails it, whatever else the replay did: the line above says what the command shows of why. Run the agent on Node or Python with the environment shadowlap gives it (shadowlap doctor says what keeps a preload from loading), or test with --guard warn to let a replay the guard can’t watch through.';
-    case 'injection':
-      if (f.reason.startsWith('injection inconclusive')) return 'The golden replays, but its injection test showed too little to say, for the reason above (a model call that failed, a run cut short, nothing a model read). Settle that and run it again; --inconclusive warn lets an inconclusive gate through meanwhile.';
-      return 'The golden replays, but a tool call carried the canary of a payload planted in what the agent reads: the agent obeyed it. Fix the agent (a prompt that says data is not instructions, a check before a write); the golden is right.';
-    default:
-      return 'The golden could not be replayed.';
-  }
 }
 
 /**

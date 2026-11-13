@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { changeFixCheck, checkKey, Store } from '@shadowlap/engine';
 import { blameReport } from '../../engine/test/fix-fixtures.js';
+import { fixCrash } from '../src/fix-crash.js';
 import { fixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
-import { crashFixtures, GOLDEN, MIN, source, T0, work } from './crash-fixtures.js';
+import { stepReads } from '../src/next-step.js';
+import { crashFixtures, GOLDEN, MIN, PY_TAIL, source, T0, work } from './crash-fixtures.js';
 
 /**
  * A fix's crash path: where blame found no call that rescues a test replay whose agent exited with an
  * error, the run's own step leads the fix, on its page and its Fixes row, before a stronger model:
  * Find breaking commit, then Revert once that named the commit, which the Blame step shows as every
- * route serves a found commit (its author only where names are shown). A failure that didn't crash
- * keeps the fix's own lead.
+ * route serves a found commit (its author only where names are shown), with the exception the agent
+ * died of. A failure that didn't crash keeps the fix's own lead.
  */
 
 let store: Store;
@@ -28,7 +30,7 @@ describe('a fix whose crash no model rescued', () => {
     const d = detail(fixId, w);
     expect(d.lead).toMatchObject({ key: 'bisect', use: 'reads', runId: run, step: { key: 'bisect', golden: GOLDEN } });
     expect(d.lead!.label).toMatch(/^Find breaking commit/);
-    expect(d.blame!.crash).toEqual({ commit: null, offline: true, stronger: false });
+    expect(d.blame!.crash).toEqual({ commit: null, offline: true, stronger: false, error: null });
     expect(fixesView(store, { next: w }).fixes[0].next).toMatchObject({ key: 'bisect', runId: run });
     // A golden marked fork runs live from where it forks: its search is not offline.
     expect(detail(fixId, work([source(rec, { mode: 'fork' })])).blame!.crash).toMatchObject({ offline: false });
@@ -44,6 +46,24 @@ describe('a fix whose crash no model rescued', () => {
     expect(detail(fixId, w, true).blame!.crash!.commit!.author).toBe('Ravi');
     // The list's row leads the same way, and carries no commit: its Revert reads the run's when pressed.
     expect(fixesView(store, { next: w }).fixes[0].next).toMatchObject({ key: 'revert', runId: run, step: { rev: 'ccccccc' } });
+  });
+
+  it('names on its page the exception the agent died of, from the lines its replay’s result kept, its file from the project’s folder', () => {
+    const { rec, fixId, blame } = blamed('crashed', { output: PY_TAIL });
+    const w = work([source(rec)]);
+    // The innermost frame of the agent's own code raised it: the line the commit Find breaking commit names added.
+    expect(detail(fixId, w).blame!.crash!.error).toEqual({
+      error: expect.objectContaining({ runtime: 'python', exception: "NameError: name 'log' is not defined", raised: expect.objectContaining({ file: '/work/project/agent/refund.py', line: 2, fn: 'total', code: 'log(items)' }) }),
+      file: 'agent/refund.py',
+      lines: PY_TAIL.split('\n'),
+    });
+    // A list, which draws no Blame step, reads none.
+    expect(fixCrash(store, blame, { work: w, reads: stepReads(store) })).toMatchObject({ step: { key: 'bisect' }, error: null });
+    // Lines with no traceback name the last thing the agent said, raised in no file of its own.
+    store.close();
+    store = Store.open(':memory:');
+    const said = blamed('crashed', { output: 'refunding order 1042\n[shadowlap] stopped after 3 calls' });
+    expect(detail(said.fixId, work([source(said.rec)])).blame!.crash!.error).toMatchObject({ error: { exception: 'refunding order 1042', raised: null }, file: null });
   });
 
   it('keeps the fix’s own lead where the run didn’t crash, the run page isn’t read, or a later replay passed it', () => {
@@ -105,7 +125,7 @@ describe('a crash whose blame found something of its own', () => {
     expect(d.lead?.key).toBe('bisect');
     expect(d.actions.blameStronger).toBeNull();
     expect(d.blame!.look).toBe("No answer of the model's lost this run: look at the tools, the harness or the command.");
-    expect(d.blame!.crash).toEqual({ commit: null, offline: true, stronger: false });
+    expect(d.blame!.crash).toEqual({ commit: null, offline: true, stronger: false, error: null });
   });
 
   it('offers the stronger model beside Find breaking commit where its blame kept its flags, and leads with the search', () => {

@@ -26,16 +26,15 @@ const held = (w: LookWork, t: FailingTest) => !!t.fixId && (w.held.get(t.fixId) 
 /** Whether a row's step is Run tests, its golden's checks changed since its last test. */
 const runsTests = (step: LookStep | null): boolean => step?.of === 'run' && step.step.key === 'run-tests';
 
-const golden = (t: FailingTest, step: LookStep | null): Pick<NeedsLookRow, 'title' | 'name' | 'detail' | 'step' | 'href' | 'runId' | 'at' | 'report' | 'rule'> => ({
+const golden = (t: FailingTest, step: LookStep | null): Pick<NeedsLookRow, 'title' | 'name' | 'detail' | 'step' | 'href' | 'runId' | 'at' | 'rule'> => ({
   title: t.title,
   name: goldenName(t.golden),
   detail: runsTests(step) ? `${t.line} · checks changed since` : t.line,
   step,
-  // Tests, at the golden's report.
-  href: links.tests(),
+  // Tests, the golden's report open and scrolled to.
+  href: links.tests({ report: goldenName(t.golden) }),
   runId: t.runId,
   at: t.at,
-  report: `report-${goldenName(t.golden)}`,
   ...(t.rule ? { rule: t.rule } : {}),
 });
 

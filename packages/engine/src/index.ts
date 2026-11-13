@@ -109,6 +109,9 @@ export { DEFAULT_REPLAY_OPTIONS, isPlainRead, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
 export { dimLines, divergenceLine, endedEarlyCount, extraReadsLine, formatDivergence, formatSummary, formatTokens, plain, replayedBeforeWords, storedModelResolver, summarizeRun } from './report.js';
 export type { ModelResolver, SummaryOptions } from './report.js';
+// What an agent died of, read from its last lines: the exception, where its own code raised it, and every frame.
+export { ownFile, parseTraceback } from './traceback.js';
+export type { Frame as TracebackFrame, ParsedTraceback } from './traceback.js';
 // Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
 export { JUDGE_INSTRUCTIONS, JUDGE_KEYS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
 export type { ClaudeTakes, GivenAnswer, JudgeAsk, JudgeMaterial, JudgeProvider, JudgeReads, JudgeRequest, JudgeVerdict, MatchMasks, MaterialResult } from './judge.js';
@@ -118,7 +121,7 @@ export type { Price } from './prices.js';
 export { EXTERNAL_COMMAND, NO_COMMAND, PACK_ENTRIES, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, lexists, movePath, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
-export { decodedSegment, encodeRfc3986, fitLine, jsString, quoteArgv, safeLine, safeText, whole } from './text.js';
+export { decodedSegment, encodeRfc3986, escapedInLine, fitLine, jsString, outputTail, quoteArgv, safe, safeLine, safeLines, safeText, whole } from './text.js';
 // Text safe in the Markdown GitHub renders, for pull request bodies, comments and job summaries.
 export { markdownCode, markdownFence, markdownText, titleText } from './markdown.js';
 export { shortCallName } from './labels.js';
@@ -172,7 +175,7 @@ export type { BaselineDecision, BaselineOdds, BaselineRule, BaselineSource, Drop
 export { chanceRanked, consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
 export { fisherGreater, permutationGreater } from './exact-tests.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
-export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, apartWords, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideCountUnavailable, decideUnavailable, decisionWord, describeGate, dropProbability, explainGate, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, tallyApart, verdictLine, wilson } from './stats.js';
+export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, apartWords, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, baselineWords, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideCountUnavailable, decideUnavailable, decisionWord, describeGate, dropProbability, explainGate, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, tallyApart, verdictLine, wilson } from './stats.js';
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- the bound's old name, kept for code written against it (docs/engine.md)
 export { wilsonBound } from './stats.js';
 export type { ApartKind, BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';

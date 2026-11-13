@@ -36,6 +36,9 @@ export interface EvidenceWords {
 /** A score as the line prints it, its sign always shown and a minus a real one: `+3.00`, `−1.10`. */
 const signed = (x: number): string => `${x < 0 ? '−' : '+'}${Math.abs(x).toFixed(2)}`;
 
+/** Where a fork golden went live: `forked at call 3, live from there`; of its attempts, each attempt. Tests' evidence and a golden's report alike. */
+export const forkedWords = (at: number, each = false): string => `forked at call ${at}, ${each ? 'each attempt ' : ''}live from there`;
+
 /** 1st, 2nd, 3rd, 4th, 11th, 21st. */
 const ordinal = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')}`;
 
@@ -55,7 +58,7 @@ export function evidenceWords(g: GateResult, forkedAt: number | null): EvidenceW
     carriedNote: carried ? ` Attempts 1–${carried} were carried over; its limit was raised to ${g.max} for that session only.` : '',
     end: ranOut ? `attempt ${n}, its limit` : `attempt ${n}`,
     passK: k5 ? k5.value.toFixed(2) : '',
-    forked: forkedAt ? `forked at call ${forkedAt}, each attempt live from there` : '',
+    forked: forkedAt ? forkedWords(forkedAt, true) : '',
     provider: tallyApart({ cutShort: cut, unavailable: g.unavailable }).join(' · '),
     head: g.decision === 'inconclusive' ? `inconclusive after ${n} attempts` : `${decisionWord(g.decision)} at attempt ${n}`,
   };

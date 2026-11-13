@@ -8,7 +8,7 @@ import { JobButton } from '../components/JobButton.js';
 import { Page } from '../components/Page.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
-import { asksUpdate, divergenceButtons, findCommitButton, sessionWait, testsBusy } from '../goldens.js';
+import { asksUpdate, divergenceButtons, sessionWait, testsBusy } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
@@ -18,7 +18,6 @@ import { useApp } from '../state.js';
 import { divergedAsk, gateAgainAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
-import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
 import { CheckEntriesOf, useCheckEntries } from '../tests/check-entries.js';
 import { CiSections } from '../tests/Sections.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
@@ -110,7 +109,7 @@ export function TestsPage() {
     );
   }
 
-  const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
+  const [runWait, updateWait] = ['run the tests', 'update them'].map((verb) => wait(verb));
   // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every
   // golden. Where that step is Run tests (its checks changed since), the header's own is lime and says so.
   const whole = !!view.following?.whole;
@@ -161,9 +160,9 @@ export function TestsPage() {
     onUpdate: (golden, e) => guard(() => setOpen({ kind: 'update', paths: [golden], estimate: e })),
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
+    onRerun: (golden, e) => start(JOB_KINDS.tests, { golden }, gateAgainAsk(view.rows.find((r) => r.path === golden)?.name ?? golden, golden), e),
     runTests,
     edit: checks.edit,
-    onAgain: (lead, e) => start(JOB_KINDS.tests, { golden: lead.golden }, gateAgainAsk(lead.name, lead.golden), e),
   };
 
   return (
@@ -174,25 +173,6 @@ export function TestsPage() {
         <GoldensTable view={view} press={press} />
       </CheckEntriesOf.Provider>
       {checks.node}
-      {view.divergences.map((d) => (
-        <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
-      ))}
-      {view.failures.map((f) => (
-        <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} step={view.steps?.[f.golden]} prices={prices} onBisect={() => findCommit(f)} />
-      ))}
-      {view.inconclusive.map((v) => (
-        <InconclusivePanel
-          key={v.golden}
-          v={v}
-          off={runWait ?? undefined}
-          canRun={hasKind(JOB_KINDS.tests)}
-          onMore={(job, ask, e) => start(JOB_KINDS.tests, job, ask, e)}
-          prices={prices}
-          updateOff={updateGoldenWait ?? undefined}
-          canUpdate={hasKind(JOB_KINDS.testUpdate)}
-          onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [v.golden], estimate: e }))}
-        />
-      ))}
       <CiSections view={view} />
       {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts); several goldens' normalizer and update is the update this dialog asks about. */}
       {open?.kind === 'update' ? (

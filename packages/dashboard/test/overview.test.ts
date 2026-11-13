@@ -266,7 +266,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
       expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
       // No fix holds the failure yet: the row opens Tests at the golden's report, its step what its run's page leads with.
-      expect(s.needsLook.items[0]).toMatchObject({ key: expect.stringMatching(/^attn:failed:.*refund-in-limit$/), group: 'failing', kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', runId: failed, href: '#/tests', report: 'report-refund-in-limit' });
+      expect(s.needsLook.items[0]).toMatchObject({ key: expect.stringMatching(/^attn:failed:.*refund-in-limit$/), group: 'failing', kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', runId: failed, href: '#/tests?report=refund-in-limit' });
       const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'refund-in-limit diverged', checkText: 'x', at: NOW - HOUR / 2 });
       // Its failure is the fix's: one cause, one row, the fix's, which names the golden.
       const blamed = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items;
