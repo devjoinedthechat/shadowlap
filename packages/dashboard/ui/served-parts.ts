@@ -1,5 +1,6 @@
 import { createContext, useContext, type ComponentProps, type ComponentType } from 'react';
 import type { NewPreviewProps } from './changes/NewPreview.js';
+import type { PrCommentDialog } from './ci/PrCommentDialog.js';
 import type { OnShow } from './components/OnShow.js';
 import type { RunBlameAsks } from './fixes/RunBlameAsks.js';
 import type { AttemptPage } from './injection/AttemptPage.js';
@@ -45,6 +46,8 @@ export type ActionDialogProps = ComponentProps<typeof ActionDialog>;
 export type BisectDialogProps = ComponentProps<typeof BisectDialog>;
 export type DivergedDialogsProps = ComponentProps<typeof DivergedDialogs>;
 export type EditDialogProps = ComponentProps<typeof EditDialog>;
+/** What Preview pull request comment's dialog takes (ci/PrCommentDialog.tsx), which Settings → CI and the newest revision's page open. */
+export type PrCommentDialogProps = ComponentProps<typeof PrCommentDialog>;
 /** The words of a job's kind (jobs.ts), which come with the job's drawer. */
 export type JobWords = typeof JobWordsModule;
 
@@ -67,8 +70,9 @@ export type JobWords = typeof JobWordsModule;
  * wait (`actionsOff`), so no action and no Find breaking commit asks in a dialog; it runs no job of
  * a test's, so a diverged test asks in none; Edit and fork draws nothing there; its meta draws the
  * copy's own block in the project switcher's place, so nothing opens Remove project; a page that
- * can't find what a link names says so itself, never asking another project; and ⌘K, `/` and the
- * top bar open no palette.
+ * can't find what a link names says so itself, never asking another project; ⌘K, `/` and the
+ * top bar open no palette; and a copy sends Settings → CI and a revision's page under Changes to its
+ * runs, so nothing opens Preview pull request comment.
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
@@ -119,6 +123,8 @@ export interface ServedParts {
   DivergedDialogs?: OnShow<DivergedDialogsProps>;
   /** Edit and fork's dialog (run/EditDialog.tsx). */
   EditDialog?: OnShow<EditDialogProps>;
+  /** Preview pull request comment's dialog (ci/PrCommentDialog.tsx), one script for Settings → CI and the newest revision's page under Changes, which both open it: loaded the first time one does. */
+  PrCommentDialog?: OnShow<PrCommentDialogProps>;
   /** The In page (pages/Elsewhere.tsx), in the place of a page's not-found while another project on this machine holds what a link names: the page's own loading look while its script comes, and its own not-found should it fail to come. */
   Elsewhere?: OnShow<ElsewhereProps>;
 }

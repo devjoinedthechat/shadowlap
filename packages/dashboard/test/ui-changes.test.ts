@@ -714,7 +714,7 @@ describe('a revision’s page', () => {
     const PREVIEW: PrCommentPreview = { session: { id: 'ts-01M5000000000000000000000A', revision: 'd2e8a1f', at: AT }, head: '2 of 3 goldens passed · 1 failed', rows: [{ verdict: 'failed', golden: 'goldens/refund-flow', line: 'failed · diverged at call 3 · $.model' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### Shadowlap: 2 of 3 goldens passed · 1 failed\n' };
     const Probe = () => createElement('i', { id: 'unshown' }, String(useUnshown('changes:d2e8a1f')));
     const client = { verdictRevision: () => Promise.resolve(revision()), settings: { prComment: () => Promise.resolve(PREVIEW) } } as unknown as Partial<Client>;
-    page = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RevisionPage, { rev: 'd2e8a1f' }), createElement(Probe)));
+    page = await render(createElement(AppContext.Provider, { value: app(client) }, withServed(createElement(RevisionPage, { rev: 'd2e8a1f' })), createElement(Probe)));
     await page.until('the page', () => page!.all('.verdict').length === 1);
     expect(page.all('.verdict .actions .btn').map((b) => [b.tagName.toLowerCase(), b.textContent, b.className])).toEqual([
       ['button', 'Preview pull request comment', 'btn sm'],

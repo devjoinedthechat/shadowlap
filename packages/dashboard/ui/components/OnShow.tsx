@@ -23,10 +23,7 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), the words of a run's notes
  * (run/RunNotes.tsx, with run/note-lines.ts: the page decides which notes a run has, run/notes.ts),
  * Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), the fork menu (run/ForkMenu.tsx),
- * the header's … with Delete run's helper (run/MoreMenu.tsx), and Preview pull request comment's
- * dialog, which Settings → CI and a revision's page under Changes both open, declared once in a
- * module they share (ci/comment-parts.tsx) so the build makes one script for both. So must the
- * structural diff
+ * and the header's … with Delete run's helper (run/MoreMenu.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and
  * each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
@@ -41,13 +38,15 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * dialog or the first bad commit's change box, the dialog a run's action asks in
  * (run/ActionDialog.tsx), Find breaking commit's and Delete run's (run/RunDialogs.tsx), a diverged
  * test's (run/DivergedDialogs.tsx) and Edit and fork's (run/EditDialog.tsx), the shell's palette,
- * the job's drawer with the words of a job's kind (jobs.ts) and Remove project's dialog, or the page
- * that says another project holds what a link names (pages/Elsewhere.tsx, which the page list shows
- * too), is the exception: the served entry hands it in (served-parts.ts, from pages/served.tsx), so
- * a copy's script holds none of it, and a test pins what keeps each one undrawn there
- * (test/ui-exported-copy.test.ts, test/ui-revert-copy.test.ts). The bundle size test holds each
- * page's and each part's script to a budget of its own. What a fork did differently waits so too,
- * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
+ * the job's drawer with the words of a job's kind (jobs.ts) and Remove project's dialog, Preview pull
+ * request comment's (ci/PrCommentDialog.tsx, one script for Settings → CI and a revision's page
+ * under Changes), or the page that says another project holds what a link names
+ * (pages/Elsewhere.tsx, which the page list shows too), is the exception: the served entry hands it
+ * in (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, and a test pins
+ * what keeps each one undrawn there (test/ui-exported-copy.test.ts, test/ui-revert-copy.test.ts).
+ * The bundle size test holds each page's and each part's script to a budget of its own. What a fork
+ * did differently waits so too, a finding of a fork's page alone, asked for with the differences
+ * (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

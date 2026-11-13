@@ -367,16 +367,11 @@ describe('an exported copy', () => {
     expect(seen.app!.palette).toBe(false);
   });
 
-  it('never opens Preview pull request comment: only Settings → CI and a revision’s page under Changes show it, which a copy sends to its runs, and its client refuses the read', async () => {
-    // The module that loads the dialog's script, and the pages that show it: none a copy routes to.
-    const ui = fileURLToPath(new URL('../ui/', import.meta.url));
-    const importing = (re: RegExp) =>
-      readdirSync(ui, { recursive: true, encoding: 'utf8' })
-        .filter((f) => /\.tsx?$/.test(f) && re.test(readFileSync(join(ui, f), 'utf8')))
-        .map((f) => f.split(sep).join('/'))
-        .sort();
-    expect(importing(/\bPrCommentDialog\.js['"]/)).toEqual(['ci/comment-parts.tsx']);
-    expect(importing(/\bcomment-parts\.js['"]/)).toEqual(['changes/RevisionPage.tsx', 'ci/PrCommentDialog.tsx', 'pages/settings/Ci.tsx']);
+  it('never opens Preview pull request comment, which the served dashboard alone hands in: only Settings → CI and a revision’s page under Changes show it, which a copy sends to its runs, and its client refuses the read', async () => {
+    // The page's code that loads the dialog's script: the served entry's, which a copy's entry never
+    // is (COPY_PARTS in test/ui-bundle-size.test.ts). Its decisions' steps it shares with a revision's page alone.
+    expect(loadersOf(/\bPrCommentDialog\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bcomment-parts\.js['"]/).sort()).toEqual(['changes/RevisionPage.tsx', 'ci/PrCommentDialog.tsx']);
     await expect(createExportedClient(exported([runId])).settings.prComment()).rejects.toThrow();
   });
 
