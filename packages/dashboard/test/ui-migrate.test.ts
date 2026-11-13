@@ -245,6 +245,19 @@ describe('Changes › Migrate', () => {
       expect(shown(p.one('.mgstart .mgcmd'))).toContain('shadowlap migrate --to gpt-4o --from gpt-4.1');
     });
 
+    it('sets the start page’s words as copy: a retiring model’s facts and where its date comes from, and what Migrate does, each sentence set', async () => {
+      const p = await open(unchecked, []);
+      await p.until('the start page', () => !!p.one('.mgstart .mgsrc'));
+      expect(p.all('.mgstart > p').map((x) => [x.className, x.querySelectorAll('ts-s').length > 0])).toEqual([
+        ['', true],
+        ['muted mgsrc', true],
+      ]);
+      await page?.unmount();
+      const q = await open({ goldens: 2, retiring: [], use: [{ model: 'gpt-4o', provider: 'openai', calls: 6, goldens: 2, family: 'openai' }] }, []);
+      await q.until('the start page', () => !!q.one('.mgstart select'));
+      expect(q.one('.mgstart > p').querySelectorAll('ts-s').length).toBe(2);
+    });
+
     it('says what to pack first where the project has no golden', async () => {
       const p = await open({ goldens: 0, retiring: [], use: [] }, []);
       await p.until('the empty state', () => !!p.one('.emptyline'));
