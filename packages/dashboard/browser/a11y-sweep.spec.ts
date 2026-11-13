@@ -301,8 +301,9 @@ test('every route at 1440px keeps its heading outline, a command’s $ for the e
 
 /**
  * An injection test's pages (routes.ts' injectionRoutes) at 390, 320 and 1440 px, swept as every
- * route is, on a store real commands made for them (injection-fixture.ts) and a dashboard of their
- * own: one store for the three, its tests in order in one worker, the dashboard stopped after.
+ * route is, on a store real commands made for them (injection-fixture.ts, with its second recording
+ * for Pack with injection gate…) and a dashboard of their own: one store for the three, its tests in
+ * order in one worker, the dashboard stopped after.
  */
 test.describe('an injection test’s pages', () => {
   test.describe.configure({ mode: 'serial' });
@@ -310,12 +311,12 @@ test.describe('an injection test’s pages', () => {
   let served: (Served & { stop: () => Promise<void> }) | null = null;
   const routes = () => {
     if (!built || !served) throw new Error('the injection store was not built');
-    return injectionRoutes(served, built.runId);
+    return injectionRoutes(served, built.runId, built.second);
   };
   test.beforeAll(async () => {
-    // Four commands on a mock model, a few seconds, then the dashboard.
-    test.setTimeout(120_000);
-    built = await buildInjectionStore();
+    // Six commands on a mock model, a few seconds each, then the dashboard.
+    test.setTimeout(180_000);
+    built = await buildInjectionStore({ second: true });
     served = await serveDashboard(built.folder, built.project);
   });
   test.afterAll(async () => {
@@ -326,19 +327,19 @@ test.describe('an injection test’s pages', () => {
   });
 
   test('on a 390px phone have no serious or critical axe violation, scroll nothing sideways, draw no label under 11px and keep their hidden text where it is read', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await over(page, onPhone(page), routes())).toEqual([]);
   });
 
   test('at 320px have no serious or critical axe violation and scroll nothing sideways', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     await page.setViewportSize({ width: 320, height: 640 });
     expect(await over(page, atNarrowest(page), routes())).toEqual([]);
   });
 
   test('at 1440px keep their heading outline, a command’s $ for the eye only and their hidden text and, in a forced-colours theme, their marks, their selection and axe’s rules', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     const marks = { seen: 0 };
     expect(await over(page, atDesk(page, marks), routes())).toEqual([]);
     // The results' cells and the attempts' strip.
@@ -353,6 +354,7 @@ test.describe('an injection test’s pages', () => {
     await openPage(page, `/run/${runId}/turns`, 'run', at);
     expect((await names(page, 'main#view .vbody', 'button')).filter((n) => /^↳ #\d+ fetch_page read untrusted live$/.test(n))).toHaveLength(5);
   });
+
 });
 
 test('the cards that stand for a page, signed out and with a refused link, each have one h1, their title', async ({ page }) => {
