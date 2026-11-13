@@ -55,7 +55,10 @@ export interface Served {
  */
 export async function serveDashboard(demo: string, project: string): Promise<Served & { stop: () => Promise<void> }> {
   const port = await freePort();
-  const env = { ...process.env, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
+  // No provider's key reaches the dashboard a test drives, so listing the models a switch can take, or
+  // anything else it does, never asks a real provider.
+  const keyless = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/_(API_KEY|AUTH_TOKEN)$/.test(k)));
+  const env = { ...keyless, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
   const child = spawn(process.execPath, [cli, 'dashboard', '--no-open', '--port', String(port)], { cwd: join(demo, project), env, stdio: ['ignore', 'ignore', 'pipe'] });
   const link = await new Promise<string>((resolve, reject) => {
     let said = '';

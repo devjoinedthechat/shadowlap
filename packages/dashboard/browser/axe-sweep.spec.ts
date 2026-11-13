@@ -1,15 +1,20 @@
 import { expect, test, type Page, type Request, type Route } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
+import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
 /**
  * axe-core's WCAG 2.2 A and AA rules over everything the whole demo shows: every page, every run with
  * each view, its inspector's tabs, its menus and dialogs, Fixes and each fix's steps, Tests and its
  * dialogs, a gated golden's evidence, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
+ * the pull request comment's preview with every part, a merged session's flag and its card,
  * a toast with Undo and the bar that says the dashboard can't be reached; and again on a phone, 390 px
  * wide, with a not-found page of each kind and Runs while its table loads and once its read failed.
  * Any serious or critical violation fails, named with the state it was found in.
  */
+
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 /** The demo's runs by name, each by its id: every run the demo names. */
 function runs(): Array<[string, string]> {
@@ -135,6 +140,29 @@ async function previewed(page: Page): Promise<{ preview: string; cell: string; v
   if (!runId) throw new Error('the demo’s preview names no run the store holds');
   const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
   return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
+}
+/**
+ * The preview at `preview` as if its verify had left its first run open, as the session's read answers
+ * while `on`: Run more attempts its next step. Off, the session reads as the demo keeps it.
+ */
+async function moreAttempts(page: Page, preview: string): Promise<{ preview: string; on: boolean }> {
+  const sessionId = preview.split('/').at(-1)!;
+  const more = { preview, on: false };
+  await page.route(
+    (url) => url.pathname.endsWith(`/api/decisions/${sessionId}`),
+    async (route) => {
+      if (!more.on) return route.continue();
+      // Read whole, with the session's cookie, never a 304 the page's cache would answer.
+      const headers = Object.fromEntries(Object.entries(await route.request().allHeaders()).filter(([k]) => k !== 'if-none-match'));
+      const res = await route.fetch({ headers });
+      const s = (await res.json()) as { matrix: Array<{ runId: string; verified: unknown }>; view: { next: Record<string, unknown> } };
+      const runId = s.matrix[0]!.runId;
+      s.matrix[0]!.verified = { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' };
+      s.view.next = { ...s.view.next, verify: null, migrate: null, more: { kind: 'more', runs: [runId], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' } };
+      await route.fulfill({ response: res, json: s });
+    },
+  );
+  return more;
 }
 const previews = async (page: Page, on = ''): Promise<Array<[string, () => Promise<void>]>> => {
   const p = await previewed(page);
@@ -347,6 +375,37 @@ test('Tests with a gated golden’s evidence open, reports open, and Update gold
   expect([...wide, ...(await sweep(page, states(' on a phone')))]).toEqual([]);
 });
 
+test('the pull request comment’s preview from Settings → CI and a revision’s page, and a session merged while failing, have no serious or critical axe violation, wide and on a phone', async ({ page }) => {
+  await routePrCommentFixture(page);
+  // Every part drawn: the decisions at rank 1 and 2, and the three injection gates.
+  const preview = (on: string, where: string): Array<[string, () => Promise<void>]> => [
+    [`Preview pull request comment from ${where}${on}`, async () => {
+      await click(page, 'main#view button', 'Preview pull request comment', { shows: `${DIALOG} .prc` })();
+      await expect(page.locator(`${DIALOG} .prc-d`)).toHaveCount(2);
+      await expect(page.locator(`${DIALOG} .prc-i`)).toHaveCount(3);
+    }],
+    [`Preview pull request comment from ${where} closed${on}`, escape(page)],
+  ];
+  const states = (on: string): Array<[string, () => Promise<void>]> => [
+    [`Settings → CI with the comment’s preview${on}`, at(page, '/settings/ci', 'main#view .prpanel')],
+    ...preview(on, 'Settings → CI'),
+    [`Verdicts with each session’s pull request${on}`, at(page, '/changes', VERDICTS)],
+    [`the flag’s card${on}`, async () => {
+      await page.mouse.move(2, 2);
+      await page.locator('main#view .rsub.vdflag').first().focus();
+      await settled(page, { shows: '#tip' });
+    }],
+    [`a revision’s page with what its comment carried${on}`, async () => {
+      await revision(page)();
+      await expect(page.locator('main#view .vdkv dt')).toHaveCount(4);
+    }],
+    ...preview(on, 'a revision’s page'),
+  ];
+  const wide = await sweep(page, states(''));
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect([...wide, ...(await sweep(page, states(' on a phone')))]).toEqual([]);
+});
+
 test('the bar that says the dashboard can’t be reached has no serious or critical axe violation', async ({ page }) => {
   await openPage(page, `/run/${dash().runs.ticket as string}`, 'run');
   // The server stops answering: the bar comes once the page's next look fails.
@@ -417,6 +476,17 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const inReport = (name: string, text: string) => opened(name, at(page, '/tests'), reportsOpen, button('main#view section.gpanel button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
+  // A preview's menu and the dialogs it opens, and its Verify.
+  const p = await previewed(page);
+  // Preview changed prompt reads the working tree as a job, answered here as it ends: a real read replays the agent's code.
+  const read = { id: 'axe-tree-read', kind: 'decisions-read', title: 'Reading what your working tree sends', args: ['decisions', '--from-code', '--dry-run'], runId: null, opensRun: false, startedAt: Date.now(), done: true, code: 0, newRunId: null, lines: [], total: 0, result: { fromCode: { calls: 2, instructions: { before: 'You are a support agent.', after: 'You are a support agent. Never refund an order twice.' }, tools: { added: [], removed: [], changed: ['issue_refund'] } }, runs: [], notes: [], nothing: null, scope: 'agent' } };
+  await page.route('**/api/jobs', (route) => (route.request().method() === 'POST' && (route.request().postDataJSON() as { kind?: string }).kind === 'decisions-read' ? route.fulfill({ status: 202, json: read }) : route.continue()));
+  await page.route(`**/api/jobs/${read.id}**`, (route) => route.fulfill({ json: read }));
+  // Run more attempts shows where a preview's verify left a run open: the same preview, answered as if verify had.
+  const more = await moreAttempts(page, p.preview);
+  const onPreview = (name: string, ...open: Array<() => Promise<void>>) => opened(name, at(page, p.preview, PREVIEW), ...open);
+  const newPreview = (where: string) => click(page, where, 'New preview', { shows: MENU });
+  const way = (row: string) => button(`${MENU} [role="menuitem"]`, row);
   // The builder from a call of the refund bug, a failed recording: swept once Suggested has drawn the rules the demo's
   // good run gives, which it asks for after the builder settles, so the read can come after the dialog's own.
   const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule, `${DIALOG} .cb-sug`));
@@ -447,6 +517,25 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...bulk('Delete runs', 'Delete'),
     ...bulk('Pack runs', 'Pack'),
     ...bulk('Export the dataset of runs', 'Dataset'),
+    ...opened('Preview change on runs', at(page, '/runs', 'main#view table.runst tbody tr'), tick, click(page, '.bulkbar button', 'Preview change', { shows: MENU }), way('Preview model switch')),
+    ...onPreview('Preview model switch', newPreview('main#view button'), way('Preview model switch')),
+    ...onPreview('Preview field change', newPreview('main#view button'), way('Preview field change')),
+    ...onPreview('Verify a preview’s runs', button('main#view .dverdict .actions button', 'Verify')),
+    ...onPreview('Preview changed prompt', newPreview('main#view button'), way('Preview changed prompt')),
+    ...opened(
+      'Run more attempts on a preview',
+      async () => {
+        more.on = true;
+        // From another page, so the preview mounts again and reads its session anew.
+        await at(page, '/runs', 'main#view table.runst tbody tr')();
+        await at(page, more.preview, PREVIEW)();
+      },
+      async () => {
+        await button('main#view .dverdict .actions button', 'Run more attempts')();
+        more.on = false;
+      },
+    ),
+    ...opened('New preview on a run', at(page, p.view, DVIEW), newPreview('main#view .dview .dvhead button')),
     ...opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
     ...inReport('Update golden', 'Update golden'),
     ...inReport('Add normalizer and update', 'Add normalizer and update'),

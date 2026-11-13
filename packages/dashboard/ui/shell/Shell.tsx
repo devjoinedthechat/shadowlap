@@ -12,6 +12,7 @@ import { OverlaySlots } from '../overlays/slots.js';
 import { setupShowsOn } from '../projects.js';
 import type { Route } from '../route.js';
 import { useRoute } from '../router.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp, useAppSelector } from '../state.js';
 import { docTitle, onOpenRunAbout, openRunAbout, TAB_ABOUT_MAX } from '../title.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
@@ -23,8 +24,11 @@ import { TopBar } from './TopBar.js';
 import { loadSpending, spendingNow, watchSpending } from '../spending.js';
 import { unshownKey, useHeldBy, useUnshown } from './unshown.js';
 
-/** The palette and the shortcuts sheet wait in scripts of their own, which load as the shell first draws, so they answer at once and with the server gone. */
-const Palette = onShow(() => import('./Palette.js').then((m) => m.Palette));
+/**
+ * The shortcuts sheet waits in a script of its own, which loads as the shell first draws, so it
+ * answers at once and with the server gone; so does the palette, which the served entry hands in
+ * (served-parts.ts), since a copy never opens it.
+ */
 const Shortcuts = onShow(() => import('./Shortcuts.js').then((m) => m.Shortcuts));
 
 /**
@@ -35,13 +39,11 @@ const Shortcuts = onShow(() => import('./Shortcuts.js').then((m) => m.Shortcuts)
  */
 export type Pages = ComponentType<{ route: Route }>;
 
-/** The job's drawer: its code loads as the first job shows. */
-const JobDrawer = onShow(() => import('../components/Drawer.js').then((m) => m.JobDrawer));
-
-/** Reads the jobs for the shell, which a job's every line would redraw otherwise. */
+/** Reads the jobs for the shell, which a job's every line would redraw otherwise. The job's drawer, handed in by the served entry, loads as the first job shows: a copy follows none. */
 function Dock() {
+  const { JobDrawer } = useServedParts();
   const drawn = useAppSelector((app) => !!drawnJob(app.jobs));
-  return drawn ? <JobDrawer /> : null;
+  return drawn && JobDrawer ? <JobDrawer /> : null;
 }
 
 /**
@@ -62,6 +64,7 @@ function SpendingWatch() {
 export function Shell({ pages: PageSlot }: { pages: Pages }) {
   const route = useRoute();
   const { setSideOpen, closeJobs, conn, sideOpen } = useApp();
+  const { Palette } = useServedParts();
   useDocTitle(route);
   // Behind the phone's open sidebar the page and the status bar are out of reach; the top bar stays,
   // so its button can close it. Only where the sidebar is a drawer: a window widened past it shows both.
@@ -94,7 +97,7 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
       <ExpiredCard />
       {/* Beside the app, so a modal can put the app out of reach: a menu, a modal and the job's drawer, each in a place of its own. */}
       <OverlaySlots />
-      <Palette route={route} />
+      {Palette ? <Palette route={route} /> : null}
       <Shortcuts onRun={route.page === 'run'} />
       <Dock />
       {/* A Tests job that would run goldens live asks here, whichever page or the palette started it. */}

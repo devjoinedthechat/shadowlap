@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { judgeTarget, lostRange, lostWords, SUITE_RISK, type DiffLine, type StoreOf } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { workflowState, type FileSwitches, type RepositoryWorkflow } from './ci-file.js';
-import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, COMMENT_NEED, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, REPAIRER, REPAIRERS, VERSION, WORKFLOW_FILE, workflowFile, type BucketCredentials, type LiveGoldens, type WorkflowFileSettings } from './ci-yaml.js';
+import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, COMMENT_NEED, decisionsNeed, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, REPAIRER, REPAIRERS, VERSION, WORKFLOW_FILE, workflowFile, type BucketCredentials, type LiveGoldens, type WorkflowFileSettings } from './ci-yaml.js';
 import { fixDetail, fixList, type FixDetail } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
 import type { CiGates } from './tests-gate.js';
@@ -22,6 +22,8 @@ import { liveReasons } from './tests-live.js';
 export interface CiWorkflowOptions {
   /** The action's comment on each pull request is on; off, the step says `comment: false` and the verdict stays in the job summary. */
   comment: boolean;
+  /** The comment's decisions part: `decisions: true`, so the action adds the decisions the branch's prompt and tools change; written only while the comment is on. */
+  decisions: boolean;
   /** Fix on failure is on: when it is off, the panel dims its settings and a failed check just fails the build. */
   fix: boolean;
   /** Alerts are on: the workflow tells Slack, then fails the job; off, its panel dims and the test step fails the job itself. */
@@ -38,7 +40,7 @@ export interface CiWorkflowOptions {
   inconclusive?: 'fail' | 'warn';
 }
 
-export const CI_DEFAULTS: CiWorkflowOptions = { comment: true, fix: false, alerts: true, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
+export const CI_DEFAULTS: CiWorkflowOptions = { comment: true, decisions: false, fix: false, alerts: true, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
 
 /** A row of an "it needs" or "it never" list, or a failure with its tag: what it is, and the value on the right. */
 export interface CiListRow {
@@ -139,6 +141,8 @@ export interface CiWorkflowsView {
   /** The action's comment on each pull request. */
   comment: {
     on: boolean;
+    /** Its decisions part is on: the step says `decisions: true` while the comment is on. */
+    decisions: boolean;
     /** What the panel says while it is off. */
     offNote: string;
     needs: CiListRow[];
@@ -203,6 +207,7 @@ export function fileOptions(s: FileSwitches | null): CiWorkflowOptions {
   return {
     ...CI_DEFAULTS,
     comment: s.comment,
+    decisions: s.decisions,
     fix: s.fix,
     ...(s.budget ? { budget: s.budget } : {}),
     ...(s.repairer ? { repairer: s.repairer } : {}),
@@ -219,7 +224,7 @@ export function fileOptions(s: FileSwitches | null): CiWorkflowOptions {
  */
 export function parseCiOptions(q: URLSearchParams, base: CiWorkflowOptions = CI_DEFAULTS): CiWorkflowOptions | { error: string } {
   const out: CiWorkflowOptions = { ...base };
-  for (const [key, name] of [['comment', 'comment'], ['fix', 'fix'], ['alerts', 'alerts'], ['onlyMain', 'onlyMain']] as const) {
+  for (const [key, name] of [['comment', 'comment'], ['decisions', 'decisions'], ['fix', 'fix'], ['alerts', 'alerts'], ['onlyMain', 'onlyMain']] as const) {
     const raw = q.get(key);
     if (raw === null || raw === '') continue;
     const v = BOOL[raw.toLowerCase()];
@@ -640,6 +645,7 @@ function fileFor(o: CiWorkflowOptions, c: Settled, push: BucketCredentials | nul
     alerts: o.alerts ? { onlyMain: o.onlyMain, secret: o.secret, branch: slackBranch } : null,
     push,
     comment: o.comment,
+    decisions: o.decisions,
     recordings: c.recordings,
     ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}),
     keys: c.keys,
@@ -651,6 +657,11 @@ function fileFor(o: CiWorkflowOptions, c: Settled, push: BucketCredentials | nul
     credentials: push === 'oidc' ? c.signIn : null,
   };
   return workflowFile(s);
+}
+
+/** The Pull request comment panel: on or off, its decisions part, and what posting needs, with the model key the decisions part asks with while it is on. */
+function commentPart(o: CiWorkflowOptions, c: Settled): CiWorkflowsView['comment'] {
+  return { on: o.comment, decisions: o.decisions, offNote: 'Off: the verdict stays in the job summary.', needs: rows([COMMENT_NEED, ...(o.comment && o.decisions ? [decisionsNeed(c.keys)] : [])]) };
 }
 
 /** Write file writes only where GitHub reads the workflow: at the repository's root. */
@@ -725,7 +736,7 @@ export function ciWorkflows(o: CiWorkflowOptions, context: CiContext): CiWorkflo
     problem,
     action: ACTION,
     workflow: { comment: o.comment, fix: o.fix, alerts: o.alerts, text: state.text, lines: state.lines, added: state.added, removed: state.removed, same: state.same, shown: state.shown, session: context.session ?? null },
-    comment: { on: o.comment, offNote: 'Off: the verdict stays in the job summary.', needs: rows([COMMENT_NEED]) },
+    comment: commentPart(o, c),
     fixOnFailure: fixPart(o, from, c, context),
     alerts: alertsPart(o, c, context),
     recordings: c.recordings,

@@ -2,6 +2,7 @@ import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decision
 import { changeName, fieldsOf } from './fix-shared.js';
 import { uncountedHead } from './fix-verify-step.js';
 import { isRevisionKey } from './links.js';
+import { flagOf, inSessionOrder, keptDecisionsMoved, pullRequestOf, sessionCommentParts, storedCommentResult, type SessionCommentParts, type VerdictFlag, type VerdictPullRequest } from './session-comment.js';
 import { asksForAll, optionLike, resultLine, verdictOfResult, type GoldenSource, type GoldenVerdict } from './tests.js';
 import type { VerdictTone } from './verdict.js';
 
@@ -76,6 +77,10 @@ export interface SessionVerdict extends VerdictRowBase {
   passed: number;
   failed: number;
   inconclusive: number;
+  /** The pull request the session ran for (a CI session's), where it stands as gh last said; null for none. */
+  pullRequest: VerdictPullRequest | null;
+  /** It merged though the verdict didn't pass; null otherwise. */
+  flag: VerdictFlag | null;
 }
 
 /** A preview (`shadowlap decisions`) or a migration (`shadowlap migrate`). */
@@ -148,8 +153,10 @@ export interface VerdictRevision {
   lead: VerdictGolden | null;
   /** Worst first: those that failed, then those inconclusive, then those that passed. */
   goldens: VerdictGolden[];
-  /** The previews and migrations asked at this very revision, newest first. */
+  /** The previews and migrations asked at this very revision, newest first: what the page shows when its session kept no decisions. */
   decisions: PreviewVerdict[];
+  /** What the session's pull request comment carried beside the verdicts, as it carried it; null for none of it. */
+  comment: SessionCommentParts | null;
   /** Who made each change is named: the project has a team store. */
   shared: boolean;
 }
@@ -167,6 +174,8 @@ export interface VerdictsOptions {
 }
 
 type Store = StoreOf<'readModels' | 'tests' | 'fixes'>;
+/** What the sessions' reads take, which Settings → CI and the comment's preview share: the tests, never the fixes. */
+type TestsStore = StoreOf<'readModels' | 'tests'>;
 
 const parsed = <T>(v: unknown, fallback: T): T => {
   if (typeof v !== 'string') return fallback;
@@ -208,7 +217,7 @@ export function sessionTitle(revision: string | null, subject: string | null): s
 // ---- test sessions ----
 
 /** When each golden was first tested, of those given: one look up the golden's index each. */
-function firstTested(store: Store, paths: readonly string[]): Map<string, number> {
+function firstTested(store: TestsStore, paths: readonly string[]): Map<string, number> {
   if (!paths.length) return new Map();
   const rows = store.query(`SELECT g.value AS golden, (SELECT MIN(r.at) FROM test_results r WHERE r.golden = g.value) AS first FROM json_each(?) g`, JSON.stringify(paths));
   return new Map(rows.filter((r) => typeof r.first === 'number').map((r) => [String(r.golden), Number(r.first)]));
@@ -223,7 +232,7 @@ function firstTested(store: Store, paths: readonly string[]): Map<string, number
  * signal stopped, and one whose process was killed are left out. `more` says older sessions are past
  * the window.
  */
-function revisionSessions(store: Store, goldens: readonly GoldenSource[]): { sessions: TestSession[]; more: boolean } {
+function revisionSessions(store: TestsStore, goldens: readonly GoldenSource[]): { sessions: TestSession[]; more: boolean } {
   const read = store.listTestSessions({ limit: VERDICTS_WINDOW + 1, finished: true, withResults: true });
   const more = read.length > VERDICTS_WINDOW;
   const window = read.slice(0, VERDICTS_WINDOW).filter((s) => !s.interrupted);
@@ -245,7 +254,7 @@ function revisionSessions(store: Store, goldens: readonly GoldenSource[]): { ses
 }
 
 /** Each session's goldens by how they came out: one read of the verdict each result kept, not the rest of it. */
-function sessionTallies(store: Store, ids: readonly string[]): Map<string, { passed: number; failed: number; inconclusive: number }> {
+export function sessionTallies(store: TestsStore, ids: readonly string[]): Map<string, { passed: number; failed: number; inconclusive: number }> {
   const out = new Map<string, { passed: number; failed: number; inconclusive: number }>();
   if (!ids.length) return out;
   const rows = store.query(`SELECT session_id AS session, ok, failure, json_extract(data, '$.verdict') AS verdict FROM test_results WHERE session_id IN (SELECT value FROM json_each(?))`, JSON.stringify(ids));
@@ -265,11 +274,13 @@ function sessionTallies(store: Store, ids: readonly string[]): Map<string, { pas
  */
 function sessionRows(store: Store, sessions: readonly TestSession[]): SessionVerdict[] {
   const tallies = sessionTallies(store, sessions.map((s) => s.sessionId));
+  const decided = keptDecisionsMoved(store, sessions);
   return sessions.map((s) => {
     const t = tallies.get(s.sessionId) ?? { passed: 0, failed: 0, inconclusive: 0 };
     const goldens = t.passed + t.failed + t.inconclusive;
-    const moved = [t.failed ? `${plural(t.failed, 'golden')} failed` : '', t.inconclusive ? `${t.inconclusive} inconclusive` : ''].filter(Boolean);
+    const moved = [t.failed ? `${plural(t.failed, 'golden')} failed` : '', t.inconclusive ? `${t.inconclusive} inconclusive` : '', ...(decided.get(s.sessionId) ?? [])].filter(Boolean);
     const word: VerdictWord = t.failed ? 'failed' : t.inconclusive ? 'inconclusive' : 'passed';
+    const pullRequest = pullRequestOf(s);
     return {
       kind: 'session',
       id: revisionKey(s.revision),
@@ -288,6 +299,8 @@ function sessionRows(store: Store, sessions: readonly TestSession[]): SessionVer
       command: s.command.join(' '),
       goldens,
       ...t,
+      pullRequest,
+      flag: flagOf(word, pullRequest),
     };
   });
 }
@@ -736,6 +749,15 @@ export function verdictsView(store: Store, goldens: readonly GoldenSource[], opt
 
 const WORST: Record<GoldenVerdict, number> = { failed: 0, inconclusive: 1, passed: 2 };
 
+/**
+ * The newest session that ended, wasn't interrupted and ran every golden: the one Verdicts leads
+ * with, a revision's page calls the newest, Settings → CI's line under Your workflow names without a
+ * CI report, and the pull request comment's preview reads. Null before one.
+ */
+export function newestFullSession(store: TestsStore, goldens: readonly GoldenSource[]): TestSession | null {
+  return revisionSessions(store, goldens).sessions[0] ?? null;
+}
+
 /** Which of these runs the store still has. */
 function runsKept(store: Store, ids: readonly string[]): Set<string> {
   if (!ids.length) return new Set();
@@ -774,5 +796,6 @@ export function verdictRevision(store: Store, goldens: readonly GoldenSource[], 
     }))
     .sort((a, b) => WORST[a.verdict] - WORST[b.verdict] || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const lead = judged.find((g) => g.verdict === 'failed') ?? judged.find((g) => g.verdict === 'inconclusive') ?? null;
-  return { row: row!, latest: tested[0]?.sessionId === session.sessionId, lead, goldens: judged, decisions: session.revision ? previewRows(store, previewsAt(store, session.revision), shared) : [], shared };
+  const comment = sessionCommentParts(store, session, inSessionOrder(results).map(storedCommentResult));
+  return { row: row!, latest: tested[0]?.sessionId === session.sessionId, lead, goldens: judged, decisions: session.revision ? previewRows(store, previewsAt(store, session.revision), shared) : [], comment, shared };
 }

@@ -5,18 +5,21 @@ import { parseStoreUrl } from '@shadowlap/remote';
 import { commitAuthors, commitSubjects } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
+import { storeSessionPrStates } from '../pr-state.js';
 import type { Router } from '../router.js';
 import type { GoldenSource } from '../tests.js';
-import { commitsWanted, VERDICTS_KINDS, verdictRevision, verdictsLimit, verdictsView, withCommits, type VerdictRevision, type VerdictsKind, type VerdictsView } from '../verdicts.js';
+import { commitsWanted, VERDICTS_KINDS, verdictRevision, verdictsLimit, verdictsView, withCommits, type SessionVerdict, type VerdictRevision, type VerdictsKind, type VerdictsView } from '../verdicts.js';
 
 /**
  * Changes › Verdicts: every change checked before it shipped, and the verdict it got.
  *
  *   GET /api/verdicts[?kind=all|sessions|previews|verifies&limit=]   the changes, newest first, each chip's count, and the newest revision's verdict
- *   GET /api/verdicts/:rev                                           a revision's page (`no-revision` for none): its goldens as that session judged them, and the previews asked at it
+ *   GET /api/verdicts/:rev                                           a revision's page (`no-revision` for none): its goldens as that session judged them, what its comment carried, and the previews asked at it
  *
  * Who made a change is named only with a team store, where checks are shared, as the Runs page's By
  * column is. A commit's subject and author come from the project's git, asked beside the server.
+ * Where the pull request a session shown ran for stands is asked of gh in the background, as Fixes
+ * asks of a fix's.
  */
 
 /** The folder the project keeps its goldens in. */
@@ -48,7 +51,15 @@ async function commitsHere<T extends VerdictsView | VerdictRevision>(view: T, ro
   return withCommits(view, subjects, view.shared ? await commitAuthors(root, revs) : new Map());
 }
 
+/** The session rows a view shows: its lead's and each row's. */
+const sessionsShown = (view: VerdictsView): SessionVerdict[] => [...(view.lead ? [view.lead] : []), ...view.rows.filter((r): r is SessionVerdict => r.kind === 'session')];
+
 export function register(router: Router, ctx: RouteContext): void {
+  // A session's pull request moves on once gh says where it stands, open included: asked in the
+  // background for the sessions a page shows, and written to the store, whose 'tests' counter brings
+  // the pages up to date. Only pull requests on github.com and the project's own GitHub hosts are
+  // read. A read-only dashboard asks no one, as it changes nothing.
+  const prs = ctx.readOnly ? null : storeSessionPrStates(() => ctx.store, { projectDir: ctx.project?.path ?? null });
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];
   // A config that can't be read leaves the notes' normalizers out rather than the page.
   const normalizers = (): Normalizer[] => {
@@ -64,12 +75,14 @@ export function register(router: Router, ctx: RouteContext): void {
     const kind = r.query.get('kind') ?? 'all';
     if (!(VERDICTS_KINDS as readonly string[]).includes(kind)) throw new HttpError(400, `kind is ${VERDICTS_KINDS.join(', ')}`);
     const view = verdictsView(ctx.store, goldens(), { kind: kind as VerdictsKind, limit: verdictsLimit(r.query.get('limit')), shared: shared(), folder: FOLDER });
+    prs?.refresh(sessionsShown(view));
     r.tagged(await commitsHere(view, ctx.project?.path));
   });
 
   router.get('/verdicts/:rev', async (r) => {
     const page = verdictRevision(ctx.store, goldens(), r.params.rev!, { shared: shared(), folder: FOLDER, normalizers: normalizers() });
     if (!page) throw new HttpError(404, `no change ${r.params.rev!.slice(0, 100)} checked: no test session ran every golden at it`);
+    prs?.refresh([page.row]);
     r.tagged(await commitsHere(page, ctx.project?.path));
   });
 }

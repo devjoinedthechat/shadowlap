@@ -52,9 +52,9 @@ export function repairSpent(rec: FixRecords): boolean {
 }
 
 /** Run more attempts or Verify again, for the newest verdict that counts when it is incomplete and can be settled; else none. */
-function verifyLead(rec: FixRecords): FixLead | null {
+function verifyLead(rec: FixRecords, keptMax: number | null): FixLead | null {
   const v = counting(rec).at(-1);
-  const more = v ? verifyMore(v) : null;
+  const more = v ? verifyMore(v, keptMax) : null;
   if (!v || !more) return null;
   return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max, attempts: v.report.attempts };
 }
@@ -67,7 +67,7 @@ function verifyLead(rec: FixRecords): FixLead | null {
  * fix holds.
  */
 function openLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixLead | null {
-  if (repairSpent(rec)) return verifyLead(rec);
+  if (repairSpent(rec)) return verifyLead(rec, o.keptMax ?? null);
   const again = actions.blameAgain;
   if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood, underCheck: again.underCheck };
   if (o.crash && rec.failing.includes(o.crash.runId)) return crashLead(o.crash.runId, o.crash.step);
@@ -78,10 +78,15 @@ function openLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixL
   return repair && !repair.noFix ? { key: 'repair', label: ACTIONS.runRepair.label, command: repair.command, use: 'writes', repairer: o.repairer?.trim() || null } : null;
 }
 
-/** What a fix's lead reads besides its records: the repairer the config names, and its blamed run's crash step, which its caller works out (fix-crash.ts). */
+/**
+ * What a fix's lead reads besides its records: the repairer the config names, its blamed run's crash
+ * step, which its caller works out (fix-crash.ts), and the config's `verify.max` (`keptMax`), which Run
+ * more attempts keeps a good run's pairs to.
+ */
 export interface FixLeadOptions {
   repairer: string | null;
   crash?: { runId: string; step: CrashStep } | null;
+  keptMax?: number | null;
 }
 
 /**

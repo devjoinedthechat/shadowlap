@@ -1,4 +1,4 @@
-import { createElement, useState, type ReactElement } from 'react';
+import { createElement, useState, type ComponentType, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useMenu } from '../ui/components/Popover.js';
 import { ToastHost } from '../ui/components/Toast.js';
@@ -20,14 +20,16 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * A part that opens on a press, whose code didn't come from the dashboard server: Share's menu, the
- * fork menu, the header's …, Revert's dialog, Run blame's dialogs, the steps' dialogs and the Security report. The
- * browser keeps a script's failure for as long as the page is open, so a press says so in the error
- * toast, in LoadFailed's words, with Retry, which loads the page again once the server is back. Nothing
- * is drawn in the part's place, so the focus stays on the button pressed, which no longer says it is
- * open, and the next press says it again. The parts drawn in place keep their own: the check builder
- * says so in a small dialog in its place, an injection test's results in the panel, and its finding
- * in the finding's place among the run's findings. Here their scripts fail to come, as when the
- * dashboard stopped.
+ * fork menu, the header's …, Revert's dialog, Run blame's dialogs, the steps' dialogs, the Security
+ * report, New preview's dialogs, a run's action's, Find breaking commit's, a diverged test's, Edit
+ * and fork's, Remove project's and Preview pull request comment's. The browser keeps a script's
+ * failure for as long as the page is open, so a press says so in the error toast, in LoadFailed's
+ * words, with Retry, which loads the page again once the server is back. Nothing is drawn in the
+ * part's place, so the focus stays on the button pressed, which no longer says it is open, and the
+ * next press says it again. The parts drawn in place keep their own: the check builder says so in a
+ * small dialog in its place, an injection test's results in the panel, and its finding in the
+ * finding's place among the run's findings. Here their scripts fail to come, as when the dashboard
+ * stopped.
  */
 
 const { refused } = vi.hoisted(() => ({
@@ -45,6 +47,13 @@ vi.mock('../ui/injection/SecurityReportDialog.js', refused);
 vi.mock('../ui/injection/InjectionResults.js', refused);
 vi.mock('../ui/injection/InjectionFinding.js', refused);
 vi.mock('../ui/checks/Builder.js', refused);
+vi.mock('../ui/changes/NewPreview.js', refused);
+vi.mock('../ui/run/ActionDialog.js', refused);
+vi.mock('../ui/run/RunDialogs.js', refused);
+vi.mock('../ui/run/DivergedDialogs.js', refused);
+vi.mock('../ui/run/EditDialog.js', refused);
+vi.mock('../ui/shell/RemoveProject.js', refused);
+vi.mock('../ui/ci/PrCommentDialog.js', refused);
 
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
 const MENU = 'This menu’s code didn’t come from the dashboard server. Retry loads the page again.';
@@ -77,6 +86,16 @@ function SecurityRow() {
   const [open, setOpen] = useState(false);
   const Report = SERVED_PARTS.SecurityReportDialog!;
   return createElement('div', null, createElement('button', { type: 'button', className: 'secrow', onClick: () => setOpen(true) }, 'Security report'), open ? createElement(Report, { resultId: 'inj_1', mode: 'plant', runId: RUN, onClose: () => setOpen(false) }) : null);
+}
+
+/** The dialogs the served dashboard hands in that only a press opens, besides those its pages' own buttons open here. */
+const PRESSED = ['NewPreview', 'ActionDialog', 'BisectDialog', 'DivergedDialogs', 'EditDialog', 'RemoveProject', 'PrCommentDialog'] as const;
+
+/** A button that opens `part` as the page drawing it does: open while it is drawn, closed through its `onClose`. */
+function Opens({ part }: { part: (typeof PRESSED)[number] }) {
+  const [open, setOpen] = useState(false);
+  const Part = SERVED_PARTS[part] as unknown as ComponentType<{ onClose: () => void }>;
+  return createElement('span', null, createElement('button', { type: 'button', 'data-part': part, 'aria-expanded': open, onClick: () => setOpen(true) }, part), open ? createElement(Part, { onClose: () => setOpen(false) }) : null);
 }
 
 /** A gated golden's report on Tests, its kept result's Security report among its steps (tests/ReportSteps.tsx), which opens the same dialog as Share's. */
@@ -220,6 +239,19 @@ describe('a part that opens on a press, whose code didn’t come', () => {
         const toasts = await press(button, said);
         expect(toasts.map((t) => [t.text, t.kind, t.action?.label]), `${name}, press ${time}`).toEqual([[DIALOG, 'error', 'Retry']]);
         expect(r!.focused(), `${name}, press ${time}`).toBe(button());
+        expect(drawn()).toEqual({ toast: [DIALOG], retry: ['Retry'], menus: 0, dialogs: 0 });
+      }
+    }
+  });
+
+  it('says so of New preview’s dialogs, a run’s action’s, Find breaking commit’s, a diverged test’s, Edit and fork’s, Remove project’s and Preview pull request comment’s in the dialog’s words, each closed, and again on the next press', async () => {
+    const { said } = await served(createElement('div', null, ...PRESSED.map((part) => createElement(Opens, { key: part, part }))));
+    for (const part of PRESSED) {
+      const button = () => r!.one(`button[data-part="${part}"]`);
+      for (const time of [1, 2]) {
+        const toasts = await press(button, said);
+        expect(toasts.map((t) => [t.text, t.kind, t.action?.label]), `${part}, press ${time}`).toEqual([[DIALOG, 'error', 'Retry']]);
+        expect(button().getAttribute('aria-expanded'), `${part} no longer says it is open`).toBe('false');
         expect(drawn()).toEqual({ toast: [DIALOG], retry: ['Retry'], menus: 0, dialogs: 0 });
       }
     }

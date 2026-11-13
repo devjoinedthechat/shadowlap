@@ -7,6 +7,7 @@ import { BuilderLost } from '../run/check-part.js';
 import { IssuesLoading } from '../runspage/IssuesLoading.js';
 import type { InjectionFindingProps, MoreMenuProps, ServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
+import { ElsewhereFallback, ElsewhereWaiting } from './held-elsewhere.js';
 
 /** How a part that opens on a press stands, by its props: open unless they say otherwise, and how it closes. */
 interface Pressed {
@@ -36,10 +37,14 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
 
 /**
  * The one `failed` of the parts that open on a press: Share's menu and the Security report it opens,
- * the fork menu, the header's …, Revert's dialog, Run blame's dialogs and the steps' dialogs, each a
- * `menu` or a `dialog` in the toast's words. The parts drawn in place keep their own: the first bad
- * commit's change box's LoadFailed, the check builder's BuilderLost, Runs › Failed's issues'
- * LoadFailed, the results panel's LoadFailed and an injection test's finding's (FindingLost).
+ * the fork menu, the header's …, Revert's dialog, Run blame's dialogs, New preview's dialogs, the
+ * steps' dialogs, a run's action's, Find breaking commit's, a diverged test's, Edit and fork's,
+ * Remove project's and Preview pull request comment's, each a `menu` or a `dialog` in the toast's
+ * words. The parts drawn in place keep their own: the first bad commit's change box's LoadFailed,
+ * the check builder's and the check menu's BuilderLost, Runs › Failed's issues' LoadFailed, the
+ * results panel's LoadFailed, an injection test's finding's (FindingLost) and the In page's, its
+ * page's not-found. The palette and the job's drawer, drawn before any press asks for them, draw
+ * nothing.
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -66,7 +71,8 @@ function FindingLost({ fx, more }: Pick<InjectionFindingProps, 'fx' | 'more'>) {
 /**
  * The parts only the served dashboard draws (served-parts.ts), each a script of its own that loads the
  * first time it shows (OnShow.tsx). Only App.tsx imports this module, so an exported copy's script
- * (main-copy.tsx) holds none of them.
+ * (main-copy.tsx) holds none of them: neither those of a run's page nor the shell's palette, job's
+ * drawer and Remove project, nor the In page, nor Preview pull request comment's dialog.
  */
 export const SERVED_PARTS: ServedParts = {
   ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu), failed('menu', closes)),
@@ -77,6 +83,7 @@ export const SERVED_PARTS: ServedParts = {
   ChangeBox: onShow(() => import('../revert/ChangeBox.js').then((m) => m.ChangeBox), { failed: <LoadFailed what="change" /> }),
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks), failed('dialog', closes)),
+  NewPreview: onShow(() => import('../changes/NewPreview.js').then((m) => m.NewPreview), failed('dialog', closes)),
   CheckMenu: onShow(() => import('../run/CheckMenu.js').then((m) => m.CheckMenu), { failed: <BuilderLost /> }),
   FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues), { waiting: <IssuesLoading />, failed: <LoadFailed what="view" /> }),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
@@ -94,4 +101,18 @@ export const SERVED_PARTS: ServedParts = {
       }),
     { waiting: <Skeleton what="the results" lines={4} />, failed: <LoadFailed what="panel" /> },
   ),
+  // The shell's: the palette and the job's drawer load as the shell first draws them, the words of a job's kind with the drawer.
+  Palette: onShow(() => import('../shell/Palette.js').then((m) => m.Palette)),
+  JobDrawer: onShow(() => import('../components/Drawer.js').then((m) => m.JobDrawer)),
+  jobs: () => import('../jobs.js'),
+  RemoveProject: onShow(() => import('../shell/RemoveProject.js').then((m) => m.RemoveProjectDialog), failed('dialog', closes)),
+  // A run's page's, which it rarely opens.
+  ActionDialog: onShow(() => import('../run/ActionDialog.js').then((m) => m.ActionDialog), failed('dialog', closes)),
+  BisectDialog: onShow(() => import('../run/RunDialogs.js').then((m) => m.BisectDialog), failed('dialog', closes)),
+  DivergedDialogs: onShow(() => import('../run/DivergedDialogs.js').then((m) => m.DivergedDialogs), failed('dialog', closes)),
+  EditDialog: onShow(() => import('../run/EditDialog.js').then((m) => m.EditDialog), failed('dialog', closes)),
+  // Settings → CI's and the newest revision's, from one script.
+  PrCommentDialog: onShow(() => import('../ci/PrCommentDialog.js').then((m) => m.PrCommentDialog), failed('dialog', closes)),
+  // The page's own looks, from the page that asked (held-elsewhere.tsx), while its script comes and should it fail to come.
+  Elsewhere: onShow(() => import('./Elsewhere.js').then((m) => m.ElsewherePage), { waiting: <ElsewhereWaiting />, failed: <ElsewhereFallback /> }),
 };

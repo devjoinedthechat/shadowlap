@@ -20,7 +20,7 @@ export function App({ token }: { token: string | null }) {
       </>
     );
   return (
-    <AppProvider client={c}>
+    <AppProvider client={c} jobWords={SERVED_PARTS.jobs}>
       <ServedPartsContext.Provider value={SERVED_PARTS}>
         <Shell pages={DashboardPages} />
       </ServedPartsContext.Provider>

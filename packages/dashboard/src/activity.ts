@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, GATE_TOO_LITTLE, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, GATE_TOO_LITTLE, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, outcomeCounts, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { num } from './fields.js';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
@@ -116,10 +116,11 @@ const EVENT_TEXT = new Map<string, Describe>([
   ],
   ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
   ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
-  ['verify.accepted', (e, d) => ({ kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
-  ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
+  // A kept preview's verify (`decisions --verify`) is worded by its session's name and opens the preview.
+  ['verify.accepted', (e, d) => previewVerify(d, 'fixok', 'Verified', counted(d)) ?? { kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
+  ['verify.rejected', (e, d) => previewVerify(d, 'fixbad', 'Verify rejected the change', counted(d) ?? rejection(d)) ?? { kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
   // A verify that settled nothing: why, by its first reason (a run left inconclusive, the provider gone).
-  ['verify.incomplete', (e, d) => ({ kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
+  ['verify.incomplete', (e, d) => previewVerify(d, 'fixinc', 'Verify inconclusive', strings(d.reasons)[0] ?? null) ?? { kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
   // A fix with no patch (verified on the working tree, or with a change of request fields) was only marked applied, as its page says.
   ['fix.applied', (e, d) => ({ kind: 'fixok', text: `${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
   // An open fix given another check (`shadowlap fix check`, the builder's Save check): what its runs must do now.
@@ -178,6 +179,22 @@ const EVENT_TEXT = new Map<string, Describe>([
   ],
   ['run.shared', (e, d) => ({ kind: 'project', text: parts(`Shared ${e.runId ? short(e.runId) : 'a run'} as a link`, (num(d.runs) ?? 1) > 1 && `with ${plural(num(d.runs)! - 1, 'more run')}`, d.redacted === true || (num(d.redacted) ?? 0) > 0 ? 'redacted' : null) })],
 ]);
+
+/**
+ * A kept preview's verify, as the feed tells it: `Verified · Model switch to claude-haiku-4-5: 1 fixed, 1 kept`,
+ * its runs counted by how each came out, linked to the preview. Null for any other verify, a migration's too, which keeps a fix's words.
+ */
+function previewVerify(d: Record<string, unknown>, kind: 'fixok' | 'fixbad' | 'fixinc', lead: string, why: string | null): EventText | null {
+  const id = str(d.session);
+  const name = str(d.name);
+  if (!id || !name || !/^dc-[\w-]+$/.test(id)) return null;
+  return { kind, ...(kind === 'fixinc' ? { outcome: 'warn' as const } : {}), text: `${lead} · ${name}${why ? `: ${why}` : ''}`, href: links.changeSession('decisions', id) };
+}
+
+/** How a session verify's runs came out, counted in the engine's words (`1 fixed, 1 kept`); null where the event keeps none. */
+function counted(d: Record<string, unknown>): string | null {
+  return outcomeCounts(strings(d.outcomes)) || null;
+}
 
 /** A verify's page: under its fix, at the verdict when the event names it. */
 function verifyHref(ref: string | null, d: Record<string, unknown>): string {

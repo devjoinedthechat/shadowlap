@@ -76,7 +76,7 @@ export interface TestSessionPullRequest {
 export interface TestSessionComment {
   /** The decisions session (`dc-…`) the branch's write and stop changes came from (`decisions --from-code`); null when the job asked none. */
   decisions: string | null;
-  /** What a run costs, in USD: on the base branch, and in this session; null where it can't be told. */
+  /** What a run of its goldens costs as it would run live, in USD: as recorded, and in this session (`shadowlap test` keeps it); null where it can't be told. */
   costPerRun: { before: number | null; after: number | null } | null;
 }
 

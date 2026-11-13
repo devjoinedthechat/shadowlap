@@ -14,6 +14,7 @@ import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction } from '../ui/toast.js';
 import type { JobFile, JobView } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * The job drawer docked across the content's foot, as the shell draws it: what it says as its job runs
@@ -142,7 +143,7 @@ describe('the drawer', () => {
         openJob: (id: string, focus?: boolean) => setJobs((l) => jobOpened(l, id, focus)),
         ...over,
       } as unknown as AppState;
-      return createElement(AppContext.Provider, { value }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('button', { className: `mine${lead ? ' btn lime' : ''}`, type: 'button' }, 'A control')), createElement(JobDrawer), createElement('footer', { className: 'status' }, createElement(JobChip)));
+      return createElement(AppContext.Provider, { value }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('button', { className: `mine${lead ? ' btn lime' : ''}`, type: 'button' }, 'A control')), createElement(JobDrawer), withServed(createElement('footer', { className: 'status' }, createElement(JobChip))));
     }
     return { Host, on };
   }

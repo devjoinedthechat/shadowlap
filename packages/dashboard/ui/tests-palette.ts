@@ -1,4 +1,6 @@
 import { testsPalette } from './goldens.js';
+import { ACTIONS } from './labels.js';
+import { href } from './route.js';
 import type { TestsView } from './types.js';
 
 /**
@@ -42,6 +44,9 @@ export function onTestsChanged(on: () => void): () => void {
   };
 }
 
+/** How many goldens were last listed: the palette's preview rows show while there are any. */
+export const knownGoldens = (): number => known?.rows.length ?? 0;
+
 /** The goldens as last listed, from the Tests page or the palette's own load. */
 export function keepTests(view: TestsView): void {
   const before = paletteKey(known);
@@ -76,4 +81,26 @@ export function testsPaletteCommands(app: TestsPaletteApp, go: (to: string) => v
     ...(e.job ? { job: true } : {}),
     run: () => (e.group === 'Actions' ? app.guard(() => go(e.to)) : go(e.to)),
   }));
+}
+
+/**
+ * Actions › Preview pull request comment, on any page: Settings → CI opens the comment's preview,
+ * from the last test session, asked for there (`ask`, its page's PageAsk). None in an exported copy,
+ * or while the goldens as last listed have no session. It only reads, so a read-only dashboard lists
+ * it too.
+ */
+export function prCommentPaletteCommands(app: Pick<TestsPaletteApp, 'exported'>, go: (to: string) => void, ask: () => void): TestsPaletteCommand[] {
+  if (app.exported || !known?.verdict?.session) return [];
+  return [
+    {
+      group: 'Actions',
+      label: ACTIONS.previewPrComment.label,
+      hint: 'from the last test session',
+      mono: false,
+      run: () => {
+        ask();
+        go(href.settings('ci'));
+      },
+    },
+  ];
 }

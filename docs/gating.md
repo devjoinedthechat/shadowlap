@@ -547,7 +547,7 @@ To let inconclusive goldens through with a warning instead, add `--inconclusive 
 | `max-attempts` input  | As `--max-attempts`             |
 | `inconclusive` output | Counts the inconclusive goldens |
 
-The Markdown summary counts inconclusive goldens apart (`### Shadowlap: 1 of 12 recordings is inconclusive`) and marks them 🟡. It says what CI did with them and what to do:
+The Markdown summary counts inconclusive goldens apart (`### Shadowlap: 11 of 12 goldens passed · 1 inconclusive`) and marks them 🟡. It says what CI did with them and what to do:
 
 - the `--inconclusive` given, or with none, the default;
 - for each gate against a short history, whether it only warned or counted, and why;

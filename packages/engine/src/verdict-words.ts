@@ -19,11 +19,49 @@ export const verdictWord = (v: 'accepted' | 'rejected' | 'incomplete'): 'accepte
 export const runOutcomeWord = <O extends string>(o: O): Exclude<O, 'unsettled'> | 'inconclusive' => (o === 'unsettled' ? 'inconclusive' : (o as Exclude<O, 'unsettled'>));
 
 /**
+ * Why verify left a run open, by how it came out (`outcome`: verify's word, `outcomeOf`, or a kept
+ * session's) and why an attempt it could not judge stopped it (`undecided`): its gate ran out of
+ * attempts (`ran-out`), it stopped first (`stopped`), or that attempt stopped it (`unjudged`); null
+ * for a run it settled. Run more attempts takes the first two, a role's limit doubling only where a
+ * run of that role ran out, and Verify again the third: Fixes and Changes read an open run so alike.
+ */
+export function openRunWhy(outcome: string, undecided: string | null | undefined): 'ran-out' | 'stopped' | 'unjudged' | null {
+  if (undecided) return 'unjudged';
+  return outcome === 'inconclusive' ? 'ran-out' : outcome === 'unsettled' ? 'stopped' : null;
+}
+
+/**
  * A test session's tally, counting what passed, as every tally on a page counts it: `2 of 7 goldens
  * passed`. (The session's own line keeps the CLI's `2 passed, 3 failed, 2 inconclusive`.)
  */
 export function goldensPassed(passed: number, goldens: number): string {
   return `${passed} of ${goldens} golden${goldens === 1 ? '' : 's'} passed`;
+}
+
+/** The order a verify's runs are counted in: what it did of the runs that failed, then of those that worked, then those it left open. */
+const COUNTED = ['fixed', 'not fixed', 'broken', 'kept', 'inconclusive'] as const;
+
+/**
+ * How a verify's runs came out, counted by each run's outcome word (`runOutcomeWord`; a kept
+ * session's `not-fixed` reads `not fixed`): `2 kept`, `1 fixed, 1 kept`, `1 broken, 1 kept`. Activity
+ * says a kept preview's verify so.
+ */
+export function outcomeCounts(outcomes: readonly string[]): string {
+  const words: string[] = outcomes.map((o) => runOutcomeWord(o === 'not-fixed' ? 'not fixed' : o));
+  return COUNTED.flatMap((w) => {
+    const n = words.filter((x) => x === w).length;
+    return n ? [`${n} ${w}`] : [];
+  }).join(', ');
+}
+
+/**
+ * A session's tally as every tally on a page counts it, inconclusive goldens apart: `2 of 7 goldens
+ * passed · 3 failed, 2 inconclusive`, or `7 of 7 goldens passed`. The pull request comment and the job
+ * summary head with it, so a job's comment, its summary and the dashboard count alike.
+ */
+export function sessionTally(passed: number, failed: number, inconclusive: number): string {
+  const notPassed = [failed ? `${failed} failed` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
+  return `${goldensPassed(passed, passed + failed + inconclusive)}${notPassed ? ` · ${notPassed}` : ''}`;
 }
 
 /**

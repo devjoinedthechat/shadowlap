@@ -26,9 +26,6 @@
     "packages/cli/src/chaos.ts": {
       "runPresets": 92
     },
-    "packages/cli/src/commands/changes.ts": {
-      "register > action(\"decisions\")": 44
-    },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
     },
@@ -120,7 +117,7 @@
       "teamPull": 39
     },
     "packages/cli/src/test-report.ts": {
-      "markdownReport": 39
+      "markdownReport": 33
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 58,
@@ -150,9 +147,6 @@
     },
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
-    },
-    "packages/dashboard/src/fix-verify-step.ts": {
-      "verifyMore": 41
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
@@ -358,9 +352,6 @@
     "packages/cli/src/chaos.ts": {
       "runPresets": 156
     },
-    "packages/cli/src/commands/changes.ts": {
-      "register": 186
-    },
     "packages/cli/src/commands/data.ts": {
       "register": 207
     },
@@ -472,7 +463,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 900,
+    "packages/dashboard/src/tests.ts": 896,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 810,

@@ -25,7 +25,7 @@ describe('judge checks in the reports', () => {
     // An inconclusive golden fails the run, and is counted apart from the failures.
     expect(report).toMatchObject({ passed: 2, failed: 1, inconclusive: 1 });
     const md = markdownReport(report);
-    expect(md.startsWith('### Shadowlap: 1 of 3 recordings is inconclusive\n')).toBe(true);
+    expect(md.startsWith('### Shadowlap: 2 of 3 goldens passed · 1 inconclusive\n')).toBe(true);
     expect(md).toContain(`| 🟡 | \`escalate\` | check inconclusive: ${label}`);
     // A check's words are shown as text: a dollar sign split from what follows by an empty span, which starts no math.
     expect(md).toContain(`- \`refund\` ✅ ${label} · It names the $<span></span>100 limit. (judged from the recording, free)`);
@@ -37,7 +37,7 @@ describe('judge checks in the reports', () => {
     expect(md).not.toContain('A failed check means');
     // With a failure too, both are counted.
     const both = markdownReport(testReport([base, { ...unjudged, name: 'bad', verdict: 'failed', failure: 'check' }, unjudged]));
-    expect(both.startsWith('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive\n')).toBe(true);
+    expect(both.startsWith('### Shadowlap: 1 of 3 goldens passed · 1 failed, 1 inconclusive\n')).toBe(true);
   });
 
   it('annotate a golden whose judge check was not judged with why', () => {

@@ -854,8 +854,8 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* the previews that asked the run, a chip each, as the views' filters are */
 .dview .dvpick { margin-bottom: 12px; }
 .dvhead { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 14px; }
-/* the session's line keeps its name, its time and its samples whole; where it can't have 240px beside the link, the
-   link goes under it */
+/* the session's line keeps its name, its time and its samples whole; where it can't have 240px beside the link and New
+   preview, they go under it */
 .dvhead p { flex: 1 1 240px; min-width: 0; margin: 0; color: var(--faint); font-size: 12.5px; }
 .dvhead p b { color: var(--ink); font-weight: 500; }
 .dview .dvstrip { margin-bottom: 16px; }
@@ -876,3 +876,5 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* the line about later steps, as a matrix's receipt reads */
 .dvlater { margin: 14px 0 8px; color: var(--faint); font-size: 12.5px; }
 .dvempty p { max-width: 64ch; margin: 0 0 12px; color: var(--dim); }
+/* Verify this run or Run more attempts under the steps; the three ways under a run nobody previewed */
+.dview .actions { margin-top: 12px; }

@@ -1,6 +1,9 @@
-import { commandIsImported, type DecisionRun, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
+import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
 import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
+import { sprtGate } from './fix-shared.js';
+import { moreFlags, moreOf, type PreviewMore } from './decision-more.js';
+import { decisionsArgv, FIELD_NAME, fromFlags, MODEL_NAME, PREVIEW_MAX, scopeFlags, setFlags, tooManyToPreview } from './decisions-argv.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { type RetiringModel, retiringModels } from './retirements.js';
@@ -105,12 +108,14 @@ export interface RunDecisionsSession {
   run: DecisionRun;
   /** Whether the session left it to verify (`toVerify`; a session kept before it said which, the flagged). */
   toVerify: boolean;
-  /** What verify found of it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), and the rule it was decided by. Null until verify took it. */
-  verified: { outcome: string; tally: string; rule: string | null } | null;
+  /** What verify found of it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), the tally alone (`4 of 4`), and the rule it was decided by. Null until verify took it. */
+  verified: { outcome: string; tally: string; count: string; rule: string | null } | null;
+  /** Run more attempts, or Verify again, on it alone where verify left it open (`moreOf`); null for a migration, which Changes never verifies from here. */
+  more: PreviewMore | null;
 }
 
 /** A run's decisions under each session that asked its model calls again, newest first, for its page's Decisions view; with the line about later steps where one did. */
-export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string, limit = 10): { runId: string; sessions: RunDecisionsSession[]; later: typeof LATER_STEPS | null } {
+export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string, limit = 10, keptMax: number | null = null): { runId: string; sessions: RunDecisionsSession[]; later: typeof LATER_STEPS | null } {
   const rows = store.decisionsOfRun(runId, limit);
   const facts = sessionFacts(store, rows.map((r) => r.sessionId));
   return {
@@ -138,7 +143,8 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
         steps: viewSteps(run),
         run,
         toVerify: !!f?.toVerify.includes(runId),
-        verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), rule: entry.rule ?? v?.rule ?? null } : null,
+        verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry), rule: entry.rule ?? v?.rule ?? null } : null,
+        more: r.kind === 'decisions' && entry && v ? moreOf(v, verdictsGate(store, v.verifyIds), verdictsKeptMax(store, v.verifyIds) ?? keptMax, runId) : null,
       };
     }),
   };
@@ -155,19 +161,19 @@ export function retirementsView(store: StoreOf<'recording'>, goldens: readonly G
 
 // ---- jobs ----
 
-const MODEL = /^[\w.:@/-]{1,200}$/;
-const FIELD = /^[A-Za-z_][\w.]{0,99}$/;
+const MODEL = MODEL_NAME;
+const FIELD = FIELD_NAME;
 
-/** `--set` flags from the request's fields, checked: a field name, and a value JSON can carry. */
-function setArgs(raw: unknown): string[] | { error: string } {
+/** The request's fields to set, checked: each a field name and its value as `--set` gives it (`fieldValue`), which JSON can carry. */
+function setArgs(raw: unknown): Array<[string, string]> | { error: string } {
   if (raw === undefined || raw === null) return [];
   if (typeof raw !== 'object' || Array.isArray(raw)) return { error: 'set must map request fields to values, such as {"temperature":0}' };
-  const out: string[] = [];
+  const out: Array<[string, string]> = [];
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!FIELD.test(k) || k === 'model') return { error: `${k.slice(0, 40)} is not a request field to set${k === 'model' ? ': give the model as model' : ''}` };
     const text = fieldValue(v);
     if (text === undefined || text.length > 2000) return { error: `the value for ${k} is too long, or not JSON` };
-    out.push('--set', `${k}=${text}`);
+    out.push([k, text]);
   }
   return out;
 }
@@ -180,7 +186,9 @@ function targetArgs(store: StoreOf<'recording'>, req: JobRequest, goldens: reado
   const byId: string[] = [];
   const packs: string[] = [];
   if (req.runs !== undefined) {
-    if (!Array.isArray(req.runs) || req.runs.length > 500) return { error: 'runs must be a list of run ids' };
+    if (!Array.isArray(req.runs)) return { error: 'runs must be a list of run ids' };
+    const many = tooManyToPreview(req.runs.length);
+    if (many) return { error: many };
     for (const id of req.runs) {
       const run = typeof id === 'string' ? lookupRun(store, id) : null;
       if (!run) return { error: `no run ${String(id).slice(0, 40)}`, status: 404 };
@@ -192,7 +200,7 @@ function targetArgs(store: StoreOf<'recording'>, req: JobRequest, goldens: reado
   if (req.goldens !== undefined) {
     const known = new Map(goldens.map((g) => [g.path, g]));
     const names = req.goldens === 'all' ? [...known.keys()] : req.goldens;
-    if (!Array.isArray(names) || names.length > 500) return { error: 'goldens must be a list of the project\'s goldens, or "all"' };
+    if (!Array.isArray(names) || names.length > PREVIEW_MAX) return { error: 'goldens must be a list of the project\'s goldens, or "all"' };
     for (const name of names) {
       const g = typeof name === 'string' ? known.get(name) : undefined;
       if (!g) return { error: `${String(name).slice(0, 80)} is not one of the project's goldens`, status: 404 };
@@ -207,27 +215,33 @@ function targetArgs(store: StoreOf<'recording'>, req: JobRequest, goldens: reado
   return { args, runIds, byId, packs };
 }
 
-/** `--from` flags from the request's `from`: the recorded models a switch changes. */
+/** The request's `from`, checked: the recorded models a switch changes. */
 function fromArgs(raw: unknown): string[] | { error: string } {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw) || raw.length > 20 || raw.some((m) => typeof m !== 'string' || !MODEL.test(m))) return { error: 'from is a list of the recorded models to switch from, such as ["claude-sonnet-4-5-20250929"]' };
-  return (raw as string[]).flatMap((m) => ['--from', m]);
+  return raw as string[];
 }
 
-/** `--scope` from the request's `scope`: a scope's name, or `none` for the calls made in none. */
-function scopeArgs(raw: unknown): string[] | { error: string } {
-  if (raw === undefined || raw === null) return [];
+/** The request's `scope`, checked: a scope's name, or `none` for the calls made in none. */
+function scopeArgs(raw: unknown): { scope: string | null } | { error: string } {
+  if (raw === undefined || raw === null) return { scope: null };
   if (typeof raw !== 'string' || !/^[\w.:/-]{1,100}$/.test(raw) || isReservedScope(raw)) return { error: 'scope is the name of a scope the agent made calls in, or none' };
-  return ['--scope', raw];
+  return { scope: raw };
 }
 
-/**
- * `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?,
- * thenVerify?, yes? }`. Without `samples`, each step is asked as the CLI asks it by default: 3 times
- * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
- * passed on whatever it is, 1 too, which asks once and has no control.
- */
-export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+/** A preview's request, checked as its job and its estimate (`GET /api/decisions/estimates`) take it: its targets as the job resolves them, and its change. */
+export interface PreviewRequest {
+  targets: { args: string[]; runIds: string[]; byId: string[]; packs: string[] };
+  model: string | null;
+  set: Array<[string, string]>;
+  from: string[];
+  scope: string | null;
+  fromCode: boolean;
+  samples: number | null;
+}
+
+/** `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples? }` checked, a change or none. */
+export function previewRequest(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[]): PreviewRequest | { error: string; status?: number } {
   const targets = targetArgs(store, req, goldens);
   if ('error' in targets) return targets;
   if (req.model !== undefined && (typeof req.model !== 'string' || !MODEL.test(req.model))) return { error: 'model is a model name, such as claude-sonnet-5-5' };
@@ -237,24 +251,51 @@ export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, golde
   if ('error' in from) return from;
   const scope = scopeArgs(req.scope);
   if ('error' in scope) return scope;
-  const fromCode = req.fromCode === true;
-  if (!req.model && !set.length && !fromCode) return { error: 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree' };
-  if (from.length && !req.model && !set.length) return { error: 'from names the model calls a model or fields change: give one of them' };
-  let samples: string[] = [];
-  if (req.samples !== undefined) {
-    if (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20) return { error: 'samples is a whole number from 1 to 20' };
-    samples = ['--samples', String(req.samples)];
-  }
-  const runsAgent = fromCode || req.thenVerify === true;
+  if (req.samples !== undefined && (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20)) return { error: 'samples is a whole number from 1 to 20' };
+  return { targets, model: typeof req.model === 'string' ? req.model : null, set, from, scope: scope.scope, fromCode: req.fromCode === true, samples: typeof req.samples === 'number' ? req.samples : null };
+}
+
+/**
+ * `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?,
+ * thenVerify?, yes? }`. Without `samples`, each step is asked as the CLI asks it by default: 3 times
+ * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
+ * passed on whatever it is, 1 too, which asks once and has no control.
+ */
+export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+  const p = previewRequest(req, store, goldens);
+  if ('error' in p) return p;
+  if (!p.model && !p.set.length && !p.fromCode) return { error: 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree' };
+  if (p.from.length && !p.model && !p.set.length) return { error: 'from names the model calls a model or fields change: give one of them' };
+  const runsAgent = p.fromCode || req.thenVerify === true;
   let yes: string[] = [];
   if (runsAgent) {
-    const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
+    const consent = commandConsent(store, p.targets.byId, p.targets.packs, projectDir, req.yes);
     if ('ask' in consent) return consent.ask;
     yes = consent.yes;
   }
-  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...yes];
-  const what = fromCode ? 'the prompt in your working tree' : typeof req.model === 'string' ? req.model : 'the fields set';
-  return { args, title: `Previewing ${what}`, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
+  const args = [...decisionsArgv({ targets: p.targets.args, model: p.model, set: p.set, from: p.from, scope: p.scope, fromCode: p.fromCode, samples: p.samples, thenVerify: req.thenVerify === true }), ...yes];
+  const title = p.fromCode ? ACTIONS.previewChangedPrompt.doing : p.model ? ACTIONS.previewModelSwitch.doing : ACTIONS.previewFieldChange.doing;
+  return { args, title, ...(p.targets.runIds.length === 1 ? { runId: p.targets.runIds[0]! } : {}) };
+}
+
+/** The drawer's row for a read of what the working tree sends, as the CLI's own line begins. */
+export const READING_TREE = 'Reading what your working tree sends';
+
+/**
+ * What `--from-code` reads, as a job: `shadowlap decisions <targets> --from-code --dry-run`, `{ runs?,
+ * goldens?, scope?, yes? }`. Each run is replayed offline from the working tree with nothing sent, so
+ * it holds the tree as a reader (worktree.ts) and asks the consent a sent golden's command needs; its
+ * answer is the job's `result` (the CLI's `decisions-read`), which Preview changed prompt reads.
+ */
+export function decisionsReadJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+  const targets = targetArgs(store, req, goldens);
+  if ('error' in targets) return targets;
+  const scope = scopeArgs(req.scope);
+  if ('error' in scope) return scope;
+  const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
+  if ('ask' in consent) return consent.ask;
+  const args = [...decisionsArgv({ targets: targets.args, scope: scope.scope, fromCode: true }), '--dry-run', ...consent.yes];
+  return { args, title: READING_TREE, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
 
 /** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, yes? }`; every golden when none are named. */
@@ -271,7 +312,7 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
   if ('error' in scope) return scope;
   const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
   if ('ask' in consent) return consent.ask;
-  return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...consent.yes], title: `Migrating to ${req.to}` };
+  return { args: ['migrate', '--to', req.to, ...targets.args, ...fromFlags(from), ...scopeFlags(scope.scope), ...setFlags(set), ...consent.yes], title: `Migrating to ${req.to}` };
 }
 
 /** A session's report: a decisions session's own, a migration's decisions. */
@@ -308,11 +349,14 @@ export function runsToVerify(session: NonNullable<ReturnType<typeof decisionSess
  * checks, in the role its recording plays under them, with the session's change, and keeps what it
  * finds in the session.
  */
-export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | 'decisions'>, projectDir: string = process.cwd()): JobBuildResult {
+export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | 'decisions' | 'fixes'>, projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
   if (req.runIds !== undefined && (!Array.isArray(req.runIds) || req.runIds.length > 500)) return { error: 'runIds is a list of the runs to verify' };
+  // Refused before any consent is asked: a yes to a command that is then refused asks for nothing.
+  const refused = limitsRefused(req.max, req.keptMax);
+  if (refused) return { error: refused };
   // A list naming none names none, as the estimate takes it: every run left to verify.
   const named = Array.isArray(req.runIds) && req.runIds.length ? req.runIds : req.runId;
   const flagged = runsToVerify(session, named);
@@ -330,8 +374,63 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
     req.yes,
   );
   if ('ask' in consent) return consent.ask;
-  const args = ['decisions', '--verify', req.sessionId, ...(named !== undefined ? flagged : []), ...consent.yes];
-  return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} end to end`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
+  // The gate's other figures kept as they were, with a good run's pairs raised alone too.
+  const limits = moreFlags(sessionGate(store, session), req.max as number | undefined, req.keptMax as number | undefined);
+  const args = ['decisions', '--verify', req.sessionId, ...(named !== undefined ? flagged : []), ...limits, ...consent.yes];
+  const title = limits.length ? ACTIONS.runMoreAttempts.doing : runs.length === 1 ? `Verifying ${runs[0]!.runId.slice(0, 10)}` : `Verifying ${runs.length} runs`;
+  return { args, title, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
+}
+
+/**
+ * The gate a session's verify was decided by: that of the newest verdict it kept that the store
+ * still has, null for one decided by a fixed count (`--attempts`, from the CLI), and verify's own
+ * when none is left.
+ */
+export function sessionGate(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>): SprtGate | null {
+  return verdictsGate(store, sessionVerifyIds(session));
+}
+
+/** The pairs a good run of a session's verify ran under, as `sessionGate` reads its gate (`verdictsKeptMax`). */
+export function sessionKeptMax(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>): number | null {
+  return verdictsKeptMax(store, sessionVerifyIds(session));
+}
+
+/** The verdicts a session's verify kept, oldest first. */
+function sessionVerifyIds(session: NonNullable<ReturnType<typeof decisionSession>>): unknown[] {
+  const verify = (sessionReport(session) as { verify?: { verifyIds?: unknown } | null }).verify;
+  return Array.isArray(verify?.verifyIds) ? (verify.verifyIds as unknown[]) : [];
+}
+
+/** The newest verdict of `ids` still in the store. */
+function newestVerdict(store: StoreOf<'fixes'>, ids: readonly unknown[]) {
+  for (const id of [...ids].reverse()) {
+    const kept = typeof id === 'string' ? store.getVerdict(id) : null;
+    if (kept) return kept;
+  }
+  return null;
+}
+
+/** The gate of the newest verdict of `ids` still in the store, as `sessionGate` reads a session's: null for a fixed count, the defaults when none is left. */
+function verdictsGate(store: StoreOf<'fixes'>, ids: readonly unknown[]): SprtGate | null {
+  const kept = newestVerdict(store, ids);
+  return kept ? sprtGate(kept.report.gate) : { kind: 'sprt', ...SPRT_DEFAULTS };
+}
+
+/**
+ * The pairs a good run of the newest verdict of `ids` ran under (its report's `kept.max`, which a
+ * `--kept-max` or a gate's max set), null where none says: Run more attempts starts a good run's
+ * limit from it before the config's, so a second round never cuts a good run below the first's.
+ */
+function verdictsKeptMax(store: StoreOf<'fixes'>, ids: readonly unknown[]): number | null {
+  const max = newestVerdict(store, ids)?.report.kept?.max;
+  return typeof max === 'number' ? max : null;
+}
+
+/** Why Run more attempts' `max` or `keptMax` can't be taken, as its job and its estimate refuse it; null for whole numbers up to 1000, or none. */
+export function limitsRefused(max: unknown, keptMax: unknown): string | null {
+  const whole = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= GATE_MAX_ATTEMPTS);
+  if (!whole(max)) return `max is the most attempts a run takes, a whole number up to ${GATE_MAX_ATTEMPTS}`;
+  return whole(keptMax) ? null : `keptMax is the most pairs a good run takes, a whole number up to ${GATE_MAX_ATTEMPTS}`;
 }
 
 /** The command a job runs, as its dialog shows it. */

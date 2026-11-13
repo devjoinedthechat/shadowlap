@@ -44,9 +44,9 @@ import {
   isGatewayRequest,
   minorityNotes,
   resolveAuthor,
+  fieldRetirementWords,
   retiredFields,
   retirementsOf,
-  retirementTable,
   rewriteText,
   sameModel,
   setRequestFields,
@@ -226,7 +226,7 @@ export interface DecisionsSettings {
    * decides by default (`attempts` is then its `max`), or with `gate` null a fixed count, `needed` of
    * `attempts`.
    */
-  thenVerify: { attempts: number; needed: number; gate: SprtGate | null; writes: 'stub' | 'block'; expect: { spec: TestSpec; json: unknown } | null } | null;
+  thenVerify: { attempts: number; needed: number; gate: SprtGate | null; writes: 'stub' | 'block'; expect: { spec: TestSpec; json: unknown } | null; keptMax?: number | null } | null;
 }
 
 export interface DecisionsInput {
@@ -457,7 +457,7 @@ function maskChange(c: DecisionChange, m: Mask): DecisionChange {
 }
 
 /** What the working tree sends against the recording, for the report's change. */
-function fromCodeChange(captures: Map<string, FromCodeCapture>, store: StoreOf<'recording'>, planned: Planned[], version: string | null, m: Mask): FromCodeChange {
+export function fromCodeChange(captures: Map<string, FromCodeCapture>, store: StoreOf<'recording'>, planned: ReadonlyArray<Pick<Planned, 'target' | 'call'>>, version: string | null, m: Mask): FromCodeChange {
   let instructions: FromCodeChange['instructions'] = null;
   const tools = { added: new Set<string>(), removed: new Set<string>(), changed: new Set<string>() };
   let calls = 0;
@@ -611,7 +611,7 @@ function planRun(store: StoreOf<'recording'>, target: DecisionTarget, s: Decisio
             const set = setRequestFields(requestShape(provider, at, body), body, { [f.field]: allowed });
             if (!refused(set)) body = set.body;
           } else body = withoutFields(provider, at, body, [f.field]);
-          const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.says} (${retirementTable().platforms[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
+          const why = `${fieldRetirementWords(model, f)}; the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
           if (note) remedies.note({ field: f.field, value: allowed ?? null, leftOut, renamedTo, why, source: f.rule.source });
           fieldsChanged = true;
         }
@@ -1118,7 +1118,7 @@ interface Said {
 }
 
 /** --from-code: what the working tree sends each run, read offline by replaying it; nothing is sent. */
-async function readFromCode(input: DecisionsInput, store: Store, config: ShadowlapConfig, cwd: string): Promise<{ captures: Map<string, FromCodeCapture>; refusedRuns: Map<string, string> }> {
+export async function readFromCode(input: Pick<DecisionsInput, 'targets' | 'log'> & { settings: Pick<DecisionsSettings, 'argv' | 'timeoutMs'> }, store: Store, config: ShadowlapConfig, cwd: string): Promise<{ captures: Map<string, FromCodeCapture>; refusedRuns: Map<string, string> }> {
   const s = input.settings;
   const captures = new Map<string, FromCodeCapture>();
   const refusedRuns = new Map<string, string>();

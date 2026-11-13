@@ -62,6 +62,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'tests-estimates': { kind: 'tests-estimates', goldens: [{ path: 'goldens/refund', runId: REC, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [] }], folder: 'goldens' },
   'bisect-estimate': { kind: 'bisect-estimate', commits: 6, target: { runId: FORK, fork: true } },
   'decision-estimates': { kind: 'decision-estimates', sessionId: SESSION, runIds: [], work: null, rule: { keptMax: null, baseline: 'paired' } },
+  'preview-estimate': { kind: 'preview-estimate', runIds: [], unrecorded: 0, targets: [], model: null, set: [], from: [], scope: null, samples: null, fromCode: false },
   'decision-session': { kind: 'decision-session', sessionId: SESSION },
   'run-decisions': { kind: 'run-decisions', runId: REC },
   'held-by': { kind: 'held-by', what: 'run', ids: [REC], stores: [] },

@@ -117,7 +117,7 @@ function ViewSwitch({ v, run, calls, own, agentOnly, selected, scoped, byKind: k
     case 'provenance':
       return <ProvenanceView run={run} selected={selected} />;
     case 'decisions':
-      return <DecisionsView runId={run.run.runId} selected={selected} onSelect={onSelect} />;
+      return <DecisionsView runId={run.run.runId} selected={selected} onSelect={onSelect} live={run.run.status === 'running'} />;
   }
 }
 

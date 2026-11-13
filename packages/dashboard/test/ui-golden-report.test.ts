@@ -464,11 +464,14 @@ describe('an injection gate’s proof and its Security report', () => {
     const parts = createElement(ReportParts, { report, row, open: true });
     r = await render(served({ Proof: shownNow(Proof) }, parts));
     const line = r.one('dl.rpx dd > p.rpw > span.injline');
-    expect(line.querySelectorAll('button.pbn').map((b) => [b.textContent, b.getAttribute('data-injtab')])).toEqual([['#4', 'response'], ['#5', 'conversation'], ['#6', 'request']]);
+    // Each a link, so it opens in a new tab too: the attempt's page opens the call on the tab that shows it (injection/arrival.ts).
+    expect(line.querySelectorAll('a.pbn').map((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('data-injtab')])).toEqual([
+      ['#4', `#/run/${ATTEMPT}/4`, 'response'],
+      ['#5', `#/run/${ATTEMPT}/5`, 'conversation'],
+      ['#6', `#/run/${ATTEMPT}/6`, 'request'],
+    ]);
+    expect(line.querySelectorAll('button').length).toBe(0);
     expect(line.querySelectorAll('b.cnry').map((b) => b.textContent)).toEqual([CANARY]);
-    // The attempt's page opens a call its proof names on the tab that shows it (injection/arrival.ts).
-    await r.click(line.querySelectorAll('button.pbn')[2]);
-    expect(location.hash).toBe(`#/run/${ATTEMPT}/6`);
     await r.unmount();
     r = await render(served({}, parts));
     expect([r.all('.injline').length, r.all('dl.rpx > dt').map((d) => d.textContent)]).toEqual([0, ['Proof', 'Attempts']]);

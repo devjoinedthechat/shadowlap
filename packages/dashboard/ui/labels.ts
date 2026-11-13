@@ -119,6 +119,7 @@ export const BULK = {
   delete: (runs: number): string => `Delete ${plural(runs, 'run')}`,
   waits: (runs: number): string => `Still recording: try when ${runs === 1 ? 'it ends' : 'they end'}`,
   waitsTip: (runs: number): string => `Waits until ${runs === 1 ? 'the recording ends' : 'the recordings end'}: a copy now would be cut off`,
+  previewWaitsTip: (runs: number): string => `Waits until ${runs === 1 ? 'the recording ends' : 'the recordings end'}: a preview asks the calls it recorded`,
 } as const;
 
 /** Push local runs' card, on Runs' header and Needs a look's row: what pushing does, and the command its job runs. */

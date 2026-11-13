@@ -329,6 +329,11 @@ describe('a preview', () => {
     const e = previewEstimate([calls()], { from: null, fromCode: true });
     expect(e).toMatchObject({ usd: null, none: 'which calls the working tree changes is known once the preview has replayed it offline' });
     expect(costLine(e)).toEqual(['Billed by your provider', 'which calls the working tree changes is known once the preview has replayed it offline']);
+    // Once it has, the calls it named, at their own models' prices: once each, with no control at 1 sample.
+    const named = previewEstimate([calls()], { from: null, fromCode: true, changed: [[1, 5]] }, { samples: 1 });
+    expect(named).toMatchObject({ kind: 'preview', ceiling: false, parts: ['about 2 requests'] });
+    expect(named.usd).toBeCloseTo(COST[1] + COST[5], 10);
+    expect(previewEstimate([calls()], { from: null, fromCode: true, changed: [[]] }, { samples: 1 }).parts).toEqual(['no model call of the runs to ask']);
   });
 
   it('is Free where no call is made with a model it switches from, and says why a switch to another family asks nothing', () => {

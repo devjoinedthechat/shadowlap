@@ -1097,6 +1097,7 @@ free attempt.
 | `--budget <usd>`, `--timeout <seconds>` | As for [`blame`](#blame) | — |
 | `--fail-fast` | Start nothing more once a run has failed | — |
 | `--margin <share>` | A good run that forks is kept unless its pass rate drops this much or more below its baseline's, at the gate's risk | `verify.margin` in `shadowlap.config.json`, else 0.1: 10 points |
+| `--kept-max <n>` | The most pairs a good run that forks takes against its baseline, or attempts against its history | `verify.max`, else 200, or a `--gate` max off its default |
 | `--baseline paired\|history` | What a good run is compared with (below) | `verify.baseline`, else `paired` |
 | `--base <rev>` | With a paired baseline: the commit before the change, checked out on its own for the baseline's attempts | HEAD, when the working tree has a change |
 | `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` | — |
@@ -1683,12 +1684,15 @@ AzureOpenAI SDKs do; without it, nothing is sent.
 | `--model <model>` | The change is this model, at the agent's model calls: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure (below) | — |
 | `--from <model>` | The recorded model the change switches from: `--model` and `--set` change only the calls made with it (repeatable; an alias names its dated snapshots) | The model the runs use most; with `--set` alone, every call |
 | `--from-code` | The change is the system prompt and tool definitions your working tree sends (below) | — |
+| `--dry-run` | With `--from-code` alone: read what your working tree sends each run, offline, print it and stop. Nothing is asked and no session is kept | — |
 | `--set <key=value>` | The change sets this request field, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini); repeatable | — |
 | `--samples <n>` | Ask each model call *n* times under the change and, from 3 on, *n* times as recorded, the control (below) | 3: six requests a step |
 | `--concurrency <n>` | Requests in flight at once. A run whose requests carry cache breakpoints is asked one step at a time, in order | 4 |
 | `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope | — |
 | `--then-verify` | Then run [`verify`](#verify) on the runs a preview can't clear ([which](./decisions.md#then-verify)) | — |
 | `--verify <session>` | Ask nothing: verify the runs a kept session could not clear (below) | — |
+| `--kept-max <n>` | With `--verify`: the most pairs a good run takes, as for [`verify`](#verify) | Verify's |
+| `--test-session <id>` | With `--from-code`: keep the preview with this test session, as its pull request comment's decisions (below) | — |
 | `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify) | Verify's |
 | `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent | — |
 | `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long | A model request waits ten minutes, as the official SDKs do |
@@ -1715,6 +1719,10 @@ More on some of them:
 - **`--verify`**: it verifies the runs a kept session could not clear (its `dc-…` or `mg-…` id, or a prefix of
   it), or those of them named after it, as `--then-verify` verifies them, under the session's change.
   It keeps what verify finds in the session. The dashboard runs it as its `decisions-verify` job.
+- **`--test-session`**: the GitHub Action's `decisions: true` gives it the session `test` just ran, so
+  the [pull request comment](./ci.md#decisions-in-the-comment) lists the decisions the branch changes,
+  and Settings → CI's preview shows them. A session the store has no record of is refused before
+  anything is asked.
 - **`--gate` and the rest**: each run is decided by verify's gate, unless `--attempts` or `--passes`
   gives a fixed count.
 - **`--yes`**: it runs the recorded command of a run imported from someone's pack (`--from-code`,
@@ -2326,7 +2334,7 @@ That verdict is inconclusive, and `--inconclusive warn` lets it through.
 ### Test report as JSON
 
 `--json <file>` writes a JSON report: the session, counts and, per pack, the result and the kind of
-failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results }`,
+failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results, costPerRun }`,
 and `suite` with a gated golden:
 
 | Field | Meaning |
@@ -2336,6 +2344,7 @@ and `suite` with a gated golden:
 | `inconclusive` | The inconclusive packs, either way (below) |
 | `interrupted` | Whether a signal stopped the session; `results` has the goldens that finished before it |
 | `results` | One result per pack (below) |
+| `costPerRun` | What a run costs live, in USD: `before` as recorded, `after` as replayed here, the mean over goldens that ran whole; null without a price |
 | `suite` | With a gated golden: the session's one risk, and how it was split (below) |
 
 An inconclusive pack counts as failed, or as passed when it only warns: under `--inconclusive warn`, or,
