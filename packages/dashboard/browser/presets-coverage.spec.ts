@@ -89,6 +89,8 @@ test('the presets’ results on their recording fit at 1440, 1180, 1024 and 390:
   for (const width of [1440, 1180, 1024, 390]) {
     // A page loaded at that width, never the last one's: its results stay open across a link to the same run.
     await page.goto('about:blank');
+    // The last width's page has gone, and a poll it had out goes with it, never finishing nor failing.
+    out.clear();
     await page.setViewportSize({ width, height: width > 400 ? 900 : 844 });
     await openPage(page, `/run/${id}`, 'run');
     // The page has picked the call it opens on, which gives the inspector back, and read what that call shows; two frames are drawn since.
