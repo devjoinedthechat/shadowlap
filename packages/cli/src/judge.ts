@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { canonicalize, estimateCost, heldVerdict, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterialFor, judgeRequest, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, messageOf, readVerdict, type ClockMode, type JudgeMaterial, type JudgeMaterialSource, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Judged, type Normalizer, type Price, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { canonicalize, estimateCost, heldVerdict, isJudgeCall, JUDGE_NOT_ASKED, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterialFor, judgeRequest, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, messageOf, readVerdict, type ClockMode, type JudgeMaterial, type JudgeMaterialSource, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Judged, type Normalizer, type Price, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
 import { JUDGE_KEYS, judgeChecksOf, type JudgeCheck, type JudgeVerdict, type TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
@@ -233,6 +233,11 @@ export async function askJudges(judges: readonly JudgeCheck[], material: JudgeMa
 /** Judge checks a run's agent didn't finish for: none is judged, and each says why. */
 export function unjudged(judges: readonly JudgeCheck[], why: string): Judged {
   return { verdicts: new Map(), notJudged: new Map(judges.map((j) => [j.name, why])) };
+}
+
+/** Judge checks an attempt asks none of, as another of its checks failed and no verdict could pass it: each is not applicable, and says why. */
+export function notAsked(judges: readonly JudgeCheck[]): Judged {
+  return { verdicts: new Map(), notJudged: new Map(), notAsked: new Map(judges.map((j) => [j.name, JUDGE_NOT_ASKED])) };
 }
 
 export interface JudgedRun extends Judged {

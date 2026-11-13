@@ -740,7 +740,7 @@ export function judgesIn(draft: Fragment | null): number {
 export function judgesNote(n: number, fork: boolean): PreviewNote | null {
   if (!n) return null;
   const who = n === 1 ? 'Its judge isn’t counted' : `Its ${n} judges aren’t counted`;
-  return { text: `${who}: ${fork ? 'its verdicts are recorded in the golden’s next test’s attempts' : 'a recording holds no verdict for a new judge until the golden is packed or updated'}`, tone: 'grey' };
+  return { text: `${who}: ${fork ? 'its verdicts are recorded in the golden’s next test, in the attempts that pass its other checks' : 'a recording holds no verdict for a new judge until the golden is packed or updated'}`, tone: 'grey' };
 }
 
 /** Against your recordings' notes in their order: the server's (amber, as the CLI's `! ` notes), the run it is made from, the golden's own recording, then the judges'. */

@@ -115,7 +115,7 @@ project in the job, so a server switched since refuses it.
 | `RunIcon`, `EventIcon`, `Glyph` | `RunIcon.tsx` | One set of icons, each with its words on hover: recording now (pulsing), recording, failed, replay, fork, capture, test, and for events Fixes, project, settings and training. |
 | `Icon`, `Sprite`, `Brand`, `Tile` | `Icon.tsx` | The icon sprite (drawn once by the app) and the logo. |
 | `Org`, `Legend`, `SrSpace` | `bits.tsx` | An origin's colour and word; a legend of the origins present; a space a screen reader says between two words a margin draws apart, as a chip's word and its count (`.srsp`). |
-| `Said` | `bits.tsx` | A line telling of a change, said by a live region drawn empty before its words (`.said`); `alert` for a refusal; the drawn line aria-hidden. |
+| `Said` | `Said.tsx` | A line telling of a change, said by a live region drawn empty before its words (`.said`); `alert` for a refusal; the drawn line aria-hidden. |
 | `Tag`, `Badge`, `Kbd` | `bits.tsx` | A run's kind beside its id; a tinted status badge, until its pages draw `Status`; a key. |
 | `Chips` | `bits.tsx` | Filter chips with counts (empty ones can hide). |
 | `ToggleChips`, `toggled` | `ToggleChips.tsx` | A dialog's picks of what runs (templates, presets): toggles, on in ink, off struck through, never lime; the focus stays on a pressed chip. |

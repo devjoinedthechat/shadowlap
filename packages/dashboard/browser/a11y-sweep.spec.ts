@@ -1,8 +1,11 @@
 import { rmSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { JUDGE_ASKED_IN_NONE } from '@shadowlap/engine';
 import { dash, demoId, openPage, patched, RESET_RETRY, seriousViolations, serveDashboard, sideways, startJob, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
+import { JUDGE, routeJudgesFixture, UNASKED } from './judges-fixture.js';
 import { DIALOG, injectionRoutes, migrated, MIGRATED, previewed, ROUTES, show, type RouteState } from './routes.js';
+import { openReport } from './tests-fixture.js';
 
 /**
  * Every route of browser/routes.ts, swept: axe's WCAG 2.2 A and AA rules and no sideways scroll on a
@@ -545,6 +548,27 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   await expect(decisions).toHaveCount(1);
   await expect(decisions).toHaveAccessibleName((await page.locator('#cidecisions-name').textContent())!.trim());
   await expect(decisions).toHaveAccessibleDescription((await page.locator('#cidecisions-help').textContent())!.trim());
+});
+
+test('a screen reader hears a judge no attempt of its fork golden asked by its mark’s word, its label and why, each apart, in its row on Tests and in its report', async ({ page }) => {
+  await routeJudgesFixture(page);
+  await openPage(page, '/tests', `main#view button.grptog[aria-controls="grp-${UNASKED}"]`);
+  const heard = `not applicable ${JUDGE} ${JUDGE_ASKED_IN_NONE}`;
+  expect((await names(page, 'main#view table.gt tbody', 'cell')).filter((c) => c.includes(heard))).toHaveLength(1);
+  // Its report's checks part: the mark's word, then the label and why.
+  await openReport(page, UNASKED);
+  const lines = (await page.locator(`main#view section[id="report-${UNASKED}"]`).ariaSnapshot()).split('\n').map((l) => l.trim());
+  const mark = '- img "not applicable": –';
+  expect(lines).toContain(mark);
+  expect(lines[lines.indexOf(mark) + 1]).toBe(`- text: ${JSON.stringify(`${JUDGE} ${JUDGE_ASKED_IN_NONE}`)}`);
+});
+
+test('Tests at 430 and 768px, a golden’s checks under its name, has no serious axe violation: where its error-path presets wrap, their link and their counts’ link stay 24px apart', async ({ page }) => {
+  for (const width of [430, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/tests', 'main#view table.gt .gin .gpstrip a.gpn');
+    expect(await seriousViolations(page)).toEqual([]);
+  }
 });
 
 test('in a forced-colours theme the fork’s cell in the strip keeps its mark, a 2px band in the text colour round it', async ({ page }) => {

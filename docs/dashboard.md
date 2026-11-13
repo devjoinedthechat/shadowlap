@@ -1526,8 +1526,10 @@ Then comes a row per golden. A row opens the golden's latest run, or, where its 
 Each check reads as `shadowlap test` labels it, such as `escalate called 1 time` or `at most 29000 input tokens`.
 
 - **✓** on a judge check says where its verdict came from, in the CLI's words: *judged from the recording · free*, *judged live · <$0.001*, or *judged live · no price for* its model. Its hover says what the judge asks, what it answered and its model. In the Checks column, where the verdict came from moves onto that hover.
+- **✓** on a golden's only judge check, asked live in several attempts with a price for its model, says in how many on its hover and in the report: *judged live in 4 attempts · ≈$0.0018*.
 - **✗** on a golden run more than once also says how many attempts passed it, unless some were carried over from an earlier session.
 - **–** on a `when` rule whose condition never held reads *not applicable · the condition never held*, in grey, with what the calls had instead on hover.
+- **–** on a judge check no attempt asked reads *not asked: no attempt passed its other checks*. It has no cost and no Update golden, and its hover says only what the judge asks.
 - **No mark** shows before the golden's first result, or when its last test couldn't run it.
 - **A check added since** has no mark either, as the golden's next test judges it. It reads `added since its last test · not tested yet`, or `added just now · not tested yet` within a minute of the check builder adding it.
 
@@ -3173,7 +3175,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - the `status`: null before a result, when that test couldn't run the golden, or for a check `added` to the config since;
 - for a check the check builder added since, when (`addedAt`, in ms), from the [activity](#activity) entry that added it;
 - the `detail`;
-- a judge's `reason` and `source`, and for a verdict asked live, `live`: what asking it `cost`, and in how many attempts it was `asked`, null when that isn't known;
+- a judge's `reason` and `source`, and for a verdict asked live, `live`: what asking it `cost`, and in how many attempts it was `asked` (in a golden that may fork, only attempts that passed its other checks), null when that isn't known;
 - a judge check's `judge`: what it asks (`question`) and its `model` as the golden's entry holds them, the `verdict` its last result kept, and where that came from in the CLI's words (`judged`: `how`, `cost` and `read`);
 - over several attempts, `attempts`: how many of those that judged it `passed` it, `of` how many. It is null for one attempt, when an attempt's run is gone, or when attempts were carried over from an earlier session.
 

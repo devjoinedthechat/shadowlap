@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { JUDGE_NOT_ASKED } from '../../engine/src/checks/labels.js';
 import { normalizeOutcome, normalizeRunDetail } from '../ui/normalize.js';
 import { bannerFor, failureText, type BannerInput } from '../ui/run/banner.js';
 import { countChecks, isFailed, repeatBundle, runOutcome } from '../ui/runs.js';
@@ -90,6 +91,15 @@ describe('the run page', () => {
     // A failed check is still the failure, whatever else could not be decided.
     expect(failureText({ status: 'completed', checks: [checks[2], { label: 'send_email called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }], blame: null })).toBe('check failed: send_email called 0 times, but called 1 time');
     expect(failureText({ status: 'completed', checks: [checks[2]], blame: null })).toBeNull();
+  });
+
+  it('leaves a judge out of the failure where its attempt didn’t ask it, another check having failed', () => {
+    const checks = [
+      { label: 'issue_refund called 0 times', ok: false, status: 'failed', detail: 'called 1 time (1 blocked)' },
+      { label: 'judge "j" answers yes', ok: true, status: 'not-applicable', detail: JUDGE_NOT_ASKED },
+    ];
+    expect(failureText({ status: 'completed', checks, blame: null })).toBe('check failed: issue_refund called 0 times, but called 1 time (1 blocked)');
+    expect(bannerFor({ ...base, checks, failed: true })).toMatchObject({ kind: 'failed', lead: 'issue_refund called 0 times, but called 1 time (1 blocked)' });
   });
 
   it('keeps each check\'s status, and a judge\'s reason, from the server', () => {

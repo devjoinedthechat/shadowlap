@@ -1,6 +1,8 @@
 import { expect, type Page, type Request } from '@playwright/test';
+import { JUDGE_ASKED_IN_NONE } from '@shadowlap/engine';
 import { NAME as CRASH, routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
 import { dash, demoId, openPage, patched, RESET_RETRY, seriousViolations, type Served } from './dashboard.js';
+import { routeJudgesFixture, SOME, UNASKED } from './judges-fixture.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
@@ -466,6 +468,35 @@ const presetOff = async (page: Page): Promise<void> => {
   await settled(page, { shows: `${DIALOG} .dlg-ok:not([data-why])` });
 };
 
+/** The demo's golden that may fork with a check (scripts/demo-store.mjs), whose builder asks a new judge only where that check passes. */
+const FORKS = 'goldens/refund-over-limit';
+const QUESTION = `${DIALOG} textarea[aria-label="The question it answers yes or no"]`;
+/**
+ * Add check… on that golden with two rules, a Never on its first tool and then a judge, its question
+ * and name given: beside a rule the recordings judge, a judge isn't counted, and its cost line and the
+ * judges note say so of a golden that may fork.
+ */
+const judgeOnFork = async (page: Page): Promise<void> => {
+  await click(page, `main#view [data-ck="add"][data-g="${FORKS}"]:visible`, undefined, { shows: `${DIALOG} .cb-kinds` })();
+  await click(page, `${DIALOG} .cb-kinds button`, 'Never', { shows: `${DIALOG} [aria-label="The tool it counts"]` })();
+  await click(page, `${DIALOG} button`, 'Add rule')();
+  await click(page, `${DIALOG} .cb-kinds button`, 'Ask a judge', { shows: QUESTION })();
+  await page.locator(QUESTION).fill('Does it say why it escalated instead of refunding?');
+  await page.locator(DIALOG).getByRole('textbox', { name: 'Its name' }).fill('explains-escalation');
+  await page.waitForSelector(`${DIALOG} .dcost:has-text("asked in each attempt that passes its other checks")`);
+  await settled(page, { shows: `${DIALOG} .cb-notes li:has-text("in the attempts that pass its other checks")` });
+};
+/** judges-fixture.ts' two goldens' reports, each as printed: the one no attempt asked its judge in, then the one whose shown attempt didn't. */
+const judgesReports = async (page: Page): Promise<void> => {
+  for (const name of [UNASKED, SOME]) await openReport(page, name);
+  await settled(page, { shows: `main#view section[id="report-${SOME}"] pre.report[role="log"]` });
+};
+/** The card of the judge no attempt asked, in its row's checks, as a pointer over it shows it. */
+const unaskedCard = async (page: Page): Promise<void> => {
+  await page.locator('main#view table.gt :is(.gin, .gck) .ck.not-applicable:visible', { hasText: JUDGE_ASKED_IN_NONE }).first().hover();
+  await settled(page, { shows: '#tip' });
+};
+
 export const ROUTES: readonly RouteState[] = [
   route('/', 'overview'),
   route('/runs', 'main#view table.runst tbody tr'),
@@ -515,6 +546,8 @@ export const ROUTES: readonly RouteState[] = [
   { name: 'the presets’ recording · forks', path: async (p) => `${await presetsPath(p)}/forks`, drawn: 'main#view .fnode[data-node="presets"]' },
   { name: 'Run error-path presets… from the fork menu', path: () => `/run/${demoId('ticket')}`, drawn: 'run', then: presetsDialog },
   { name: 'Run error-path presets… with a preset taken out', path: () => `/run/${demoId('ticket')}`, drawn: 'run', then: presetOff },
+  // The check builder's Judge beside a check of a golden that may fork (port/judges-e34), from Tests, closed by the next page.
+  { name: 'the check builder’s Judge beside a fork golden’s check, its cost line and judges note', path: () => '/tests', drawn: 'main#view table.gt', then: judgeOnFork },
   ...SETTINGS.map((t): RouteState => ({ name: `Settings → ${t}`, path: () => `/settings/${t}`, drawn: SETTAB })),
   route('/new'),
   route('/setup'),
@@ -550,6 +583,11 @@ export const ROUTES: readonly RouteState[] = [
   { name: 'Update goldens from a migration’s page', path: async (p) => (await migrated(p)).report, drawn: `${MIGRATED} .actions button.lime`, fixture: appliedWaiting, then: nextStep('Update goldens') },
   { name: 'Migrate’s bare tab on a retiring model', path: () => '/changes/migrate', drawn: 'main#view .mgstart', fixture: retiring },
   { name: 'Migrate’s bare tab with no migration yet', path: () => '/changes/migrate', drawn: 'main#view .mgstart select', fixture: noMigration },
+  // Goldens that may fork whose judges went unasked (port/judges-e34): one no attempt asked its judge in, one whose shown attempt didn't
+  // ask it, their reports on Tests, the first one's judge's card, and the pull request comment the Action would post for their session.
+  { name: 'Tests with a fork golden’s judge no attempt asked and one its shown attempt didn’t, their reports open', path: () => '/tests', drawn: 'main#view table.gt', fixture: routeJudgesFixture, then: judgesReports },
+  { name: 'the card of a judge no attempt asked, on Tests', path: () => '/tests', drawn: 'main#view table.gt', fixture: routeJudgesFixture, then: unaskedCard },
+  { name: 'Preview pull request comment from Settings → ci, for those goldens’ session', path: () => '/settings/ci', drawn: 'main#view .prpanel', fixture: routeJudgesFixture, then: prPreview },
 ];
 
 /** An injection test's finding on the run it tested, and its results in the inspector's place: the matrix of its attempts. */

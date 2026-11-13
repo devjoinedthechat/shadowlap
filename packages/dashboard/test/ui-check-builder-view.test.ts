@@ -221,6 +221,15 @@ describe('the check builder from a call', () => {
     expect(text('.dcost')).toContain('its judge has not been asked yet, so what a call of it costs is unknown');
     expect(r!.one('.dlg-ok').getAttribute('aria-disabled')).toBeNull();
   });
+
+  it('says a golden that may fork asks its judge only in the attempts that pass its other checks', async () => {
+    const s = stub({ cfg: config({ goldens: [golden({ mode: { label: 'fork ×5', hint: 'allowed to fork; passes on its checks, 4 of 5 attempts' } })] }) });
+    await open(s, { run, call, kind: 'judge' });
+    await r!.type(r!.one('textarea[aria-label="The question it answers yes or no"]'), 'Does it say why the refund was refused?');
+    await r!.until('the cost line', () => r!.all('.dcost').length > 0);
+    expect(text('.dcost')).toContain('asked in each attempt that passes its other checks, live where what it reads changed');
+    expect(text('.dcost')).not.toContain('replays read its verdict free');
+  });
 });
 
 describe('the check builder on a golden', () => {

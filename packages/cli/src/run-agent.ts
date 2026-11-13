@@ -12,7 +12,7 @@ import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitBySignal, exitStatus, GROUPS, sharedGroup, STOP_SIGNALS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { guardAccept, loadConfig, readCodeVersion, upstreamOverrides } from './config.js';
-import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
+import { askJudges, judgedOptions, judgesOf, materialOf, notAsked, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
@@ -178,6 +178,8 @@ export async function testAttempt(
     onSignal?: 'return' | 'exit';
     /** The tools `--allow-unrecorded` lets run again though the recording never recorded them and they write. */
     allowUnrecorded?: ReadonlySet<string>;
+    /** A golden that may fork, under `test` and `bisect`: its judge checks are asked only where no other check failed (`judgeAttempt`). */
+    skipJudgesOnFailure?: boolean;
   },
 ): Promise<TestAttempt> {
   // A tool the model called that the recording never recorded runs again for real: one that writes
@@ -268,7 +270,7 @@ export async function testAttempt(
   // their calls are the run's: a clean replay's from its recording, a fork's live. What the agent
   // printed is read to its end first: `exit` can come before the last of it.
   if (o.spec && judgesOf(o.spec).length) await outputDrained(child);
-  const judged = o.spec && judgesOf(o.spec).length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], normalize: o.normalizers, clock: o.clock, prices: o.prices, forkFails: !o.spec.fork }) : null;
+  const judged = o.spec && judgesOf(o.spec).length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], normalize: o.normalizers, clock: o.clock, prices: o.prices, forkFails: !o.spec.fork, output, skipJudgesOnFailure: o.skipJudgesOnFailure }) : null;
   // A signal heard while the judge was asked interrupted the attempt too: it is read after the judge.
   const ended = endRun(timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   stop.stop();
@@ -361,13 +363,6 @@ export function outputDrained(child: ReturnType<typeof spawn>, ms = 2_000): Prom
 }
 
 /**
- * The judge checks of an attempt whose agent has exited: asked through its sidecar, unless the
- * attempt can't pass anyway (the agent failed or was stopped, or, with `forkFails`, the replay
- * forked), when asking a judge would only cost: each then says why it was not judged. What a judge
- * reads is masked as the replay was matched (`normalize`, and the dates near the run's start unless
- * `clock` is exact), so a clean replay asks what its recording asked.
- */
-/**
  * A run this command ended, once it is written (Sidecar.endWritten): its rows and its end, waited for
  * on the store writer's timer, and what of it could not be written, for its summary. Said once the
  * store has been held a while, since another process's write can take that long.
@@ -381,12 +376,21 @@ export async function writtenEnd(sidecar: Sidecar, runId: string): Promise<strin
   }
 }
 
+/**
+ * The judge checks of an attempt whose agent has exited: asked through its sidecar, unless the
+ * attempt can't pass anyway (the agent failed or was stopped, or, with `forkFails`, the replay
+ * forked), when asking a judge would only cost: each then says why it was not judged. With
+ * `skipJudgesOnFailure`, none is asked either where another check failed on the run's calls and
+ * `output` (stdout with stderr, as the checks read it): each is then not applicable, and nothing is
+ * sent. What a judge reads is masked as the replay was matched (`normalize`, and the dates near the
+ * run's start unless `clock` is exact), so a clean replay asks what its recording asked.
+ */
 export async function judgeAttempt(
   store: Store,
   sidecar: Sidecar,
   runId: string,
   spec: TestSpec,
-  a: { code: number; timedOut?: boolean; interrupted: boolean; stdout: string; upstreams: Record<string, string>; redact: ReturnType<typeof loadConfig>['redact']; normalize?: ReturnType<typeof loadConfig>['normalize']; clock?: ReturnType<typeof loadConfig>['clock']; prices: ReturnType<typeof loadConfig>['prices']; forkFails?: boolean },
+  a: { code: number; timedOut?: boolean; interrupted: boolean; stdout: string; upstreams: Record<string, string>; redact: ReturnType<typeof loadConfig>['redact']; normalize?: ReturnType<typeof loadConfig>['normalize']; clock?: ReturnType<typeof loadConfig>['clock']; prices: ReturnType<typeof loadConfig>['prices']; forkFails?: boolean; output?: string; skipJudgesOnFailure?: boolean | undefined },
 ): Promise<Judged> {
   const judges = judgesOf(spec);
   if (a.interrupted) return unjudged(judges, 'the replay was interrupted');
@@ -396,6 +400,8 @@ export async function judgeAttempt(
   // another attempt's stream goes on while another process holds the store.
   await sidecar.settled(runId);
   if (a.forkFails && store.getRun(runId)?.divergence) return unjudged(judges, 'the replay diverged, which fails the test whatever the judge says');
+  // Judged with no verdict, a judge check is never failed: a failure is another check's.
+  if (a.skipJudgesOnFailure && evaluateChecks(spec, storedCheckInput(store, store.getCalls(runId), a.output ?? '', a.prices)).some((c) => c.status === 'failed')) return notAsked(judges);
   return askJudges(judges, materialOf(store, runId, a.stdout, a.clock), { sidecar, store, runId, upstreams: a.upstreams, redact: a.redact, ...(a.normalize ? { normalize: a.normalize } : {}), ...(a.prices ? { prices: a.prices } : {}) });
 }
 

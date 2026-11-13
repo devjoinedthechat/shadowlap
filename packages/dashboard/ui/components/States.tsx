@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { ApiError } from '../api.js';
 import { useApp } from '../state.js';
-import { Said } from './bits.js';
+import { Said } from './Said.js';
 import { CodeBox } from './CodeBox.js';
 import { Command, Copy, titled } from './Copy.js';
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { JUDGE_ASKED_IN_NONE } from '@shadowlap/engine';
 import { formatChecks } from '../src/golden-test.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
 
@@ -55,5 +56,32 @@ describe('fix on failure', () => {
       ['wrong', 'its judge check explains was not judged, which no prompt fix changes: record its verdict with shadowlap test goldens/wrong --update'],
       ['other', 'a check is inconclusive (x), which no prompt fix decides, and no replay passes while it is: give it what decides it (a verdict for a judge, a value a condition can read)'],
     ]);
+  });
+});
+
+describe('a judge check no attempt of its golden asked', () => {
+  // A golden that may fork whose every attempt failed another check: its judge was asked in none.
+  const notAsked = { ok: true, status: 'not-applicable' as const, label, detail: JUDGE_ASKED_IN_NONE, judge: { ...passed.judge, verdict: null, source: null, cost: null } };
+  const refunds = { ok: false, status: 'failed' as const, label: 'issue_refund called 0 times', detail: 'called 1 time' };
+  const pushy: PackResult = { ...base, name: 'pushy', dir: 'goldens/pushy', golden: 'goldens/pushy', mode: 'fork', ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time', details: 'details', checks: [refunds, notAsked], judge: null };
+  const line = `${label}: not applicable · ${JUDGE_ASKED_IN_NONE}`;
+
+  it('reads not applicable, with why, in every report, and leaves its golden failed, never inconclusive', () => {
+    expect(formatChecks([refunds, notAsked])).toBe(`✗ issue_refund called 0 times: called 1 time\n– ${line}`);
+    const report = testReport([base, pushy]);
+    expect(report).toMatchObject({ passed: 1, failed: 1, inconclusive: 0 });
+    const md = markdownReport(report);
+    expect(md).toContain(`- ➖ ${line}`);
+    expect(md).not.toContain('Inconclusive means');
+    // An annotation lists the checks that didn't pass: the failed one alone, as for any check that didn't apply.
+    const annotation = githubAnnotations(report);
+    expect(annotation).toContain('::error file=goldens/pushy/run.json,title=Shadowlap%3A pushy::check failed: issue_refund called 0 times, but called 1 time%0A%0A✗ issue_refund called 0 times: called 1 time%0A%0Adetails');
+    expect(annotation).not.toContain(label);
+  });
+
+  it('is no reason to leave its golden unfixed, as a judge check that was not judged is', async () => {
+    const { planFixes } = await import('../../../action/fix.mjs');
+    const plans = planFixes({ results: [{ ...pushy, runs: [{ runId: 'R', ok: false }], expect: { judge: [] } }] });
+    expect(plans.map((p) => [p.result.name, p.skip])).toEqual([['pushy', null]]);
   });
 });
