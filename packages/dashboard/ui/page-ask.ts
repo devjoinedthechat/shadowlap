@@ -46,5 +46,7 @@ export const REDACTION_ASK = pageAsk('redaction');
 export const APPLY_ASK = pageAsk('apply');
 /** Changes › Preview's way the palette names, asked for by the way (`model`, `code`): its dialog on every golden. */
 export const PREVIEW_ASK = pageAsk('preview');
+/** Settings → CI's Preview pull request comment. */
+export const PR_COMMENT_ASK = pageAsk('pr-comment');
 /** An issue on Runs › Failed, asked for by its key (runspage/open-issue.ts): Runs opens it as its issues are in, and scrolls it into view. */
 export const ISSUE_ASK = pageAsk('issue');

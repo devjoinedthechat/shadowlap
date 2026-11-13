@@ -987,20 +987,23 @@ export const NOTHING_TO_ASK = { lead: 'Nothing to ask', untouched: ': the change
  * steps of those it flags, which say whether a write, a stop or a judge flagged them. A run refused
  * whole (a --from-code change that is more than its prompt and tools) counts no step, so it is named
  * apart: no headline reads as if it had nothing to ask. Its sentence alone (`lead` and `rest`) is what
- * a list of previews says of one.
+ * a list of previews says of one. `unit` is what it counts: runs, or goldens for a preview whose runs
+ * are each a golden's recording, as the pull request comment counts them.
  */
-export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused' | 'decisions'>> }): DecisionsHeadline {
+export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused' | 'decisions'>> }, unit: 'run' | 'golden' = 'run'): DecisionsHeadline {
   const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
   const asked = changed + r.counts.same > 0;
   const refused = r.runs.filter((x) => x.refused).length;
-  const unasked = refused ? `${refused} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'} could not be asked` : null;
+  // What it counts in: runs, or goldens where each run is a golden's recording (the pull request comment's).
+  const of = `${r.runs.length} ${unit}${r.runs.length === 1 ? '' : 's'}`;
+  const unasked = refused ? `${refused} of ${of} could not be asked` : null;
   const head = (mark: DecisionsHeadline['mark'], lead: string, rest = '', detail = ''): DecisionsHeadline => ({ mark, lead, rest, detail, unasked, asked });
   if (!asked) {
     if (unasked) return head('!', unasked);
     if (r.counts.notAsked) return head('!', 'No step was answered', '', ' (the warnings say why)');
     return head('✓', NOTHING_TO_ASK.lead, '', r.counts.untouched ? NOTHING_TO_ASK.untouched : NOTHING_TO_ASK.noCalls);
   }
-  if (r.flagged.length) return head('✗', `${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`, ` ${flaggedFor(r)}`);
+  if (r.flagged.length) return head('✗', `${r.flagged.length} of ${of}`, ` ${flaggedFor(r)}`);
   if (changed) return head('!', 'No write and no stop changes', '', `: ${changed} decision${changed === 1 ? ' differs' : 's differ'} in reads or text`);
   return head(unasked ? '!' : '✓', 'The same decisions', ' at every step asked');
 }

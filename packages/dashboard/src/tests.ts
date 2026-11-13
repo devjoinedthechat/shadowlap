@@ -1,10 +1,10 @@
-import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, GATE_TOO_LITTLE, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type DivergenceReport, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, GATE_TOO_LITTLE, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
 import { addedTimes, changedReason, checksChanged, checksNow, goldenChecks, heldVerdict, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
-import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
+import { causeOf, divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -246,8 +246,6 @@ export interface DivergenceView {
   callNo: number;
   kind: string;
   callName: string;
-  /** The report as `shadowlap test` printed it. */
-  text: string;
   /**
    * The value that changes every run, and the normalizer that masks it, when that is what diverged.
    * `certain` false: an id that may be a real change (another customer, another order), not known to
@@ -307,7 +305,7 @@ export interface BisectRange {
   live: boolean;
 }
 
-/** A golden that failed for another reason: a check, an exit, no calls. As `test --markdown` prints it. */
+/** A golden that failed for another reason: a check, an exit, no calls. */
 export interface FailureView {
   golden: string;
   name: string;
@@ -316,9 +314,6 @@ export interface FailureView {
   reason: string;
   /** Its checks as the result kept them, each with its status (passed, failed, inconclusive, not-applicable) since results had one. */
   checks: StoredCheck[] | null;
-  details: string | null;
-  /** The last lines the agent printed, as `test --markdown` shows them; null when none were kept. */
-  output: string | null;
   /**
    * A live call: the connections the network guard blocked during the failing replay (`host:port`).
    * They bypassed Shadowlap, so CI, replaying offline, refused them. Null when it blocked none.
@@ -340,7 +335,6 @@ export interface InconclusiveView {
   reason: string;
   /** Its checks as the result kept them, each with its status (passed, failed, inconclusive, not-applicable) since results had one. */
   checks: StoredCheck[] | null;
-  details: string | null;
   /** What its gate decided; null when a check couldn't be judged, or its injection gate showed too little to say, instead. */
   gate: GateResultView | null;
   /** `injection` when its injection gate is what is inconclusive. */
@@ -554,17 +548,6 @@ function verdictTitle(c: { first: TestResult | null; goldens: readonly GoldenSou
   const goldens = (n: number) => `${n} golden${n === 1 ? '' : 's'}`;
   const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first, checksNow(c.goldens.find((g) => g.path === c.first!.golden)))}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
   return parts.filter(Boolean).join(' · ');
-}
-
-/**
- * The change that made a stored divergence diverge: the first one the normalizers in force did not
- * mask, as the CLI kept it (`cause`); for a result kept before it did, the first one `normalizers`
- * (the config's now) leave unmasked. The report lists the masked changes too.
- */
-function causeOf(r: TestResult, d: DivergenceReport, normalizers: readonly Normalizer[]): string | null {
-  const kept = r.data?.divergence?.cause;
-  if (kept !== undefined) return kept;
-  return (d.diff ?? []).find((e) => !maskedChange(e, normalizers, d))?.path ?? null;
 }
 
 /**
@@ -880,16 +863,6 @@ function fullSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[])
   return { sessions, whole: whole.length ? whole : sessions };
 }
 
-/**
- * The session Tests' verdict line names (the newest that ran every golden, else the newest with a
- * result), as the screen counts it, inconclusive goldens apart; null before the first. Settings →
- * CI's line under Your workflow names it without a team store.
- */
-export function lastFullSession(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): TestsSessionView | null {
-  const shown = fullSessions(store, goldens).whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null;
-  return shown ? sessionView(store, shown) : null;
-}
-
 /** Results newest first, grouped by golden. */
 function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
   const out = new Map<string, TestResult[]>();
@@ -963,7 +936,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       // Its gate ran out of attempts between its bounds; or a check, or its injection gate, is what is
       // inconclusive (an attempt a check could not decide stopped its gate, which decided nothing).
       const gate = latest.data?.gate?.decision === 'inconclusive' ? latest.data.gate : null;
-      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: gate ? row.last.gate : null, failure: latest.failure, judge: gate ? null : unjudgedCheck(row.path, row.mode, latest) });
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, gate: gate ? row.last.gate : null, failure: latest.failure, judge: gate ? null : unjudgedCheck(row.path, row.mode, latest) });
       continue;
     }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });
@@ -983,7 +956,6 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
         callNo: d.callNo,
         kind: d.kind,
         callName: d.name,
-        text: `✗ ${row.name}: ${latest.reason ?? `diverged at call ${d.callNo}`}\n${(latest.data?.divergence?.text ?? '').split('\n').map((l) => `    ${l}`).join('\n')}`,
         volatile: shownValue(volatile),
         normalizerFixes: volatile.explainsAll,
         maybeReal: volatile.values.some((v) => !v.certain),
@@ -1000,7 +972,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       });
     } else {
       const blocked = blockedTargets(store, latest);
-      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, output: latest.data?.output ?? null, blocked: blocked.length ? blocked : null, bisect, found, missed, revisions: revisionsToOffer, unreadable: row.error });
+      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, blocked: blocked.length ? blocked : null, bisect, found, missed, revisions: revisionsToOffer, unreadable: row.error });
     }
   }
 

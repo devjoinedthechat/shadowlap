@@ -10,6 +10,8 @@ const credentials = ciStep('github', parseStoreUrl('s3://team-runs/support-agent
 const SETTINGS: Array<[string, WorkflowFileSettings]> = [
   ['plain', { fix: null, alerts: null }],
   ['comment off', { fix: null, alerts: null, comment: false }],
+  ['decisions', { fix: null, alerts: null, decisions: true, keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], liveKeys: ['ANTHROPIC_API_KEY'] }],
+  ['decisions with fix and alerts', { fix: { budget: '2.00', repairer: 'claude-code' }, alerts: { onlyMain: true, secret: 'SLACK_WEBHOOK_URL', branch: 'main' }, decisions: true, keys: ['OPENAI_API_KEY'], keysUnknown: true }],
   ['fix', { fix: { budget: '2.00', repairer: 'claude-code' }, alerts: null, keys: ['ANTHROPIC_API_KEY'] }],
   ['fix, openai, keys unknown', { fix: { budget: '5.00', repairer: 'openai:gpt-5' }, alerts: null, keys: ['ANTHROPIC_API_KEY'], keysUnknown: true }],
   ['alerts', { fix: null, alerts: { onlyMain: true, secret: 'SLACK_WEBHOOK_URL', branch: 'main' } }],

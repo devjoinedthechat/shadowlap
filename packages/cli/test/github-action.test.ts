@@ -45,7 +45,7 @@ describe('the GitHub Action', () => {
     expect(r.outputs).toMatchObject({ passed: '1', failed: '0', diverged: '0', 'checks-failed': '0', fixes: '0', 'fix-prs': '' });
     expect(r.outputs.session).toMatch(/^\w{26}$/);
     expect(readFileSync(r.outputs['report-json'], 'utf8')).toContain('"passed": 1');
-    expect(r.summary).toContain('### Shadowlap: 1 recording passed');
+    expect(r.summary).toContain('### Shadowlap: 1 of 1 golden passed');
     expect(r.summary).toMatch(/✅ \| `reference-agent` \| clean \| 30\/30/);
     expect(r.out).not.toContain('::error');
   });
@@ -55,7 +55,7 @@ describe('the GitHub Action', () => {
     expect(r.code).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '1', 'checks-failed': '0' });
     expect(r.out).toContain('::error file=testing/golden/reference-agent/run.json,title=Shadowlap%3A reference-agent::diverged at call 3');
-    expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
+    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 failed');
     expect(r.summary).toContain('+ "You are a research agent. Use the tools, then email a summary. Be brief."');
     expect(r.summary).toContain('update the golden: `shadowlap test testing/golden/reference-agent --update`');
   });
@@ -123,7 +123,7 @@ describe('the GitHub Action', () => {
     const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project, GUARD: 'off' });
     expect(r.code, r.out).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '0', inconclusive: '1' });
-    expect(r.summary).toContain('### Shadowlap: 1 of 1 recording is inconclusive');
+    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 inconclusive');
     expect(r.summary).toContain('| 🟡 | `reference-agent` |');
   });
 
@@ -154,7 +154,7 @@ describe('the GitHub Action and inconclusive goldens', () => {
         "const warn = at('--inconclusive') === 'warn';",
         "const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'fork', ok: warn, verdict: 'inconclusive', failure: 'inconclusive', message: 'inconclusive · 64 of 80 · rate 0.70 to 0.87 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', details: null, output: null, checks: null };",
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: '01K5CQ4N7G8M2XWQH6V3T9RB1D', revision: null, passed: warn ? 1 : 0, failed: warn ? 0 : 1, inconclusive: 1, interrupted: false, results: [result] }));",
-        "appendFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording is inconclusive\\n');",
+        "appendFileSync(at('--markdown'), '### Shadowlap: 0 of 1 golden passed · 1 inconclusive\\n');",
         'process.exit(warn ? 0 : 1);',
       ].join('\n'),
     );
@@ -359,7 +359,7 @@ describe('test reports', () => {
     const passed = gated('passed', true, 12, 12);
     const unsure = gated('inconclusive', false, 16, 20);
     const md = markdownReport(testReport([passed, unsure, failed]));
-    expect(md).toContain('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive');
+    expect(md).toContain('### Shadowlap: 1 of 3 goldens passed · 1 failed, 1 inconclusive');
     // The verdict word, the tally, the bound and the rule, stated once; never a claimed rate.
     expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1.2k |');
     expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1.2k |');
@@ -370,7 +370,7 @@ describe('test reports', () => {
     expect(markdownReport(testReport([passed, unsure, failed]), 'fail')).toContain('This run fails on each of them (`--inconclusive fail`).');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.
     const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]), 'warn');
-    expect(warned).toContain('### Shadowlap: 1 of 2 recordings is inconclusive');
+    expect(warned).toContain('### Shadowlap: 1 of 2 goldens passed · 1 inconclusive');
     expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
     expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
     expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
@@ -519,7 +519,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
     expect(first.out).toContain('the pull request comment is posted: https://github.test/northwind/agent/pull/12#issuecomment-1');
     expect(comments).toHaveLength(1);
     const body = comments[0].body;
-    expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### Shadowlap: 1 golden passed\n/);
+    expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### Shadowlap: 1 of 1 golden passed\n/);
     expect(body).toContain('| | Golden | Verdict | On `main` |');
     expect(body).toContain('| ✅ | `testing/golden/reference-agent` | passed · replayed clean | ❌ failed |');
     expect(body).toContain('Compared with `main` as the test history last tested it, at `e5f6a7b`.');
@@ -563,7 +563,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
         "const at = (flag) => args[args.indexOf(flag) + 1];",
         `writeFileSync(${JSON.stringify(join(dir, 'env.json'))}, JSON.stringify({ input: process.env.INPUT_GITHUB_TOKEN ?? null, job: process.env.SHADOWLAP_JOB_TOKEN ?? null }));`,
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, results: [{ name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'replay', ok: true, verdict: 'passed', failure: null, message: null, runs: [] }] }));",
-        "writeFileSync(at('--markdown'), '### Shadowlap: 1 recording passed\\n');",
+        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
       ].join('\n'),
     );
     const r = await onPullRequest({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GITHUB_TOKEN: 'github_pat_secret' }, 'northwind/agent', { SHADOWLAP_CLI: cli });
@@ -572,6 +572,78 @@ describe('the pull request comment the GitHub Action keeps', () => {
     // It commented with the token it was given.
     expect(calls.at(-1)?.authorization).toBe('Bearer github_pat_secret');
   }, 60_000);
+
+  it("adds a run's cost and each injection gate to the comment, and with decisions: true asks decisions --from-code for the pull request it comments on alone", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-decisions-'));
+    dirs.push(dir);
+    const cli = join(dir, 'fake-cli.mjs');
+    const log = join(dir, 'seen.jsonl');
+    const injection = { resultId: 'inj-1', attempts: 6, obeyed: 0, influenced: 0, ignored: 6, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'passed', reason: null, skipped: null };
+    const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'replay', ok: true, verdict: 'passed', failure: null, message: null, runs: [], injection };
+    const change = { rank: 1, kind: 'write-added', tool: 'issue_refund', effect: 'write', before: null, after: {}, detail: 'issue_refund is called' };
+    const asked = { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { order_id: 'A-1042' }, effect: 'write' }], text: '' };
+    const decided = { counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 4, notAsked: 0, untouched: 0 }, flagged: ['run-1'], runs: [{ runId: 'run-1', golden: 'testing/golden/reference-agent', refused: null, decisions: [{ callNo: 2, majority: 1, changes: [change], recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'Let me ask a lead.' }, now: asked }] }] };
+    /** The CLI as the job runs it: `decisions` does what `asked` says, and test reports one golden that passed with its injection gate. */
+    const fakeCli = (asked: string) =>
+      writeFileSync(
+        cli,
+        [
+          "import { appendFileSync, writeFileSync } from 'node:fs';",
+          'const args = process.argv.slice(2);',
+          'const at = (flag) => args[args.indexOf(flag) + 1];',
+          `appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');`,
+          `if (args.includes('decisions')) { ${asked} }`,
+          `writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S-PR', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, costPerRun: { before: 0.041, after: 0.043 }, results: [${JSON.stringify(result)}] }));`,
+          "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
+        ].join('\n'),
+      );
+    fakeCli(`process.stdout.write(JSON.stringify(${JSON.stringify(decided)})); process.exit(0);`);
+    const seen = () => readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as string[]);
+    const store = join(dir, 'ci.db');
+    const inputs = { RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, STORE: store, DECISIONS: 'true' };
+    comments.length = 0;
+    const r = await onPullRequest(inputs, 'northwind/agent', { SHADOWLAP_CLI: cli });
+    expect(r.code, r.out).toBe(0);
+    const body = comments[0].body;
+    expect(body).toContain('\n#### Decisions\n\n❌ 1 of 1 golden decides a write or when to stop differently, under the prompt and tools this pull request sends\n\n- rank 1 · `testing/golden/reference-agent` #2 · issue_refund is called\n  - recorded `answers and stops: "Let me ask a lead."`\n  - now `issue_refund({"order_id":"A-1042"})`\n');
+    expect(body).toContain('\nCost per run: ≈$0.041 → ≈$0.043 (+5%)\n\n#### Injection\n\n✅ `testing/golden/reference-agent` · passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored\n');
+    // It asks with the store the test ran with, keeping the part with the test session, an inconclusive step a warning.
+    expect(seen()[1]).toEqual(['--db', store, 'decisions', 'testing/golden/reference-agent', '--from-code', '--json', '--inconclusive', 'warn', '--test-session', 'S-PR']);
+    expect(r.out).toContain('shadowlap decisions testing/golden/reference-agent --from-code');
+
+    // Never off a pull request, nor on a fork's, which gets no comment, nor with the input off: the test alone runs.
+    for (const [why, head, extra, given] of [
+      ['a push', 'northwind/agent', { GITHUB_EVENT_NAME: 'push' }, inputs],
+      ["a fork's pull request", 'someone/agent', {}, inputs],
+      ['decisions off', 'northwind/agent', {}, { ...inputs, DECISIONS: 'false' }],
+    ] as const) {
+      rmSync(log, { force: true });
+      comments.length = 0;
+      const off = await onPullRequest(given, head, { SHADOWLAP_CLI: cli, ...extra });
+      expect(off.code, `${why}: ${off.out}`).toBe(0);
+      expect(seen().map((args) => args.includes('decisions')), why).toEqual([false]);
+    }
+    // Without decisions, the comment carries the cost and the injection gates alone.
+    expect(comments[0].body).not.toContain('#### Decisions');
+    expect(comments[0].body).toContain('#### Injection');
+
+    // A decisions run that refuses, or stops without a report, never fails the job: the log says why, and the comment goes up without its part.
+    for (const [why, asked, said] of [
+      ['a refusal', "process.stdout.write(JSON.stringify({ error: { message: 'the store has no test session S-PR' } })); process.exit(2);", 'the pull request comment has no decisions: the store has no test session S-PR'],
+      ['a run that stopped', 'process.exit(1);', 'the pull request comment has no decisions: shadowlap decisions did not finish (exit 1); its output is above'],
+    ] as const) {
+      fakeCli(asked);
+      rmSync(log, { force: true });
+      comments.length = 0;
+      const failed = await onPullRequest(inputs, 'northwind/agent', { SHADOWLAP_CLI: cli });
+      expect(failed.code, `${why}: ${failed.out}`).toBe(0);
+      expect(seen().map((args) => args.includes('decisions')), why).toEqual([false, true]);
+      expect(failed.out, why).toContain(said);
+      expect(comments, why).toHaveLength(1);
+      expect(comments[0].body, why).not.toContain('#### Decisions');
+      expect(comments[0].body, why).toContain('\nCost per run: ≈$0.041 → ≈$0.043 (+5%)\n\n#### Injection\n\n✅ `testing/golden/reference-agent` · passed');
+    }
+  }, 120_000);
 });
 
 describe("the GitHub Action, fix on failure and the job's tokens", () => {
@@ -593,7 +665,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
         "if (args.includes('repair')) { process.stdout.write(JSON.stringify({ outcome: 'not-fixed', why: 'the gate accepted none of the 1 candidate tried', cost: { blame: 0.1, repairer: 0.01, verify: 0.2 }, candidates: [], output: {} })); process.exit(1); }",
         "const result = { name: 'refund-flow', dir: 'goldens/refund-flow', golden: 'goldens/refund-flow', mode: 'replay', ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time', expect: { tools: { issue_refund: 0 } }, checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }], runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', runs: [{ runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', ok: false, verdict: 'failed' }] };",
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 0, failed: 1, inconclusive: 0, interrupted: false, results: [result] }));",
-        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording failed\\n');",
+        "writeFileSync(at('--markdown'), '### Shadowlap: 0 of 1 golden passed · 1 failed\\n');",
         'process.exit(1);',
       ].join('\n'),
     );

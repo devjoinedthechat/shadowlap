@@ -275,7 +275,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     // The pull request was opened with the job's own token.
     expect(pulls()[0].authorization).toBe(`Bearer ${JOB_TOKEN}`);
 
-    expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
+    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 failed');
     expect(r.summary).toContain('### Shadowlap: 1 fix pull request opened');
     expect(r.summary).toMatch(/\| ✅ \| `refund-over-limit` \| \[Escalate refunds above the policy limit\]\(https:\/\/github\.com\/example\/agent\/pull\/7\) · verify: target 1 of 1 · golden re-recorded · `ci\.yml` started on its branch \| \$\d+\.\d\d of \$5\.00 \|/);
 

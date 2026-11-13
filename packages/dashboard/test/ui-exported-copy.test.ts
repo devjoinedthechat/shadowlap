@@ -367,6 +367,19 @@ describe('an exported copy', () => {
     expect(seen.app!.palette).toBe(false);
   });
 
+  it('never opens Preview pull request comment: only Settings → CI and a revision’s page under Changes show it, which a copy sends to its runs, and its client refuses the read', async () => {
+    // The module that loads the dialog's script, and the pages that show it: none a copy routes to.
+    const ui = fileURLToPath(new URL('../ui/', import.meta.url));
+    const importing = (re: RegExp) =>
+      readdirSync(ui, { recursive: true, encoding: 'utf8' })
+        .filter((f) => /\.tsx?$/.test(f) && re.test(readFileSync(join(ui, f), 'utf8')))
+        .map((f) => f.split(sep).join('/'))
+        .sort();
+    expect(importing(/\bPrCommentDialog\.js['"]/)).toEqual(['ci/comment-parts.tsx']);
+    expect(importing(/\bcomment-parts\.js['"]/)).toEqual(['changes/RevisionPage.tsx', 'ci/PrCommentDialog.tsx', 'pages/settings/Ci.tsx']);
+    await expect(createExportedClient(exported([runId])).settings.prComment()).rejects.toThrow();
+  });
+
   it('lists its runs, and only those', async () => {
     await open([forkId, runId], '#/runs');
     await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);

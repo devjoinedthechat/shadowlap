@@ -103,6 +103,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const maxAttempts = input('MAX_ATTEMPTS');
   if (maxAttempts && !/^[1-9]\d{0,3}$/.test(maxAttempts)) fail(`input max-attempts must be a whole number of attempts, such as 160, not "${maxAttempts}"`);
   const comment = bool('COMMENT', true);
+  // The comment's Decisions part: decisions --from-code asks the goldens' models again on a pull request the action comments on.
+  const decisions = bool('DECISIONS', false);
 
   /**
    * The recordings a path or pattern names, as `shadowlap test` reads them. A path as given (or one
@@ -168,7 +170,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   /** @type {Posted | null} */
   let posted = null;
   if (comment && !report.interrupted) {
-    posted = await postComment({ env, auth, report, fixes, store: store ?? join(workdir, '.shadowlap', 'shadowlap.db'), recordings: patterns.join(' '), workdir: input('WORKING_DIRECTORY', '.') || '.', fetch: fetchFn });
+    posted = await postComment({ env, auth, report, fixes, decisions: { on: decisions, cli, db: store, packs, env: cliEnv, cwd: workdir, out }, store: store ?? join(workdir, '.shadowlap', 'shadowlap.db'), recordings: patterns.join(' '), workdir: input('WORKING_DIRECTORY', '.') || '.', fetch: fetchFn });
     if (posted.state === 'created' || posted.state === 'updated') process.stdout.write(`${logLine(`the pull request comment is ${posted.state === 'created' ? 'posted' : 'updated'}: ${posted.url ?? ''}`)}\n`);
     else if (posted.state === 'failed') process.stdout.write(`${annotation('warning', `the pull request comment was not posted: ${String(posted.why)}`)}\n`);
     else if (posted.state !== 'none') process.stdout.write(`${logLine(`the pull request comment was not posted: ${String(posted.why)}`)}\n`);

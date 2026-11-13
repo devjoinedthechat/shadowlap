@@ -24,7 +24,7 @@ const CHECKS = { tools: { send_email: 0 } };
 /** A push to main in GitHub Actions, whatever CI runs these tests: a session whose results can be a baseline. */
 const ON_MAIN = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_REF_NAME: 'main', GITHUB_HEAD_REF: '', GITHUB_BASE_REF: '', GITHUB_EVENT_PATH: '', SHADOWLAP_PR: '', GITLAB_CI: '', BUILDKITE: '' };
 /** A pull request into main: its results are never a baseline. */
-const ON_PR = { ...ON_MAIN, GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/3/merge', GITHUB_REF_NAME: '3/merge', GITHUB_HEAD_REF: 'fix-emails', GITHUB_BASE_REF: 'main' };
+const ON_PR = { ...ON_MAIN, GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/3/merge', GITHUB_REF_NAME: '3/merge', GITHUB_HEAD_REF: 'fix-emails', GITHUB_BASE_REF: 'main', GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' };
 
 /** The report's JSON held to docs/cli.md both ways: every field the shape lists is printed, every field printed is named there. */
 function hold(values: Array<[ShapeName, unknown]>): void {
@@ -132,7 +132,7 @@ describe('shadowlap test with a gate', () => {
     expect(r.out).toContain('✗ reference-agent: failed · 0 of 3 · rate <= 0.71 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts. Attempt 1: check failed: send_email called 0 times, but called 1 time');
     expect(r.out).toContain('0 of 3 passed · rate <= 0.71 (95%)');
     expect(r.report.results[0]).toMatchObject({ ok: false, verdict: 'failed', failure: 'check', gate: { decision: 'fail', attempts: 3, max: 80, outcomes: [false, false, false] } });
-    expect(r.markdown).toContain('### Shadowlap: 1 of 1 recording failed');
+    expect(r.markdown).toContain('### Shadowlap: 0 of 1 golden passed · 1 failed');
   }, 120_000);
 
   it('settles a replay that forks nowhere with its one attempt, which would come out the same every time', async () => {
@@ -157,7 +157,7 @@ describe('shadowlap test with a gate', () => {
       expect(failing.junit).toContain('<failure message="inconclusive · 2 of 4 · rate 0.14 to 0.86 (80%) · gate: tells 60%+ from 40%- at &lt;= 20% risk');
       // Its max of 4 can't keep it within the session's 5%: the session keeps it, and says so before it runs.
       expect(failing.out).toMatch(/goldens\/reference-agent: its max of 4 leaves \d+% of attempts at its good rate inconclusive, more than its 5% share of the suite's risk/);
-      expect(failing.markdown).toContain('### Shadowlap: 1 of 1 recording is inconclusive');
+      expect(failing.markdown).toContain('### Shadowlap: 0 of 1 golden passed · 1 inconclusive');
       expect(failing.markdown).toContain(`| 🟡 | \`reference-agent\` | ${unsure} |`);
 
       const warned = await shadowlapTest(tests, FIX, { flags: ['--inconclusive', 'warn', '--annotations'] });
@@ -325,6 +325,9 @@ describe('shadowlap test with a gate against history', () => {
       ]);
       expect(results[0].data).toMatchObject({ baselineBranch: 'main', revision: results[0].revision });
       expect(results[2].data?.gate).toMatchObject({ kind: 'baseline', decision: 'fail' });
+      // The pull request's session keeps the pull request it ran for, its page included; one on main, none.
+      expect(store.getTestSession(results[1].sessionId)?.pullRequest).toEqual({ number: 3, url: 'https://github.test/northwind/agent/pull/3', source: 'GitHub Actions (pull_request)' });
+      expect(store.getTestSession(results[0].sessionId)?.pullRequest).toBeNull();
     } finally {
       store.close();
     }

@@ -158,6 +158,37 @@ describe('shadowlap decisions', () => {
     expect(text.stdout).toContain("Later steps are judged in the recorded run's state");
   }, 120_000);
 
+  it("keeps a --from-code preview with the test session it names, beside the session's cost per run, and refuses a session the store has no record of before asking anything", async () => {
+    const runId = await record();
+    const store = Store.open(db);
+    const { sessionId } = store.startTestSession({ command: ['test', 'goldens/*'], owner: null });
+    store.setTestSessionComment(sessionId, { costPerRun: { before: 0.041, after: 0.043 } });
+    store.close();
+    const change = { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' };
+    const before = mock.requests.length;
+    const unknown = await shadowlap(['decisions', runId, '--from-code', '--samples', '1', '--test-session', 'NO-SUCH-SESSION', '--json'], change);
+    expect(unknown.code, unknown.out).toBe(2);
+    expect(json<{ error: { message: string } }>(unknown).error.message).toBe('unknown test session NO-SUCH-SESSION');
+    expect(mock.requests.length).toBe(before);
+
+    const r = await shadowlap(['decisions', runId, '--from-code', '--samples', '1', '--test-session', sessionId, '--json'], change);
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    expect(report.decisionsId).toMatch(/^dc-/);
+    const kept = Store.open(db);
+    try {
+      expect(kept.getTestSession(sessionId)?.comment).toEqual({ decisions: report.decisionsId, costPerRun: { before: 0.041, after: 0.043 } });
+    } finally {
+      kept.close();
+    }
+    // A preview of anything but the working tree's prompt and tools is no pull request's: refused.
+    for (const args of [['--model', 'claude-haiku-4-5'], ['--verify', report.decisionsId!]]) {
+      const refused = await shadowlap(['decisions', runId, ...args, '--test-session', sessionId]);
+      expect(refused.code, refused.out).toBe(2);
+      expect(refused.out).toContain('--test-session keeps a preview of the prompt and tools your working tree sends with a test session: give it with --from-code, and not with --verify');
+    }
+  }, 120_000);
+
   it('refuses --from-code, saying why, when the first request differs in more than its prompt and tools', async () => {
     const runId = await record();
     const before = mock.requests.length;
@@ -310,6 +341,11 @@ describe('shadowlap decisions', () => {
     const asks = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--dry-run'], noEmail);
     expect(asks.code).toBe(2);
     expect(asks.out).toContain('--dry-run reads what --from-code reads, and stops there: give it with --from-code alone');
+    // It keeps no preview, so none with a test session either.
+    const withSession = await shadowlap(['decisions', runId, '--from-code', '--dry-run', '--test-session', 'S-1'], noEmail);
+    expect(withSession.code).toBe(2);
+    expect(withSession.out).toContain('--dry-run reads what --from-code reads, and stops there: give it with --from-code alone');
+    expect(sessions()).toBe(before);
     // A preview it keeps is where its job's drawer goes next.
     const kept = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--samples', '1', '--json'], { ...noEmail, SHADOWLAP_EVENTS_FD: '3' });
     expect(kept.code, kept.out).toBe(0);

@@ -528,6 +528,8 @@ export interface LabelRunsResult {
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
 export type { BisectChoices, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
 export type { BisectMiss, FoundChange, FoundCommit } from '../src/tests-bisect.js';
+export type { CrashError } from '../src/crash-error.js';
+export type { Followed, GoldenReport, HintKey, Piece, ReportLine, ReportPart, ReportTone, TestsAnswer } from '../src/golden-report.js';
 /** `GET /api/tests/evidence`: a gated golden's attempts, each judged from its own run, and the words its evidence says why its gate stopped with. */
 export type { EvidenceAttempt, EvidenceWords, TestEvidence } from '../src/tests-evidence.js';
 /** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */
@@ -537,6 +539,8 @@ export interface TestRunView {
 }
 /** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
 export type { CiListRow, CiSession, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
+/** `GET /api/ci/comment`: the pull request comment as the Action would post it, from the newest session that ran every golden. */
+export type { PrCommentPreview } from '../src/pr-comment-preview.js';
 
 // ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
@@ -553,6 +557,8 @@ export type DecisionSessionDetail = import('../src/decision-view.js').PreviewSes
 export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
 // Changes › Verdicts (`/api/verdicts`): every change checked, and the verdict it got.
 export type { PreviewVerdict, SessionVerdict, VerdictGolden, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerdictWord, VerifyVerdict } from '../src/verdicts.js';
+export type { KeptCost, KeptDecisions, KeptInjection, SessionCommentParts, VerdictFlag, VerdictPullRequest } from '../src/session-comment.js';
+export type { CommentDecision } from '../../engine/src/pr-comment.js';
 
 // ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
 export type { CodeChange } from '../src/compare.js';

@@ -55,6 +55,16 @@ export function outcomeCounts(outcomes: readonly string[]): string {
 }
 
 /**
+ * A session's tally as every tally on a page counts it, inconclusive goldens apart: `2 of 7 goldens
+ * passed · 3 failed, 2 inconclusive`, or `7 of 7 goldens passed`. The pull request comment and the job
+ * summary head with it, so a job's comment, its summary and the dashboard count alike.
+ */
+export function sessionTally(passed: number, failed: number, inconclusive: number): string {
+  const notPassed = [failed ? `${failed} failed` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
+  return `${goldensPassed(passed, passed + failed + inconclusive)}${notPassed ? ` · ${notPassed}` : ''}`;
+}
+
+/**
  * What a verify's verdict says of the runs it took, read from each run's role and how it came out
  * (`outcome`: verify's word for it, `outcomeOf`, or a kept session's hyphenated `not-fixed`):
  *

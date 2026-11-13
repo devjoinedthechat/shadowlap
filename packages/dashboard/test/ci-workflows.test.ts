@@ -34,10 +34,13 @@ const tmp = () => {
 describe('the panels\' options', () => {
   it('take their defaults, and what the query string gives', () => {
     expect(parseCiOptions(new URLSearchParams())).toEqual(CI_DEFAULTS);
-    expect(parseCiOptions(new URLSearchParams('fix=true&budget=$1&repairer=anthropic:claude-opus-5-5&onlyMain=0&secret=HOOK'))).toEqual({ comment: true, fix: true, alerts: true, budget: '1.00', repairer: 'anthropic:claude-opus-5-5', onlyMain: false, secret: 'HOOK' });
+    expect(parseCiOptions(new URLSearchParams('fix=true&budget=$1&repairer=anthropic:claude-opus-5-5&onlyMain=0&secret=HOOK'))).toEqual({ comment: true, decisions: false, fix: true, alerts: true, budget: '1.00', repairer: 'anthropic:claude-opus-5-5', onlyMain: false, secret: 'HOOK' });
     // The pull request comment is a switch too, on unless the query or the repository's file turns it off.
     expect(parseCiOptions(new URLSearchParams('comment=off'))).toEqual({ ...CI_DEFAULTS, comment: false });
     expect(parseCiOptions(new URLSearchParams('comment=maybe'))).toEqual({ error: 'comment is on or off' });
+    // Its decisions part is off unless asked for.
+    expect(parseCiOptions(new URLSearchParams('decisions=on'))).toEqual({ ...CI_DEFAULTS, decisions: true });
+    expect(parseCiOptions(new URLSearchParams('decisions=maybe'))).toEqual({ error: 'decisions is on or off' });
     expect(parseCiOptions(new URLSearchParams('fix=on'), { ...CI_DEFAULTS, comment: false, budget: '3.00' })).toEqual({ ...CI_DEFAULTS, comment: false, budget: '3.00', fix: true });
     // Slack alerts are a part of the workflow that can be left out.
     expect(parseCiOptions(new URLSearchParams('alerts=off'))).toMatchObject({ alerts: false });
@@ -179,6 +182,17 @@ describe('the goldens that run live in CI', () => {
     const fixed = ciWorkflows({ ...CI_DEFAULTS, fix: true, repairer: 'anthropic' }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens });
     expect(fixed.workflow.text).toContain('          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
     expect(view.fixOnFailure.needs[1]).toEqual({ label: 'your agent’s provider keys: blame and verify run it live', value: 'ANTHROPIC_API_KEY, OPENAI_API_KEY' });
+    // The comment's decisions part asks every golden's models: the step says so after the comment's place, its env takes their keys, and the panel lists them.
+    const deciding = ciWorkflows({ ...CI_DEFAULTS, decisions: true }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens });
+    expect(deciding.workflow.text).toMatch(/ {10}recordings: goldens\/\*\n {10}decisions: true\n/);
+    expect(deciding.workflow.text).toContain('          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
+    expect(deciding.comment).toMatchObject({ on: true, decisions: true });
+    expect(deciding.comment.needs[1]).toEqual({ label: 'a model key, for the decisions the branch changes', value: 'ANTHROPIC_API_KEY, OPENAI_API_KEY' });
+    // Only while the comment is on: off, the step keeps no comment, asks nothing, and needs no key for it.
+    const silent = ciWorkflows({ ...CI_DEFAULTS, comment: false, decisions: true }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens });
+    expect(silent.workflow.text).not.toContain('decisions: true');
+    expect(silent.workflow.text).not.toContain('OPENAI_API_KEY');
+    expect(silent.comment.needs).toHaveLength(1);
     // Nothing known of the goldens: the steps as the docs show them.
     const unknown = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null });
     expect(unknown.workflow.text).not.toMatch(/^ +env:/m);

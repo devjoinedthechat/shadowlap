@@ -4,6 +4,7 @@ import { goldenChecks, withJudgeAsks, type GoldenCheck } from '../src/tests-chec
 import type { TestsView } from '../src/tests.js';
 import { goldenExpect } from '../src/run-offers.js';
 import { checkMark } from '../ui/goldens.js';
+import { judgeRows } from '../ui/judge-rows.js';
 
 /**
  * A judge check on Tests: where its verdict came from and what it cost in the engine's words, joined
@@ -96,5 +97,13 @@ describe("a judge check's source and card on Tests", () => {
         tip: { title: `not tested yet · ${LABEL}`, rows: [{ label: 'Asks', value: QUESTION }], note: 'Added to shadowlap.config.json since its last test: its next test judges it' },
       });
 
+  });
+
+  it('takes its rows from the one judge card a fix’s Must line draws too: Asks, Reads, Answered, Model, each where the page has it', () => {
+    const all = judgeRows({ question: QUESTION, reads: 'the answer', answered: 'yes: It names the $100 limit.', model: 'claude-haiku-4-5' });
+    expect(all.map((r) => r.label)).toEqual(['Asks', 'Reads', 'Answered', 'Model']);
+    // Tests' card has no Reads, and a judge not asked yet no Answered or Model; a fix's card has no Answered.
+    expect(judgeRows({ question: QUESTION, answered: null, model: null })).toEqual([all[0]]);
+    expect(judgeRows({ question: QUESTION, reads: 'the answer', model: 'claude-haiku-4-5' })).toEqual([all[0], all[1], all[3]]);
   });
 });
