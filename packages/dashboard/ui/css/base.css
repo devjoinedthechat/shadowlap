@@ -41,8 +41,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 :where([data-about], .turn .tools button, .cmdin, .palin) { position: relative; }
 /* and main's own, each the line its hidden words are read on: a Compare side and its call, a JSON diff's line, a status (a
    run's on Runs and its status fact), Runs' good and bad keys, a verdict's heading, the link that opens a run at its call, a
-   takeover's tools, an attempt and a decision's tool call */
-:where(.pside, .pside .pnm, .jl > .jt, .st, .runkey .rk, .verdict h2, .verdict h3, .cmpdc > .more, .tkn, .alist > .al, .dtool) { position: relative; }
+   takeover's tools, an attempt, a decision's tool call, a run a dialog lists and a Security report's masked text */
+:where(.pside, .pside .pnm, .jl > .jt, .st, .runkey .rk, .verdict h2, .verdict h3, .cmpdc > .more, .tkn, .alist > .al, .dtool, .dvrows > p, .injmask) { position: relative; }
 /* a space only a screen reader says, between two words drawn apart by a margin (a chip's word and its count): it carries its
    own anchor, an empty inline box, so it sits where it is read, and the space is kept (pre), since a lone space in the hidden
    box collapses away. In a flex row (Turns' tool buttons, a Compare side's call) the anchor would be an item and take a gap,
