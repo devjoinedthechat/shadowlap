@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { cmdParts } from '../cmdline.js';
 import { headingRef } from '../focus-manager.js';
 import { shellWords } from '../format.js';
@@ -14,6 +14,7 @@ import { ErrorState } from './States.js';
  */
 
 export { CopyButton } from './CodeBox.js';
+export { Said } from './Said.js';
 export { SegmentedControl as Seg } from './Segmented.js';
 export { EmptyState } from './States.js';
 
@@ -89,25 +90,6 @@ export function SrSpace() {
   return (
     <span className="srsp">
       <span className="sr"> </span>
-    </span>
-  );
-}
-
-/**
- * A line that tells of a change (nothing found for the words typed, a wait that starts, a paste
- * refused), said by a live region on the page before its words: one drawn with its words already in
- * it may never be heard. Drawn hidden and empty from the first, it takes `words` only once it has been
- * drawn; the line the page draws for them is for the eye (aria-hidden), as the offline bar's is. Its
- * anchor (`.said`) keeps it where the line is read. `alert`: a refusal, said at once.
- */
-export function Said({ words, alert = false }: { words: string | null; alert?: boolean }) {
-  const [drawn, setDrawn] = useState(false);
-  useEffect(() => setDrawn(true), []);
-  return (
-    <span className="said">
-      <span className="sr" role={alert ? 'alert' : 'status'}>
-        {drawn && words ? words : ''}
-      </span>
     </span>
   );
 }
