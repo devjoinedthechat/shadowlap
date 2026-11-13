@@ -252,7 +252,10 @@ describe('Run error-path presets…’ drawer at its end', () => {
   const g = globalThis as Record<string, unknown>;
   const job = (o: Partial<JobView> = {}): JobView => ({ id: 'j1', kind: 'chaos', title: 'Running error-path presets', runId: RUN, done: true, code: 1, endedAt: 1000, lines: [], links: [], ...o }) as unknown as JobView;
   const ran = (attempts: number, runId: string | null = RUN) => ({ results: [{ golden: null, runId, outcomes: [{ preset: 'timeout', attempts }] }] });
-  afterEach(() => {
+  // The footer gone first, so an effect its last job's end left to run runs while the address it reads is still there.
+  afterEach(async () => {
+    await r?.unmount();
+    r = null;
     delete g.location;
     resetPanel();
   });
