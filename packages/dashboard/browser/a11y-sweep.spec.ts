@@ -1,6 +1,8 @@
+import { rmSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, patched, seriousViolations, sideways, startJob } from './dashboard.js';
-import { DIALOG, previewed, ROUTES, show, type RouteState } from './routes.js';
+import { dash, demoId, openPage, patched, seriousViolations, serveDashboard, sideways, startJob, type Served } from './dashboard.js';
+import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
+import { DIALOG, injectionRoutes, previewed, ROUTES, show, type RouteState } from './routes.js';
 
 /**
  * Every route of browser/routes.ts, swept: axe's WCAG 2.2 A and AA rules and no sideways scroll on a
@@ -8,13 +10,14 @@ import { DIALOG, previewed, ROUTES, show, type RouteState } from './routes.js';
  * keeping its colour inside an edge, the selection keeping a mark of its own, and axe passing; and
  * the heading outline of each page, the signed-out and expired cards' included: one h1, first, and
  * each heading at most a level under the one before, in reading order, a dialog's its own with its
- * title first. A route the table exempts from the check at 320 names why there.
+ * title first. A route the table exempts from the check at 320 names why there. An injection test's
+ * pages, which the demo can't draw, are swept the same way on a store of their own.
  */
 
 /** Each problem a check finds, under the route state it was found in. */
-async function over(page: Page, check: (r: RouteState) => Promise<string[]>): Promise<string[]> {
+async function over(page: Page, check: (r: RouteState) => Promise<string[]>, routes: readonly RouteState[] = ROUTES): Promise<string[]> {
   const found: string[] = [];
-  for (const r of ROUTES) {
+  for (const r of routes) {
     await show(page, r)();
     for (const p of await check(r)) found.push(`${r.name}: ${p}`);
   }
@@ -93,19 +96,24 @@ function hiddenText(page: Page): Promise<string[]> {
   });
 }
 
+/** On a 390px phone: axe's rules, no sideways scroll, no label under the floor, and hidden text where it is read. */
+const onPhone = (page: Page) => async (): Promise<string[]> => [...(await seriousViolations(page)), ...(await reach(page)), ...(await underFloor(page)), ...(await hiddenText(page))];
+/** At 320px: axe's rules, and no sideways scroll unless the table says why. */
+const atNarrowest = (page: Page) => async (r: RouteState): Promise<string[]> => [...(await seriousViolations(page)), ...(r.narrow ? [] : await reach(page))];
+
 test('every route on a 390px phone has no serious or critical axe violation, scrolls nothing sideways, draws no label under 11px, and keeps its hidden text where it is read', async ({ page }) => {
   test.setTimeout(600_000);
   await page.setViewportSize({ width: 390, height: 844 });
   // The demo's longest run first, its 278 calls: the page keeps its height with its hidden text and without.
   await openPage(page, `/run/${demoId('batchFork')}`, 'run');
   expect(await hiddenText(page)).toEqual([]);
-  expect(await over(page, async () => [...(await seriousViolations(page)), ...(await reach(page)), ...(await underFloor(page)), ...(await hiddenText(page))])).toEqual([]);
+  expect(await over(page, onPhone(page))).toEqual([]);
 });
 
 test('every route at 320px has no serious or critical axe violation and scrolls nothing sideways, unless the table says why', async ({ page }) => {
   test.setTimeout(600_000);
   await page.setViewportSize({ width: 320, height: 640 });
-  expect(await over(page, async (r) => [...(await seriousViolations(page)), ...(r.narrow ? [] : await reach(page))])).toEqual([]);
+  expect(await over(page, atNarrowest(page))).toEqual([]);
 });
 
 /** A heading in the accessibility tree: its level and name. */
@@ -264,24 +272,84 @@ function prompts(page: Page): Promise<string[]> {
   });
 }
 
+/**
+ * At 1440px: the heading outline, a command's `$` and hidden text, then in a forced-colours theme the
+ * marks, the selection and axe's rules. `marks` counts the marks it noted.
+ */
+const atDesk = (page: Page, marks: { seen: number }) => async (): Promise<string[]> => {
+  // Hidden text at a desktop's width too, where Runs' rows draw their keys and their statuses' words.
+  const found = [...(await outline(page)), ...(await prompts(page)), ...(await hiddenText(page))];
+  marks.seen += await noteMarks(page);
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  // Not axe's contrast here: it reads -webkit-text-fill-color, which Chrome leaves at the stylesheet's colour where it paints the system's.
+  found.push(...(await forcedMarks(page)), ...(await forcedSelection(page)), ...(await seriousViolations(page)).filter((v) => !v.startsWith('color-contrast ')));
+  await page.emulateMedia({ forcedColors: 'none' });
+  return found;
+};
+
 test('every route at 1440px keeps its heading outline, a command’s $ for the eye only, its hidden text where it is read and, in a forced-colours theme, its marks, its selection and axe’s rules', async ({ page }) => {
   test.setTimeout(600_000);
-  let marks = 0;
-  expect(
-    await over(page, async () => {
-      // Hidden text at a desktop's width too, where Runs' rows draw their keys and their statuses' words.
-      const found = [...(await outline(page)), ...(await prompts(page)), ...(await hiddenText(page))];
-      marks += await noteMarks(page);
-      await page.emulateMedia({ forcedColors: 'active' });
-      await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
-      // Not axe's contrast here: it reads -webkit-text-fill-color, which Chrome leaves at the stylesheet's colour where it paints the system's.
-      found.push(...(await forcedMarks(page)), ...(await forcedSelection(page)), ...(await seriousViolations(page)).filter((v) => !v.startsWith('color-contrast ')));
-      await page.emulateMedia({ forcedColors: 'none' });
-      return found;
-    }),
-  ).toEqual([]);
+  const marks = { seen: 0 };
+  expect(await over(page, atDesk(page, marks))).toEqual([]);
   // The strip's cells, the chart's bars, the legends' and the lists' dots: the routes hold hundreds.
-  expect(marks).toBeGreaterThan(100);
+  expect(marks.seen).toBeGreaterThan(100);
+});
+
+/**
+ * An injection test's pages (routes.ts' injectionRoutes) at 390, 320 and 1440 px, swept as every
+ * route is, on a store real commands made for them (injection-fixture.ts) and a dashboard of their
+ * own: one store for the three, its tests in order in one worker, the dashboard stopped after.
+ */
+test.describe('an injection test’s pages', () => {
+  test.describe.configure({ mode: 'serial' });
+  let built: InjectionStore | null = null;
+  let served: (Served & { stop: () => Promise<void> }) | null = null;
+  const routes = () => {
+    if (!built || !served) throw new Error('the injection store was not built');
+    return injectionRoutes(served, built.runId);
+  };
+  test.beforeAll(async () => {
+    // Four commands on a mock model, a few seconds, then the dashboard.
+    test.setTimeout(120_000);
+    built = await buildInjectionStore();
+    served = await serveDashboard(built.folder, built.project);
+  });
+  test.afterAll(async () => {
+    await served?.stop();
+    served = null;
+    if (built) rmSync(built.folder, { recursive: true, force: true });
+    built = null;
+  });
+
+  test('on a 390px phone have no serious or critical axe violation, scroll nothing sideways, draw no label under 11px and keep their hidden text where it is read', async ({ page }) => {
+    test.setTimeout(300_000);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await over(page, onPhone(page), routes())).toEqual([]);
+  });
+
+  test('at 320px have no serious or critical axe violation and scroll nothing sideways', async ({ page }) => {
+    test.setTimeout(300_000);
+    await page.setViewportSize({ width: 320, height: 640 });
+    expect(await over(page, atNarrowest(page), routes())).toEqual([]);
+  });
+
+  test('at 1440px keep their heading outline, a command’s $ for the eye only and their hidden text and, in a forced-colours theme, their marks, their selection and axe’s rules', async ({ page }) => {
+    test.setTimeout(300_000);
+    const marks = { seen: 0 };
+    expect(await over(page, atDesk(page, marks), routes())).toEqual([]);
+    // The results' cells and the attempts' strip.
+    expect(marks.seen).toBeGreaterThan(10);
+  });
+
+  test('say an untrusted read’s tag apart from its call’s name and effect, in Calls and in Turns', async ({ page }) => {
+    const [at, runId] = [served!, built!.runId];
+    await openPage(page, `/run/${runId}`, 'run', at);
+    // The five fetch_page reads, each tagged.
+    expect((await names(page, 'main#view table.calls tbody', 'cell')).filter((c) => c.startsWith('tool fetch_page read untrusted '))).toHaveLength(5);
+    await openPage(page, `/run/${runId}/turns`, 'run', at);
+    expect((await names(page, 'main#view .vbody', 'button')).filter((n) => /^↳ #\d+ fetch_page read untrusted live$/.test(n))).toHaveLength(5);
+  });
 });
 
 test('the cards that stand for a page, signed out and with a refused link, each have one h1, their title', async ({ page }) => {
@@ -673,12 +741,32 @@ test.describe('on a touch screen', () => {
       [`/fixes/${demoId('refundFix')}/blame`, 'fix', [{ name: 'a blamed call’s column', sel: 'main#view .callrow .cn' }]],
       [`/fixes/${demoId('refundFix')}/verify`, 'fix', [{ name: 'the attempts’ caret', sel: 'main#view .xbtn', size: [32, 32], reach: [5, 5, 5, 5] }]],
       ['/settings/project', 'main#view .settab > :not(.skel)', [{ name: 'a spending choice', sel: 'main#view .setrow.spend .seg button', reach: [6, 0, 6, 0] }]],
+      // The late pages: a golden's checks' line on a touch screen, and a fix's check. Wrapped, the two sit 10px apart as laid
+      // out, so Add check… takes the 4px under Edit checks…, which keeps 25px (the design's own sum).
+      [
+        '/tests',
+        'main#view table.gt',
+        [
+          { name: 'Edit checks…', sel: 'main#view .ckt .linkbtn[data-ck="edit"]', size: [0, 24], reach: [4, 0, 0, 0] },
+          { name: 'Add check…', sel: 'main#view .ckt .linkbtn[data-ck="add"]', size: [0, 24], reach: [4, 0, 4, 0] },
+        ],
+      ],
+      [`/fixes/${demoId('emailFix')}`, 'fix', [{ name: 'a fix’s Edit check…', sel: 'main#view .ph p.chk .fmx .linkbtn', reach: [4, 0, 4, 0] }]],
     ];
     const found: string[] = [];
     for (const [path, drawn, targets] of pages) {
       await openPage(page, path, drawn);
       if (path === '/runs') await page.locator('main#view button.linkbtn[aria-expanded="false"]', { hasText: 'Calendar' }).click();
       for (const t of targets) found.push(...(await taps(page, t)).map((p) => `${path}: ${p}`));
+    }
+    // States of the route table: the builder's Suggested, and a failed gate's report with its attempts folded past 24 (routed, so last).
+    const states: Array<[string, Target[]]> = [
+      ['the check builder', [{ name: 'Suggested’s Use rule', sel: `${DIALOG} .cb-sug .linkbtn`, reach: [4, 0, 4, 0] }]],
+      ['Tests with a gated golden’s evidence and three reports open', [{ name: 'a gate’s caret', sel: 'main#view section[id="report-email-gate"] .ibx .xbtn', size: [32, 32], reach: [5, 5, 5, 5] }]],
+    ];
+    for (const [name, targets] of states) {
+      await show(page, ROUTES.find((r) => r.name === name)!)();
+      for (const t of targets) found.push(...(await taps(page, t)).map((p) => `${name}: ${p}`));
     }
     expect(found).toEqual([]);
   });

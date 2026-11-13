@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
-import { apiRequests, at, click, compareOpen, DIALOG, DVIEW, escape, fixes, MENU, NOT_FOUND, press, PREVIEW, previewed, previews, revision, run, runs, settled, sweep, VERDICTS } from './routes.js';
+import { apiRequests, asksFirst, at, click, compareOpen, DIALOG, DVIEW, escape, fixes, MENU, moreAttempts, NOT_FOUND, press, PREVIEW, previewed, previews, revision, routeTreeRead, run, runs, settled, sweep, VERDICTS } from './routes.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
@@ -46,29 +46,6 @@ function runsTableHeld(page: Page): Array<[string, () => Promise<void>]> {
     ['Runs while its table loads on a phone', loading],
     ['Runs when its table’s read failed on a phone', failed],
   ];
-}
-/**
- * The preview at `preview` as if its verify had left its first run open, as the session's read answers
- * while `on`: Run more attempts its next step. Off, the session reads as the demo keeps it.
- */
-async function moreAttempts(page: Page, preview: string): Promise<{ preview: string; on: boolean }> {
-  const sessionId = preview.split('/').at(-1)!;
-  const more = { preview, on: false };
-  await page.route(
-    (url) => url.pathname.endsWith(`/api/decisions/${sessionId}`),
-    async (route) => {
-      if (!more.on) return route.continue();
-      // Read whole, with the session's cookie, never a 304 the page's cache would answer.
-      const headers = Object.fromEntries(Object.entries(await route.request().allHeaders()).filter(([k]) => k !== 'if-none-match'));
-      const res = await route.fetch({ headers });
-      const s = (await res.json()) as { matrix: Array<{ runId: string; verified: unknown }>; view: { next: Record<string, unknown> } };
-      const runId = s.matrix[0]!.runId;
-      s.matrix[0]!.verified = { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' };
-      s.view.next = { ...s.view.next, verify: null, migrate: null, more: { kind: 'more', runs: [runId], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' } };
-      await route.fulfill({ response: res, json: s });
-    },
-  );
-  return more;
 }
 /**
  * Update goldens from Tests, as the palette opens it (`#/tests?update`): the header offers it only
@@ -323,7 +300,7 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
 test('every dialog has no serious or critical axe violation, wide and as a phone’s sheet', async ({ page }) => {
   test.setTimeout(600_000);
   // Every billed press asks on this page, whatever the suite's one Spending says, so opening a dialog runs nothing.
-  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
+  await asksFirst(page);
   const ids = dash().runs;
   const id = (name: string) => ids[name] as string;
   // A row or a button that isn't there says so soon: there is no waiting it out.
@@ -360,9 +337,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   // A preview's menu and the dialogs it opens, and its Verify.
   const p = await previewed(page);
   // Preview changed prompt reads the working tree as a job, answered here as it ends: a real read replays the agent's code.
-  const read = { id: 'axe-tree-read', kind: 'decisions-read', title: 'Reading what your working tree sends', args: ['decisions', '--from-code', '--dry-run'], runId: null, opensRun: false, startedAt: Date.now(), done: true, code: 0, newRunId: null, lines: [], total: 0, result: { fromCode: { calls: 2, instructions: { before: 'You are a support agent.', after: 'You are a support agent. Never refund an order twice.' }, tools: { added: [], removed: [], changed: ['issue_refund'] } }, runs: [], notes: [], nothing: null, scope: 'agent' } };
-  await page.route('**/api/jobs', (route) => (route.request().method() === 'POST' && (route.request().postDataJSON() as { kind?: string }).kind === 'decisions-read' ? route.fulfill({ status: 202, json: read }) : route.continue()));
-  await page.route(`**/api/jobs/${read.id}**`, (route) => route.fulfill({ json: read }));
+  await routeTreeRead(page);
   // Run more attempts shows where a preview's verify left a run open: the same preview, answered as if verify had.
   const more = await moreAttempts(page, p.preview);
   const onPreview = (name: string, ...open: Array<() => Promise<void>>) => opened(name, at(page, p.preview, PREVIEW), ...open);
