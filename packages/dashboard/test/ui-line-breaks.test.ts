@@ -1,7 +1,7 @@
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CLEAN_GATE, cleanRule } from '@shadowlap/engine';
+import { CLEAN_GATE, cleanRule, JUDGE_ASKED_IN_NONE } from '@shadowlap/engine';
 import { PageHeader } from '../ui/components/bits.js';
 import { Code, CODE_SET, CodeText, Command, Copy, LongWord, Words } from '../ui/components/Copy.js';
 import { Dialog } from '../ui/components/Dialog.js';
@@ -12,6 +12,7 @@ import { EmptyState } from '../ui/components/States.js';
 import { ToastWords } from '../ui/components/Toast.js';
 import { dotParts, RuleText } from '../ui/components/Verdict.js';
 import { FixTitle } from '../ui/fixes/parts.js';
+import { Check } from '../ui/tests/Checks.js';
 import { EditorButton } from '../ui/revert/EditorButton.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { planCopy } from '../ui/typeset-lines.js';
@@ -132,6 +133,15 @@ describe('the parts kept whole', () => {
   it('glues a count to its noun in words no Copy sets', async () => {
     await draw(createElement(Words, { children: 'a replay runs the 4 tools they asked for live' }));
     expect(drawn()).toContain('4\u00a0tools');
+  });
+
+  it('keeps a judge’s name whole in a golden’s check on Tests and in its report, the label’s spaces as the engine wrote them', async () => {
+    // judges-e34's not-asked judge: at 320 to 430 its name split at the hyphen, `"explains-` over `escalation"`.
+    const label = 'judge "explains-escalation" answers yes';
+    const judge = { question: 'Does the reply say why it escalated?', model: 'claude-haiku-4-5', verdict: null, judged: null, held: null };
+    await draw(createElement(Check, { c: { label, status: 'not-applicable', added: false, addedAt: null, detail: JUDGE_ASKED_IN_NONE, reason: null, source: null, live: null, attempts: null, judge }, ran: true, cell: true }));
+    expect(r!.all('.cw ts-w').map((w) => w.textContent)).toEqual(['"explains-escalation"']);
+    expect(r!.one('.cw').textContent).toBe(`${label}${JUDGE_ASKED_IN_NONE}`);
   });
 
   it('keeps a small word with the name in code after it in a dialog’s quiet part, so the name never ends its row alone', async () => {

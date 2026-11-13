@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Words } from '../components/Copy.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { glued } from '../format.js';
 import { checkMark } from '../goldens.js';
@@ -65,7 +66,8 @@ export function Check({ c, ran, cell, children }: { c: GoldenCheck; ran: boolean
         </b>
       ) : null}
       <span className="cw">
-        {m.text}
+        {/* the engine's label as written, each name in it whole: a judge's `"explains-escalation"` never splits at its hyphen */}
+        <Words glued={false}>{m.text}</Words>
         {m.sub ? <small>{glued(m.sub)}</small> : null}
       </span>
       {children}
