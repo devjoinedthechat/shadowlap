@@ -522,6 +522,11 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   }
   await openPage(page, `/fixes/${demoId('refundFix')}/blame`, 'fix');
   expect(await names(page, 'main#view table', 'cell')).toEqual(expect.arrayContaining([expect.stringMatching(/^\S+ blamed$/)]));
+  // Tests: a golden's error-path presets heard apart from its checks, then their picture by its counts, then the counts.
+  await openPage(page, '/tests', 'main#view table.gt .gpstrip:visible');
+  const strips = (await names(page, 'main#view table.gt tbody', 'cell')).filter((c) => c.includes('error-path presets'));
+  expect(strips.length).toBeGreaterThan(0);
+  for (const c of strips) expect(c).toMatch(/ error-path presets \d+ presets?: \d+ \w+(, \d+ \w+)* \d+ \w+( · \d+ \w+)*$/);
   // Training's tabs: the word and its count.
   await openPage(page, '/training', 'main#view .stabs a');
   expect(await names(page, 'main#view .stabs', 'link')).toEqual([expect.stringMatching(/^Pairs [\d,]+$/), expect.stringMatching(/^Tasks [\d,]+$/)]);
