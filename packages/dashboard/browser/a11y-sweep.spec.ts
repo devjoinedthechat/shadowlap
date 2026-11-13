@@ -492,6 +492,11 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
     await expect(control).toHaveAccessibleName((await page.locator(`#${id}-name`).textContent())!.trim());
     await expect(control).toHaveAccessibleDescription((await page.locator(`#${id}-help`).textContent())!.trim());
   }
+  // The pull request comment's switch for the decisions, named and described by its row the same way.
+  const decisions = page.locator('[aria-labelledby="cidecisions-name"]');
+  await expect(decisions).toHaveCount(1);
+  await expect(decisions).toHaveAccessibleName((await page.locator('#cidecisions-name').textContent())!.trim());
+  await expect(decisions).toHaveAccessibleDescription((await page.locator('#cidecisions-help').textContent())!.trim());
 });
 
 test('in a forced-colours theme the fork’s cell in the strip keeps its mark, a 2px band in the text colour round it', async ({ page }) => {
