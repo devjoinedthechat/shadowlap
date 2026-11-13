@@ -6,7 +6,7 @@ import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { migrateStart } from '../src/migrate-start.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { MigrateTab } from '../ui/changes/Migrate.js';
-import { inlineParts, parseMarkdown } from '../ui/components/Markdown.js';
+import { inlineParts, Markdown, parseMarkdown } from '../ui/components/Markdown.js';
 import { NO_GOLDENS } from '../ui/components/NewPreviewMenu.js';
 import { migratePaletteRows } from '../ui/migrate-command.js';
 import { MIGRATE_ASK } from '../ui/page-ask.js';
@@ -529,6 +529,13 @@ describe('Changes › Migrate', () => {
     expect(asked).toEqual([FROM]);
     const held = 'A repair holds the working tree';
     expect(migratePaletteRows([n], held, () => undefined).map((r) => [r.hint, r.wait])).toEqual([[held, held]]);
+  });
+
+  it('draws a pull request body’s code by what it holds: a tool call’s arguments as code shown as text, a command or a name as inline code, an arrow kept with the code before it', async () => {
+    page = await render(createElement(Markdown, { text: 'Checked with `shadowlap migrate --to claude-sonnet-5-5`.\n\n- refund #2: issue_refund is no longer called (`issue_refund({"amount":240})` → `end_turn`)' }));
+    expect(page.one('p code').className).toBe('ts-cb');
+    expect(page.all('li code').map((c) => c.className)).toEqual(['ts-ct', 'ts-code']);
+    expect(page.one('li').textContent).toContain('})\u00a0→ end_turn');
   });
 
   it('reads a pull request body’s quote, and links only to an http(s) address', () => {
