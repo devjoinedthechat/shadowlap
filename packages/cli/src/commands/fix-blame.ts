@@ -1,5 +1,5 @@
 import { InvalidArgumentError } from 'commander';
-import { ACTIONS, BLAME_DEFAULTS, blameBound, blameSteps, commandIsImported, describeRescue, dimLines, fitLine, formatBlame, hasRecordedCommand, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord, whole } from '@shadowlap/engine';
+import { ACTIONS, BLAME_DEFAULTS, blameBound, blameSteps, commandIsImported, describeRescue, dimLines, fitLine, formatBlame, hasRecordedCommand, hiddenCharacter, hiddenCharacterWords, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord, whole } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -92,6 +92,9 @@ async function parseBlame(opts: GlobalOpts, runArg: string, command: string[], f
   const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
   const undecidable = undecidableRefusal(expect?.spec ?? null, 'blame');
   if (undecidable) throw new InvalidArgumentError(undecidable);
+  // A check the team store can't keep, which would open a fix no step could run under again.
+  const hidden = expect ? hiddenCharacter(expect.json) : null;
+  if (hidden) throw new InvalidArgumentError(hiddenCharacterWords(hidden, '--expect'));
   const fields = parseFields(flags.set, flags.model);
 
   const store = readStore(opts);

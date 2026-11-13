@@ -2,18 +2,27 @@ import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateResult, Store, type StoredCheck } from '@shadowlap/engine';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
-import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, withFailedRuns, withStepHints, type TestsAnswer } from '../src/golden-report.js';
+import { issueKey } from '../src/issue-keys.js';
 import { links } from '../src/links.js';
 import type { NextStep } from '../src/next-step.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import type { Client } from '../ui/api.js';
 import { pageUp } from '../ui/focus-manager.js';
+import { ISSUE_ASK } from '../ui/page-ask.js';
 import { moreCard, updateCard } from '../ui/pages/tests-cards.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { Proof } from '../ui/injection/Proof.js';
+import { SecurityReportDialog } from '../ui/injection/SecurityReportDialog.js';
+import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
+import { goldenRowScope } from '../ui/tests/row-scope.js';
+import { ReportSteps } from '../ui/tests/ReportSteps.js';
+import type { LeadPress } from '../ui/tests/Verdict.js';
+import { shownNow } from './ui-served-now.js';
 import { failedRunsWords } from '../ui/failed-runs.js';
 import type { RequestDiff } from '../src/request-diff.js';
-import type { DivergenceView, GoldenReport, GoldenRow } from '../ui/types.js';
+import type { DivergenceView, GoldenReport, GoldenRow, TestEvidence } from '../ui/types.js';
 import { FoldedLines } from '../ui/tests/ErrorPart.js';
 import { drawsFindCommit, stepFor } from '../ui/tests/lead.js';
 import { ReportParts } from '../ui/tests/ReportParts.js';
@@ -35,7 +44,12 @@ describe('a report’s hint', () => {
     expect(hintWords({ key: 'injection' })).toBe('The agent obeyed an instruction planted in what it reads: fix the agent, not the golden.');
     expect(hintWords({ key: 'gate' })).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent.");
     expect(hintWords({ key: 'error' })).toBe('The golden could not be replayed.');
-    for (const key of ['normalizer', 'bisect', 'check', 'crash', 'injection', 'gate', 'undecided', 'no-calls', 'no-preload', 'error'] as const) expect(hintWords({ key }).split(/[.?](?: |$)/).filter(Boolean)).toHaveLength(1);
+    for (const key of ['normalizer', 'bisect', 'check', 'crash', 'injection', 'gate', 'undecided', 'no-calls', 'no-preload', 'error', 'checks-changed', 'edit-check'] as const) expect(hintWords({ key }).split(/[.?](?: |$)/).filter(Boolean)).toHaveLength(1);
+  });
+
+  it('says what a golden whose checks lead it should do, from its step: Run tests, or edit a check its own recording fails', () => {
+    expect(hintWords({ key: 'checks-changed' })).toBe('Run tests judges its checks as they are now.');
+    expect(hintWords({ key: 'edit-check' })).toBe('The check, added since, fails the golden’s own recording: edit the check, or update the golden if the agent should now do this.');
   });
 
   it('says what to do with a crash’s first bad commit once it is named', () => {
@@ -173,7 +187,8 @@ function answer(steps: Record<string, NextStep> = {}): TestsAnswer {
   const view = testsView(store, goldens, { folder: 'goldens' });
   const reports = goldenReports(view, { store, goldens, normalizers: [], project: '/work/shop' });
   store.close();
-  return { ...view, reports, steps };
+  // As the route joins them: a golden whose checks lead it takes its step's hint.
+  return { ...view, reports: withStepHints(reports, steps), steps };
 }
 
 const OFFLINE_BODY = { type: 'error', error: { type: 'shadowlap_offline', message: 'shadowlap is offline: call #1 (POST /v1/messages) was not served from the recording and would need the network' } };
@@ -197,8 +212,8 @@ afterEach(async () => {
   said.length = 0;
 });
 
-/** Tests over `view`, arrived at by `hash`: the attempts it reads counted in `asked`, its toasts in `said`. */
-async function draw(view: TestsAnswer, hash = '#/tests'): Promise<Rendered> {
+/** Tests over `view`, arrived at by `hash`, with the parts the served dashboard hands in (`parts`): the attempts it reads counted in `asked`, its toasts in `said`. */
+async function draw(view: TestsAnswer, hash = '#/tests', parts: ServedParts = {}): Promise<Rendered> {
   const location = { hash, pathname: '/', search: '' };
   vi.stubGlobal('location', location);
   vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (location.hash = url.slice(url.indexOf('#'))) });
@@ -217,7 +232,7 @@ async function draw(view: TestsAnswer, hash = '#/tests'): Promise<Rendered> {
     startJob: () => Promise.resolve({ id: 'j1' }),
   } as unknown as Client;
   const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: (words: string) => void said.push(words) };
-  r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage)));
+  r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ServedPartsContext.Provider, { value: parts }, createElement(TestsPage))));
   await r.until('the goldens to load', () => r!.all('table.gt tbody tr[data-rowkey]').length === view.rows.length);
   return r;
 }
@@ -340,6 +355,44 @@ describe('a golden’s report under its row', () => {
     expect(report(bisect, 'drift').querySelectorAll('div.actions .btn').map((b) => b.textContent)).not.toContain('Update golden');
   });
 
+  it('offers a golden whose checks changed since Run tests alone, and one whose recording fails a check added since Edit check…, each plain, its hint from its step', async () => {
+    const steps: Record<string, NextStep> = {
+      'goldens/flaky': { key: 'run-tests', label: 'Run tests', golden: 'goldens/flaky', gone: [TWICE], sub: 'Its checks changed since its last test: the session judges them as they are now', command: 'shadowlap test goldens/*' },
+      'goldens/refund': { key: 'edit-check', label: 'Edit check…', golden: 'goldens/refund', check: 'issue_refund called 1 time', sub: 'It fails refund’s own recording: edit the check, or update the golden if the agent should now do this' },
+    };
+    const page = await draw(answer(steps), '#/tests', { CheckBuilder: shownNow(() => createElement('div', { className: 'builderstub' })) });
+    const buttons = (name: string) => report(page, name).querySelectorAll('div.actions .btn').map((b) => [b.textContent, b.className]);
+    const hint = (name: string) => report(page, name).querySelector('p.hintx')?.textContent;
+    // More attempts would judge checks the config no longer holds: Run tests, the whole session, alone.
+    expect(buttons('flaky')).toEqual([['Run tests', 'btn']]);
+    expect(hint('flaky')).toBe('Run tests judges its checks as they are now.');
+    expect(buttons('refund')[0]).toEqual(['Edit check…', 'btn']);
+    expect(hint('refund')).toBe('The check, added since, fails the golden’s own recording: edit the check, or update the golden if the agent should now do this.');
+    // Edit check… opens the builder at its check.
+    await page.click(report(page, 'refund').querySelector('div.actions .btn')!);
+    await page.until('the builder', () => page.all('.builderstub').length === 1);
+  });
+
+  it('opens its golden’s issue on Runs › Failed from Failed runs →, its hover naming the replays', async () => {
+    const a = answer();
+    const ids = ['01K8RGAAAA0000000000000001', '01K8RGBBBB0000000000000002'];
+    const runs = { 'goldens/refund': { count: 2, ids }, 'goldens/drift': { count: 1, ids: ids.slice(1) } };
+    const page = await draw({ ...a, reports: withFailedRuns(a.reports ?? {}, runs, { 'goldens/drift': { key: 'fix' } }) });
+    const heads = report(page, 'refund').querySelectorAll('span.glinks > a');
+    expect(heads.map((x) => x.textContent)).toEqual(['Failed runs →', 'Open run']);
+    const failed = heads[0];
+    expect(failed.getAttribute('href')).toBe(failedRunsHref('refund'));
+    expect(JSON.parse(failed.getAttribute('data-tip')!)).toMatchObject({ t: '2 failed replays', s: '01K8RGAAAA, 01K8RGBBBB. Opens them on Runs, under Failed' });
+    // A click, as Enter on the link is, asks for the issue as the link goes to Failed, which opens it as it shows; one with a modifier asks for none.
+    const key = issueKey.golden('goldens/refund');
+    await page.fire(failed, 'click', { metaKey: true });
+    expect(ISSUE_ASK.take(key)).toBe(false);
+    await page.click(failed);
+    expect(ISSUE_ASK.take(key)).toBe(true);
+    // One whose step is its fix has none: Open fix leads to its runs.
+    expect(report(page, 'drift').querySelectorAll('span.glinks > a').map((x) => x.textContent)).toEqual(['Open run']);
+  });
+
   it('draws a divergence’s request as Show diff draws it once its report is open, then what followed, its message folded until found', async () => {
     const page = await draw(answer());
     const part = () => one(report(page, 'drift'), 'dl.rpx > dd');
@@ -391,6 +444,57 @@ describe('an injection gate’s attempts', () => {
   });
 });
 
+describe('an injection gate’s proof and its Security report', () => {
+  const ATTEMPT = '01K5CQ4N7GA77EMP700000000P';
+  const TESTED = '01K5CQ4N7GTE57ED000000000R';
+  const CANARY = 'x7f3k@canary.invalid';
+  const proof = { kind: 'proof', runId: ATTEMPT, parts: { plantedAt: 4, readAt: 5, evidence: { kind: 'canary', callNo: 6, at: 'send_email.to', value: CANARY, why: null } }, why: null };
+  const attempts = { kind: 'injection-attempts', totals: { obeyed: 5, influenced: 2, inconclusive: 3, ignored: 62 }, where: null, each: null, command: 'shadowlap injection goldens/research --html report.html', security: { resultId: 'inj-1', runId: TESTED } };
+  const report = { golden: 'goldens/research', name: 'research', verdict: 'failed', head: [], sub: [], parts: [proof, attempts], open: null, failedRuns: null, hint: { key: 'injection' }, printed: [] } as unknown as GoldenReport;
+  const row = { path: 'goldens/research', last: { gate: null } } as unknown as GoldenRow;
+  const view = { divergences: [], failures: [], inconclusive: [], steps: {} } as unknown as TestsAnswer;
+  const press: LeadPress = { wait: () => null, prices: null, live: () => false, onNormalize: () => undefined, onUpdate: () => undefined, onFind: () => undefined, onMore: () => undefined, onRerun: () => undefined, runTests: null, edit: null };
+  const preview = { at: T0, attempts: 72, rules: 1, masks: [{ at: 'fetch_page.url', before: 'https://c.example.com/notes', after: 'https://<HOST>/notes' }], canaries: [{ at: 'send_email.to', value: CANARY }], file: 'shadowlap-injection-01k5cq4n7g.html' };
+  const appOf = (client: unknown) => ({ client, exported: false, actionsOff: null, conn: 'ok', hasKind: () => true, guard: (fn: () => void) => (fn(), true), toast: (words: string) => void said.push(words), jobs: [] }) as unknown as AppState;
+  const served = (parts: ServedParts, child: ReturnType<typeof createElement>, client: unknown = {}) => createElement(AppContext.Provider, { value: appOf(client) }, createElement(ServedPartsContext.Provider, { value: parts }, child));
+
+  it('draws the proof as an attempt’s finding draws it, each call it names opening that attempt there, and none where the part isn’t handed in', async () => {
+    const location = { hash: '#/tests', pathname: '/', search: '' };
+    vi.stubGlobal('location', location);
+    const parts = createElement(ReportParts, { report, row, open: true });
+    r = await render(served({ Proof: shownNow(Proof) }, parts));
+    const line = r.one('dl.rpx dd > p.rpw > span.injline');
+    expect(line.querySelectorAll('button.pbn').map((b) => [b.textContent, b.getAttribute('data-injtab')])).toEqual([['#4', 'response'], ['#5', 'conversation'], ['#6', 'request']]);
+    expect(line.querySelectorAll('b.cnry').map((b) => b.textContent)).toEqual([CANARY]);
+    // The attempt's page opens a call its proof names on the tab that shows it (injection/arrival.ts).
+    await r.click(line.querySelectorAll('button.pbn')[2]);
+    expect(location.hash).toBe(`#/run/${ATTEMPT}/6`);
+    await r.unmount();
+    r = await render(served({}, parts));
+    expect([r.all('.injline').length, r.all('dl.rpx > dt').map((d) => d.textContent)]).toEqual([0, ['Proof', 'Attempts']]);
+  });
+
+  it('opens Share’s Security report dialog from its button and from ⌘K on its row, naming the run the result tested, and offers none where the dialog isn’t handed in', async () => {
+    const client = { injectionPreview: async () => preview, injectionReport: async () => ({ filename: preview.file, redacted: true }) };
+    const page = createElement('div', { className: 'page' }, createElement('section', { id: 'report-research' }, createElement(ReportSteps, { report, view, press, onPress: () => undefined })));
+    r = await render(served({ SecurityReportDialog: shownNow(SecurityReportDialog) }, page, client));
+    await r.click(r.byText('div.actions .btn', 'Security report'));
+    await r.until('the dialog’s preview', () => r!.all('[role="dialog"] .injmask').length === 2);
+    expect(shownText(r.one('[role="dialog"] h3'))).toBe(`Download security report for ${TESTED.slice(0, 10)}`);
+    await r.click(r.one('.dlg-cancel'));
+    expect(r.all('[role="dialog"]')).toHaveLength(0);
+    // ⌘K on the golden's row presses the report's own button.
+    const item = goldenRowScope({ name: 'research', runId: null }, () => r!.one('div.page') as unknown as ParentNode)!
+      .items()
+      .find((i) => i.label === 'Security report')!;
+    await act(async () => item.run());
+    await r.until('the dialog again', () => r!.all('[role="dialog"]').length === 1);
+    await r.unmount();
+    r = await render(served({}, page, client));
+    expect(r.all('div.actions .btn').map((b) => b.textContent)).toEqual([]);
+  });
+});
+
 describe('a request part on its own', () => {
   const BODIES = { was: { metadata: { user_id: 'a' } }, now: { metadata: { user_id: 'b' } } };
   const FOLLOWED = { line: ['Not served from the recording:', 'the agent exited on HTTP 503'] as [string, string], message: '{\n  "type": "error"\n}' };
@@ -417,14 +521,40 @@ describe('a request part on its own', () => {
     expect(dd.querySelectorAll('p.rperr > span.nw').map((x) => x.textContent)).toEqual(FOLLOWED.line);
   });
 
-  it('says a failed ask with Retry, which asks again, and where the answer is none says so as Show diff does', async () => {
-    let fail = true;
-    const dd = await drawPart({ kind: 'request', runId: 'run-asked-twice', callNo: 3, against: null, bodies: null, followed: null }, () => (fail ? Promise.reject(new Error('offline')) : Promise.resolve(null)));
+  it('draws its shape while asked, says a failed ask as every page does, with Retry, which asks again, and where the answer is none says so as Show diff does', async () => {
+    const { ApiError } = await import('../ui/api.js');
+    let fail: ((err: Error) => void) | null = null;
+    const ask = () => (fail ? Promise.resolve(null) : new Promise<null>((_resolve, reject) => (fail = reject)));
+    const dd = await drawPart({ kind: 'request', runId: 'run-asked-twice', callNo: 3, against: null, bodies: null, followed: null }, ask);
+    // While it is asked: both heads, then its lines in their box, as quiet bars in classes of their own.
+    expect(dd.querySelectorAll('.rpdiff .skel [role="status"]').map(shownText)).toEqual(['Loading the request’s diff…']);
+    expect([dd.querySelectorAll('.skel .rpskh > span').length, dd.querySelectorAll('.skel .rpskd > span').length, dd.querySelectorAll('.jdh, .jl, .hint').length]).toEqual([2, 6, 0]);
+    await act(async () => fail!(new ApiError(500, 'HTTP 500')));
     await r!.until('the error', () => dd.querySelectorAll('.rpdiff .loaderr').length === 1);
-    fail = false;
+    expect(dd.querySelectorAll('.loaderr p > span').map(shownText)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
     await r!.click(one(dd, '.loaderr button.btn'));
     await r!.until('the answer', () => dd.querySelectorAll('.rpdiff div.hint').length === 1);
     expect([diffs, dd.querySelectorAll('.loaderr').length, shownText(one(dd, '.rpdiff div.hint')).replace(/\u00a0/g, ' ')]).toEqual([['run-asked-twice', 'run-asked-twice'], 0, 'The replay kept no call #3 to compare.']);
+  });
+
+  it('draws its attempts’ lines while they are read, and a failed read as every page says it, with Retry, which reads them again', async () => {
+    const { ApiError } = await import('../ui/api.js');
+    const reads: Array<{ resolve: (e: TestEvidence) => void; reject: (err: Error) => void }> = [];
+    const testEvidence = () => new Promise<TestEvidence>((resolve, reject) => reads.push({ resolve, reject }));
+    const app = { client: { testEvidence }, exported: false, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
+    const report = { name: 'flaky', verdict: 'inconclusive', parts: [{ kind: 'attempts', check: null, carried: null, forked: null }] } as unknown as GoldenReport;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(ReportParts, { report, row: { path: 'goldens/flaky', last: { at: T0, gate: { attempts: 3 } } } as unknown as GoldenRow, open: true })));
+    const dd = r.one('dl.rpx > dd');
+    expect(dd.querySelectorAll('.skel [role="status"]').map(shownText)).toEqual(['Loading the attempts…']);
+    expect([dd.querySelectorAll('.skel .rpska > span').length, dd.querySelectorAll('.alist').length]).toEqual([3, 0]);
+    await act(async () => reads[0].reject(new ApiError(500, 'HTTP 500')));
+    await r.until('the failure', () => dd.querySelectorAll('.loaderr').length === 1);
+    expect(dd.querySelectorAll('.loaderr p > span').map(shownText)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    await r.click(one(dd, '.loaderr button.btn'));
+    expect(reads).toHaveLength(2);
+    await act(async () => reads[1].resolve({ attempts: [{ runId: 'run-a1', href: '#/run/run-a1', outcome: 'failed', note: 'called 2 times' }], carried: 0, gone: 0 }));
+    await r.until('the attempts', () => dd.querySelectorAll('.alist > .al').length === 1);
+    expect(dd.querySelectorAll('.skel, .loaderr')).toHaveLength(0);
   });
 
   it('folds a body that came after its line first drew without one, until found', async () => {

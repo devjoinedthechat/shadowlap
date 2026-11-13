@@ -4,6 +4,8 @@ import { Store } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import type { ActivityItem, Client, NeedsLookRow, OverviewSummary, RunListItem } from '../ui/api.js';
 import { handOnAtEnd, headingRef, notingJobFrom } from '../ui/focus-manager.js';
+import { dropRowScope, rowScopeNow, takeRowScope } from '../ui/list-keys.js';
+import { ISSUE_ASK } from '../ui/page-ask.js';
 import { OverviewPage } from '../ui/pages/Overview.js';
 import { href } from '../ui/route.js';
 import { useRoute } from '../ui/router.js';
@@ -16,7 +18,8 @@ import { render, type Rendered } from './ui-render.js';
 /**
  * The Overview as the shell draws it: Watch live naming the recording by what it is about, Recent
  * runs' eight newest with a recording first, j and k through its four lists in the order they read,
- * and where the focus goes when a job a Needs a look row started ends and the page draws anew.
+ * where the focus goes when a job a Needs a look row started ends and the page draws anew, and a
+ * Dismiss in another tab, which the page reads again without asking a fix step its price again.
  */
 
 const NOW = Date.UTC(2026, 9, 22, 12);
@@ -53,22 +56,31 @@ interface Shown {
   live?: AppState['live'];
 }
 
-/** The Overview in the shell's place for a page, its keys and the router mounted; `show` swaps what the server says, then moves the shell's tick so the page reads it again. */
-async function overview(first: Shown): Promise<{ show: (next: Shown) => Promise<void> }> {
+/**
+ * The Overview in the shell's place for a page, its keys and the router mounted; `show` swaps what
+ * the server says, then moves the shell's tick so the page reads it again, and `feed` swaps it and
+ * moves the change feed's counters alone. `reads` counts the summaries read.
+ */
+async function overview(first: Shown, more: Partial<Client> = {}): Promise<{ show: (next: Shown) => Promise<void>; feed: (next: Shown, counters: Record<string, number>) => Promise<void>; reads: () => number }> {
   let now = first;
+  let reads = 0;
   const client = {
-    summary: () => Promise.resolve(now.summary),
+    summary: () => (reads++, Promise.resolve(now.summary)),
     activity: () => Promise.resolve({ items: now.activity ?? [], next: null }),
     teamStore: () => Promise.resolve(null),
     jobs: async () => [],
     nextStep: async () => ({ next: null }),
+    ...more,
   } as unknown as Client;
   let move: (tick: number) => void = () => undefined;
+  let counters: (feeds: Record<string, number>) => void = () => undefined;
   function Host() {
     useRoute();
     const [tick, setTick] = useState(0);
+    const [feeds, setFeeds] = useState<Record<string, number>>({});
     move = setTick;
-    const state = app({ client, runs: now.runs ?? [], live: now.live ?? [], tick, runsTick: 0, feeds: {}, hasKind: () => true });
+    counters = setFeeds;
+    const state = app({ client, runs: now.runs ?? [], live: now.live ?? [], tick, runsTick: 0, feeds, hasKind: () => true });
     return createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, 'Overview'), createElement(OverviewPage)), createElement(Keyboard));
   }
   r = await render(createElement(Host));
@@ -79,6 +91,11 @@ async function overview(first: Shown): Promise<{ show: (next: Shown) => Promise<
       now = next;
       await act(async () => move(++ticks));
     },
+    feed: async (next, to) => {
+      now = next;
+      await act(async () => counters(to));
+    },
+    reads: () => reads,
   };
 }
 
@@ -143,11 +160,43 @@ describe('the Overview’s keys', () => {
   });
 });
 
+describe('Needs a look’s row of failed runs nobody has blamed', () => {
+  it('opens its newest’s issue on Runs › Failed from its link, from Enter and from ⌘K’s Open', async () => {
+    vi.stubGlobal('CSS', { escape: (x: string) => x });
+    const issue = 'fail:the agent exited with an error';
+    const unblamed: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: '1 failing run nobody has blamed', detail: `${rid(2).slice(0, 10)} · the agent exited with an error`, key: `attn:unblamed:${rid(2)}`, group: 'failing', step: { of: 'link', label: 'Run blame', href: href.run(rid(2)) }, href: '#/runs?types=failed', runId: rid(2), fixId: null, at: 2, issue };
+    await overview({ summary: { ...week, needsLook: { items: [unblamed], total: 1, dismissals: 0 } } });
+    const link = r!.one(`[data-rowkey="${unblamed.key}"] a.at`);
+    expect(link.getAttribute('href')).toBe('#/runs?types=failed');
+    // Its link asks for the issue as it goes there; Failed opens it as it shows.
+    await r!.click(link);
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+    await r!.press('j');
+    expect(r!.focused().getAttribute('data-rowkey')).toBe(unblamed.key);
+    await r!.press('Enter');
+    expect(location.hash).toBe('#/runs?types=failed');
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+    addressBar('#/');
+    await r!.focus(r!.one(`.arow[data-rowkey="${unblamed.key}"]`));
+    takeRowScope();
+    try {
+      rowScopeNow()!
+        .items()
+        .find((i) => i.label === 'Open')!
+        .run();
+    } finally {
+      dropRowScope();
+    }
+    expect(location.hash).toBe('#/runs?types=failed');
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+  });
+});
+
 describe('a Needs a look row’s job’s end', () => {
   const tick = (ms = 80) => act(() => new Promise<void>((done) => setTimeout(done, ms)));
   const push: NeedsLookRow = { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', key: 'attn:local', group: 'housekeeping', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 };
   const setup: NeedsLookRow = { kind: 'store-setup', icon: 'setting', title: 'The team store’s setup is partway through', detail: 'its bucket is made, its key isn’t', key: 'attn:store-setup', group: 'housekeeping', step: { of: 'link', label: 'Continue setup', href: '#/settings/store/setup' }, href: '#/settings/store/setup', runId: null, fixId: null, at: 0 };
-  const looks = (items: NeedsLookRow[]) => ({ summary: { ...week, needsLook: { items, total: items.length } } });
+  const looks = (items: NeedsLookRow[]) => ({ summary: { ...week, needsLook: { items, total: items.length, dismissals: 0 } } });
 
   it('hands the focus to the row’s own step where the row is drawn anew with another in its place', async () => {
     const changed = watchThePage();
@@ -180,11 +229,36 @@ describe('a Needs a look row’s job’s end', () => {
   });
 });
 
+describe('a Dismiss in another tab', () => {
+  it('reads the summary again once the dismissals counter moves, a fix step keeping the price it asked for', async () => {
+    const fixId = 'fx-01M5H3D15MQJ8V2W3X4Y5Z6A7B';
+    const fix: NeedsLookRow = { kind: 'open', icon: 'blame', title: 'Refunds above the limit issued without approval', detail: 'lost at model call #5', key: `attn:fix:#/fixes/${fixId}`, group: 'failing', step: { of: 'fix', fixId, lead: { key: 'blame-stronger', label: 'Blame with a stronger model', command: `shadowlap blame --fix ${fixId} --model claude-opus-5`, use: 'reads' } }, href: `#/fixes/${fixId}`, runId: null, fixId, at: 0 };
+    const local: NeedsLookRow = { kind: 'local', icon: 'rec', title: '1 run is only on this machine', detail: 'push it so the team can open it', key: 'attn:local', group: 'housekeeping', step: null, href: '#/runs?types=local', runId: null, fixId: null, at: 0, advice: { key: 'local', facts: [rid(1)], until: 'Until another run is only on this machine', dismissed: false } };
+    const fixEstimates = vi.fn(() => Promise.reject(new Error('no estimate here')));
+    const looks = (dismissed: boolean, dismissals: number) => ({ summary: { ...week, needsLook: { items: [fix, { ...local, advice: { ...local.advice!, dismissed } }], total: dismissed ? 1 : 2, dismissals } } });
+    const page = await overview(looks(false, 0), { estimates: { fixEstimates } } as unknown as Partial<Client>);
+    const step = () => r!.byText('.arow .ast .btn', 'Blame with a stronger model');
+    await r!.focus(step());
+    await r!.until('its price asked for', () => fixEstimates.mock.calls.length === 1);
+    const reads = page.reads();
+    await page.feed(looks(true, 1), { dismissals: 1 });
+    await r!.until('the summary read again', () => page.reads() === reads + 1 && r!.all('.aoff').length === 1);
+    await r!.focus(step());
+    await r!.wait(20);
+    expect(fixEstimates).toHaveBeenCalledTimes(1);
+    // A new answer of the list, as a tick brings, asks for it again.
+    await page.show(looks(true, 1));
+    await r!.until('the summary read again', () => page.reads() === reads + 2);
+    await r!.focus(step());
+    await r!.until('its price asked for again', () => fixEstimates.mock.calls.length === 2);
+  });
+});
+
 describe('a retiring model’s row', () => {
   it('asks before Migrate to in the one ask a preview’s Migrate asks: what it asks again, its command, and that the provider bills it', async () => {
     const step = { of: 'migrate' as const, label: 'Migrate to claude-sonnet-5-5', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', goldens: ['goldens/refund'], command: 'shadowlap migrate --to claude-sonnet-5-5 goldens/refund --from claude-sonnet-4-5' };
     const retire: NeedsLookRow = { key: 'attn:retire:claude-sonnet-4-5', group: 'housekeeping', kind: 'retire', icon: 'retire', title: 'claude-sonnet-4-5, used by 1 golden, retires on Nov 30, 2026', detail: 'in 19 days · Anthropic recommends claude-sonnet-5-5', step, href: '#/tests', runId: null, fixId: null, at: NOW };
-    await overview({ summary: { ...week, needsLook: { items: [retire], total: 1 } } });
+    await overview({ summary: { ...week, needsLook: { items: [retire], total: 1, dismissals: 0 } } });
     await r!.click(r!.byText('.arow .ast .btn', 'Migrate to claude-sonnet-5-5'));
     await r!.until('the ask', () => r!.all('.dialog').length === 1);
     expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p')), text(r!.one('.dialog .dcost'))]).toEqual([

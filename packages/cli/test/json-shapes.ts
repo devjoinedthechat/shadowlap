@@ -40,7 +40,7 @@ export const SHAPES = {
   show: { section: 'show', fields: ['run', 'summary', 'calls', 'untrusted', 'unrecordedTools'] },
   // A tool the model called that the run never recorded (show --json, --summary-json).
   unrecordedTool: { section: 'show', list: 'the tools its model called that the run never recorded, `unrecordedTools`', fields: ['name', 'count', 'firstCallNo', 'effect', 'why', 'fix'] },
-  showUntrusted: { section: 'show', list: 'as the dashboard\'s `GET /api/injection/runs/:id` lists them', fields: ['callNo', 'name', 'from'] },
+  showUntrusted: { section: 'show', list: 'its untrusted reads, `untrusted`', fields: ['callNo', 'name', 'from', 'readAt'] },
   showRun: { section: 'show', list: 'The run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
   showCall: { section: 'show', list: 'Every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
   ls: { section: 'ls', fields: ['runId', 'parentRunId', 'mode', 'status', 'calls', 'command', 'codeVersion', 'startedAt', 'endedAt', 'labels', 'forkedAt', 'hasCommand', 'imported', 'partial', 'repeat', 'checks'] },
@@ -56,7 +56,7 @@ export const SHAPES = {
   importTrace: { section: 'import', list: 'each trace it found, newest first', fields: ['id', 'name', 'startedAt', 'outcome', 'runId', 'reason', 'judged'] },
   calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
   rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
-  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details'] },
+  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details', 'kept'] },
   previewRule: { section: 'normalize', fields: ['n', 'rule', 'count', 'samples', 'reached', 'note', 'returned', 'unmasked'] },
   previewReturned: { section: 'normalize', fields: ['count', 'samples'] },
   previewUnmasked: { section: 'normalize', fields: ['count', 'samples', 'places', 'remedies', 'covered', 'reasons'] },
@@ -68,7 +68,7 @@ export const SHAPES = {
   // check: recordings judged by checks, nothing replayed; and each check as it came out, wherever a command prints one.
   check: { section: 'check', fields: ['expect', 'recordings', 'counts', 'unchecked', 'notes'] },
   checkRecording: { section: 'check', fields: ['runId', 'pack', 'labels', 'source', 'outcome', 'why', 'checks'] },
-  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive'] },
+  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive', 'notApplicable'] },
   checkResult: { section: 'check', fields: ['status', 'ok', 'label', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'fence', 'hardcodedBaseUrls', 'unrecordedModels', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
   // The coding agents' plugin and rule, put into a project (skill-install.test.ts).
@@ -89,11 +89,13 @@ export const SHAPES = {
   repairCandidate: { page: 'repair.md', section: 'JSON', grows: true, fields: ['id', 'source', 'strategy', 'why', 'surface', 'file', 'offset', 'before', 'after', 'size', 'state', 'reason', 'verify'] },
   repairOutput: { page: 'repair.md', section: 'JSON', grows: true, fields: ['dir', 'patch', 'report', 'goldens', 'applied', 'branch', 'pr'] },
   fixList: { section: 'fix', grows: true, fields: ['fixes', 'counts'] },
-  fixRow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'failed', 'failing', 'good', 'steps', 'source', 'openedAt', 'verifiedAt', 'appliedAt', 'broken', 'attempts', 'spent'] },
+  fixRow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'judge', 'failed', 'failing', 'good', 'steps', 'source', 'openedAt', 'verifiedAt', 'appliedAt', 'broken', 'attempts', 'spent'] },
   fixCounts: { section: 'fix', grows: true, fields: ['all', 'open', 'verified'] },
-  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr', 'lead'] },
+  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'judge', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'left', 'guard', 'fixedRun', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr', 'lead'] },
   fixApply: { section: 'fix', grows: true, fields: ['fixId', 'status', 'again', 'patch', 'repairId', 'goldens', 'tests'] },
   fixPr: { section: 'fix', grows: true, fields: ['fixId', 'pr'] },
+  fixCheck: { section: 'fix', fields: ['fixId', 'status', 'check', 'previous', 'runs', 'left', 'uncounted', 'next'] },
+  fixCheckRun: { section: 'fix', list: 'Each of its runs', fields: ['runId', 'role', 'outcome', 'na', 'why', 'checks'] },
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
   // Preview a change: decisions' report, which the dashboard reads as it is, and migrate's.
   decisions: { section: 'decisions', grows: true, fields: ['decisionsId', 'kind', 'at', 'change', 'command', 'samples', 'runs', 'counts', 'flagged', 'cost', 'tokens', 'retirements', 'notes', 'warnings', 'verify', 'judge', 'remedies', 'stopReason'] },

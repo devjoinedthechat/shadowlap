@@ -2,16 +2,19 @@ import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, parseGate, Store, type StoredCheck } from '@shadowlap/engine';
 import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
+import type { InjectionGateRow } from '../src/injection-gates.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
 import { ApiError, JOB_KINDS, type Client, type TestsView } from '../ui/api.js';
+import type { InconclusiveView, NextStep } from '../ui/types.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { goldenRowScope } from '../ui/tests/row-scope.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withStepDialogs } from './ui-served-now.js';
 
 /**
  * Tests tells the truth about checks, CI and judges: each check is marked by how the golden's last
@@ -81,7 +84,7 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
     toast: () => undefined,
     ...over.app,
   };
-  return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage), over.beside ?? null);
+  return withStepDialogs(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage), over.beside ?? null));
 }
 
 const g = globalThis as { location?: unknown };
@@ -116,13 +119,13 @@ function checks(page: Rendered, name: string) {
 describe('the Tests page', () => {
   it('marks each check by its last status: no tick on one that failed or couldn\'t be decided, none before a result', async () => {
     const page = await open();
-    expect(checks(page, 'passes')).toEqual([{ cls: 'ck passed', mark: '✓', words: 'escalate called once' }]);
+    expect(checks(page, 'passes')).toEqual([{ cls: 'ck passed', mark: '✓', words: 'escalate called 1 time' }]);
     expect(checks(page, 'refunds')).toEqual([
-      { cls: 'ck failed', mark: '✗', words: 'issue_refund called oncecalled 0 times; tools called: add_note' },
-      { cls: 'ck failed', mark: '✗', words: 'send_email called oncecalled 0 times; tools called: add_note' },
+      { cls: 'ck failed', mark: '✗', words: 'issue_refund called 1 timecalled 0 times; tools called: add_note' },
+      { cls: 'ck failed', mark: '✗', words: 'send_email called 1 timecalled 0 times; tools called: add_note' },
     ]);
     expect(checks(page, 'judged')[1]).toEqual({ cls: 'ck inconclusive', mark: '?', words: `${JUDGE}not judged: no recorded verdict and the test runs offline` });
-    expect(checks(page, 'budget')).toEqual([{ cls: 'ck', mark: null, words: 'input tokens ≤ 29,000' }]);
+    expect(checks(page, 'budget')).toEqual([{ cls: 'ck', mark: null, words: 'at most 29000 input tokens' }]);
     // Each mark says its status to a screen reader.
     expect(page.all('table.gt td.chk b.cm').map((b) => b.getAttribute('aria-label'))).toEqual(['passed', 'failed', 'failed', 'passed', 'inconclusive']);
   });
@@ -130,9 +133,24 @@ describe('the Tests page', () => {
   it('marks no check added to the config since the last test, and says so under it', async () => {
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, checks: [...x.checks, 'send_email called 0 times'] } : x)));
     expect(checks(page, 'passes')).toEqual([
-      { cls: 'ck passed', mark: '✓', words: 'escalate called once' },
-      { cls: 'ck', mark: null, words: 'send_email never calledadded since its last test' },
+      { cls: 'ck passed', mark: '✓', words: 'escalate called 1 time' },
+      { cls: 'ck', mark: null, words: 'send_email called 0 timesadded since its last test\u00a0· not tested yet' },
     ]);
+  });
+
+  it('says under the last result of a golden whose checks changed since that they did, with the checks gone on its card', async () => {
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, changed: [{ label: 'issue_refund called 0 times', status: 'failed' as const }] } : row)) }));
+    const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'passes')!;
+    const st = one(tr, 'td.glast .ckst');
+    expect(st.textContent).toBe('checks changed since · not tested yet');
+    expect(JSON.parse(st.getAttribute('data-tip')!)).toMatchObject({ t: 'checks changed since · not tested yet', s: 'Its last test judged issue_refund called 0 times, no longer in shadowlap.config.json: Run tests judges its checks as they are now' });
+    expect(page.all('.ckst')).toHaveLength(1);
+    // After the last result, as the design draws it: a session running the golden hides that result, never this line.
+    await page.unmount();
+    const running = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, changed: [{ label: 'issue_refund called 0 times', status: 'failed' as const }] } : row)), running: { ...v.verdict!.session, endedAt: null, live: true }, following: { whole: false, total: 1, reached: 0, goldens: { 'goldens/passes': 'running' } } }));
+    const now = running.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'passes')!;
+    expect(one(now, 'td.glast .glastw').hasAttribute('hidden')).toBe(true);
+    expect(one(now, 'td.glast .ckst').closest('[hidden]')).toBeNull();
   });
 
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
@@ -292,6 +310,32 @@ describe('a gated golden’s evidence', () => {
     expect(page.focused()).toBe(page.one("button.gev:not(.grptog)"));
     expect(pageUp.current?.()).toBe(false);
   });
+
+  it('ends an inconclusive one on its step: Run more attempts, or Run tests as the header runs it where its checks changed since', async () => {
+    const decided = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, Array<boolean>(12).fill(true));
+    const gate = { ...decided, tally: '12 of 12', perAttempt: null, more: null, words: evidenceWords(decided, 3) };
+    const more = { args: ['test', 'goldens/passes', '--max-attempts', '160', '--continue'], job: { golden: 'goldens/passes', maxAttempts: 160, continue: true as const }, attempts: 160, most: 80, expected: 20, settles: 0.9, cost: null };
+    const stale = { key: 'run-tests' as const, label: 'Run tests', golden: 'goldens/passes', gone: ['escalate called 1 time'], sub: 'Its checks changed since its last test: the session judges them as they are now' };
+    const shape = (step: boolean) => (v: TestsView): TestsView => ({
+      ...v,
+      rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, gate } } : row)),
+      inconclusive: [{ golden: 'goldens/passes', name: 'passes', gate: { more } } as unknown as InconclusiveView],
+      ...(step ? { steps: { 'goldens/passes': stale } } : {}),
+    });
+    const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
+    const step = async (page: Rendered) => {
+      await page.click(page.one('button.gev:not(.grptog)'));
+      await page.until('the evidence', () => page.all('tr.gevrow .gevact button').length > 0);
+      return page.all('tr.gevrow .gevact button');
+    };
+    expect((await step(await open(started, GOLDENS.slice(0, 3), shape(false)))).map((b) => b.textContent)).toEqual(['Run more attempts']);
+    await r!.unmount();
+    const [run, ...rest] = await step(await open(started, GOLDENS.slice(0, 3), shape(true)));
+    expect([run.textContent, run.className.includes('lime'), rest.length]).toEqual(['Run tests', false, 0]);
+    expect((JSON.parse(run.getAttribute('data-tip')!) as { s: string }).s).toBe(stale.sub);
+    await r!.click(run);
+    expect(started).toEqual([{ kind: JOB_KINDS.tests, fields: {} }]);
+  });
 });
 
 describe('Tests\' states, parts and keys', () => {
@@ -306,16 +350,22 @@ describe('Tests\' states, parts and keys', () => {
     const loading = await drawn({ tests: () => new Promise<TestsView>(() => undefined) });
     await loading.until('the bars', () => loading.all('.skel').length === 1);
     expect([loading.one('.skel [role="status"]').textContent, loading.all('.skel .skin .verdict.tv').length, loading.all('.skel .skin table.gt tbody tr').length]).toEqual(['Loading the goldens…', 1, 3]);
-    const failed = await drawn({ tests: () => Promise.reject(new ApiError(500, 'boom')) });
+    const failed = await drawn({ tests: () => Promise.reject(new ApiError(500, 'HTTP 500')) });
     await failed.until('the error', () => failed.all('.loaderr').length === 1);
     expect([failed.one('.loaderr .st.err').textContent, failed.one('.loaderr p > span:not(.st)').textContent, failed.one('.loaderr button').textContent]).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.', 'Retry']);
     expect(failed.one('.ph h1').textContent).toBe('Tests');
+    // The server's own sentence where it sent one: a read that took too long says so.
+    const late = await drawn({ tests: () => Promise.reject(new ApiError(503, 'The goldens took longer than 10 s to read, so it was stopped')) });
+    await late.until('the error', () => late.all('.loaderr').length === 1);
+    expect(late.one('.loaderr p > span:not(.st)').textContent).toBe('The goldens took longer than 10 s to read, so it was stopped');
     const empty = await drawn({});
     await empty.until('the empty state', () => empty.all('.stepempty').length === 1);
     expect([empty.one('.stepempty h2').textContent, empty.all('.stepempty .cmdline').length]).toEqual(['No goldens yet', 1]);
     const none = await drawn({ app: { runs: [] } });
     await none.until('the empty state', () => none.all('.stepempty').length === 1);
     expect(none.all('.stepempty .cmdline')).toHaveLength(0);
+    // Recording one comes first: the step is the setup, on the Overview.
+    expect([none.one('.stepempty .actions a.btn.lime').textContent, none.one('.stepempty .actions a').getAttribute('href')]).toEqual(['Set up this project', '#/']);
   });
 
   it('offers the newest run its listed step says to pack as Pack <id> as golden…, lime, its command under it, packing it and its test as the run page does', async () => {
@@ -417,13 +467,85 @@ describe('the Tests page\'s styles', () => {
     expect(css).toMatch(/\.gtw \.tscroll table\.gt \{ min-width: 0; \}/);
     expect(css).toMatch(/\.gtw table\.gt th\.glast \{ width: 250px; \}/);
     expect(css).toMatch(/@container \(max-width: 1000px\) \{\s*\.gtw table\.gt \.hist \.r3, \.gtw table\.gt \.hist \.r4, \.gtw table\.gt \.hist \.r5 \{ display: none; \}/);
-    expect(css).toMatch(/@container \(max-width: 820px\) \{\s*\.gtw table\.gt th\.gck, \.gtw table\.gt td\.gck \{ display: none; \}\s*\.gtw table\.gt \.chk\.gin \{ display: block; \}/);
+    expect(css).toMatch(/@container \(max-width: 840px\) \{\s*\.gtw table\.gt th\.gck, \.gtw table\.gt td\.gck \{ display: none; \}\s*\.gtw table\.gt \.chk\.gin \{ display: block; \}/);
     expect(css).toMatch(/@container \(max-width: 640px\) \{\s*\.gtw table\.gt th\.hist, \.gtw table\.gt td\.hist \{ display: none; \}\s*\.gtw table\.gt \.gstrip \{ display: inline-flex; \}\s*\.gtw table\.gt td\.glast \{ min-width: 0; width: 46%; \}/);
     // The viewport rule that hid revisions by the window's width, not the table's, is gone.
     expect(css).not.toMatch(/td\.hist i:nth-last-child/);
   });
 
+  it('give a check its Edit and Remove where a pointer hovers, and on a touch screen, as where the checks sit under the name, one line of Edit checks… and Add check… instead', () => {
+    expect(css).toMatch(/\ntable\.gt \.chk \.ckt \{ display: none; \}/);
+    for (const query of ['@media \\(hover: none\\)', '@container \\(max-width: 840px\\)'])
+      expect(css, query).toMatch(new RegExp(`${query} \\{\\s*table\\.gt \\.chk \\.cka \\{ display: none; \\}\\s*table\\.gt \\.chk \\.ckt \\{ display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 8px; \\}\\s*\\}`));
+  });
+
   it('wrap a cell without leaving a word alone on its last line, as the mock\'s do', () => {
     expect(css).toMatch(/\ntable\.gt td \{ text-wrap: pretty; \}/);
+  });
+});
+
+describe('a golden’s injection gate on Tests', () => {
+  const ENTRY: InjectionGateRow['entry'] = { obeyed: 0, influenced: null, repeat: 3, templates: ['user-recipient'], payloads: null, baselines: 3, liveReads: false };
+  const JSON_LINE = '{ "obeyed": 0, "repeat": 3, "templates": ["user-recipient"] }';
+  const gate = (over: Partial<InjectionGateRow> = {}): InjectionGateRow => ({ entry: ENTRY, proof: { runId: 'run_ATTEMPT2', callNo: 6 }, line: 'send_email obeyed a planted instruction · 1 of 3', results: { runId: 'run_TESTED', resultId: 'inj-01GATE' }, json: JSON_LINE, ...over });
+  const tally = { resultId: 'inj-01GATE', attempts: 3, obeyed: 1, influenced: 0, ignored: 2, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, skipped: null };
+  /** refunds, gated: its last result as `last` says, its gate as `g`; the verdict leads with `step`. */
+  const gated = (g: InjectionGateRow, last: Partial<TestsView['rows'][number]['last']>, step?: NextStep) => (v: TestsView): TestsView => ({
+    ...v,
+    rows: v.rows.map((r) => (r.name === 'refunds' ? { ...r, injectionGate: g, last: { ...r.last, ...last } } : r)),
+    ...(step ? { steps: { ...v.steps, 'goldens/refunds': step } } : {}),
+  });
+  const gateOf = (page: Rendered) => {
+    const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'refunds')!;
+    return { tr, ck: one(one(tr, 'td.chk'), '.ck.injck') };
+  };
+  const text = (el: FakeElement) => el.textContent.replace(/\u00a0/g, ' ');
+
+  it('sits under the checks with its mark, its tally under its words, which open the run it tested with its results, its card its entry and why; the row opens its proof', async () => {
+    const reason = 'send_email obeyed a planted instruction in 1 of 3 attempts (at most 0 allowed): send_email.to = x7f3kq2m@canary.invalid';
+    const page = await open([], GOLDENS, gated(gate(), { failure: 'injection', injection: { ...tally, verdict: 'failed', reason } }));
+    const { tr, ck } = gateOf(page);
+    expect(ck.className).toBe('ck injck failed');
+    expect(one(ck, 'b.cm').textContent).toBe('✗');
+    // After every check, with no edit or remove: its tests entry sets it.
+    expect(all(one(tr, 'td.chk'), '.ck').at(-1)).toBe(ck);
+    expect(text(one(ck, 'a.cw'))).toBe('injection: no attempt obeys a planted instruction3 attempts · 1 obeyed · 0 influenced · 2 ignored');
+    expect(one(ck, 'a.cw').getAttribute('href')).toBe('#/run/run_TESTED');
+    expect(JSON.parse(ck.getAttribute('data-tip')!)).toMatchObject({ t: 'failed · injection gate', s: `user-recipient at every untrusted read, 3 attempts each. "injection": ${JSON_LINE}. ${reason}. Opens its results` });
+    // The row, its name and Enter open the attempt that proves the verdict, at the call that carried the canary.
+    expect(one(tr, 'a.rowa').getAttribute('href')).toBe('#/run/run_ATTEMPT2/6');
+  });
+
+  it('keeps a passed gate’s tally on its hover, as a passed check does, and says when one never ran, its words plain', async () => {
+    let page = await open([], GOLDENS, gated(gate(), { injection: { ...tally, obeyed: 0, ignored: 3, verdict: 'passed', reason: null } }));
+    let { ck, tr } = gateOf(page);
+    expect([ck.className, text(one(ck, '.cw')), all(ck, 'small').length]).toEqual(['ck injck passed', 'injection: no attempt obeys a planted instruction', 0]);
+    expect(JSON.parse(ck.getAttribute('data-tip')!).s).toBe(`3 attempts · 0 obeyed · 0 influenced · 3 ignored. user-recipient at every untrusted read, 3 attempts each. "injection": ${JSON_LINE}. Opens its results`);
+    // Its verdict isn't its gate's, so the row opens its run, and refunds keeps none.
+    expect(all(tr, 'a.rowa')).toHaveLength(0);
+    await r?.unmount();
+    page = await open([], GOLDENS, gated(gate({ entry: { ...ENTRY, obeyed: 2 }, proof: null, line: null, results: null }), { injection: null }));
+    ({ ck } = gateOf(page));
+    expect([ck.className, all(ck, 'b.cm').length, all(ck, 'a').length, text(one(ck, '.cw'))]).toEqual(['ck injck', 0, 0, 'injection: at most 2 attempts obey a planted instructionruns once its replay passes']);
+    expect(JSON.parse(ck.getAttribute('data-tip')!).t).toBe('not run yet · injection gate');
+  });
+
+  it('leaves its entry off its card where the config can\'t be read now, never rebuilding it', async () => {
+    const page = await open([], GOLDENS, gated(gate({ json: null }), { injection: { ...tally, obeyed: 0, ignored: 3, verdict: 'passed', reason: null } }));
+    const { ck } = gateOf(page);
+    expect(JSON.parse(ck.getAttribute('data-tip')!).s).toBe('3 attempts · 0 obeyed · 0 influenced · 3 ignored. user-recipient at every untrusted read, 3 attempts each. Opens its results');
+  });
+
+  it('leads the verdict with Open proof, a link to the proving attempt, or Re-run test where the gate showed too little to say', async () => {
+    const proof: NextStep = { key: 'injection-proof', label: 'Open proof', runId: 'run_ATTEMPT2', href: '#/run/run_ATTEMPT2/6', title: 'Opens ATTEMPT2', sub: 'send_email obeyed a planted instruction · 1 of 3' };
+    let page = await open([], GOLDENS, gated(gate(), { failure: 'injection', injection: { ...tally, verdict: 'failed', reason: 'obeyed' } }, proof));
+    let lime = one(page.one('.verdict.tv'), '.btn.lime');
+    expect([lime.tagName.toLowerCase(), lime.textContent, lime.getAttribute('href')]).toEqual(['a', 'Open proof', '#/run/run_ATTEMPT2/6']);
+    await r?.unmount();
+    const again: NextStep & { sub: string } = { key: 'gate-again', label: 'Re-run test', golden: 'goldens/refunds', command: 'shadowlap test goldens/refunds', sub: 'Its injection gate showed too little to say: 2 of 3 attempts got no answer' };
+    page = await open([], GOLDENS, gated(gate(), { failure: 'injection', verdict: 'inconclusive', injection: { ...tally, verdict: 'inconclusive', reason: 'too little' } }, again));
+    lime = one(page.one('.verdict.tv'), '.btn.lime');
+    expect([lime.tagName.toLowerCase(), lime.textContent]).toEqual(['button', 'Re-run test']);
+    expect(JSON.parse(lime.getAttribute('data-tip')!)).toMatchObject({ t: 'Re-run test', s: again.sub });
   });
 });

@@ -70,7 +70,8 @@ describe('Needs a look: the failing runs nobody has blamed', () => {
         kind: 'unblamed',
         title: '1 failing run nobody has blamed',
         about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' },
-        detail: `${failed.slice(0, 10)} · failed`,
+        // What it failed on, in the words Runs' issues and Fixes' row say it: its agent's exit.
+        detail: `${failed.slice(0, 10)} · the agent exited with an error`,
         href: '#/runs?types=failed&from=2026-10-13&to=2026-10-19',
         // Its card names the run it blames, the one run the row stands for.
         step: { of: 'run', runId: failed, step: { label: 'Run blame', sub: `Blames ${failed.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to` } },
@@ -143,6 +144,12 @@ describe('Needs a look: a model the goldens use that retires', () => {
       });
       // Nothing to migrate to: no step.
       expect(rows[2]?.step).toBeNull();
+      // Advice, keyed by the model: the day it retires (or deprecated, with none) and each golden that calls it.
+      expect(rows.map((r) => r.advice)).toEqual([
+        { key: 'retire claude-3-7-sonnet-20250219', facts: ['goldens/digest', 'retires 2026-02-19'], until: 'Until a new date or golden', dismissed: false },
+        { key: 'retire claude-sonnet-4-5', facts: ['goldens/refund-flow', 'goldens/refund-in-limit', 'retires 2026-11-30'], until: 'Until a new date or golden', dismissed: false },
+        { key: 'retire claude-mythos-preview', facts: ['deprecated', 'goldens/mythos'], until: 'Until a new date or golden', dismissed: false },
+      ]);
     } finally {
       store.close();
     }
@@ -158,6 +165,40 @@ describe('Needs a look: a model the goldens use that retires', () => {
       const rows = overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.filter((r) => r.kind === 'retire');
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ key: 'attn:retire:gemini-2.0-flash', title: expect.stringMatching(/^gemini-2\.0-flash, used by 2 goldens, /) });
+      expect(rows[0]?.advice).toMatchObject({ key: 'retire gemini-2.0-flash', facts: expect.arrayContaining(['goldens/digest', 'goldens/forecast']) });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('names a model once, as the table reads it, where recordings named it with a space or a line break around it', () => {
+    const store = Store.open(':memory:');
+    try {
+      const call = (model: string) => ({ code: 'l', model, endMeta: { provider: 'anthropic' } });
+      const goldens = ['claude-sonnet-4-5', 'claude-sonnet-4-5 ', ' claude-sonnet-4-5', 'claude-sonnet-4-5\n'].map((model, i) => golden(`goldens/g${i}`, addRun(store, { startedAt: NOW - DAY, calls: [call(model)] })));
+      const rows = overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.filter((r) => r.kind === 'retire');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        key: 'attn:retire:claude-sonnet-4-5',
+        title: 'claude-sonnet-4-5, used by 4 goldens, retires on Nov 30, 2026',
+        step: { from: ['claude-sonnet-4-5'], command: 'shadowlap migrate --to claude-sonnet-5-5 goldens/g0 goldens/g1 goldens/g2 goldens/g3 --from claude-sonnet-4-5' },
+      });
+      expect(rows[0]?.advice).toEqual({ key: 'retire claude-sonnet-4-5', facts: ['goldens/g0', 'goldens/g1', 'goldens/g2', 'goldens/g3', 'retires 2026-11-30'], until: 'Until a new date or golden', dismissed: false });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('shows a model whose name makes no key, a space inside it, with no Dismiss, rather than failing the list', () => {
+    const store = Store.open(':memory:');
+    try {
+      // A Vertex AI path the table reads past to gemini-2.0-flash.
+      const model = 'projects/support agent/locations/us-central1/publishers/google/models/gemini-2.0-flash';
+      const run = addRun(store, { startedAt: NOW - DAY, calls: [{ code: 'l', model, endMeta: { provider: 'vertex' } }] });
+      const rows = overviewSummary(store, { tz: 'UTC', now: NOW, goldens: [golden('goldens/forecast', run)] }).needsLook.items.filter((r) => r.kind === 'retire');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.title.startsWith(`${model}, used by 1 golden, `)).toBe(true);
+      expect(rows[0] && 'advice' in rows[0]).toBe(false);
     } finally {
       store.close();
     }
@@ -309,6 +350,33 @@ describe('Needs a look: an inconclusive golden', () => {
         name: 'refund',
         step: { of: 'rerun', label: 'Re-run test', sub: 'Its injection gate showed too little to say: only 2 of 6 attempts decided', command: expect.stringContaining('test goldens/refund') },
       });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('Needs a look: a golden whose checks changed since its last test', () => {
+  it('leads with Run tests, as its run’s page does, its line saying so, failed or inconclusive', () => {
+    const store = Store.open(':memory:');
+    try {
+      const path = 'goldens/refund';
+      const rec = addRun(store, { startedAt: NOW - DAY, calls: 'lll' });
+      const tested = (verdict: 'failed' | 'inconclusive', at: number) => {
+        const session = store.startTestSession({ command: ['shadowlap', 'test', path], startedAt: at, revision: 'bbbbbbb' }).sessionId;
+        const run = addRun(store, { parent: rec, startedAt: at, status: verdict === 'failed' ? 'failed' : 'completed', calls: 'rrr', meta: { test: { golden: path, session } } });
+        const check = verdict === 'failed' ? { label: 'issue_refund called 0 times', ok: false, status: 'failed' as const, detail: 'called 1 time' } : { label: 'judge "explains" answers yes', ok: false, status: 'inconclusive' as const, detail: 'not judged: no recorded verdict and the test runs offline' };
+        store.addTestResult({ sessionId: session, golden: path, ok: false, failure: 'check', reason: `check ${verdict}: ${check.label}`, runId: run, goldenRunId: rec, revision: 'bbbbbbb', at: at + 1, data: { verdict, checks: [check] } });
+        store.finishTestSession(session, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: at + 2 });
+        return run;
+      };
+      // The config holds neither check now: each changed since the test that judged it.
+      const goldens = [golden(path, rec)];
+      const look = () => overviewSummary(store, { tz: 'UTC', now: NOW, goldens, next: { goldens, tests: undefined, normalize: undefined, dir: '/work/project' } }).needsLook.items.find((x) => x.kind === 'test');
+      const failed = tested('failed', NOW - 3 * HOUR);
+      expect(look()).toMatchObject({ group: 'failing', detail: expect.stringMatching(/ · checks changed since$/), step: { of: 'run', runId: failed, step: { key: 'run-tests', label: 'Run tests' } } });
+      const unsure = tested('inconclusive', NOW - HOUR);
+      expect(look()).toMatchObject({ group: 'tests', detail: expect.stringMatching(/ · checks changed since$/), step: { of: 'run', runId: unsure, step: { key: 'run-tests', label: 'Run tests' } } });
     } finally {
       store.close();
     }

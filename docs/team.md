@@ -39,7 +39,7 @@ In the dashboard each step shows its command:
 | **Connect your bucket** | picks the cloud, checks the bucket and folder against its scheme, says whose credentials this machine would use, and shows the access to ask for |
 | **Push your runs** | runs `push --all` |
 | **Push from CI** | turns Push from CI on for GitHub Actions, or shows the step for GitLab CI or any other CI, written for your cloud |
-| **Bring your team** | shows the line to commit; **Finish** ends the setup |
+| **Bring your team** | shows the line to commit; **Finish setup** ends it |
 
 - **Connect your bucket** picks Amazon S3, Google Cloud, Azure Blob or Cloudflare R2. The access to ask your cloud admin for is what `store policy` prints, with Copy, and **Check access and connect** runs `store set --check`.
 - **Push from CI on GitHub Actions.** The job that runs your goldens is [your workflow](./ci.md#one-job-for-all-of-it) on Settings → CI, whose step pushes while Push from CI is on. Its **Write file** adds the steps that give it the bucket's credentials (for R2, you add the keys as secrets). So the setup asks **Turn on Push from CI** or `Skip for now`, with no second job that runs the goldens again.
@@ -47,7 +47,7 @@ In the dashboard each step shows its command:
 - **After the CI step** on GitLab CI or any other CI, pick **I added it**, or `Skip for now`. Settings → Store's **Copy CI step** keeps it, for the CI you picked.
 - **What the step writes.** Each choice writes Push from CI to `shadowlap.config.json`, as Settings → Store's switch does: **Turn on Push from CI** and **I added it** turn it on, and `Skip for now` turns it off.
 
-Until **Finish**, the store works already, and the dashboard leads back to the setup:
+Until **Finish setup**, the store works already, and the dashboard leads back to the setup:
 
 - it is first in the Overview's Needs a look;
 - Settings → Store names the step that is next, with **Continue setup**;
@@ -195,6 +195,8 @@ Each part of a run syncs its own way:
 
 **An edit in the bucket.** Anyone your admin lets write to the bucket could edit a run there. Such an edit can't change how a run on your machine replays, or whom it names as its author.
 
+**What you dismiss** on the Overview stays on this machine: a push never sends it, and a pull never brings anyone's.
+
 ### Runs still recording
 
 - **Queued.** A run still recording is queued, and goes to the store when the command that recorded it ends it. `run`, `replay` (with `--repeat` too), `serve`, `blame` and `verify` push what was queued as they finish.
@@ -208,6 +210,7 @@ Each part of a run syncs its own way:
 - **They go with the runs they are about.** A push sends a [fix](./cli.md#fix) (its blames, repairs and verdicts) once one of its failing or good runs is in the store. A pull brings the team's, so a teammate's Fixes page shows its three steps.
 - **Two copies merge.** A fix only grows, so two machines' copies merge: every blame, repair and verdict either made, open turned verified by either, and a title someone gave it.
 - **Titles.** A fix renamed on both machines keeps the latest rename; `fix title` again after a sync replaces the title both had.
+- **Its check.** A check given with [`fix check`](./cli.md#fix) goes with the fix: the latest change wins on every machine, and each keeps the checks before it. A run the check left out of the fix is left out on every machine. A fix verified on one machine keeps the check its verdict counted under, whatever another machine changed.
 - **A push that meets a teammate's newer copy** merges it the same way.
 - **Command lines.** A fix goes with the command line each of its blames, verdicts and repairs ran, and the flags kept to run each again, a command after `--` and a `--build` included. A key on them goes as `<CREDENTIAL>`, as in a run's command line.
 - **Too large to read.** A fix over 16 MB, the size a pull reads of a run's record, stays on the machine that has it, and the push says so. A pull that meets one in the store names it and brings the others.

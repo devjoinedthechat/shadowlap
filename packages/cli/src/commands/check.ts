@@ -96,6 +96,24 @@ function named(store: Store, given: readonly string[], cwd: string, packs: Store
   return out;
 }
 
+/**
+ * A recording judged, as the report prints it after its head (its mark and name): a passing one's
+ * tally on its line; else its outcome, its checks under it, and what they don't say. `shadowlap fix
+ * check` prints a fix's runs so, each after its role.
+ */
+export function checkedLines(r: Pick<CheckedRecording, 'outcome' | 'checks' | 'why'>, head: string): string[] {
+  // A spec with no check a recording can judge leaves its exit status, which passed.
+  if (r.outcome === 'passed') return [`${head}: ${statusTally(r.checks) || 'it exited 0, and no check applies to a recording'}`];
+  // With no check to list, the first reason goes on the line itself, and is not said again under it.
+  const onLine = r.why[0] && !r.checks.length ? r.why[0] : null;
+  return [
+    `${head}: ${r.outcome}${onLine ? ` · ${safe(onLine)}` : ''}`,
+    ...r.checks.map((c) => `    ${COLOUR[c.status](CHECK_MARKS[c.status])} ${safe(checkWords(c))}`),
+    // What the checks don't say: how the agent exited, what a recording can't settle.
+    ...r.why.filter((w) => w !== onLine && !r.checks.some((c) => w.startsWith(c.label))).map((why) => `    ${p.dim(safe(why))}`),
+  ];
+}
+
 /** The report as the terminal shows it: a line per recording, its checks under one that did not pass, then the totals. */
 export function formatCheckReport(report: CheckReport, given: ReadonlyArray<Pick<RecordingToCheck, 'run'>> = []): string {
   const lines: string[] = [];
@@ -108,24 +126,11 @@ export function formatCheckReport(report: CheckReport, given: ReadonlyArray<Pick
     const what = r.pack ?? (argv?.length ? quoteArgv(argv) : '');
     return [shortId(r.runId), [r.labels.join(', '), what.length > 60 ? `${what.slice(0, 59)}…` : what].filter(Boolean).join(' · ')].filter(Boolean).join('  ');
   };
-  for (const r of report.recordings) {
-    const head = `${COLOUR[r.outcome](CHECK_MARKS[r.outcome])} ${safe(name(r))}`;
-    if (r.outcome === 'passed') {
-      // A spec with no check a recording can judge leaves its exit status, which passed.
-      lines.push(`${head}: ${statusTally(r.checks) || 'it exited 0, and no check applies to a recording'}`);
-      continue;
-    }
-    // With no check to list, the first reason goes on the line itself, and is not said again under it.
-    const onLine = r.why[0] && !r.checks.length ? r.why[0] : null;
-    lines.push(`${head}: ${r.outcome}${onLine ? ` · ${safe(onLine)}` : ''}`);
-    for (const c of r.checks) lines.push(`    ${COLOUR[c.status](CHECK_MARKS[c.status])} ${safe(checkWords(c))}`);
-    // What the checks don't say: how the agent exited, what a recording can't settle.
-    for (const why of r.why.filter((w) => w !== onLine && !r.checks.some((c) => w.startsWith(c.label)))) lines.push(`    ${p.dim(safe(why))}`);
-  }
+  for (const r of report.recordings) lines.push(...checkedLines(r, `${COLOUR[r.outcome](CHECK_MARKS[r.outcome])} ${safe(name(r))}`));
   const n = report.recordings.length;
-  const { passed, failed, inconclusive } = report.counts;
+  const { passed, failed, inconclusive, notApplicable } = report.counts;
   if (n) {
-    const parts = [failed ? `${failed} failed` : '', passed ? `${passed} passed` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
+    const parts = [failed ? `${failed} failed` : '', passed ? `${passed} passed` : '', notApplicable ? `${notApplicable} not applicable` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
     lines.push(`${n} recording${n === 1 ? '' : 's'} judged from what ${n === 1 ? 'it' : 'they'} recorded, nothing replayed: ${parts}`);
   } else {
     lines.push(report.unchecked.length ? `no checks to judge ${report.unchecked.length === 1 ? 'this recording' : `these ${report.unchecked.length} recordings`} by: give them with --expect, or under "tests" in shadowlap.config.json` : 'no recordings to judge');

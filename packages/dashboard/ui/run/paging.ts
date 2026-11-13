@@ -106,7 +106,7 @@ export function listedCalls(have: readonly CallRow[], total: number, origins: re
 /**
  * A page that holds a recording whole, with the calls after those it came with, read a page at a time
  * to its end: what a recording followed whole made since the page last asked, when that is more than
- * a page. Its origins go: its calls hold them.
+ * a page. Its origins and its judge's calls go: its calls hold them.
  */
 export async function followPages(client: { calls(id: string, from: number, limit?: number): Promise<CallsPage> }, d: RunDetail): Promise<RunDetail> {
   let calls = d.calls;
@@ -119,8 +119,9 @@ export async function followPages(client: { calls(id: string, from: number, limi
     // A page that moves on no further ends it, whatever it says.
     next = page.callsNext !== null && page.callsNext > next ? page.callsNext : null;
   }
-  const { origins: _origins, kinds: _kinds, ...rest } = d;
+  const { origins: _origins, kinds: _kinds, judgeCalls: _judge, ...rest } = d;
   void _origins;
   void _kinds;
+  void _judge;
   return { ...rest, calls, callsTotal: Math.max(total, calls.length), callsNext: null };
 }

@@ -37,6 +37,7 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  * - `verify.accepted`, `verify.rejected`, `verify.incomplete` (it settled nothing): ref the fix
  *   (its verdict's id when it is no fix's); data { verifyId, fixes, counts, code, reasons }
  * - `fix.applied`: ref the fix; data { title }
+ * - `fix.check`: ref the fix, given another check (`shadowlap fix check`); data { title, check, previous }: the words of the check and of the one before it
  * - `pairs.exported`: ref the file; data { count }; `model.scored`: ref the model; data { model, tasks, mean }
  * - `project.added`, `project.removed`: ref the project; data { path, name, again? }
  * - `project.setup`: data { name, stage: 'done', skipped } from a setup, { name, config: 'created' } from init
@@ -67,6 +68,9 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  * - `ci.workflow`: ref the workflow's path (`.github/workflows/agent.yml`); data { added, removed,
  *   created } from Settings → CI's Write file, { undo: true, removed } from its Undo, which put the
  *   file back as it was, or removed the one the write made
+ * - `checks.changed`: ref the golden; data { key, added, removed }: the dashboard's check builder
+ *   changed the checks of the golden's tests entry in shadowlap.config.json (`key`, the entry it
+ *   wrote), `added` and `removed` the checks' labels
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

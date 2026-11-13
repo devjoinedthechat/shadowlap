@@ -4,7 +4,7 @@ import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
 import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
-import { agentsShown, blameScope, inScope, realScopes, scopeChips, scopeHint } from '../ui/scopes.js';
+import { agentsShown, blameScope, forksAt, inScope, judgeForkWait, judgeNumbers, realScopes, scopeChips, scopeCount, scopeHint } from '../ui/scopes.js';
 import type { LineageNode, RunDetail, RunListItem } from '../ui/types.js';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 
@@ -206,20 +206,20 @@ describe('the scope the page suggests blaming within', () => {
       { callNo: 2, agent: 'support-agent', kind: 'tool' },
     ];
     // One agent and no scope: nothing to show.
-    expect(agentsShown(one)).toBe(false);
+    expect(agentsShown(one)).toEqual({ scoped: false, bar: false });
     const two = [...one, { callNo: 3, agent: 'support-agent/Explore', kind: 'api' }];
-    expect(agentsShown(two)).toBe(true);
+    expect(agentsShown(two)).toEqual({ scoped: true, bar: true });
     expect(scopeChips(two)).toEqual(['support-agent', 'support-agent/Explore']);
     expect(two.filter((c) => inScope(c, 'support-agent/Explore')).map((c) => c.callNo)).toEqual([3]);
     // No scope to blame by.
     expect(realScopes(two)).toEqual([]);
     // A scope, alone, shows; a picked agent that is no scope hints the scope that acts.
     const scoped = [{ callNo: 1, scope: 'agent', agent: 'agent', kind: 'tool' }, { callNo: 2, scope: 'agent', agent: 'agent/summarizer', kind: 'api' }];
-    expect(agentsShown(scoped.slice(0, 1))).toBe(true);
+    expect(agentsShown(scoped.slice(0, 1))).toEqual({ scoped: true, bar: true });
     expect(scopeHint(scoped, realScopes(scoped), 'agent/summarizer')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
   });
 
-  it("gives Shadowlap's judge no chip, no bar and no blame hint of its own: its calls are under All", () => {
+  it("gives Shadowlap's judge no agent's chip and no blame hint: its calls are out of All, under a chip of their own that shows the bar for them alone, and no fork starts at one", () => {
     const judge = { callNo: 9, scope: 'shadowlap:judge', agent: 'shadowlap:judge', kind: 'api' };
     // A judge call beside a scoped one: the chips, and the scopes blame is offered, are the agent's alone.
     const scoped = [{ callNo: 1, scope: 'agent', agent: 'agent', kind: 'api' }, { callNo: 2, scope: 'agent', agent: 'agent', kind: 'tool' }, judge];
@@ -231,14 +231,27 @@ describe('the scope the page suggests blaming within', () => {
     // Nor does it hide the model that plays the user in an eval it judges.
     const evaluated = [{ callNo: 0, scope: 'customer', agent: 'customer', kind: 'api' }, ...scoped];
     expect(scopeHint(evaluated, realScopes(evaluated), 'all')).toEqual({ lead: 'Blame only the agent, not the customer it answers', scope: 'agent' });
-    expect(scoped.filter((c) => inScope(c, 'all'))).toHaveLength(3);
-    // One agent, judged: no bar, as with no judge.
+    // All is the agent's calls alone: the judge's are under its chip, `shadowlap:judge`.
+    expect(scoped.filter((c) => inScope(c, 'all'))).toHaveLength(2);
+    expect([scopeCount(scoped, 'all'), scopeCount(scoped, 'shadowlap:judge')]).toEqual([2, 1]);
+    // One agent, judged: the bar, for the judge's chip, though it names no agent of the run's own.
     const one = [{ callNo: 1, agent: 'support-agent', kind: 'api' }, { callNo: 2, agent: 'support-agent', kind: 'tool' }, judge];
-    expect(agentsShown(one)).toBe(false);
-    expect(agentsShown([judge])).toBe(false);
-    // Two agents, judged: the bar, with no chip for the judge.
+    expect(agentsShown(one)).toEqual({ scoped: false, bar: true });
+    expect(agentsShown([judge])).toEqual({ scoped: false, bar: true });
+    expect(agentsShown(one.slice(0, 2))).toEqual({ scoped: false, bar: false });
+    // A long run's judge's call on a page not read yet: the server's numbers show the bar for it.
+    expect(agentsShown(one.slice(0, 2), judgeNumbers(one.slice(0, 2), [40]))).toEqual({ scoped: false, bar: true });
+    expect(scopeChips(one)).toEqual(['support-agent']);
+    // No fork starts at a judge's call, and the head says why: by its row, or by the server's number for one not read yet.
+    expect(one.map((c) => forksAt(c))).toEqual([true, true, false]);
+    const numbers = judgeNumbers(one, [40]);
+    expect([...numbers].sort((a, b) => a - b)).toEqual([9, 40]);
+    expect([forksAt({ callNo: 40 }), forksAt({ callNo: 40 }, numbers), forksAt({ callNo: 41 }, numbers)]).toEqual([true, false, true]);
+    const wait = { why: 'A judge’s call can’t be forked', card: 'A judge’s call is the check’s, not the agent’s: no fork starts at it' };
+    expect([judgeForkWait(1, numbers), judgeForkWait(null, numbers), judgeForkWait(9, numbers), judgeForkWait(40, numbers)]).toEqual([null, null, wait, wait]);
+    // Two agents, judged: the bar, the judge among no agent's chips.
     const two = [...one, { callNo: 3, agent: 'support-agent/Explore', kind: 'api' }];
-    expect(agentsShown(two)).toBe(true);
+    expect(agentsShown(two)).toEqual({ scoped: true, bar: true });
     expect(scopeChips(two)).toEqual(['support-agent', 'support-agent/Explore']);
   });
 });

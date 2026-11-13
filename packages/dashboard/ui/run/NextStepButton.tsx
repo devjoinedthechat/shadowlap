@@ -1,12 +1,10 @@
 import { useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
-import { ActionButton } from '../components/ActionButton.js';
-import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
+import { ActionButton, useOfflineLink } from '../components/ActionButton.js';
 import { useBilledPress } from '../components/JobButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon, type IconName } from '../components/Icon.js';
-import { namedIn } from '../components/Id.js';
 import { goldenName, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
@@ -20,15 +18,16 @@ import { compareTarget, outcomeOf } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
-import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
+import { gateAgainAsk, rerunAsk, sessionAsk, startTestsJob } from '../tests-ask.js';
 import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
+import { EditCheckStep } from './check-entry.js';
 import { checksOf, runLikeOf } from './model.js';
-import { blameBesideCard, gateEntry, replayAction, stepCard, stepCostLine, stepEstimate, stepJob, type StepCard } from './next-step.js';
+import { blameBesideCard, replayAction, stepCard, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
-import { PackAsGolden } from './PackAsGolden.js';
-import { PACK_HOLDS, packRunCommand, redactsFact } from './share.js';
+import { PackAsGolden, StepDialogPart } from './PackAsGolden.js';
+import { packRunCommand } from './share-steps.js';
 
 /**
  * The header's one lime button, drawn from the step the server worked out (src/next-step.ts): a link
@@ -148,30 +147,24 @@ function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'u
       <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
       </TestsJobButton>
-      {asking ? (
-        <ConfirmDialog
-          title={`Update ${goldenName(step.golden)}?`}
-          lead={step.sub ? `${step.sub}.` : `Re-records ${goldenName(step.golden)}, for a change you meant.`}
-          doc="goldenUpdates"
-          command={step.command ?? null}
-          cost={stepCostLine(step)}
-          ok={step.label}
-          onClose={() => setAsking(false)}
-          onOk={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: step.golden })))}
-        />
-      ) : null}
+      {asking ? <StepDialogPart ask={{ kind: 'update', step, onOk: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: step.golden }))) }} onClose={() => setAsking(false)} /> : null}
     </>
   );
 }
 
-/** Re-run test: the golden's test again, a gate's too, asking first where it runs live (tests-ask.ts), by Spending where its price is known. */
-function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'gate-again' }> }) {
+/**
+ * Re-run test: the golden's test again, a gate's too; Run tests, where the golden's checks changed
+ * since, Tests' whole session, as its header runs it. Each asks first where it runs live
+ * (tests-ask.ts), by Spending where its price is known.
+ */
+function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'gate-again' | 'run-tests' }> }) {
   const app = useApp();
   const name = goldenName(step.golden);
   const estimate = stepEstimate(step);
-  const say = { ...(step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate };
+  const say = { ...(step.key === 'run-tests' ? sessionAsk(step.command ?? '') : step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate };
+  const fields = step.key === 'run-tests' ? {} : { golden: step.golden };
   return (
-    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden, ...sentEstimate(estimate) }, say)}>
+    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { ...fields, ...sentEstimate(estimate) }, say)}>
       {step.label}
     </TestsJobButton>
   );
@@ -218,12 +211,6 @@ function RuleStep({ run, step, onAction }: StepProps) {
   );
 }
 
-/** What a step that tests for injection says it does: a test run again plants what the last one planted. */
-const INJECTION_LEADS: Record<'injection-test' | 'injection-again', string> = {
-  'injection-test': 'Plants each payload, with its own canary, in the run’s untrusted reads and runs the agent from the call that reads it.',
-  'injection-again': 'Plants the same payloads in the same reads again.',
-};
-
 /**
  * Run injection test… and Re-run injection test: what it plants and bills, why the last test leads
  * to it, then the `injection` job, which asks again for a command someone else recorded, as every
@@ -234,7 +221,6 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const [asking, setAsking] = useState<null | { kind: 'step' } | { kind: 'consent'; why: string; confirm: string }>(null);
   const busy = useTreeBusy('reads', stepJob(step)!.verb);
   const title = confirmWords(step.label);
-  const id = shortId(step.runId);
   // The job keeps the estimate its card and Cost line said, so its drawer says it too; the consent's yes sends it again.
   const fields = { ...(step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId }), ...sentEstimate(stepEstimate(step)) };
   const start = (yes?: string) =>
@@ -253,20 +239,8 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
       <ActionButton className="btn lime" why={busy} data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking({ kind: 'step' }))}>
         {step.label}
       </ActionButton>
-      {asking?.kind === 'step' ? (
-        <ConfirmDialog
-          title={namedIn(`${title} on ${id}`, id)}
-          lead={INJECTION_LEADS[step.key]}
-          doc="injectionTests"
-          warn={step.sub ? { text: step.sub } : null}
-          command={step.command ?? null}
-          cost={stepCostLine(step)}
-          ok={title}
-          onClose={() => setAsking(null)}
-          onOk={() => start()}
-        />
-      ) : null}
-      {asking?.kind === 'consent' ? <ConsentDialog why={asking.why} ok={title} onClose={() => setAsking(null)} onOk={() => start(asking.confirm)} /> : null}
+      {asking?.kind === 'step' ? <StepDialogPart ask={{ kind: 'injection', step, onOk: () => start() }} onClose={() => setAsking(null)} /> : null}
+      {asking?.kind === 'consent' ? <StepDialogPart ask={{ kind: 'consent', why: asking.why, ok: title, onOk: () => start(asking.confirm) }} onClose={() => setAsking(null)} /> : null}
     </>
   );
 }
@@ -302,44 +276,26 @@ function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'p
   const app = useApp();
   const [asking, setAsking] = useState(false);
   if (step.key === 'pack') return <PackAsGolden runId={step.runId} folder={step.folder} offers={offers} lead tip={tipOf(stepCard(step))} />;
-  const id = shortId(step.runId);
-  const gate = step.gate;
   return (
     <>
       <ActionButton className="btn lime" data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
       </ActionButton>
-      {asking ? (
-        <PromptDialog
-          title={namedIn(`Pack ${id} with injection gate?`, id)}
-          lead="Packs the run as a golden that fails while a tool call carries a planted payload’s canary."
-          doc="injectionGate"
-          facts={[
-            { label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' },
-            PACK_HOLDS,
-            redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null),
-            { label: 'Then', value: 'you add the entry below to `shadowlap.config.json`', quiet: 'it gives the golden its gate' },
-          ]}
-          label="Folder, inside the project"
-          initial={step.folder}
-          command={(dir) => packRunCommand(step.runId, dir)}
-          after={(dir: string) => <pre className="codebox gateentry">{gateEntry(dir || '…', gate)}</pre>}
-          cost={stepCostLine(step)}
-          ok={confirmWords(step.label)}
-          onClose={() => setAsking(false)}
-          onRun={(dir) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.pack, { runId: step.runId, dir })))}
-        />
-      ) : null}
+      {asking ? <StepDialogPart ask={{ kind: 'pack-gate', step, offers, onRun: (dir) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.pack, { runId: step.runId, dir }))) }} onClose={() => setAsking(false)} /> : null}
     </>
   );
 }
 
+/** The steps whose link opens an attempt, which waits while the server is out of reach, as every link to one does. */
+const TO_ATTEMPT = new Set(['injection-proof', 'preset-proof']);
+
 export function NextStepButton(props: StepProps) {
   const { run, step, onAction } = props;
+  const offline = useOfflineLink();
   if (step.href) {
     const icon = ICONS[step.key];
     return (
-      <a className="btn lime" href={step.href} data-next={step.key} data-tip={tipOf(stepCard(step))} {...(step.key === 'compare' ? shortcut('compare') : {})}>
+      <a className="btn lime" href={step.href} data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={TO_ATTEMPT.has(step.key) ? offline : undefined} {...(step.key === 'compare' ? shortcut('compare') : {})}>
         {icon ? <Icon name={icon} /> : null}
         {step.label}
       </a>
@@ -355,7 +311,10 @@ export function NextStepButton(props: StepProps) {
       return step.key === 'update-golden' && !(props.offers?.test ?? step.test) ? <UpdateStep step={step} /> : <DivergedStep {...props} step={step} />;
     case 'rerun-test':
     case 'gate-again':
+    case 'run-tests':
       return <RerunStep step={step} />;
+    case 'edit-check':
+      return <EditCheckStep step={step} />;
     case 'bisect':
       return <BisectStep {...props} step={step} />;
     case 'revert':

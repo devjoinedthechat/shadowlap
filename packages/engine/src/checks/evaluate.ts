@@ -7,7 +7,7 @@ import { finalAnswer } from '../responses.js';
 import type { StoreOf } from '../store.js';
 import type { CallRecord, JudgeOutcome } from '../types.js';
 import { asNumber, hasWildcard, pathAt, type CallCondition, type CallRule, type CheckResult, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type NamedPath, type Operand, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
-import { COUNT_NOUNS, JUDGE_SKIP_UNDONE, NEGATED, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './labels.js';
+import { COUNT_NOUNS, JUDGE_SKIP_UNDONE, NEGATED, NEVER_HELD, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './labels.js';
 
 /**
  * A run judged by its checks: each check's status, what it expected and what happened, from the
@@ -221,8 +221,8 @@ function resultOf(c: CallRecord, input: CheckInput): { value: unknown } | { none
   return { none: why ? `has no result (${why})` : 'has no result', ended: c.origin === 'blocked' || c.end?.outcome === 'error' };
 }
 
-/** A JSON object or list held in a string, as tools often return one, read so a path can go into it. */
-function intoText(v: unknown): unknown {
+/** A JSON object or list held in a string, as tools often return one, read so a path can go into it: a value as a reference reads it. */
+export function intoText(v: unknown): unknown {
   if (typeof v !== 'string') return v;
   const t = v.trimStart();
   if (t[0] !== '{' && t[0] !== '[') return v;
@@ -464,7 +464,7 @@ function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): Ch
   const calls = (ts: typeof tried) => problemsDetail(ts.map((t) => `${cond.tool} #${t.c.callNo}: ${t.m.why}`), cond.tool);
   if (unread.length) return inner.map((r) => ({ status: 'inconclusive' as const, ok: false, label: whenLabel(cond, r.label), detail: `could not tell whether the condition held: ${calls(unread)}` }));
   const seen = tried.length ? calls(tried) : `${cond.tool} was never called`;
-  return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: whenLabel(cond, r.label), detail: `the condition never held: ${seen}` }));
+  return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: whenLabel(cond, r.label), detail: `${NEVER_HELD}: ${seen}` }));
 }
 
 /**

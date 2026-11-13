@@ -12,31 +12,40 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * A script that fails to come (the dashboard stopped, or was updated since the page opened) leaves
  * `failed` in its place, wherever it shows, for as long as the page is open: a browser keeps a
  * script's failure and never asks for it again, so only loading the page again brings it
- * (`LoadFailed`'s Retry, components/bits.tsx).
+ * (`LoadFailed`'s Retry, components/bits.tsx). A part that opens on a press draws nothing in its
+ * place and says it in an error toast instead, with that Retry (pages/served.tsx).
  *
  * The shell's pages load this way (pages/lazy.tsx), its palette and shortcuts sheet (shell/Shell.tsx),
  * and each part of a page heavy enough to wait for a script of its own: a run's views but Calls
  * (pages/Run.tsx), the dialog a run's action asks in (run/actions.tsx), and what a run's page
  * rarely opens, which keeps it within its budget: a diverged test's dialogs (run/diverged.tsx),
- * Share's menu (pages/served.tsx) and its Export dataset… and Export OpenTelemetry trace…
+ * Share's menu with its rows' words (pages/served.tsx, run/share.ts: the page's header, steps and
+ * keys read theirs from run/share-steps.ts) and its Export dataset… and Export OpenTelemetry trace…
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), the words of a run's notes
  * (run/RunNotes.tsx, with run/note-lines.ts: the page decides which notes a run has, run/notes.ts),
- * Edit and fork's dialog (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find
- * breaking commit's and Delete run's (run/RunDialogs.tsx). So must the structural diff
+ * Edit and fork's dialog (run/EditDialog.tsx), Run blame's dialogs and their check
+ * (fixes/RunBlameAsks.tsx), the fork menu (run/ForkMenu.tsx), the header's … with Delete run's
+ * helper (run/MoreMenu.tsx), and Find breaking commit's and Delete run's dialogs
+ * (run/RunDialogs.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
- * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
+ * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and
+ * each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
  * the parts they show and none of the dashboard's other pages. A part a copy never draws, such as
- * Share's menu, Revert's dialog and the first bad commit's change box, is the exception: the served
- * entry hands it in (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it,
- * nor the dialogs Share opens (Export dataset… and Export OpenTelemetry trace…), and a test pins
- * what keeps it undrawn there (test/ui-exported-copy.test.ts, test/ui-revert-copy.test.ts). The one
- * part the page list shows itself, the page that says another project holds what a link names, is
- * declared in a module of its own that the pages showing it import too (pages/held-elsewhere.tsx),
- * and the bundle size test pins it. The bundle size test holds each page's and each part's script
- * to a budget of its own. What a fork did differently waits so too, a finding of a fork's page
- * alone, asked for with the differences (run/FindingsBar.tsx).
+ * Share's menu with the dialogs it opens (Export dataset…, Export OpenTelemetry trace… and the
+ * Security report), the fork menu and the header's … (a copy forks nothing and draws none of the
+ * header's actions), Run blame's dialogs, the check menu at a tool call and the check builder its
+ * pick opens (which only Add check… opens), an injection test's results (a copy keeps no results),
+ * the dialogs a run's steps ask in (run/StepDialogs.tsx: a copy draws no step that asks), Revert's
+ * dialog or the first bad commit's change box, is the exception: the served entry hands it in
+ * (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, and a test pins
+ * what keeps each one undrawn there (test/ui-exported-copy.test.ts, test/ui-revert-copy.test.ts).
+ * The one part the page list shows itself, the page that says another project holds what a link
+ * names, is declared in a module of its own that the pages showing it import too
+ * (pages/held-elsewhere.tsx), and the bundle size test pins it. The bundle size test holds each
+ * page's and each part's script to a budget of its own. What a fork did differently waits so too,
+ * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;
@@ -46,14 +55,17 @@ export interface OnShow<P> {
   readonly script: 'idle' | 'loading' | 'loaded' | 'failed';
 }
 
-export interface OnShowOptions {
+export interface OnShowOptions<P = never> {
   /** What shows in its place while its script comes: nothing unless given. */
   waiting?: ReactNode;
-  /** What shows in its place once its script failed to come: nothing unless given. */
-  failed?: ReactNode;
+  /**
+   * What shows in its place once its script failed to come: nothing unless given. Given as a function,
+   * it is drawn from the part's props, which say how a part that opens on a press closes (pages/served.tsx).
+   */
+  failed?: ReactNode | ((props: P) => ReactNode);
 }
 
-export function onShow<P extends object>(load: () => Promise<ComponentType<P>>, { waiting = null, failed = null }: OnShowOptions = {}): OnShow<P> {
+export function onShow<P extends object>(load: () => Promise<ComponentType<P>>, { waiting = null, failed = null }: OnShowOptions<P> = {}): OnShow<P> {
   let script: OnShow<P>['script'] = 'idle';
   let loaded: ComponentType<P> | null = null;
   let loading: Promise<void> | null = null;
@@ -89,7 +101,7 @@ export function onShow<P extends object>(load: () => Promise<ComponentType<P>>, 
         shown = false;
       };
     }, [Loaded, lost]);
-    return Loaded ? <Loaded {...props} /> : <>{lost ? failed : waiting}</>;
+    return Loaded ? <Loaded {...props} /> : <>{!lost ? waiting : typeof failed === 'function' ? failed(props) : failed}</>;
   }
   return Object.defineProperties(Shown, {
     preload: { value: () => void fetch() },

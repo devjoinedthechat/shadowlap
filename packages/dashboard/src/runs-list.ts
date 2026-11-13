@@ -60,8 +60,13 @@ export interface RunFilter {
    * sorted by spent, the totals of runs it has yet to add up. What the dashboard asks for.
    */
   known?: boolean;
-  /** What `status:` judges a run by besides its index (run-outcome.ts `judgeFor`), read beside the server; without it, only what the index says. */
+  /**
+   * What `status:` judges a run by besides its index (run-outcome.ts `judgeFor`), read beside the
+   * server, as Failed does for a run its family's checks fail today; without it, only what the index says.
+   */
   judge?: JudgeRun | null;
+  /** Failed counts a run's own failure only, never its family's: what Find breaking commit can start from (runs-failures.ts). */
+  ownFailures?: boolean;
 }
 
 export interface RunsPageOptions extends RunFilter, StatsOptions {
@@ -153,7 +158,7 @@ interface Matcher {
   scope: (r: IndexedRun) => boolean;
   /** The chips' kinds, Local and the filter field, without Failed: what failures are counted out of. */
   base: (r: IndexedRun) => boolean;
-  /** Counted as failed (runs-filter.ts `listFailed`): what Failed narrows to. */
+  /** Counted as failed: its own failure (runs-filter.ts `listFailed`), or its family's checks' today: what Failed narrows to. */
   failed: (r: IndexedRun) => boolean;
   /** Everything the filter asks for. */
   matches: (r: IndexedRun) => boolean;
@@ -192,7 +197,7 @@ function matcher(filter: RunFilter, reads: MatchReads = {}): Matcher {
   const localOnly = types.includes('local');
   const local = filter.localRuns ?? null;
   const { words, labels, types: typeTerms, statuses, tools } = filterTerms(filter.q);
-  const { about = () => '', fixed = NOT_FIXED, verdict, recorded } = reads;
+  const { about = () => '', fixed = NOT_FIXED, verdict, recorded, failedByFamily } = reads;
   // `type:` narrows as a chip does, by the kinds it names: with a chip too, each narrows the other.
   const typed = (r: IndexedRun) => typeTerms.every((t) => Object.hasOwn(TYPE_KINDS, t) && TYPE_KINDS[t as keyof typeof TYPE_KINDS].includes(r.kind));
   // `status:` reads the verdict Status says, and a run not judged yet matches none until it is; `tool:`, a tool it called by its start.
@@ -211,7 +216,8 @@ function matcher(filter: RunFilter, reads: MatchReads = {}): Matcher {
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
   // Local narrows what failures are counted out of, as a kind does: the calendar's "8 of 12 local runs".
   const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && typed(r) && (!localOnly || !!local?.has(r.runId)) && text(r);
-  const failed = (r: IndexedRun) => listFailed(r, fixed);
+  // A run's own failure, or one its family's checks find today (a capture's stays the verdict it kept).
+  const failed = (r: IndexedRun) => listFailed(r, fixed) || (!filter.ownFailures && !!failedByFamily?.(r));
   return { scope, base, failed, matches: (r) => base(r) && (!failedOnly || failed(r)) };
 }
 
@@ -229,21 +235,16 @@ function filterWarming(f: ReturnType<typeof filterReads>): RunsPage['warming'] |
 
 /** Every run the filter matches, newest first, as the table lists them. */
 export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
-  const index = loadRunIndex(store);
-  const all = withLiveness(store, index);
-  return all.filter(matcher(filter, filterReads(store, index, all, filter).reads).matches);
+  return matchedRuns(store, filter).runs;
 }
 
-/**
- * Every run each of `filters` matches, as matchingRuns finds them, with the index walked once:
- * `within` asks what every one of them asks but its words (the same types, terms and dates), so
- * each one's words are matched only against the runs `within` keeps.
- */
-export function matchingRunsEach(store: Store, within: RunFilter, filters: readonly RunFilter[]): IndexedRun[][] {
+/** The runs the filter matches, newest first, with what the match waits for, as the table's read says it (`listRunsPage`): what Runs' issues group (issues.ts). */
+export function matchedRuns(store: Store, filter: RunFilter): { runs: IndexedRun[] } & Pick<RunsPage, 'warming' | 'indexing' | 'judgeAfter'> {
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
-  const kept = all.filter(matcher(within, filterReads(store, index, all, within).reads).matches);
-  return filters.map((f) => kept.filter(matcher(f, filterReads(store, index, kept, f).reads).matches));
+  const f = filterReads(store, index, all, filter);
+  const warming = filterWarming(f);
+  return { runs: all.filter(matcher(filter, f.reads).matches), ...(warming ? { warming } : {}), ...(f.terms.indexing ? { indexing: f.terms.indexing } : {}), ...judgeAfterOf(f) };
 }
 
 /**
@@ -416,8 +417,9 @@ function judgeAfterOf(f: ReturnType<typeof filterReads>): Pick<RunsPage, 'judgeA
  * of 100,000 calls a store had never added up held the sidebar 9.4 s and Runs 10.6 s, and both
  * threads with them. What a recording's user asked is read within the same budget (`aboutsWithin`).
  */
-export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions & { known?: boolean } = {}): RunRow[] {
-  const { totals, later } = options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
+export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions & { known?: boolean; totals?: false } = {}): RunRow[] {
+  // `totals: false`, for rows that draw no totals (Runs' issues): no call is read for them.
+  const { totals, later } = options.totals === false ? { totals: new Map<string, never>(), later: [] } : options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
   const waiting = new Set(later.map((r) => r.runId));
   const abouts = options.known ? aboutsWithin(store, index, runs, { budget: ROW_CALLS_BUDGET, quick: waiting }) : aboutsOf(store, index, runs);
   const fixed = fixedByOf(store, index);

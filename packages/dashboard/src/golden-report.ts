@@ -1,12 +1,13 @@
-import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofHead, proofLine, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofParts, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type ProofParts, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import { crashError, type CrashError } from './crash-error.js';
 import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
 import { answer, type ReadTable } from './read-registry.js';
 import { judgeFor, type OutcomeWork } from './run-outcome.js';
 import { entriesBodies } from './request-diff.js';
-import { matchingRunsEach } from './runs-list.js';
+import { matchingRuns } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
+import type { ChangedCheck } from './tests-checks.js';
 import { forkedWords } from './tests-evidence.js';
 import { causeOf, divergenceOf } from './tests-normalize.js';
 import type { DivergenceView, FailureView, GoldenRow, GoldenSource, InconclusiveView, TestsView } from './tests.js';
@@ -35,7 +36,7 @@ export interface ReportLine {
 
 export type ReportPart =
   /** The golden's checks that left the config since its last test, which it failed or couldn't decide. */
-  | { kind: 'checks-changed'; gone: Array<{ label: string; status: 'failed' | 'inconclusive' }> }
+  | { kind: 'checks-changed'; gone: ChangedCheck[] }
   /** The replay against its recording, as the mini strip draws a run: `recorded` cells, `replayed` of them replayed, `stop` the call it stopped at. */
   | { kind: 'replay'; recorded: number; replayed: number; stop: number | null; words: string }
   /**
@@ -56,10 +57,13 @@ export type ReportPart =
   | { kind: 'attempts'; check: { label: string; detail: string } | null; carried: { count: number; at: number | null } | null; forked: string | null }
   | { kind: 'commit'; found: FoundCommit }
   | { kind: 'missed'; missed: BisectMiss }
-  /** An injection gate's proof: the attempt it is, the engine's line of it (each `#n` a call of that attempt), and, for an attempt that showed nothing, why. */
-  | { kind: 'proof'; runId: string; line: string; why: string | null }
+  /**
+   * An injection gate's proof: the attempt it is and its proof in parts (the engine's proofParts), each call it names one of
+   * that attempt's, as an attempt's finding draws it; for an attempt that showed nothing, no evidence, and why.
+   */
+  | { kind: 'proof'; runId: string; parts: ProofParts; why: string | null }
   /** What an injection gate's attempts did, by verdict; where they were planted, while the kept result says; the command that writes every attempt. */
-  | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string; /** The kept result Security report writes, while the store has it. */ resultId: string | null };
+  | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string; /** The kept result Security report writes, and the run it tested, which its dialog names, while the store has it. */ security: { resultId: string; runId: string } | null };
 
 /** What followed a diverged call, said apart so it never reads as a second fault: its two clauses, and the body the agent got as indented JSON, while the recording keeps it. */
 export interface Followed {
@@ -91,7 +95,10 @@ export type HintKey =
   | { key: 'injection-inconclusive'; why: 'unanswered' | 'no-reads' | 'stopped' | 'nothing' }
   /** Inconclusive for the provider: unavailable for attempts in a row, or attempts it cut short decide the count. */
   | { key: 'provider'; why: 'unavailable' | 'cut' }
-  | { key: 'error' };
+  | { key: 'error' }
+  /** Its step is its checks' (check-steps.ts): Run tests, its checks changed since its last test; Edit check, its own recording fails a check added since. */
+  | { key: 'checks-changed' }
+  | { key: 'edit-check' };
 
 export interface GoldenReport {
   golden: string;
@@ -104,7 +111,7 @@ export interface GoldenReport {
   parts: ReportPart[];
   /** The result's own run, while the store keeps it: Open run, or Open failing attempt for a golden of several attempts. */
   open: { label: string; href: string } | null;
-  /** Runs' Failed view of the golden's failed replays, with how many and the first five ids; null where there are none, or its step is a fix. */
+  /** The golden's own failed replays on Runs › Failed, where the link opens its issue: how many and the first five ids; null where there are none, or its step is a fix. */
   failedRuns: { href: string; count: number; ids: string[] } | null;
   hint: HintKey | null;
   /** The report as `shadowlap test` prints it. */
@@ -113,23 +120,6 @@ export interface GoldenReport {
 
 /** GET /api/tests's answer: the page's view, and each golden that didn't pass with its report. */
 export type TestsAnswer = TestsView & { reports?: Record<string, GoldenReport> };
-
-/**
- * How many attempts a judge check was asked live in, and what that cost: the result's judge summary
- * (every attempt that asked it: a golden that may fork asks only where an attempt passed its other
- * checks) when it is the result's only judge check and every judge model in it has a price; else, for
- * a result of one attempt, the check's own call. `c` is the check as the attempts that asked it came
- * out (`judgeOverAttempts`). Null for a verdict from the recording, which is free, for a check no
- * attempt asked, and when the cost isn't known. The one place Tests counts a judge's asks, the row's
- * and the report's alike.
- */
-export function judgeAsked(r: TestResult, c: StoredCheck): { cost: number; asked: number } | null {
-  if (c.source !== 'live' || !c.judge) return null;
-  const s = r.data?.judge;
-  const judges = (r.data?.checks ?? []).filter((x) => x.judge).length;
-  if (s && judges === 1 && s.live > 0 && !s.unknownModels.length) return { cost: s.spent, asked: s.live };
-  return (r.data?.attempts?.total ?? 1) <= 1 && c.judge.cost !== null ? { cost: c.judge.cost, asked: 1 } : null;
-}
 
 const lines = (text: string, tone: (line: string) => ReportTone): ReportLine[] =>
   text
@@ -487,20 +477,13 @@ function injectionParts(r: TestResult, i: ReportInput, golden: string): Built {
   const report = keptPlant(i.store, gate);
   const a = proofAttempt(report);
   const parts: ReportPart[] = [];
-  if (a) parts.push(a.verdict === 'inconclusive' ? { kind: 'proof', runId: a.runId, line: proofHead(a), why: rest || a.why } : { kind: 'proof', runId: a.runId, line: proofLine(a) ?? proofHead(a), why: null });
+  // An attempt that showed nothing proves nothing: where it was planted and read, and why.
+  if (a) parts.push(a.verdict === 'inconclusive' ? { kind: 'proof', runId: a.runId, parts: { ...proofParts(a), evidence: null }, why: rest || a.why } : { kind: 'proof', runId: a.runId, parts: proofParts(a), why: null });
   const where = report ? plantedWhere(report) : null;
-  if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']), resultId: report && gate.resultId ? gate.resultId : null });
+  if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']), security: report && gate.resultId ? { resultId: gate.resultId, runId: report.runId } : null });
   const call = a ? (a.evidence.find((e) => e.kind === 'canary') ?? a.evidence[0])?.callNo ?? a.readAt ?? a.forkedAt : null;
   const open = a && i.store.getRun(a.runId) ? { label: failed ? 'Open proof' : 'Open attempt', href: links.run(a.runId, call) } : null;
   return { head: [capitalised(head)], sub: [], parts, hint: failed ? { key: 'injection' } : { key: 'injection-inconclusive', why: injectionWhy(reason) }, open };
-}
-
-/** The golden's checks its last result failed or couldn't decide that are no longer in the config. */
-function checksGone(r: TestResult, row: GoldenRow): Array<{ label: string; status: 'failed' | 'inconclusive' }> {
-  return (r.data?.checks ?? []).flatMap((c) => {
-    const status = checkStatus(c);
-    return (status === 'failed' || status === 'inconclusive') && !row.checks.includes(c.label) ? [{ label: c.label, status }] : [];
-  });
 }
 
 /** What a report opens: the result's own run while the store keeps it, a golden of several attempts' as its failing attempt. */
@@ -538,9 +521,9 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): Go
   if (verdict === 'passed') return null;
   const from: From = { r, row, i, recording: i.goldens.find((g) => g.path === row.path)?.runId ?? null, replay: r.runId ? i.store.getRun(r.runId) : null };
   const built = partsOf(from, listed);
-  const gone = checksGone(r, row);
-  if (gone.length) {
-    // Its hint stays its last test's until Run tests leads such a golden, whose hint says so (port/checks-on-tests).
+  // Its checks changed since, by the row's one rule (tests-checks.ts' checksChanged): its step's hint says what to do (withStepHints).
+  const gone = row.changed;
+  if (gone) {
     built.parts.unshift({ kind: 'checks-changed', gone });
     built.sub = ['its last test, before its checks changed'];
   }
@@ -577,33 +560,54 @@ const FAILED_REPLAYS = 'type:test';
 /** Runs' filter for a golden's failed replays: its test replays, whose about line is its name, under Failed. Quoted where the name holds a space. */
 const failedRunsQuery = (name: string): string => `${FAILED_REPLAYS} ${/\s/.test(name) ? `"${name}"` : name}`;
 
-/** Where Failed runs → opens: Runs' Failed view of the golden's replays. */
+/** Where Failed runs → opens: Runs' Failed view of the golden's replays, where the link opens its issue. */
 export const failedRunsHref = (name: string): string => links.runs({ q: failedRunsQuery(name), types: 'failed' });
 
-/** Each golden's failed replays as Runs' Failed view lists them, by its path: how many, and the first five, newest first. */
-export type GoldenRunsJob = { kind: 'tests-failed-runs'; goldens: Array<{ golden: string; name: string }>; outcome?: OutcomeWork | null };
+/** Each golden's failed replays, by its path: how many, and the first five, newest first. */
+export type GoldenRunsJob = { kind: 'tests-failed-runs'; goldens: string[]; outcome?: OutcomeWork | null };
 
 /**
- * The pooled read: the runs Failed runs → opens, matched as Runs matches them (runs-list.ts, the same
- * filter and the same judge), so the count is what the link opens. Every run's index row is read
- * once, for the failed test replays, and each golden's name is matched among those alone: never on
- * the server's thread. A golden with none is left out.
+ * The pooled read: each golden's own failed replays, the test replays Runs lists under Failed (the
+ * same filter and judge as runs-list.ts) whose test is that golden (`meta.test.golden`), as the
+ * golden's issue there holds them. Never Runs' word search, which matches a run's command too, so a
+ * golden named as the agent's file would count every replay. Every run's index row is read once:
+ * never on the server's thread. A golden with none is left out.
  */
 export const GOLDEN_REPORT_READS: ReadTable<GoldenRunsJob> = {
   'tests-failed-runs': (store, job, { whole }) => {
-    const judge = judgeFor(store, job.outcome ?? null);
-    const filter = (q: string) => ({ q, types: ['failed' as const], known: !whole, judge });
-    const each = matchingRunsEach(store, filter(FAILED_REPLAYS), job.goldens.map((g) => filter(failedRunsQuery(g.name))));
-    const found: Record<string, { count: number; ids: string[] }> = {};
-    job.goldens.forEach((g, n) => {
-      const runs = each[n] ?? [];
-      if (runs.length) found[g.golden] = { count: runs.length, ids: runs.slice(0, 5).map((r) => r.runId) };
-    });
-    return answer(found);
+    const asked = new Set(job.goldens);
+    const found = new Map<string, { count: number; ids: string[] }>();
+    for (const r of matchingRuns(store, { q: FAILED_REPLAYS, types: ['failed'], known: !whole, judge: judgeFor(store, job.outcome ?? null) })) {
+      const golden = r.meta.test?.golden;
+      if (golden === undefined || !asked.has(golden)) continue;
+      const runs = found.get(golden) ?? { count: 0, ids: [] };
+      runs.count += 1;
+      if (runs.ids.length < 5) runs.ids.push(r.runId);
+      found.set(golden, runs);
+    }
+    return answer(Object.fromEntries(found));
   },
 };
 
-/** The reports with Runs' count of each golden's failed replays, where its step isn't a fix: a fix's failing runs are its fix's, which Open fix leads to. */
+/** The hint of a golden whose step is its checks' (check-steps.ts), which says what to do in place of its last test's. */
+const STEP_HINTS: Partial<Record<string, HintKey>> = { 'run-tests': { key: 'checks-changed' }, 'edit-check': { key: 'edit-check' } };
+
+/**
+ * The reports with the hint of each golden whose checks lead it, from its step, never from the gone
+ * list alone: Run tests where its checks changed since (its last test judged checks the config no
+ * longer holds), Edit check where its own recording fails a check added since. Without the steps,
+ * each keeps its last test's.
+ */
+export function withStepHints(reports: Record<string, GoldenReport>, steps: Record<string, { key: string }> | undefined): Record<string, GoldenReport> {
+  const out: Record<string, GoldenReport> = {};
+  for (const [golden, report] of Object.entries(reports)) {
+    const hint = STEP_HINTS[steps?.[golden]?.key ?? ''];
+    out[golden] = hint ? { ...report, hint } : report;
+  }
+  return out;
+}
+
+/** The reports with each golden's own failed replays, where its step isn't a fix: a fix's failing runs are its fix's, which Open fix leads to. */
 export function withFailedRuns(reports: Record<string, GoldenReport>, runs: Record<string, { count: number; ids: string[] }> | null, steps: Record<string, { key: string }> | undefined): Record<string, GoldenReport> {
   const out: Record<string, GoldenReport> = {};
   for (const [golden, report] of Object.entries(reports)) {

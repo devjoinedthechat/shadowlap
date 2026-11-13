@@ -429,7 +429,7 @@ describe('ProjectRegistry: setup', () => {
     const done = registry.finishSetup('triage-bot', { runId });
     expect(done.setup).toMatchObject({ stage: 'done', skipped: true, runId });
     expect(events(folder, 'project.setup')[0]?.data).toMatchObject({ skipped: true });
-    // Go to the overview after Skip the rest changes nothing.
+    // Go to Overview after Skip setup changes nothing.
     expect(registry.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', skipped: true });
     expect(events(folder, 'project.setup')).toHaveLength(1);
   });

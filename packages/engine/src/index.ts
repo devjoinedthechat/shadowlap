@@ -26,9 +26,10 @@ export type { SqlValue } from './store.js';
 // The sidecar's writes queued while another process holds the store, and the ids of runs it starts before they are written.
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
-export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
-export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
-export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
+export type { FixCheckEntry, FixCheckJudged, FixData, FixLink, FixLinkKind, FixRunOutcome, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
+export { FIX_RUN_OUTCOMES } from './store.js';
+export { FIX_STATUSES, FixIdError, FixNotOpenError, GOOD_LABEL, applyGoldens, applyLeft, changeFixCheck, checkKey, cleanTitle, coversCheck, fixAmong, fixCost, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, fixRecords, joinableFix, leavesFix, leftFixLinkSql, madeUnderOldCheck, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, runsLeft, setFixTitle, settleAppliedFixes, standingBasis, standingIn, standingOn, verdictCounts } from './fixes.js';
+export type { BlameToRecord, FixCheckChange, FixCost, FixRecords, FixStanding, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, StandingBasis, StandingRun, StandingVerdict, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
 export { lookupRun } from './run-lookup.js';
 // The commands a repair from a fix and a verify of it run, and the yes they need first, as the
@@ -46,11 +47,11 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 // Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
 // of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
 // with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
-export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, testLive, toolsNamed, withoutOutput } from './checks/grammar.js';
+export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, asNumber, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, testLive, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
-export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
-export { CHECK_MARKS, RULES_ON_CALLS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
-export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
+export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen, referenceParts, referenceTo } from './checks/parse.js';
+export { CHECK_MARKS, JUDGE_ASKED, JUDGE_READS, RULES_ON_CALLS, andList, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, judgeSourceParts, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
+export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, intoText, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
 export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
 export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
@@ -59,6 +60,16 @@ export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterial
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
 // A judge check a golden that may fork didn't ask, another check having failed in that attempt: its words, and its golden's when no attempt asked it.
 export { JUDGE_ASKED_IN_NONE, JUDGE_NOT_ASKED, JUDGE_SKIP_UNDONE, askedInNone, judgeOverAttempts, notAskedWords } from './checks/labels.js';
+// The oracle a check gives a fix, in words, which a verdict must cover to count for it.
+export { EXIT_LABEL, oracleLabels } from './checks/oracle.js';
+// Characters a check can't keep through the team store: a push writes them as U+FFFD.
+export { HIDDEN_IN_NAME, HIDDEN_IN_TEXT, hiddenCharacter, hiddenCharacterWords } from './hidden-characters.js';
+export type { HiddenCharacter } from './hidden-characters.js';
+export { BUG_LABEL, checkRecording, checkRecordings, labelNoteWords, labelNotes, notApplicable, packRecording, unreadNotes } from './checks/recordings.js';
+export type { CheckReport, CheckedRecording, LabelNote, RecordingToCheck } from './checks/recordings.js';
+export { lowerRecorded, type RecordedField } from './checks/fields.js';
+export { CANDIDATES_PER_SHAPE, GOOD_RUNS_MAX, SUGGESTED_MAX, agentToolCalls, checkCandidates, goodRunsOf, numberFields, suggestChecks, toolCounts } from './suggest-checks.js';
+export type { CheckSuggestion, RunCalls, SuggestChecksOptions, Suggested, SuggestedRule, SuggestionShape } from './suggest-checks.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHintMessage, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
@@ -71,7 +82,7 @@ export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Whether a run still `running` has a process recording it (gc, Settings).
 export { SILENT_OWNED_MS, SILENT_UNKNOWN_MS, processAlive, recorderGone, type RunOwner } from './liveness.js';
 // shadowlap.config.json as a file the CLI and the dashboard both edit.
-export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
+export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editRelaysConfig, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 // The lock file those edits take, for any small file several Shadowlap processes change.
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
@@ -261,9 +272,11 @@ export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlat
 export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store.js';
 // Injection tests: trust, payloads and their canaries, what an attempt wrote, and --clean's neutral
 // result (shadowlap injection, and the dashboard's read model of its results).
-export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, keepingCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofHead, proofLine, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs } from './injection.js';
-export type { Canary, CanaryForm, CanaryHit, InjectionEntry, InjectionVerdict, Payload, PayloadShape, PayloadTemplate, TemplateSet, ToolTrust, TrustSource, UntrustedRead, VerdictCounts, WriteBaseline, WriteSeen } from './injection.js';
-export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ReadReport } from './injection.js';
+export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, baselineWrites, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, isWrite, keepingCanaries, keepingRunCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, previewKeepingCanaries, proofLine, proofParts, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, untrustedView, writeBaseline, writeRecurs, writesFrom } from './injection.js';
+export type { Canary, CanaryForm, CanaryHit, InjectionEntry, InjectionVerdict, Payload, PayloadShape, PayloadTemplate, TemplateSet, ToolTrust, TrustSource, UntrustedRead, UntrustedView, VerdictCounts, WriteBaseline, WriteSeen } from './injection.js';
+export { baselineWritesWords, EVERY_WRITE_AGAIN, GATE_TOO_LITTLE, goneWords, injectionCountParts, injectionCountsLine, injectionTally, TRUST_FROM } from './trust-words.js';
+export type { AttemptCounts, CountStyle } from './trust-words.js';
+export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ProofParts, ReadReport } from './injection.js';
 export type { InjectionGateData, StoredInjectionResult } from './store.js';
 // Production coverage: imported runs grouped by behaviour (path, writes, outcome), and the goldens that cover each.
 export { GROUP_RUN_IDS, GROUP_SOURCES, OUTCOME_WORDS, behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, hasPlaceholder, inferCommand, nearestGolden, requestMessage, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';

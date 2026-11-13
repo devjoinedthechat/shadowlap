@@ -299,14 +299,30 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     const local = Store.open(':memory:');
     try {
       story(local);
-      const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
+      const ids = ['RUN_G', 'RUN_A', 'RUN_F', 'RUN_B', 'RUN_E', 'RUN_C', 'RUN_D'];
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7, localRuns: ids } });
       // On Runs, as the design has it: the local tags show which, and the bulk bar pushes them.
-      // The row opens those runs: Runs with Local picked; its step pushes them all.
-      expect(s.needsLook.items.at(-1)).toEqual({ key: 'attn:local', group: 'housekeeping', kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
-      // A store's setup left unfinished leads back to it, first.
-      const setup = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 7, setup: { step: 3, title: 'Push from CI' } } }).needsLook;
+      // The row opens those runs: Runs with Local picked; its step pushes them all. It is advice,
+      // stating every one of those runs, so a run only here since brings it back once put away.
+      expect(s.needsLook.items.at(-1)).toEqual({
+        key: 'attn:local',
+        group: 'housekeeping',
+        kind: 'local',
+        icon: 'rec',
+        title: '7 runs are only on this machine',
+        detail: 'push them so the team can open them',
+        step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' },
+        href: '#/runs?types=local',
+        runId: null,
+        fixId: null,
+        at: 0,
+        advice: { key: 'local', facts: [...ids].sort(), until: 'Until another run is only on this machine', dismissed: false },
+      });
+      expect(s.needsLook.items.at(-1)!.advice!.facts).toHaveLength(7);
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1, localRuns: ['RUN_A'] } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0, localRuns: [] } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
+      // A store's setup left unfinished leads back to it, first: no advice, so nobody puts it away.
+      const setup = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 7, localRuns: ids, setup: { step: 3, title: 'Push from CI' } } }).needsLook;
       expect(setup.items[0]).toEqual({ key: 'attn:setup:store', group: 'setup', kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: 'step 3 of 4: push from CI', step: { of: 'link', label: 'Continue setup', href: '#/setup/store' }, href: '#/setup/store', runId: null, fixId: null, at: 0 });
       expect(setup.total).toBe(s.needsLook.total + 1);
     } finally {
@@ -338,7 +354,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       const empty = overviewSummary(Store.open(':memory:'), { tz: 'UTC', now: NOW });
       expect(empty.cache).toEqual({ input: 0, cacheRead: 0, readShare: null, misses: [], sentAgain: 0, missCount: 0 });
       expect(empty.sums.week).toMatchObject({ runs: 0, calls: 0, spent: 0 });
-      expect(empty.needsLook).toEqual({ items: [], total: 0 });
+      expect(empty.needsLook).toEqual({ items: [], total: 0, dismissals: 0 });
     } finally {
       local.close();
     }

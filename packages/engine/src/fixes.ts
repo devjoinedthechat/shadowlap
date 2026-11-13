@@ -3,7 +3,7 @@ import { canonicalize } from './canonical.js';
 import { credentialFreeCommandLine } from './argv-credentials.js';
 import { ulid } from './ids.js';
 import type { RepairReport } from './repair.js';
-import type { FixData, FixStatus, StepRerun, StoreOf, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
+import type { FixCheckJudged, FixData, FixLink, FixStatus, StepRerun, StoreOf, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 import type { RunRecord } from './types.js';
 import type { VerifyReport } from './verify.js';
 
@@ -70,6 +70,14 @@ export class FixIdError extends Error {
   }
 }
 
+/** A fix that isn't open, asked to take another check: it keeps the one its verdict was given under (changeFixCheck). */
+export class FixNotOpenError extends Error {
+  constructor(readonly fix: Pick<StoredFix, 'fixId' | 'status'>) {
+    super(`${fix.fixId} is ${fix.status}: its check is the one its verdict was given under`);
+    this.name = 'FixNotOpenError';
+  }
+}
+
 /**
  * Finds a fix by its id or a unique prefix of it, with or without `fx-`, in any case. Null when
  * nothing matches, or when no id characters are given (`fx-` alone); a prefix that matches several
@@ -97,7 +105,9 @@ export function resolveFix(store: StoreOf<'fixes'>, idOrPrefix: string): StoredF
 export function fixLabelInfo(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix): { labels: string[]; label: string | null } {
   const count = new Map<string, number>();
   let found = false;
+  const left = runsLeft(store.fixChecks(fix.fixId)).failing;
   for (const link of store.fixLinks(fix.fixId, 'failing')) {
+    if (left.has(link.ref)) continue;
     const run = store.getRun(link.ref);
     if (!run) continue;
     found = true;
@@ -109,14 +119,61 @@ export function fixLabelInfo(store: StoreOf<'recording' | 'fixes'>, fix: StoredF
   return { labels: [...count.keys()], label };
 }
 
-/** The fix a run fails in: one not yet applied (the latest opened), else the latest applied one. */
+/**
+ * The runs a fix's check judged otherwise than the fix holds them, when it was given that check
+ * (`shadowlap fix check`): the failing runs it passes and the good runs it fails. The newest of its
+ * checks decides, and a run linked after it stays. They leave the fix, though their links stay.
+ */
+export function runsLeft(checks: ReadonlyArray<Pick<StoredFixCheck, 'judged'>>): { failing: Set<string>; good: Set<string> } {
+  const judged = checks.at(-1)?.judged;
+  const of = (role: 'failing' | 'good') => {
+    const runs = judged?.[role] ?? {};
+    return new Set(Object.keys(runs).filter((id) => leavesFix(role, runs[id])));
+  };
+  return { failing: of('failing'), good: of('good') };
+}
+
+/** The outcome by a check that takes a fix's run of each role out of it: a failing run it passes, a good run it fails. */
+const LEAVES = { failing: 'passed', good: 'failed' } as const;
+
+/**
+ * Whether a fix's failing or good run, judged so by a check the fix is given, leaves the fix: the
+ * one rule runsLeft, `shadowlap fix check` and the builder's preview of a check all read.
+ */
+export const leavesFix = (role: 'failing' | 'good', outcome: string | null | undefined): boolean => outcome === LEAVES[role];
+
+/**
+ * SQL that holds for a `fix_links` row, by its alias, of a run that left its fix (runsLeft): for the
+ * readers of a fix's failing or good runs in SQL. It is 0 or 1, never null, so `NOT` it keeps a run.
+ * The run is looked up by its key in how the fix's newest check judged its runs (its id quoted in
+ * the path, a quote or backslash in it escaped), reached through fix_checks' primary key: a reader
+ * of every run gains no scan from it. Its alias, fc, keeps clear of the reader's own.
+ */
+export const leftFixLinkSql = (l: string): string =>
+  `(json_extract((SELECT fc.judged FROM fix_checks fc WHERE fc.fix_id = ${l}.fix_id ORDER BY fc.position DESC LIMIT 1),
+     '$.' || ${l}.kind || '."' || replace(replace(${l}.ref, '\\', '\\\\'), '"', '\\"') || '"') IS CASE ${l}.kind WHEN 'failing' THEN '${LEAVES.failing}' ELSE '${LEAVES.good}' END)`;
+
+/** A run's links to the fixes it is still in as a failing or a good run: without those it left (runsLeft). */
+export function fixLinksOfRun(store: StoreOf<'fixes'>, runId: string, kind: 'failing' | 'good'): FixLink[] {
+  return store.linksTo(runId, kind).filter((l) => !runsLeft(store.fixChecks(l.fixId))[kind].has(runId));
+}
+
+/** The fix a run fails in: one not yet applied (the latest opened), else the latest applied one. A run that left a fix (runsLeft) fails in it no more. */
 export function fixOfRun(store: StoreOf<'fixes'>, runId: string): StoredFix | null {
-  const fixes = store
-    .linksTo(runId, 'failing')
-    .map((l) => store.getFix(l.fixId))
-    .filter((f): f is StoredFix => f !== null)
-    .sort((a, b) => b.openedAt - a.openedAt);
-  return fixes.find((f) => f.status !== 'applied') ?? fixes[0] ?? null;
+  return fixAmong(
+    fixLinksOfRun(store, runId, 'failing')
+      .map((l) => store.getFix(l.fixId))
+      .filter((f): f is StoredFix => f !== null),
+  );
+}
+
+/**
+ * Of the fixes whose failing runs list a run (without those it left, as FixRecords' `failing`), the
+ * one it fails in, as `fixOfRun` picks it: for a read that has every fix's failing runs already.
+ */
+export function fixAmong(fixes: readonly StoredFix[]): StoredFix | null {
+  const newest = [...fixes].sort((a, b) => b.openedAt - a.openedAt);
+  return newest.find((f) => f.status !== 'applied') ?? newest[0] ?? null;
 }
 
 /**
@@ -301,6 +358,13 @@ export function recordVerdict(store: StoreOf<'recording' | 'fixes'>, input: Verd
   return store.transaction(() => keepVerdict(store, input));
 }
 
+/** Whether a verdict on a fix's check counts by the runs it replayed: some of the fix's failing runs (`mine`), not every one already passing as recorded. */
+function onRuns(failing: ReadonlyArray<Pick<StandingRun, 'runId' | 'recorded'>>, mine: ReadonlySet<string>): VerdictStanding {
+  const ofFix = failing.filter((x) => mine.has(x.runId));
+  if (!ofFix.length) return { counts: false, why: 'no-runs' };
+  return ofFix.every((x) => x.recorded.passed === true) ? { counts: false, why: 'already-passing' } : COUNTS;
+}
+
 function keepVerdict(store: StoreOf<'recording' | 'fixes'>, input: VerdictToRecord): RecordedVerdict {
   const at = input.at ?? Date.now();
   const r = input.report;
@@ -317,15 +381,9 @@ function keepVerdict(store: StoreOf<'recording' | 'fixes'>, input: VerdictToReco
       joinRuns(store, fix, failing.filter((x) => x.recorded.passed !== true).map((x) => x.runId), at);
       for (const x of r.runs) if (x.role === 'good' && x.recorded.passed !== false) store.addFixLink(fix.fixId, 'good', x.runId, at);
     }
-    const mine = new Set(store.fixLinks(fix.fixId, 'failing').map((l) => l.ref));
-    const ofFix = failing.filter((x) => mine.has(x.runId));
-    const standing: VerdictStanding = !covers
-      ? { counts: false, why: 'another-check', missing }
-      : !ofFix.length
-        ? { counts: false, why: 'no-runs' }
-        : ofFix.every((x) => x.recorded.passed === true)
-          ? { counts: false, why: 'already-passing' }
-          : { counts: true, why: null };
+    const left = runsLeft(store.fixChecks(fix.fixId)).failing;
+    const mine = new Set(store.fixLinks(fix.fixId, 'failing').map((l) => l.ref).filter((id) => !left.has(id)));
+    const standing: VerdictStanding = !covers ? { counts: false, why: 'another-check', missing } : onRuns(failing, mine);
     store.addFixLink(fix.fixId, 'verify', verdict.verifyId, at, standing);
     if (standing.counts && r.verdict === 'accepted' && fix.status === 'open') store.updateFix(fix.fixId, { status: 'verified', verifiedAt: at });
     kept.push({ fix: store.getFix(fix.fixId)!, standing });
@@ -454,35 +512,153 @@ export function setFixTitle(store: StoreOf<'fixes'>, fixId: string, title: strin
   }, 'immediate');
 }
 
+/** What `shadowlap fix check` gives a fix: the check, how it judged every run the fix holds, and when and by whom. */
+export interface FixCheckChange {
+  check: StoredFix['check'];
+  judged: FixCheckJudged;
+  at?: number;
+  actor?: string | null;
+}
+
+/**
+ * Gives an open fix another check, with how it judged the fix's runs, at once: what was made under
+ * the one before keeps it (madeUnderOldCheck), and the runs it judged otherwise leave the fix
+ * (runsLeft). Nothing is written for the check the fix has (`changed` false). A fix that isn't open
+ * keeps the check its verdict was given under: that throws a FixNotOpenError, and an unknown fix an Error.
+ */
+export function changeFixCheck(store: StoreOf<'fixes'>, fixId: string, c: FixCheckChange): { changed: boolean; fix: StoredFix; previous: StoredFix['check'] } {
+  return store.transaction(() => {
+    const fix = store.getFix(fixId);
+    if (!fix) throw new Error(`unknown fix ${fixId}`);
+    if (fix.status !== 'open') throw new FixNotOpenError(fix);
+    const changed = store.setFixCheck(fixId, c.check, { at: c.at ?? Date.now(), actor: c.actor ?? null, judged: c.judged });
+    return { changed, fix: store.getFix(fixId)!, previous: fix.check };
+  }, 'immediate');
+}
+
 // ---- Reading a fix back -----------------------------------------------------------------------
 
 export interface FixRecords {
   fix: StoredFix;
-  /** Failing and good run ids, in the order they were linked. */
+  /** Each check the fix has had, the first first: the last is the one it has. */
+  checks: StoredFixCheck[];
+  /** Failing and good run ids, in the order they were linked, without the ones that left it. */
   failing: string[];
   good: string[];
+  /** The runs its check judged otherwise when it was given it (runsLeft): kept, no longer the fix's. */
+  left: { failing: string[]; good: string[] };
   /** Blames, repairs and verdicts, the first made first. */
   blames: StoredBlame[];
   repairs: StoredRepair[];
   verdicts: StoredVerdict[];
-  /** Whether each verdict counts for the fix, by its id. */
-  standing: Map<string, VerdictStanding>;
+  /** Whether each verdict counts for the fix under the check it has (standingOn), by its id. */
+  standing: Map<string, FixStanding>;
 }
+
+/** Whether a verdict counts for a fix as it is: as it was kept (VerdictStanding), or made under a check the fix had before and no longer covering it. */
+export type FixStanding = VerdictStanding | { counts: false; why: 'old-check'; missing: string[] };
+
+/** A verified run, as much as a verdict's standing reads of it: its role and whether it passed as recorded. */
+export type StandingRun = Pick<VerifyReport['runs'][number], 'runId' | 'role'> & { recorded: Pick<VerifyReport['runs'][number]['recorded'], 'passed'> };
+
+/** A verdict, as much as its standing for a fix reads (standingOn): the check it ran under, its oracle and its runs, never its attempts. */
+export type StandingVerdict = Pick<StoredVerdict, 'expect'> & { report: { oracle: readonly string[]; runs: readonly StandingRun[] } };
 
 const COUNTS: VerdictStanding = { counts: true, why: null };
 
+/**
+ * The check a fix had before the one it has that a blame, repair or verdict was made under: the
+ * newest of its checks with the record's key, when that isn't the fix's check; else null, for the
+ * fix's check or one the fix never had. By key, not by time: a blame that began before the check
+ * changed and ended after ran under the old one.
+ */
+export function madeUnderOldCheck(rec: { fix: Pick<StoredFix, 'check'>; checks: readonly StoredFixCheck[] }, r: { expect: unknown }): StoredFixCheck | null {
+  const key = checkKey(r.expect ?? null);
+  if (key === rec.fix.check.key) return null;
+  return [...rec.checks].reverse().find((c) => c.check.key === key) ?? null;
+}
+
+/**
+ * Whether a verdict counts for a fix under the check it has, worked out from the standing it was
+ * kept with (`stored`), so nothing comes to count that didn't; the same, until the fix's check
+ * changes (more than one of its checks). One that counted and doesn't check
+ * everything the fix's check asks reads `old-check` when it was made under a check the fix had
+ * before (madeUnderOldCheck), else `another-check`; one kept as `another-check` names what it leaves
+ * out of the check as it is. One that counted and replayed a run that left the fix (`runs`, the
+ * fix's failing runs and those that left it) is judged again on the runs still the fix's, as
+ * keepVerdict judged it.
+ */
+export function standingOn(
+  fix: Pick<StoredFix, 'check'>,
+  checks: readonly StoredFixCheck[],
+  v: StandingVerdict,
+  stored: VerdictStanding | null,
+  runs?: { failing: ReadonlySet<string>; left: ReadonlySet<string> },
+): FixStanding {
+  const was = stored ?? COUNTS;
+  // A fix whose check never changed has each verdict as keepVerdict kept it.
+  if (checks.length < 2) return was;
+  const now = coversCheck(fix, v.report.oracle, v.expect);
+  const old = !now.covers && madeUnderOldCheck({ fix, checks }, v) !== null;
+  if (!now.covers && (was.counts || old)) return { counts: false, why: old ? 'old-check' : 'another-check', missing: now.missing };
+  if (!was.counts) return was.why === 'another-check' ? { ...was, missing: now.missing } : was;
+  const replayed = v.report.runs.filter((x) => x.role !== 'good');
+  return runs && replayed.some((x) => runs.left.has(x.runId)) ? onRuns(replayed, runs.failing) : was;
+}
+
+/** What standingOn reads of a fix beside a verdict, read once for every verdict of it (standingBasis). */
+export interface StandingBasis {
+  fix: Pick<StoredFix, 'fixId' | 'check'>;
+  checks: StoredFixCheck[];
+  /** Its failing runs but those that left it, and those that left: none read while its check never changed, as standingOn then reads neither. */
+  runs: { failing: Set<string>; left: Set<string> };
+}
+
+/** A fix's StandingBasis, from the store: its checks, and its failing runs only once its check changed. */
+export function standingBasis(store: StoreOf<'fixes'>, fix: Pick<StoredFix, 'fixId' | 'check'>): StandingBasis {
+  const checks = store.fixChecks(fix.fixId);
+  const left = runsLeft(checks).failing;
+  const failing = checks.length < 2 ? [] : store.fixLinks(fix.fixId, 'failing').flatMap((l) => (left.has(l.ref) ? [] : [l.ref]));
+  return { fix, checks, runs: { failing: new Set(failing), left } };
+}
+
+/**
+ * Whether a verdict counts for a fix under the check it has (standingOn), read from the store, for a
+ * reader that doesn't read the fix's records; null when it isn't the fix's. Its link is read among
+ * the verdict's own, and a fix whose check never changed reads nothing more. `basis`, the fix's
+ * (standingBasis), for a reader of many of its verdicts.
+ */
+export function standingIn(store: StoreOf<'fixes'>, fix: Pick<StoredFix, 'fixId' | 'check'>, v: Pick<StoredVerdict, 'verifyId'> & StandingVerdict, basis?: StandingBasis): FixStanding | null {
+  const link = store.linksTo(v.verifyId, 'verify').find((l) => l.fixId === fix.fixId);
+  if (!link) return null;
+  const b = basis ?? standingBasis(store, fix);
+  return standingOn(b.fix, b.checks, v, link.data, b.runs);
+}
+
 export function fixRecords(store: StoreOf<'fixes'>, fix: StoredFix): FixRecords {
   const links = store.fixLinks(fix.fixId);
+  const checks = store.fixChecks(fix.fixId);
+  const gone = runsLeft(checks);
   const refs = (kind: string) => links.filter((l) => l.kind === kind).map((l) => l.ref);
   const byAt = <T extends { at: number }>(xs: Array<T | null>) => xs.filter((x): x is T => x !== null).sort((a, b) => a.at - b.at);
+  const failing = refs('failing').filter((id) => !gone.failing.has(id));
+  const verdicts = byAt(refs('verify').map((id) => store.getVerdict(id)));
+  const byId = new Map(verdicts.map((v) => [v.verifyId, v]));
+  const runs = { failing: new Set(failing), left: gone.failing };
+  const standingOf = (l: (typeof links)[number]): FixStanding => {
+    const v = byId.get(l.ref);
+    return v ? standingOn(fix, checks, v, l.data, runs) : (l.data ?? COUNTS);
+  };
   return {
     fix,
-    failing: refs('failing'),
-    good: refs('good'),
+    checks,
+    failing,
+    good: refs('good').filter((id) => !gone.good.has(id)),
+    left: { failing: refs('failing').filter((id) => gone.failing.has(id)), good: refs('good').filter((id) => gone.good.has(id)) },
     blames: byAt(refs('blame').map((id) => store.getBlame(id))),
     repairs: byAt(refs('repair').map((id) => store.getRepair(id))),
-    verdicts: byAt(refs('verify').map((id) => store.getVerdict(id))),
-    standing: new Map(links.filter((l) => l.kind === 'verify').map((l) => [l.ref, l.data ?? COUNTS])),
+    verdicts,
+    standing: new Map(links.filter((l) => l.kind === 'verify').map((l) => [l.ref, standingOf(l)])),
   };
 }
 

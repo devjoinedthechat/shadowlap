@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts, lostWhere, readConfigFile, type Normalizer } from '@shadowlap/engine';
-import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrecordedTools, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, TRUST_FROM, unrecordedTools, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
@@ -14,9 +14,6 @@ import { dashboardTasks } from '../tasks.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
 /** Reading runs: the dashboard, the terminal UI, and the commands that list, show, search, compare and annotate them. */
-
-/** Where a read's untrusted mark came from, as `show` names it. */
-const TRUST_FROM: Record<TrustSource, string> = { config: 'config', sdk: 'SDK', mcp: 'MCP openWorldHint' };
 
 /** A TCP port: 0 (any free one, which the link printed names) to 65535. */
 function parsePort(value: string): number {

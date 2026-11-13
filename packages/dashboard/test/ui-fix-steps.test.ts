@@ -58,7 +58,7 @@ function app(): AppState {
 
 async function open(fixId: string, step: string): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app() }, createElement(FixPage, { id: fixId, step, sub: null })));
-  await r.until('the fix to load', () => r!.all('h1').length === 1);
+  await r.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
   return r;
 }
 
@@ -251,7 +251,7 @@ describe('the Repair step', () => {
     await open(fixId, 'repair');
     expect(r!.one('.verdict .vw').className).toBe('vw err');
     expect(text(r!.one('.verdict h2'))).toBe('rejected The gate accepted none of the 1 candidate tried');
-    expect(text(r!.one('p.fxsay'))).toBe('The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the prompt yourself and verify it.');
+    expect(text(r!.one('p.fxsay'))).toBe('The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.');
     expect(r!.all('section.panel.sec > header h2').map(text)).toEqual(['Candidates', 'report.md', 'Why']);
     const subs = r!.all('section.panel.sec > header .sub').map(text);
     expect(subs[0]).toBe(`tried smallest first · ${d.repair!.rule!}`);
@@ -405,7 +405,7 @@ describe('the drawers’ ways on', () => {
     const opened = { label: 'Open fix', href: `#/fixes/${fixId}/blame` };
     const bar = address(`#/fixes/${fixId}/blame`);
     const drawer = await page(job({ kind: JOB_KINDS.blame, fixId, title: 'Blaming again' }));
-    await r!.until('the fix to load', () => r!.all('h1').length === 1);
+    await r!.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
     const lime = r!.one('#view .ph .actions .btn.lime');
     await drawer.set({ links: [opened] });
     await r!.until('its next step', () => wayOn().length > 0);
@@ -424,7 +424,7 @@ describe('the drawers’ ways on', () => {
     const { fixId, left } = verified();
     const bar = address(`#/fixes/${fixId}/verify`);
     const drawer = await page(job({ kind: JOB_KINDS.verify, fixId, title: 'Verifying' }));
-    await r!.until('the fix to load', () => r!.all('h1').length === 1);
+    await r!.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
     const { verdict } = recordVerdict(store, { report: verifyReport([{ runId: left, role: 'target', pass: false }]), expect: SEND_ONCE, command: `shadowlap verify --fixes ${left}`, rerun: { flags: [], command: null }, at: (at += DAY) });
     await drawer.set({ code: 1, result: { verdict: 'rejected', verifyId: verdict.verifyId }, links: [{ label: 'Open fix', href: `#/fixes/${fixId}/verify/${verdict.verifyId}` }] });
     await r!.until('its verdict', () => bar.now().endsWith(verdict.verifyId));
@@ -495,7 +495,7 @@ describe('the drawers’ ways on', () => {
     const toasts: Array<{ text: string; action?: ToastAction }> = [];
     const watched: unknown[] = [];
     const fake = { toast: (t: string, _kind?: string, action?: ToastAction) => toasts.push({ text: t, ...(action ? { action } : {}) }), watchJob: (p: Promise<unknown>) => void p.catch((e: unknown) => watched.push(e)) };
-    const moved = new ApiError(409, `${fixId.slice(0, 8)}'s blame settled where its run was lost, or the fix isn't open: there is nothing to blame again`);
+    const moved = new ApiError(409, `${fixId.slice(0, 8)}'s blame settled where its run was lost under the fix's check, or the fix isn't open: there is nothing to blame again`);
     const bar = address(`#/fixes/${fixId}/repair`);
     await open(fixId, 'repair');
     refusedPress(fake, JOB_KINDS.blame, { fixId, again: true }, moved);

@@ -1,10 +1,14 @@
 import { act, createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { OnShow } from '../ui/components/OnShow.js';
+import { resetLookMemory } from '../ui/overview/dismissed.js';
 import { NeedsLook } from '../ui/overview/NeedsLook.js';
+import type { BuilderProps } from '../ui/run/check-part.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { Usage } from '../ui/overview/Usage.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { NeedsLookRow, OverviewSummary } from '../ui/types.js';
+import type { NeedsLookRow, NextStep, OverviewSummary } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -21,6 +25,7 @@ afterEach(async () => {
   await r?.unmount();
   r = null;
   vi.unstubAllGlobals();
+  resetLookMemory();
 });
 
 describe('the Overview’s Usage', () => {
@@ -117,6 +122,17 @@ describe('Needs a look', () => {
     expect(r.all('.ovattn .emptyline').map(text)).toEqual(['Nothing needs a look.']);
   });
 
+  it('ends a group on what was dismissed from it, folded under Dismissed (n), each row muted with Restore once opened', async () => {
+    const away: NeedsLookRow = { ...rows[2], step: null, advice: { key: 'local', facts: ['01M5H2EWWY8P621C63CJPVEM4A'], until: 'Until another run is only on this machine', dismissed: true } };
+    r = await render(inApp(createElement(NeedsLook, { items: [rows[0], away], total: 1 })));
+    expect([r.all('.arow').map((x) => x.getAttribute('data-rowkey')), r.all('.agrp').map(text)]).toEqual([[rows[0].key], ['Failing1', 'Housekeeping']]);
+    const fold = r.one('.aoff .linkbtn');
+    expect([text(fold), fold.getAttribute('aria-expanded')]).toEqual(['Dismissed (1)', 'false']);
+    await r.click(fold);
+    expect(r.all('.arow.off').map((x) => [x.getAttribute('data-rowkey'), text(x.querySelector('.ast')!)])).toEqual([[away.key, 'Restore']]);
+    expect(r.all('.arow .adis')).toEqual([]);
+  });
+
   it('asks for a step’s price only once the step is reached, and a press before it came waits for it', async () => {
     const more = { args: ['test', 'goldens/refund.json', '--max-attempts', '160', '--continue'], job: { golden: 'goldens/refund.json', maxAttempts: 160, continue: true as const }, attempts: 160, most: 80, expected: 27, settles: 0.93, cost: null };
     const row: NeedsLookRow = { kind: 'test', icon: 'warn', title: 'A golden is inconclusive: refund', name: 'refund', detail: 'inconclusive · 80 of 80 attempts', key: 'attn:inconclusive:goldens/refund.json', group: 'tests', step: { of: 'more', golden: 'goldens/refund.json', label: 'Run more attempts', more }, href: '#/tests', runId: null, fixId: null, at: 0 };
@@ -148,6 +164,33 @@ describe('Needs a look', () => {
       expect(r.all('[role="dialog"]')).toEqual([]);
       await act(async () => priced({ next: { key: 'blame', estimate: { kind: 'blame', usd: 0.42, ceiling: 0.6, parts: [] } } }));
       expect(startJob).toHaveBeenCalledWith('blame', { runId: run, estimate: { usd: 0.42, ceiling: 0.6 } });
+    } finally {
+      resetSpending();
+    }
+  });
+
+  it('runs Tests’ whole session from a golden whose checks changed since, and opens the builder at the check from one whose recording fails a check added since, each plain', async () => {
+    resetSpending(null);
+    try {
+      const golden = 'goldens/refund-in-limit';
+      const runTests = { key: 'run-tests', label: 'Run tests', golden, gone: ['issue_refund called 0 times'], sub: 'Its checks changed since this test: the session judges them as they are now', command: 'shadowlap test goldens/*' } as unknown as NextStep;
+      const editCheck = { key: 'edit-check', label: 'Edit check…', golden, check: 'escalate called 1 time', sub: 'It fails refund-in-limit’s own recording: edit the check, or update the golden if the agent should now do this' } as unknown as NextStep;
+      const row = (n: number, step: NextStep): NeedsLookRow => ({ kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', name: 'refund-in-limit', detail: 'check failed · checks changed since', key: `attn:failed:${golden}:${n}`, group: 'failing', step: { of: 'run', runId: run, step }, href: '#/tests', runId: run, fixId: null, at: n });
+      const opened: BuilderProps[] = [];
+      const Builder = Object.assign((p: BuilderProps) => (opened.push(p), createElement('div', { className: 'fakeb' })), { preload: vi.fn(), script: 'loaded' as const }) as unknown as OnShow<BuilderProps>;
+      const startJob = vi.fn(async () => ({ id: 'job-1' }));
+      const nextStep = vi.fn(async () => ({ next: { key: 'run-tests', estimate: null } }));
+      const look = createElement(NeedsLook, { items: [row(2, runTests), row(1, editCheck)], total: 2 });
+      r = await render(within(running({ jobs: async () => [], startJob, nextStep }), createElement(ServedPartsContext.Provider, { value: { CheckBuilder: Builder } }, look)));
+      expect(r.all('.arow .ast .btn').map((b) => [text(b), b.className])).toEqual([
+        ['Run tests', 'btn sm'],
+        ['Edit check…', 'btn sm'],
+      ]);
+      await r.click(r.byText('.arow .ast .btn', 'Run tests'));
+      await r.until('the session', () => startJob.mock.calls.length === 1);
+      expect(startJob).toHaveBeenCalledWith('test', {});
+      await r.click(r.byText('.arow .ast .btn', 'Edit check…'));
+      expect(opened).toMatchObject([{ golden, edit: 'escalate called 1 time' }]);
     } finally {
       resetSpending();
     }

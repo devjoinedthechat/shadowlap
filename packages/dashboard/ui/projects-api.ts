@@ -82,7 +82,7 @@ export interface ProjectsApi {
   planRecording(project: string, command: string): Promise<RecordPlanView>;
   /** Where the golden would go, checked: inside the project, not over another golden. Changes nothing. */
   checkGolden(project: string, golden: string): Promise<{ path: string; runId: string | null }>;
-  /** Skip the rest, or Go to the overview: the project is set up. */
+  /** Skip setup, or Go to Overview: the project is set up. */
   finish(project: string): Promise<{ project: string; stage: string }>;
   /**
    * Which other project holds the run, fix, preview or migration a link names, which this one

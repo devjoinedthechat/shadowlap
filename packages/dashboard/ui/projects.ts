@@ -10,21 +10,34 @@ import type { LiveRun, Meta } from './types.js';
  */
 
 /**
- * Whether the current project's setup shows in place of the page the route names: on every page but
- * Settings (and Add project) while the project has no runs, on the Overview while its setup isn't
- * finished, and always at `#/setup`. Null while that can't be told yet (neither the run list nor
- * the meta has arrived): the page waits rather than flashing. An exported copy never shows it.
+ * Whether the current project's setup shows in place of the page the route names: on the Overview
+ * while the project has no runs or its setup isn't finished, and always at `#/setup`. Every other
+ * page opens on its own and says in its own empty state what it will hold, with `Set up <project>`
+ * (pages/set-up-step.tsx). A project that can't be opened (its folder is gone, or its store was
+ * deleted) says so in place of every page but Settings, which says so in its header, with Remove
+ * project…. Null while that can't be told yet (the Overview before the run list or the meta's
+ * count, any other page before the meta, which is what says a project can't be opened): the page
+ * waits rather than flashing. A run page opens at once. An exported copy never shows it.
  */
 export function setupShowsOn(route: Route, s: { exported: boolean; meta: Meta | null; runs: readonly RunLike[] | null }): boolean | null {
   if (s.exported || s.meta?.static) return false;
   if (route.page === 'setup') return true;
   // The team store's setup, like Settings, opens before there are runs to push.
   if (route.page === 'new' || route.page === 'settings' || route.page === 'store-setup' || route.page === 'notfound') return false;
-  const noRuns = s.runs ? !s.runs.some((r) => !isAttempt(r)) : s.meta?.counts ? s.meta.counts.runs === 0 : null;
+  if (s.meta?.project?.problem) return true;
   // A run page opens on its own: a project with runs is the likely case, and an unknown run says so.
-  if (noRuns === null) return route.page === 'run' ? false : null;
-  if (noRuns) return true;
-  return route.page === 'overview' && s.meta?.project?.settingUp === true;
+  if (route.page !== 'overview') return s.meta || route.page === 'run' ? false : null;
+  const none = noRunsYet(s);
+  return none === null ? null : none || s.meta?.project?.settingUp === true;
+}
+
+/**
+ * Whether the project has no runs yet: none in the run list (attempts alone are none, as they are
+ * bundled under the run they came from), or, before the list arrives, none in the meta's count.
+ * Null while neither has come. The setup's place and each page's empty state read it.
+ */
+export function noRunsYet(s: { meta: Meta | null; runs: readonly RunLike[] | null }): boolean | null {
+  return s.runs ? !s.runs.some((r) => !isAttempt(r)) : s.meta?.counts ? s.meta.counts.runs === 0 : null;
 }
 
 /**
@@ -47,7 +60,7 @@ export function setupPageShows(s: { meta: Meta | null; view: object | null | und
   if (!s.meta) return 'wait';
   if (asksForSetup(s.meta) && s.view === undefined) return 'wait';
   if (asksForSetup(s.meta) && s.view) return 'project';
-  return (s.runs ?? []).some((r) => !isAttempt(r)) ? 'nothing' : 'steps';
+  return noRunsYet(s) === false ? 'nothing' : 'steps';
 }
 
 /**
@@ -66,6 +79,29 @@ export function nameMatches(typed: string, name: string): boolean {
 /** A setup step's class in the mock's list: done, the current one, or one still to do (or skipped). */
 export function stepClass(state: 'done' | 'current' | 'todo' | 'skipped'): 'done' | 'cur' | 'todo' {
   return state === 'done' ? 'done' : state === 'current' ? 'cur' : 'todo';
+}
+
+/** What the setup page follows by: `SetupView`'s step states and the leads in them. */
+export interface FollowView {
+  done: object | null;
+  steps: ReadonlyArray<{ key: string; state: string }>;
+  inspect: { button?: { lime: boolean } | null; warning: { recheck: { lime: boolean } } | null; node: { recheck: { lime: boolean } } | null };
+  record: { live: object | null; again: { lime: boolean } | null };
+}
+
+/**
+ * Where the setup leads, as one key: the step at hand (`inspect`, `record`, `calibrate`, `test`, or
+ * `done` once every step is), then what leads in it: `:live` while a recording runs, `:wrap` while
+ * the unwrapped writes' Check again does, `:node` while the Node pin's does, `:again` while Record
+ * again does, `:inspect` while Inspect folder does after a recording made before it. When it
+ * changes, the page goes on to where the next step's button is (setup-jobs.ts).
+ */
+export function followKey(view: FollowView): string {
+  if (view.done) return 'done';
+  if (view.record.live) return 'record:live';
+  const step = view.steps.find((s) => s.state === 'current')?.key ?? 'record';
+  const lead = view.inspect.warning?.recheck.lime ? ':wrap' : view.inspect.node?.recheck.lime ? ':node' : view.record.again?.lime ? ':again' : step !== 'inspect' && view.inspect.button?.lime ? ':inspect' : '';
+  return step + lead;
 }
 
 export interface TextPart {

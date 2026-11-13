@@ -122,7 +122,7 @@ export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<str
 /**
  * The kinds whose one 409 asking a yes is the server's question before a session runs live
  * (src/tests-live.ts), which Spending may answer: Tests' sessions, priced from Tests' estimates.
- * Setup's Keep it as a test asks the same question, but nothing prices it, so it is asked on every
+ * Setup's Pack asks the same question, but nothing prices it, so it is asked on every
  * setting. Any other kind's is consent to a command someone else recorded (an injection test's),
  * which waits as the question on every setting too.
  */
@@ -156,7 +156,12 @@ export function answerTestsQuestion(app: TestsJobApp, yes: boolean): boolean {
 
 /** Run tests: every golden, as the page's command runs them. */
 export function runTestsAsk(view: Pick<TestsView, 'commands'>): TestsAsk {
-  return { title: ACTIONS.runTests.label, lead: 'Replays every golden, as CI does.', doc: 'ciMode', ok: ACTIONS.runTests.label, commands: [commandText(view.commands.run)], parts: ['only what runs live'] };
+  return sessionAsk(commandText(view.commands.run));
+}
+
+/** Run tests' ask by the session's command, as a test replay's step names it where its golden's checks changed since. */
+export function sessionAsk(command: string): TestsAsk {
+  return { title: ACTIONS.runTests.label, lead: 'Replays every golden, as CI does.', doc: 'ciMode', ok: ACTIONS.runTests.label, commands: [command], parts: ['only what runs live'] };
 }
 
 /** What the palette's question reads of the app (`AppState`). */

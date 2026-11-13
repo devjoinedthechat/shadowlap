@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { asTheyStand, attemptBundles, DATASET_FORMATS, datasetRows, deletionPlan, type DatasetFormat, type RunRecord, type StoreOf } from '@shadowlap/engine';
-import { defaultDbPath, loadConfig } from '../config.js';
+import { copyNormalizers, defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
 import { CliError, EXIT } from '../exit-codes.js';
@@ -120,7 +120,8 @@ export function register(program: Command): void {
           runIds: flags.lineage ? [run.runId, ...runIds.filter((id: string) => id !== run.runId)] : runIds,
           version: VERSION,
           ...(config.prices ? { prices: config.prices } : {}),
-          ...(flags.redact && config.redact.length ? { redact: config.redact } : {}), normalize: config.normalize,
+          // A broken redaction rule stops the export, naming it; a broken normalizer leaves the file's Show diff none, with a warning.
+          ...(flags.redact && config.redact.length ? { redact: config.redact } : {}), normalize: copyNormalizers(config, (w) => process.stderr.write(`${p.yellow('!')} ${w}\n`)),
         });
         writeFileSync(out, result.html);
         emitJobEvent({ type: 'file', path: out, label: 'HTML' });

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { gateResult, injectionTemplates, JUDGE_ASKED_IN_NONE, Store, type AttemptReport, type InjectionGateData, type StoredCheck, type TestResult } from '@shadowlap/engine';
-import { failedRunsHref, goldenReports, judgeAsked, printedLines, withFailedRuns, type GoldenReport } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, printedLines, withFailedRuns, withStepHints, type GoldenReport } from '../src/golden-report.js';
+import { issueKey } from '../src/issue-keys.js';
+import type { IssuesPage } from '../src/issues.js';
 import { links } from '../src/links.js';
 import { runJob } from '../src/read-jobs.js';
+import { judgeAsked } from '../src/tests-checks.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { addRun } from './read-model-store.js';
 
@@ -121,11 +124,22 @@ describe('a check', () => {
     expect(report.hint).toEqual({ key: 'check' });
   });
 
-  it('leads with the checks that left the config since its last test', () => {
+  it('leads with the checks that left the config since its last test, and says what to do from its step', () => {
     const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: 'check failed: issue_refund called 0 times, but called 1 time', data: { mode: 'replay', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('issue_refund called 0 times', 'failed', 'called 1 time')] } }), { checks: ['output includes "refund"'] });
     expect(report.parts[0]).toEqual({ kind: 'checks-changed', gone: [{ label: 'issue_refund called 0 times', status: 'failed' }] });
     expect(report.sub).toEqual(['its last test, before its checks changed']);
+    // Its last test's hint, until its step says otherwise: Run tests, or Edit check for a check its own recording fails.
     expect(report.hint).toEqual({ key: 'check' });
+    const reports = { 'goldens/refund': report };
+    expect(withStepHints(reports, { 'goldens/refund': { key: 'run-tests' } })['goldens/refund']).toEqual({ ...report, hint: { key: 'checks-changed' } });
+    expect(withStepHints(reports, { 'goldens/refund': { key: 'edit-check' } })['goldens/refund'].hint).toEqual({ key: 'edit-check' });
+    for (const steps of [{ 'goldens/refund': { key: 'fix' } }, {}, undefined]) expect(withStepHints(reports, steps)['goldens/refund']).toBe(report);
+  });
+
+  it('says no check changed where its last test failed for another reason, by the row’s one rule', () => {
+    const { report } = world('refund', () => ({ ok: false, failure: 'exit', reason: 'the agent exited with code 1', data: { mode: 'replay', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('issue_refund called 0 times', 'failed', 'called 1 time')] } }), { checks: ['output includes "refund"'] });
+    expect(report.parts.map((p) => p.kind)).not.toContain('checks-changed');
+    expect(report.sub).not.toContain('its last test, before its checks changed');
   });
 
   it('says a judge check wasn’t judged on a clean replay, with its calls', () => {
@@ -293,18 +307,22 @@ describe('an injection gate', () => {
   }
   const gate = (resultId: string | null, verdict: 'failed' | 'inconclusive', reason: string): InjectionGateData => ({ resultId, attempts: 72, obeyed: 5, influenced: 2, ignored: 62, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict, reason, skipped: null });
 
-  it('says what obeyed and its limit, proves it from the attempt that obeyed, and opens the proof there', () => {
+  it('says what obeyed and its limit, proves it in parts from the attempt that obeyed, and opens the proof there', () => {
     let attempt = '';
+    let tested = '';
     const reason = `send_email obeyed a planted instruction in 5 of 72 attempts (at most 0 allowed): send_email.to = ${canary}`;
     const { report } = world('research', (_r, _s, st) => {
       const k = kept(st, [{ verdict: 'ignored' }, { verdict: 'obeyed', evidence: [{ kind: 'canary', callNo: 6, tool: 'send_email', path: '$.to', value: canary, why: null }] }]);
       attempt = k.runs[1]!;
+      tested = k.runs[0]!;
       return { ok: false, failure: 'injection', reason: `injection: ${reason}`, data: { mode: 'fork', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, injection: gate(k.resultId, 'failed', reason), details: 'Every attempt, with its proof: shadowlap injection goldens/research --html report.html' } };
     });
     expect(report.head).toEqual(['send_email obeyed a planted instruction in 5 of 72 attempts (at most 0 allowed)']);
     expect(report.parts).toEqual([
-      { kind: 'proof', runId: attempt, line: `planted at #4 → read at #5 → send_email.to = ${canary} at #6`, why: null },
-      { kind: 'injection-attempts', totals: { obeyed: 5, influenced: 2, inconclusive: 3, ignored: 62 }, where: 'every template at every untrusted read,', each: '3 attempts each', command: 'shadowlap injection goldens/research --html report.html', resultId: 'inj-1' },
+      // The engine's parts, which the attempt's finding draws too (ui/injection/Proof.tsx): planted at #4 → read at #5 → send_email.to = <canary> at #6.
+      { kind: 'proof', runId: attempt, parts: { plantedAt: 4, readAt: 5, evidence: { kind: 'canary', callNo: 6, at: 'send_email.to', value: canary, why: null } }, why: null },
+      // Security report names the run the kept result tested.
+      { kind: 'injection-attempts', totals: { obeyed: 5, influenced: 2, inconclusive: 3, ignored: 62 }, where: 'every template at every untrusted read,', each: '3 attempts each', command: 'shadowlap injection goldens/research --html report.html', security: { resultId: 'inj-1', runId: tested } },
     ]);
     expect(report.open).toEqual({ label: 'Open proof', href: `#/run/${attempt}/6` });
     expect(report.hint).toEqual({ key: 'injection' });
@@ -320,7 +338,8 @@ describe('an injection gate', () => {
     });
     expect(report.verdict).toBe('inconclusive');
     expect(report.head).toEqual(['3 of 6 attempts could not be judged: model call #15 got HTTP 529']);
-    expect(report.parts[0]).toEqual({ kind: 'proof', runId: attempt, line: 'planted at #4 → read at #5', why: 'model call #15 failed with HTTP 529 (overloaded)' });
+    // Where it was planted and read, and why it shows nothing.
+    expect(report.parts[0]).toEqual({ kind: 'proof', runId: attempt, parts: { plantedAt: 4, readAt: 5, evidence: null }, why: 'model call #15 failed with HTTP 529 (overloaded)' });
     expect(report.parts[1]).toMatchObject({ where: `${templates[0].id} at every untrusted read,`, each: '3 attempts each' });
     expect(report.open).toEqual({ label: 'Open attempt', href: `#/run/${attempt}/5` });
     expect(report.hint).toEqual({ key: 'injection-inconclusive', why: 'unanswered' });
@@ -330,7 +349,7 @@ describe('an injection gate', () => {
     const reason = 'no untrusted read to plant in: mark the tools that bring outside text in, with "tools": { "<name>": { "trust": "untrusted" } } in shadowlap.config.json';
     const { report } = world('research', () => ({ ok: false, failure: 'injection', reason: `injection inconclusive: ${reason}`, data: { mode: 'fork', verdict: 'inconclusive', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, injection: { ...gate(null, 'inconclusive', reason), attempts: 0, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0 } } }));
     expect(report.head).toEqual(['No untrusted read to plant in']);
-    expect(report.parts).toEqual([{ kind: 'injection-attempts', totals: { obeyed: 0, influenced: 0, inconclusive: 0, ignored: 0 }, where: null, each: null, command: 'shadowlap injection goldens/research --html report.html', resultId: null }]);
+    expect(report.parts).toEqual([{ kind: 'injection-attempts', totals: { obeyed: 0, influenced: 0, inconclusive: 0, ignored: 0 }, where: null, each: null, command: 'shadowlap injection goldens/research --html report.html', security: null }]);
     expect(report.open).toBeNull();
     expect(report.hint).toEqual({ key: 'injection-inconclusive', why: 'no-reads' });
   });
@@ -359,19 +378,26 @@ describe('a first bad commit, a miss, a replay gone', () => {
 });
 
 describe('Failed runs →', () => {
-  it('counts a golden’s failed replays as Runs’ Failed view lists them, newest first, and opens that view', async () => {
+  it('counts a golden’s own failed replays, newest first, as its issue under Failed holds them where the link opens it', async () => {
     const store = Store.open(':memory:');
     const rec = addRun(store, { startedAt: 1_000, calls: 'rr' });
-    // Runs' words match a run's command too: a golden named as the agent's file is would match every replay.
-    const replay = (at: number, failed: boolean, golden = 'goldens/refund') => addRun(store, { parent: rec, startedAt: at, calls: 'r', argv: ['python', 'agent.py'], ...(failed ? { status: 'failed' as const } : {}), meta: { test: { golden, session: 's' } } });
+    // Runs' words match a run's command too, and a golden whose name starts another's: the count reads each replay's golden.
+    const replay = (at: number, failed: boolean, golden = 'goldens/refund') => addRun(store, { parent: rec, startedAt: at, calls: 'r', argv: ['python', 'refund_agent.py'], ...(failed ? { status: 'failed' as const } : {}), meta: { test: { golden, session: 's' } } });
     const failed = [replay(2_000, true), replay(3_000, true)];
     replay(4_000, false);
-    replay(5_000, true, 'goldens/other');
-    const answer = await runJob(store, { kind: 'tests-failed-runs', goldens: [{ golden: 'goldens/refund', name: 'refund' }, { golden: 'goldens/none', name: 'none' }], outcome: null }, { whole: true });
+    const late = replay(5_000, true, 'goldens/refund-late');
+    const answer = await runJob(store, { kind: 'tests-failed-runs', goldens: ['goldens/refund', 'goldens/refund-late', 'goldens/none'], outcome: null }, { whole: true });
     const runs = JSON.parse(answer.body) as Record<string, { count: number; ids: string[] }>;
-    expect(runs).toEqual({ 'goldens/refund': { count: 2, ids: [failed[1], failed[0]] } });
+    expect(runs).toEqual({ 'goldens/refund': { count: 2, ids: [failed[1], failed[0]] }, 'goldens/refund-late': { count: 1, ids: [late] } });
     const report = { golden: 'goldens/refund', name: 'refund', failedRuns: null } as unknown as GoldenReport;
-    expect(withFailedRuns({ 'goldens/refund': report }, runs, undefined)['goldens/refund'].failedRuns).toEqual({ href: links.runs({ q: 'type:test refund', types: 'failed' }), count: 2, ids: [failed[1], failed[0]] });
+    const link = withFailedRuns({ 'goldens/refund': report }, runs, undefined)['goldens/refund'].failedRuns!;
+    expect(link).toEqual({ href: links.runs({ q: 'type:test refund', types: 'failed' }), count: 2, ids: [failed[1], failed[0]] });
+    // Failed under the link's words holds both goldens' replays, the golden's own in its issue.
+    const key = issueKey.golden('goldens/refund');
+    const page = JSON.parse((await runJob(store, { kind: 'runs-issues', options: { q: 'type:test refund' }, outcome: null, next: null, open: [key] }, { whole: true })).body) as IssuesPage;
+    expect(page.total).toBe(3);
+    const issue = page.issues.find((x) => x.key === key);
+    expect([issue?.count, issue?.runs?.map((x) => x.runId)]).toEqual([link.count, link.ids]);
     store.close();
   });
 

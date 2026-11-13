@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useRef, type ReactNode } from 'react';
-import type { FixBundle, LineageNode } from '../api.js';
+import type { Client, FixBundle, LineageNode } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { approx, shortId, stamp } from '../format.js';
@@ -12,6 +12,9 @@ import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 import { lineageRunLike } from './model.js';
 import { goldenName } from './offers.js';
 import { useOfflineLink } from '../components/ActionButton.js';
+import { byResult, testedRuns } from '../injection/fork-node.js';
+import { TestNode } from '../injection/TestNode.js';
+import type { InjectionRow } from '../types.js';
 
 /**
  * Forks: the run's family as a tree, its recording and every replay and fork of it, each by its id and
@@ -19,6 +22,8 @@ import { useOfflineLink } from '../components/ActionButton.js';
  * happened ("fork @17 · 13 live · 1 blocked"), leaving out the kind when the about line says it.
  * Attempts of one `--repeat` are bundled with how many passed, and so are a golden's attempts in one
  * test session, and blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
+ * Each injection test kept for a run, a gate's and a --clean answer's too, is one node under it, its
+ * replays drawn in it (injection/TestNode.tsx); a test whose result is gone stays a `--repeat` bundle.
  */
 
 /**
@@ -26,6 +31,14 @@ import { useOfflineLink } from '../components/ActionButton.js';
  * session numbers its attempts (`test.attempt`), and they are one test. One replayed once is a test of its own.
  */
 const sessionKey = (n: LineageNode): string | null => (n.test && n.test.attempt !== null ? `test:${n.test.session}\n${n.test.golden}` : null);
+
+/** The injection tests kept for each of the runs `testedRuns` names. */
+async function keptTests(client: Client, runs: readonly string[]): Promise<InjectionRow[]> {
+  const kept = await Promise.all(runs.map((id) => client.injectionResults(id)));
+  return kept.flatMap((k) => k.results);
+}
+
+const NO_TESTS: readonly InjectionRow[] = [];
 
 export function ForksView({ runId }: { runId: string }) {
   const { client, runs, runsTick, live } = useApp();
@@ -36,11 +49,20 @@ export function ForksView({ runId }: { runId: string }) {
   const byId = useMemo(() => new Map((runs ?? []).map((r) => [r.runId, r])), [runs]);
   // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
   const fixes = useFixBundles(runId);
+  // The tests the family's injection replays belong to, and the page's run's and the recording's, whose
+  // replays may all be gone, read as runs move, as the family is.
+  const tested = testedRuns(lineage.data, runId);
+  const tests = useLoad(() => (tested.length ? keptTests(client, tested) : null), tested.join(' '), runsTick);
   const box = useRef<HTMLDivElement>(null);
   useFitAbouts(box);
   if (lineage.error) return <div className="empty">Could not load this run’s family: {lineage.error.message}</div>;
-  if (!lineage.data || fixes.loading) return <div className="empty">Loading the family…</div>;
+  if (!lineage.data || fixes.loading || tests.loading) return <div className="empty">Loading the family…</div>;
   const nodes = lineage.data;
+  const rows = tests.data ?? NO_TESTS;
+  const kept = new Set(rows.map((r) => r.resultId));
+  const replays = byResult(nodes);
+  // A kept test's replays are drawn in its node, never again as forks or a --repeat's bundle.
+  const inTest = (n: LineageNode) => !!n.injection && kept.has(n.injection.result);
   const kids = new Map<string | null, LineageNode[]>();
   const ids = new Set(nodes.map((n) => n.runId));
   for (const n of nodes) {
@@ -97,7 +119,7 @@ export function ForksView({ runId }: { runId: string }) {
   };
   const ruleOf = (b: FixBundle): string | null => once(b.rule);
   const family = (parent: string | null): ReactNode => {
-    const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId)).sort((a, b) => a.startedAt - b.startedAt);
+    const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId) && !inTest(n)).sort((a, b) => a.startedAt - b.startedAt);
     // The fork blame rescued a run with is one of its attempts, but it shows as a fork of its own.
     const repeated = (n: LineageNode) => !!n.repeat && !fixes.rescued.has(n.runId);
     const groups = new Map<string, LineageNode[]>();
@@ -123,6 +145,9 @@ export function ForksView({ runId }: { runId: string }) {
       items.push(<Bundle key={key} attempts={attempts} current={runId} title={`test · ${goldenName(attempts[0]!.test!.golden)}`} gate={gate ? { ...gate, rule: once(gate.rule) } : null} />);
     }
     if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} rule={ruleOf(b)} />);
+    // The run's kept injection tests, after its forks and bundles, oldest first as they are.
+    const own = rows.filter((r) => r.runId === parent).sort((a, b) => a.at - b.at);
+    for (const r of own) items.push(<TestNode key={r.resultId} row={r} runs={replays.get(r.resultId) ?? []} current={runId} rule={once(r.rule)} />);
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };

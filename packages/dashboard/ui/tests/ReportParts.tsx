@@ -5,7 +5,7 @@ import { CodeBox } from '../components/CodeBox.js';
 import { MatrixKey } from '../components/MatrixKey.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
-import { ErrorState, Skeleton } from '../components/States.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { glossed } from '../components/Term.js';
 import { RuleText } from '../components/Verdict.js';
 import { clock, plural } from '../format.js';
@@ -14,6 +14,8 @@ import { useLoad } from '../hooks.js';
 import { resultsKey } from '../matrix.js';
 import { ChangeBox } from '../revert/ChangeBox.js';
 import { href } from '../route.js';
+import { navigate } from '../router.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import type { FoundCommit, GoldenReport, GoldenRow, ReportPart } from '../types.js';
 import { Check, Checks } from './Checks.js';
@@ -108,7 +110,7 @@ function Part({ p, report, row, g, open, fold }: { p: ReportPart; report: Golden
     case 'missed':
       return <p className="rpc">{missedLine(p.missed)}</p>;
     case 'proof':
-      return <ProofLine runId={p.runId} line={p.line} why={p.why} />;
+      return <ReportProof p={p} />;
     case 'injection-attempts':
       return <InjectionAttempts p={p} failed={report.verdict === 'failed'} />;
   }
@@ -189,6 +191,22 @@ function GateLine({ g, p, fold }: { g: GateShown; p: Extract<ReportPart, { kind:
   );
 }
 
+/**
+ * The attempts while they are read, in their list's shape as quiet bars: a line an attempt, four at
+ * most. Its class is its own (tests.css), as tests wait for the list's `.alist`.
+ */
+function AttemptsReading({ total }: { total: number }) {
+  return (
+    <Skeleton what="the attempts">
+      <div className="rpska">
+        {Array.from({ length: Math.min(Math.max(total, 1), 4) }, (_, i) => (
+          <span key={i}>01K8RG01AB · called 2 times</span>
+        ))}
+      </div>
+    </Skeleton>
+  );
+}
+
 /** The attempts, read once the report opens; past 24 of a gate's, folded behind its caret. Then the attempts carried over, the check they failed, and where they forked. */
 function AttemptsPart({ p, row, open, fold }: { p: Extract<ReportPart, { kind: 'attempts' }>; row: GoldenRow; open: boolean; fold: Fold }) {
   const { client } = useApp();
@@ -196,8 +214,8 @@ function AttemptsPart({ p, row, open, fold }: { p: Extract<ReportPart, { kind: '
   const total = row.last.gate?.attempts ?? loaded.data?.attempts.length ?? 0;
   const list = () => {
     if (!open || !client.testEvidence || (fold.many && !fold.shown)) return null;
-    if (loaded.error) return <ErrorState retry={loaded.reload}>Its attempts couldn’t be read: {loaded.error.message}</ErrorState>;
-    if (!loaded.data) return <Skeleton what="the attempts" lines={2} />;
+    if (loaded.error) return <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState>;
+    if (!loaded.data) return <AttemptsReading total={total} />;
     const { attempts, gone, carried } = loaded.data;
     if (!attempts.length) return <p className="muted">The attempts aren’t in the store any more.</p>;
     return (
@@ -213,7 +231,7 @@ function AttemptsPart({ p, row, open, fold }: { p: Extract<ReportPart, { kind: '
       {p.carried ? <p className="rpw">{`${p.carried.count} carried over${p.carried.at !== null ? ` from the session at ${clock(p.carried.at)}` : ''} · ${plural(Math.max(0, total - p.carried.count), 'attempt')} this session`}</p> : null}
       {p.check ? (
         <span className="chk rpck">
-          <Check c={{ label: p.check.label, status: 'failed', added: false, detail: p.check.detail || null, reason: null, source: null, live: null, attempts: null }} ran />
+          <Check c={{ label: p.check.label, status: 'failed', added: false, addedAt: null, detail: p.check.detail || null, reason: null, source: null, live: null, attempts: null, judge: null }} ran />
         </span>
       ) : null}
       {p.forked ? <p className="rpw rpnote">{p.forked}</p> : null}
@@ -236,30 +254,18 @@ function CommitLine({ found }: { found: FoundCommit }) {
 }
 
 /**
- * An injection gate's proof, the engine's line of it, each call it names (`#4`) a link to that call
- * of the attempt; for an attempt that showed nothing, why, one piece after it. One component, so an
- * attempt's own page can draw its proof the same way.
+ * An injection gate's proof, as an attempt's finding draws it (injection/Proof.tsx, a part the served
+ * dashboard hands in): each call it names opens that attempt there, on the tab that shows it (the
+ * attempt's page picks it on arrival, injection/arrival.ts); for an attempt that showed nothing, why.
+ * Nothing where the part isn't handed in, as on a run's page.
  */
-export function ProofLine({ runId, line, why }: { runId: string; line: string; why: string | null }) {
-  return (
+function ReportProof({ p }: { p: Extract<ReportPart, { kind: 'proof' }> }) {
+  const { Proof } = useServedParts();
+  return Proof ? (
     <p className="rpw">
-      {line.split(/(#\d+)/).map((bit, i) =>
-        /^#\d+$/.test(bit) ? (
-          <a key={i} className="dlink" href={href.run(runId, Number(bit.slice(1)))}>
-            {bit}
-          </a>
-        ) : (
-          <Fragment key={i}>{bit}</Fragment>
-        ),
-      )}
-      {why ? (
-        <>
-          {' '}
-          <span className="rpwhy">{why}</span>
-        </>
-      ) : null}
+      <Proof parts={p.parts} why={p.why} onPick={(n) => navigate(href.run(p.runId, n))} />
     </p>
-  );
+  ) : null;
 }
 
 /**

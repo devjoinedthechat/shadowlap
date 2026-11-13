@@ -295,6 +295,21 @@ describe('export html', () => {
     expect(redacted.html).toContain('<EMAIL>');
   });
 
+  it("keeps an injection attempt's own canary through the rules, as its pack does", () => {
+    const own = Store.open(':memory:');
+    try {
+      const attempt = unpackRun(own, GOLDEN).imported[0];
+      // The address the golden writes to stands in for the attempt's canary.
+      own.updateRunMeta(attempt, { injection: { canary: { token: 'q7m2', address: 'team@example.com', id: 'INV-q7m2', amount: '4817.23' } } } as never);
+      const times = (html: string) => html.split('team@example.com').length - 1;
+      const redacted = exportHtml({ store: own, runIds: [attempt], uiDir, redact: [{ pattern: 'email', replace: '<EMAIL>' }] });
+      expect(redacted.redacted).toBe(true);
+      expect(times(redacted.html)).toBe(times(exportHtml({ store: own, runIds: [attempt], uiDir }).html));
+    } finally {
+      own.close();
+    }
+  });
+
   it('leaves out who made each run, with or without redaction rules, unless asked to keep it', () => {
     const own = Store.open(':memory:');
     try {

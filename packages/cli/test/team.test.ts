@@ -346,6 +346,14 @@ describe('push and pull through the bucket', () => {
     const html = await res.text();
     expect(html).toContain('<EMAIL>');
     expect(html).not.toContain('team@example.com');
+    // A broken normalizer leaves the report's Show diff none, with a warning naming it; a broken redaction rule stops the share, naming it.
+    writeFileSync(join(dana.cwd, 'shadowlap.config.json'), JSON.stringify({ ...cfg, normalize: [{ pattern: 'uuidd', replace: '<U>' }], redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    expect(await teamShare(dana, runId.slice(0, 8), { uiDir, json: true })).toBe(0);
+    const warned = dana.take();
+    expect(warned.err.match(/normalizer #1: unknown pattern "uuidd"/g)).toHaveLength(1);
+    expect(JSON.parse(warned.out)).toMatchObject({ redacted: true });
+    writeFileSync(join(dana.cwd, 'shadowlap.config.json'), JSON.stringify({ ...cfg, redact: [{ pattern: 'emial', replace: '<E>' }] }));
+    await expect(teamShare(dana, runId.slice(0, 8), { uiDir, json: true })).rejects.toThrow('redaction rule #1: unknown pattern "emial"');
   });
 });
 

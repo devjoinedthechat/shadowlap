@@ -173,9 +173,13 @@ export class UploadStore implements UploadSource {
         if (failed) return;
         failed = true;
         req.unpipe(out);
-        out.once('close', () => removeFile(path));
+        // Refused once the file is gone: on a busy machine its open can finish after a refusal sent
+        // at once, and the file would be there after the answer.
+        out.once('close', () => {
+          removeFile(path);
+          reject(err);
+        });
         out.destroy();
-        reject(err);
       };
       req.on('data', (c: Buffer) => {
         size += c.length;

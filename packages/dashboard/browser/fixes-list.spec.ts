@@ -57,7 +57,7 @@ test('j and k walk Fixes, Enter opens a fix with its heading in focus, and Esc c
   await expect(page.locator(`${ROWS}.krow`)).toHaveAttribute('data-rowkey', fix);
 });
 
-test('a fix’s failing-runs link opens Runs under Failed', async ({ page }) => {
+test('a fix’s failing-runs link opens its issue on Runs under Failed', async ({ page }) => {
   await openFixes(page);
   const fix = await fixKey(page, 'refundFix');
   const link = page.locator(`${ROWS}[data-rowkey="${fix}"] .rs a.dlink`);
@@ -66,6 +66,12 @@ test('a fix’s failing-runs link opens Runs under Failed', async ({ page }) => 
   await page.keyboard.press('Enter');
   await expect.poll(() => hash(page)).toBe('#/runs?types=failed');
   await page.locator('main#view table tbody tr').first().waitFor();
+  // The fix's issue is open, its runs shown; the address says only Failed.
+  const issue = page.locator(`main#view table.issues tr[data-rowkey^="fix:${demoId('refundFix')}"] button.isn`);
+  await expect(issue).toHaveAttribute('aria-expanded', 'true');
+  // The read carried its count alone: its runs come from asking for them, in place of the loading line.
+  await expect(page.locator('main#view table.issues .isruns .isr').first()).toBeVisible();
+  await expect(page.locator('main#view table.issues .isruns > .empty')).toHaveCount(0);
 });
 
 // Opened at its width: a window narrowed under an open page slides the sidebar out over it for a moment.
@@ -89,7 +95,7 @@ for (const width of [1440, 390])
 test('a job started from a row’s next step hands the focus to that row’s step when it ends', async ({ page }) => {
   const email = demoId('emailFix');
   let fixId = '';
-  const again = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null };
+  const again = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
   // The list as the server answers it, the fix's step Run blame again; no estimate, so the step asks.
   await page.route(/\/api\/fixes(\?.*)?$/, async (route) => {
     const body = (await (await route.fetch()).json()) as { fixes: Array<{ fixId: string }> };

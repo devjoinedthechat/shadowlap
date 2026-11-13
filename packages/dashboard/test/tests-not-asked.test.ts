@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { JUDGE_ASKED_IN_NONE, JUDGE_NOT_ASKED, Store, type JudgeSummary, type StoredCheck, type TestResultData } from '@shadowlap/engine';
 import { checkMark } from '../ui/goldens.js';
 import { printedLines } from '../src/golden-report.js';
+import { withJudgeAsks } from '../src/tests-checks.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 
 /**
@@ -12,6 +13,7 @@ import { testsView, type GoldenSource } from '../src/tests.js';
 const T0 = Date.UTC(2026, 10, 12, 10, 0);
 const JUDGE = 'judge "explains-escalation" answers yes';
 const WHEN_JUDGE = `when lookup_order has result.total > 200: ${JUDGE}`;
+const QUESTION = 'Does it say it escalated the refund?';
 const REFUNDS = 'issue_refund called 0 times';
 
 const outcome = (verdict: 'yes' | 'no' | null): NonNullable<StoredCheck['judge']> => ({ name: 'explains-escalation', model: 'claude-haiku-4-5', of: 'answer', verdict, source: verdict ? 'live' : null, cost: verdict ? 0.0004 : null, redactions: 0, cut: 0 });
@@ -26,7 +28,7 @@ const judgeSummary = (n: number): JudgeSummary => ({ calls: n, replayed: 0, live
 /**
  * Tests' checks of a golden that may fork, whose last result ran these attempts, each run keeping its
  * checks, and its lines as printed: the result shows the first that failed, and keeps its checks
- * (`shown` in their place where given).
+ * (`shown` in their place where given). Its entry's judge asks `QUESTION`, as its card says.
  */
 function tested(attempts: StoredCheck[][], o: { shown?: StoredCheck[]; continued?: boolean; labels?: string[] } = {}) {
   const s = Store.open(':memory:');
@@ -42,7 +44,8 @@ function tested(attempts: StoredCheck[][], o: { shown?: StoredCheck[]; continued
     s.finishTestSession(session.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: T0 + 100 });
     const golden: GoldenSource = { path: 'goldens/pushy', runId: null, packedAt: T0, mode: 'fork', repeat: attempts.length, passes: attempts.length, checks: o.labels ?? [REFUNDS, JUDGE] };
     const result = s.listTestResults({ golden: 'goldens/pushy', limit: 1 })[0];
-    return { checks: testsView(s, [golden]).rows[0].checkResults, printed: printedLines('pushy', result).map((l) => l.text) };
+    const view = withJudgeAsks(testsView(s, [golden]), () => ({ judge: [{ name: 'explains-escalation', question: QUESTION, model: 'claude-haiku-4-5' }] }));
+    return { checks: view.rows[0].checkResults, printed: printedLines('pushy', result).map((l) => l.text) };
   } finally {
     s.close();
   }
@@ -54,8 +57,10 @@ describe('a judge check on Tests that the attempt its result shows didn’t ask'
     const attempts = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => (n % 2 ? [refunds(true), asked('yes', `It says it escalated (${n}).`)] : [refunds(false), notAsked()]));
     const [refundsRow, judged] = tested(attempts).checks;
     expect(refundsRow).toMatchObject({ status: 'failed', attempts: { passed: 4, of: 8 } });
-    expect(judged).toEqual({ label: JUDGE, status: 'passed', added: false, detail: null, reason: 'It says it escalated (7).', source: 'live', live: { cost: 0.0016, asked: 4 }, attempts: { passed: 4, of: 4 } });
+    expect(judged).toEqual({ label: JUDGE, status: 'passed', added: false, addedAt: null, detail: null, reason: 'It says it escalated (7).', source: 'live', live: { cost: 0.0016, asked: 4 }, attempts: { passed: 4, of: 4 }, judge: { question: QUESTION, model: 'claude-haiku-4-5', verdict: 'yes', judged: { how: 'judged live', cost: '≈$0.0016', read: [] }, held: null } });
     expect(checkMark(judged, true).sub).toBe('judged live in 4 attempts · ≈$0.0016');
+    // In the Checks column, the line moves onto its card, under what the judge asks and answered.
+    expect(checkMark(judged, true, true)).toMatchObject({ sub: null, tip: { rows: [{ label: 'Asks', value: QUESTION }, { label: 'Answered', value: 'yes: It says it escalated (7).' }, { label: 'Model', value: 'claude-haiku-4-5' }], note: 'judged live in 4 attempts · ≈$0.0016' } });
   });
 
   it('reads as the first attempt whose judge said no, whatever came before it', () => {
@@ -80,16 +85,19 @@ describe('a judge check on Tests that the attempt its result shows didn’t ask'
   it('keeps the shown check where the attempts can’t be read: a result that continued an earlier session’s', () => {
     const [, judged] = tested([[refunds(false), notAsked()], [refunds(true), asked('yes', 'It says it escalated.')]], { continued: true }).checks;
     expect(judged).toMatchObject({ status: 'not-applicable', detail: JUDGE_NOT_ASKED, source: null, live: null, attempts: null });
-    expect(checkMark(judged, true)).toMatchObject({ mark: '–', sub: JUDGE_NOT_ASKED, tip: { title: `not applicable · ${JUDGE}`, label: 'not applicable', value: JUDGE_NOT_ASKED } });
+    expect(checkMark(judged, true)).toMatchObject({ mark: '–', sub: JUDGE_NOT_ASKED, tip: { title: `not applicable · ${JUDGE}`, label: 'not applicable', value: JUDGE_NOT_ASKED, rows: [{ label: 'Asks', value: QUESTION }], note: JUDGE_NOT_ASKED } });
   });
 
   it('says why under a judge no attempt asked, with no verdict, cost or update of its golden', () => {
     // Every attempt failed its other check: the CLI kept the golden's words for the shown attempt's judge.
     const attempts = [[refunds(false), notAsked()], [refunds(false), notAsked()]];
     const [, judged] = tested(attempts, { shown: [refunds(false), notAsked(JUDGE_ASKED_IN_NONE)] }).checks;
-    expect(judged).toEqual({ label: JUDGE, status: 'not-applicable', added: false, detail: JUDGE_ASKED_IN_NONE, reason: null, source: null, live: null, attempts: null });
+    expect(judged).toEqual({ label: JUDGE, status: 'not-applicable', added: false, addedAt: null, detail: JUDGE_ASKED_IN_NONE, reason: null, source: null, live: null, attempts: null, judge: { question: QUESTION, model: 'claude-haiku-4-5', verdict: null, judged: null, held: null } });
     const mark = checkMark(judged, true);
-    expect(mark).toEqual({ mark: '–', status: 'not-applicable', word: 'not applicable', text: mark.text, sub: 'not asked: no attempt passed its other checks', tip: { title: `not applicable · ${JUDGE}`, label: 'not applicable', value: 'not asked: no attempt passed its other checks', color: 'var(--faint)' } });
+    // The whole reason under it and on its card, whose one row is what the judge asks.
+    const why = 'not asked: no attempt passed its other checks';
+    expect(mark).toEqual({ mark: '–', status: 'not-applicable', word: 'not applicable', text: JUDGE, sub: why, tip: { title: `not applicable · ${JUDGE}`, label: 'not applicable', value: why, color: 'var(--faint)', rows: [{ label: 'Asks', value: QUESTION }], note: why } });
+    expect(checkMark(judged, true, true)).toEqual(mark);
     expect(JSON.stringify(mark)).not.toMatch(/update the golden|Answered|Model/);
   });
 

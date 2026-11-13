@@ -1,4 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { issueKey } from '../../src/issue-keys.js';
+import { issueClick, openIssue } from '../runspage/open-issue.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
@@ -28,6 +30,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixesView, FixesViewRow, JobListItem, UnblamedRow } from '../types.js';
 import { unblamedBlameCard, unblamedTitle } from '../../src/unblamed-words.js';
+import { SetUpStep, useNoRunsYet } from './set-up-step.js';
 
 /**
  * Fixes (#/fixes): a to-do list of failures, the failing runs nobody has blamed first, then each fix,
@@ -50,6 +53,8 @@ const FAILED = href.runs({ types: 'failed' });
 
 function FixList() {
   const { client, tick, feeds, meta } = useApp();
+  // With no run, blame has nothing to start from: the step is the setup.
+  const none = useNoRunsYet();
   const [chip, setChipState] = useState<FixChip>(() => chipShown);
   const setChip = (c: FixChip) => {
     chipShown = c;
@@ -81,7 +86,7 @@ function FixList() {
     return (
       <Page>
         {header}
-        <EmptyState title="No fixes yet" text="A fix starts from a run that failed its check: blame finds the model call that lost it, repair proposes a change, and verify proves the change before it ships." command={BLAME} />
+        <EmptyState title="No fixes yet" text="A fix starts from a run that failed its check: blame finds the model call that lost it, repair proposes a change, and verify proves the change before it ships." step={none ? <SetUpStep /> : undefined} command={none ? undefined : BLAME} />
       </Page>
     );
   return (
@@ -128,11 +133,11 @@ function Rows({ view, chip, version }: { view: FixesView; chip: FixChip; version
     rows,
     keyOf,
     root: box,
-    open: (r) => navigate(r.kind === 'fix' ? r.f.href : FAILED),
+    open: (r) => (r.kind === 'fix' ? navigate(r.f.href) : openIssue(FAILED, r.u.issue)),
     actions: (r) =>
       r.kind === 'fix'
         ? fixRowScope(r.f)
-        : unblamedScope({ name: unblamedTitle(r.u.count), command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, job: !r.u.next?.capture, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
+        : unblamedScope({ name: unblamedTitle(r.u.count), issue: r.u.issue, command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, job: !r.u.next?.capture, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
   });
   if (!rows.length) return <EmptyLine>{CHIP_EMPTY[chip]}</EmptyLine>;
   return (
@@ -189,7 +194,7 @@ const FixListRow = memo(function FixListRow({ f, jobs, focused, why, version }: 
             <span className="chip">{f.source}</span>
           ) : null}
           <span className="nw">
-            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)}>
+            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)} onClick={issueClick(issueKey.fix(f.fixId))}>
               {failingLine(f)}
             </Link>
           </span>
@@ -211,7 +216,7 @@ function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly 
   return (
     <div className={focused ? 'psrow psun krow' : 'psrow psun'} role="listitem" data-rowkey="unblamed">
       <span className="pst">
-        <a className="rt" href={FAILED}>
+        <a className="rt" href={FAILED} onClick={issueClick(u.issue)}>
           {unblamedTitle(u.count)}
         </a>
         <span className="rs">

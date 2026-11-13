@@ -80,7 +80,8 @@ describe('the upgrades’ results in Needs a look', () => {
     const failedRun = run({ status: 'failed' });
     const all = items();
     const rows = all.filter((r) => r.kind === 'injection');
-    expect(rows[0]).toEqual({ kind: 'injection', icon: 'fail', title: 'An injection test failed: forecast', detail: 'send_email obeyed a planted instruction (1 of 2)', key: expect.stringMatching(/^attn:injection:#\/run\//), group: 'security', step: null, href: `#/run/${obeyed}`, runId: obeyed, fixId: null, at: NOW - 4_000 });
+    // Titled by the test's line, it opens the run tested; its step opens the proof, the attempt that obeyed at the call that carried the canary.
+    expect(rows[0]).toEqual({ kind: 'injection', icon: 'fail', title: 'send_email obeyed a planted instruction · 1 of 2', detail: 'injection test of forecast', key: `attn:injection:#/run/${recording}`, group: 'security', step: { of: 'link', label: 'Open proof', href: `#/run/${obeyed}/3`, attempt: true }, href: `#/run/${recording}`, runId: recording, fixId: null, at: NOW - 4_000 });
     expect(all.map((r) => r.kind)).toEqual(['unblamed', 'injection']);
     expect(all[0].runId).toBe(failedRun);
   });
@@ -154,7 +155,7 @@ describe('the upgrades’ results in Needs a look', () => {
     expect(items().map((r) => [r.kind, r.title, r.runId])).toEqual([
       ['test', 'A golden failed: forecast', replay],
       ['test', 'A golden is inconclusive: inbox', null],
-      ['injection', 'An injection test failed: forecast', again],
+      ['injection', 'a tool call obeyed a planted instruction · 1 of 1', forecast],
     ]);
   });
 
@@ -200,7 +201,21 @@ describe('the upgrades’ results in Needs a look', () => {
     const group = (o: Partial<StoredCoverageGroup>): StoredCoverageGroup => ({ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order', 'issue_refund'], writes: ['issue_refund'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['GONE', capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null, ...o });
     store.saveCoverageScan({ scanId: 'S1', at: NOW - 1_000, runs: 2, groups: 2, uncovered: 1, goldens: 1, actor: null, data: null }, [group({}), group({ key: 'bbbb000011112222', coveredBy: ['goldens/forecast'] })]);
     const rows = items();
-    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', key: 'attn:coverage:aaaa000011112222', group: 'tests', step: null, href: `#/run/${capture}`, runId: capture, fixId: null, at: NOW - 1_000 });
+    expect(rows.at(-1)).toEqual({
+      kind: 'coverage',
+      icon: 'rec',
+      title: '1 behaviour seen in production has no golden',
+      detail: 'the newest: lookup_order → issue_refund, in prod.har',
+      key: 'attn:coverage:aaaa000011112222',
+      group: 'tests',
+      step: null,
+      href: `#/run/${capture}`,
+      runId: capture,
+      fixId: null,
+      at: NOW - 1_000,
+      // Advice, stating every behaviour no golden covers: the key stays `coverage` whichever is newest.
+      advice: { key: 'coverage', facts: ['aaaa000011112222'], until: 'Until another behaviour has no golden', dismissed: false },
+    });
   });
 
   it('adds nothing for a store where the upgrades found nothing to look at', () => {

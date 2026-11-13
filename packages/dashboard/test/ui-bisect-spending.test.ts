@@ -5,7 +5,7 @@ import type { ActionLike } from '../ui/actions.js';
 import type { BisectOffer, CallDetail, Client, JobView } from '../ui/api.js';
 import type { BisectQuery } from '../ui/estimates-api.js';
 import { FindCommitButton, FindCommitDialog as TestsFindCommit } from '../ui/pages/TestsDialogs.js';
-import { ForkMenu } from '../ui/run/actions.js';
+import { ForkMenu } from '../ui/run/ForkMenu.js';
 import { BisectDialog } from '../ui/run/RunDialogs.js';
 import { forgetBisectEstimates } from '../ui/runspage/bisect-estimate.js';
 import { FindCommitDialog } from '../ui/runspage/FindCommit.js';

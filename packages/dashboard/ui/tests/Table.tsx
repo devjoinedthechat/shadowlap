@@ -5,7 +5,7 @@ import { Checks } from './Checks.js';
 import { rowOpen } from '../components/Table.js';
 import { glossed } from '../components/Term.js';
 import { dotParts, RuleText } from '../components/Verdict.js';
-import { sourceText } from '../goldens.js';
+import { changedLine, sourceText } from '../goldens.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -13,6 +13,7 @@ import type { TestsAnswer } from '../types.js';
 import { EvidenceBar, EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { ReportRow, ReportToggle, ShowEveryReport, useReportsOpen } from './Report.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
+import { rowHref } from './gate.js';
 import { goldenKeys, goldenRowScope } from './row-scope.js';
 import type { LeadPress } from './Verdict.js';
 
@@ -23,7 +24,7 @@ import type { LeadPress } from './Verdict.js';
 
 /**
  * The goldens' table. It fits its panel at every width, as the mock's .gtw container queries fit it:
- * below 1000px of room the oldest revisions give way, below 820px the checks go under the golden's
+ * below 1000px of room the oldest revisions give way, below 840px the checks go under the golden's
  * name, and on a phone the revisions become a strip there too. Last result keeps its width.
  */
 export function GoldensTable({ view, press }: { view: TestsAnswer; press?: LeadPress }) {
@@ -31,7 +32,7 @@ export function GoldensTable({ view, press }: { view: TestsAnswer; press?: LeadP
   const { open, toggle } = useEvidenceOpen(view.rows);
   // Each golden that didn't pass folds its report under its row: Show report opens it, and a gated one's evidence with it.
   const reports = useReportsOpen(view.reports);
-  // j and k walk the goldens, Enter opens one's run, ⌘K offers what its report offers.
+  // j and k walk the goldens, Enter opens one's run (rowHref), ⌘K offers what its report offers.
   const table = useRef<HTMLTableElement>(null);
   const keyOf = goldenKeys(view.rows);
   const inFocus = useListKeys({
@@ -40,8 +41,9 @@ export function GoldensTable({ view, press }: { view: TestsAnswer; press?: LeadP
     root: table,
     // A golden with no run leads nowhere of its own: Enter offers its actions, as ⌘K does.
     open: (r) => {
-      if (!r.runId) return false;
-      navigate(href.run(r.runId));
+      const to = rowHref(r);
+      if (!to) return false;
+      navigate(to);
     },
     actions: (r) => goldenRowScope(r, () => table.current?.closest('.page') ?? document, r.path === view.verdict?.first?.golden),
   });
@@ -67,7 +69,7 @@ export function GoldensTable({ view, press }: { view: TestsAnswer; press?: LeadP
               return (
                 <Fragment key={row.path}>
                   <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={shows} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} report={report && { shown: reportShown, toggle: () => reports.set(report.name, !reportShown) }} />
-                  {shows ? <EvidenceRow row={row} g={g} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} /> : null}
+                  {shows ? <EvidenceRow row={row} g={g} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} step={view.steps?.[row.path] ?? null} /> : null}
                   {report ? <ReportRow report={report} row={row} span={history ? 4 : 3} open={reportShown} asked={reports.asked} onOpen={() => reports.set(report.name, true)} view={view} press={press} /> : null}
                 </Fragment>
               );
@@ -86,10 +88,12 @@ type ReportShown = { shown: boolean; toggle: () => void } | undefined;
 function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, report }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined; report: ReportShown }) {
   const source = sourceText(row);
   const last = row.last;
+  const stale = changedLine(row);
+  const to = rowHref(row);
   return (
-    <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
+    <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(to ? rowOpen(() => navigate(to)) : {})}>
       <td className="gg">
-        <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}>{row.name}</a> : row.name}</code>
+        <code className="gn">{to ? <a className="rowa" href={to}>{row.name}</a> : row.name}</code>
         <span className="gmeta">
           <span className="chip" data-tip={tipCard(row.modeLabel, [], row.modeHint)}>
             {row.modeLabel}
@@ -109,11 +113,11 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, repo
           </span>
         </span>
         <span className="chk gin">
-          <Checks row={row} />
+          <Checks row={row} cell />
         </span>
       </td>
       <td className="chk gck">
-        <Checks row={row} />
+        <Checks row={row} cell />
       </td>
       {showHistory ? <HistoryCells row={row} /> : null}
       <td className="glast">
@@ -127,6 +131,12 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, repo
             </span>
           ) : null}
         </span>
+        {/* After the result, as the design draws it, so it stays while a session runs the golden: its checks are still untested until that result lands. */}
+        {stale ? (
+          <span className="ckst" data-tip={tipCard(stale.text, [], stale.why)}>
+            {stale.text}
+          </span>
+        ) : null}
         {/* A golden with a report shows its bar alone: Show report opens its evidence with the report. */}
         {gated(last.gate) && last.gate.attempts ? report ? <EvidenceBar g={last.gate} name={row.name} /> : <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
         {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}

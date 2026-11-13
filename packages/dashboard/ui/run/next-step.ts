@@ -7,7 +7,7 @@ import type { PaletteEntry } from '../palette.js';
 import { keyColumn, type ShortcutId } from '../shortcuts.js';
 import type { ActionItem, BlameBeside, GateEntry, NextStep, NextStepRow, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
-import { PACK_VERB } from './share.js';
+import { PACK_VERB } from './share-steps.js';
 
 /**
  * The step the run page leads with, as the server works it out (src/next-step.ts): the header's one
@@ -42,6 +42,7 @@ const STEP_JOBS: Partial<Record<NextStep['key'], StepJob>> = {
   'update-golden': { verb: 'update it', tests: true },
   'rerun-test': { verb: 'run it again', tests: true },
   'gate-again': { verb: 'run it again', tests: true },
+  'run-tests': { verb: 'run the tests', tests: true },
   bisect: { verb: 'find the breaking commit', tests: true },
   revert: { verb: 'revert it', tests: true, use: 'writes' },
   blame: { verb: 'blame', tests: false },

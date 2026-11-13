@@ -108,6 +108,11 @@ describe('a run’s about line', () => {
 
   it('an injection test’s replay says what it planted where', () => {
     expect(aboutOf(facts({ kind: 'fork', divergence: { callNo: 7 }, meta: { injection: { result: 'inj-1', role: 'attempt', read: 6, attempt: 2, of: 3 }, interventions: [{ kind: 'plant', at: 6, flag: '--inject-result 6=…' }] } })).text).toBe('planted #6, attempt 2 of 3');
+    // As shadowlap injection keeps them: each replay is one of its test's attempts too, bundled by the result.
+    const repeat = (n: number) => ({ group: 'inj-1', attempt: n, of: 15 });
+    expect(aboutOf(facts({ kind: 'fork', divergence: { callNo: 7 }, attempt: { kind: 'repeat', index: 9 }, meta: { repeat: repeat(9), injection: { result: 'inj-1', role: 'attempt', read: 6, attempt: 1, of: 1 } } })).text).toBe('planted #6, attempt 1 of 1');
+    expect(aboutOf(facts({ kind: 'clean', attempt: { kind: 'repeat', index: 11 }, meta: { repeat: repeat(11), injection: { result: 'inj-1', role: 'baseline', read: 6, attempt: 1, of: 1 } } })).text).toBe('baseline from #6, attempt 1 of 1');
+    expect(aboutOf(facts({ kind: 'fork', divergence: { callNo: 7 }, attempt: { kind: 'repeat', index: 2 }, meta: { repeat: repeat(2), injection: { result: 'inj-2', role: 'clean', read: 6, attempt: 2, of: 10 } } })).text).toBe('clean read #6, attempt 2 of 10');
   });
 
   it('an import reads by its source', () => {

@@ -50,7 +50,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; jobs?: J
 
 async function open(fixId: string, step: string | null = null, o: Parameters<typeof app>[0] = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub: null })));
-  await r.until('the fix to load', () => r!.all('h1').length === 1);
+  await r.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
   return r;
 }
 
@@ -111,7 +111,7 @@ describe('the header’s buttons', () => {
     await open(f.fixId);
     const repair = r!.byText('.ph .actions button', 'Run repair');
     expect([repair.className, repair.props['aria-disabled'], repair.props['data-why']]).toEqual(['btn', 'true', 'Repair rejected every candidate']);
-    expect(JSON.parse(String(repair.props['data-tip']))).toMatchObject({ t: 'Run repair', s: 'Nothing has changed since its last repair, whose gate rejected every candidate: verify a change of your own' });
+    expect(JSON.parse(String(repair.props['data-tip']))).toMatchObject({ t: 'Run repair', s: 'Nothing has changed since its last repair, whose gate rejected every candidate: edit the check, or verify a change of your own' });
   });
 
   it('leads a verified fix with Verify this run while a failing run no accepted verdict checked is left, asking with Verify change on that run, and starts one verify of it', async () => {
