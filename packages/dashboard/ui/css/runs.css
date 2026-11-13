@@ -82,9 +82,9 @@ table.runst tr.picked td { background: var(--sel); }
 .bulkbar .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
 @media (max-width: 1000px) { .bulkbar { left: 50%; transform: translateX(-50%); bottom: 40px; max-width: calc(100vw - 24px); overflow-x: auto; } }
 
-/* below 720px (a phone, or a narrow tablet where a store adds Push: 668px) the bar wraps onto lines rather than cut a
-   button: every action stays in view, none scrolls away */
-@media (max-width: 720px) { .bulkbar { flex-wrap: wrap; justify-content: center; row-gap: 6px; width: calc(100vw - 24px); overflow: visible; padding: 8px 10px; } .bulkbar .sep { display: none; } .bulkbar b { flex-basis: 100%; text-align: center; } }
+/* below 920px (a phone, a tablet, or a narrow window: with a store, Push beside Preview change takes about 880px) the bar
+   wraps onto lines rather than cut a button: every action stays in view, none scrolls away */
+@media (max-width: 920px) { .bulkbar { flex-wrap: wrap; justify-content: center; row-gap: 6px; width: calc(100vw - 24px); overflow: visible; padding: 8px 10px; } .bulkbar .sep { display: none; } .bulkbar b { flex-basis: 100%; text-align: center; } }
 /* the room under the list follows the bar's height once it floats over the list's foot (BulkBar's --bulk-h) */
 @media (max-width: 1000px) { .bulkspace { height: calc(var(--bulk-h, 46px) + 52px); } }
 

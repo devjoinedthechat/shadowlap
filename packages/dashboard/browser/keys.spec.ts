@@ -7,6 +7,9 @@ import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
  * focus with no ring.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 const RUNS = 'main#view table.runst tbody tr';
 const openRuns = (page: Page) => openPage(page, '/runs', RUNS);
 const hash = (page: Page) => page.evaluate(() => location.hash);

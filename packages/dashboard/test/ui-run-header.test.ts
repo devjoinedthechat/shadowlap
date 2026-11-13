@@ -1,10 +1,14 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { JUDGE_SCOPE } from '../../engine/src/judge-scope.js';
+import { CallsTable } from '../ui/run/CallsView.js';
 import { ScopeBar } from '../ui/run/parts.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
+import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { RunDetail } from '../ui/types.js';
+import type { CallRow, RunDetail } from '../ui/types.js';
+import { render } from './ui-render.js';
 
 /**
  * A run's header says each thing once: the eyebrow what kind of run it is, muted, the id's card (the
@@ -38,8 +42,8 @@ function detail(o: { parent?: boolean; status?: string; divergence?: number | nu
   } as unknown as RunDetail;
 }
 
-const header = (run: RunDetail, facts: string | null = null) =>
-  renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, createElement(RunHeader, { run, call: null, selected: 3, rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined, labels: run.run.meta?.labels ?? [], setLabels: () => undefined, onMark: () => undefined, facts: facts ? createElement('section', { className: 'metrics' }, facts) : null })));
+const headerProps = (run: RunDetail, facts: string | null = null) => ({ run, call: null, selected: 3, rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined, labels: run.run.meta?.labels ?? [], setLabels: () => undefined, onMark: () => undefined, facts: facts ? createElement('section', { className: 'metrics' }, facts) : null });
+const header = (run: RunDetail, facts: string | null = null) => renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, createElement(RunHeader, headerProps(run, facts))));
 
 const part = (html: string, from: string, to: string) => html.slice(html.indexOf(from), html.indexOf(to, html.indexOf(from)));
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -122,16 +126,42 @@ describe('a run’s header', () => {
   });
 });
 
+describe('the fork menu and the header’s …, parts of their own', () => {
+  /** A tool call as the Calls tab lists it, with the fork button its row draws. */
+  const call = { callNo: 4, kind: 'tool', name: 'send_email', origin: 'live', effect: 'write', outcome: 'ok', status: null, latencyMs: 12, model: null, stopReason: null, usage: null, cost: null, bytes: null, detail: '{"to":"ops@example.com"}', attempts: 0, replayedFrom: null, error: null, startedAt: 1_760_000_000_000, endedAt: 1_760_000_000_012, ttftMs: null, scope: null } as unknown as CallRow;
+
+  it('load their scripts as the pointer or the focus reaches Fork at #n, a row’s fork button or …, never as the page opens', async () => {
+    // What opening a page loads is held to its budget (test/ui-bundle-size.test.ts): a part loads on a sign it is about to show.
+    const asked: string[] = [];
+    const part = (name: string) => Object.assign(() => null, { preload: () => void asked.push(name), script: 'idle' });
+    const parts = { ForkMenu: part('fork'), MoreMenu: part('more') } as unknown as ServedParts;
+    const page = createElement('div', null, createElement(RunHeader, headerProps(detail(FAILED))), createElement(CallsTable, { calls: [call], asked: null, selected: 4, scoped: false, forkAt: null, lostAt: null, ancestors: [], live: false, canFork: true, onSelect: () => undefined, onFork: () => undefined }));
+    const r = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: parts }, page)));
+    try {
+      expect(asked).toEqual([]);
+      await r.hover(r.one('#forkBtn'));
+      expect(asked).toEqual(['fork']);
+      await r.focus(r.one('td.rowact button'));
+      expect(asked).toEqual(['fork', 'fork']);
+      await r.hover(r.one('#moreBtn'));
+      expect(asked).toEqual(['fork', 'fork', 'more']);
+    } finally {
+      await r.unmount();
+    }
+  });
+});
+
 describe('the run’s agents chips', () => {
   it('say each agent’s word and count apart', () => {
     const calls = [
       { callNo: 1, scope: 'customer', kind: 'api' },
       { callNo: 2, scope: 'agent', kind: 'api' },
       { callNo: 3, scope: 'agent', kind: 'tool' },
+      { callNo: 4, scope: JUDGE_SCOPE, kind: 'api' },
     ];
     const run = { run: { runId: '01M781NKXK0SFB6W51R56AKDAE' }, calls } as unknown as RunDetail;
-    const html = renderToStaticMarkup(createElement(ScopeBar, { run, scopes: ['agent', 'customer'], scope: 'all', onScope: () => undefined }));
+    const html = renderToStaticMarkup(createElement(ScopeBar, { run, scopes: ['agent', 'customer'], scope: 'all', judge: 1, onScope: () => undefined }));
     const words = [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''));
-    expect(words).toEqual(['All 3', 'agent 2', 'customer 1']);
+    expect(words).toEqual(['All 3', 'agent 2', 'customer 1', 'judge 1']);
   });
 });

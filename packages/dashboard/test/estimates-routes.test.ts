@@ -16,6 +16,8 @@ import {
   goldenTestEstimate,
   injectionAgainEstimate,
   noEstimate,
+  otherFamilyWords,
+  previewEstimate,
   pricedCalls,
   recordBlame,
   recordVerdict,
@@ -24,6 +26,7 @@ import {
   resolveFix,
   runBisectEstimate,
   selectedRuns,
+  SPRT_DEFAULTS,
   Store,
   testsEstimate,
   updateEstimate,
@@ -40,6 +43,7 @@ import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine
 import type { ProjectConfig } from '../src/context.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import type { ConfigVerifyRule, DecisionEstimates, FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+import type { PreviewEstimates } from '../src/preview-estimate.js';
 import { fixDetail } from '../src/fixes.js';
 import { pricingOf } from '../src/pricing.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -86,7 +90,9 @@ beforeAll(async () => {
   for (const m of ['one', 'two', 'three']) git('commit', '-q', '--allow-empty', '-m', m);
   [LAST, , FIRST] = git('log', '--format=%h').split('\n') as [string, string, string];
   store = Store.open(':memory:');
-  dash = await startDashboard({ store, readOnly: false, port: 0, project: { path: dir }, goldens: () => goldens, loadConfig: () => config });
+  // A new preview's card asks the providers for their models: none has a key here, and nothing answers.
+  const offline = () => Promise.reject(new Error('offline'));
+  dash = await startDashboard({ store, readOnly: false, port: 0, project: { path: dir }, goldens: () => goldens, loadConfig: () => config, training: { env: {}, fetch: offline } });
 });
 afterAll(async () => {
   await dash.close();
@@ -448,9 +454,17 @@ describe('a kept preview’s Verify', () => {
       const all = await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000V/estimates');
       expect(all.verify).toEqual(expected([[rows[0], true], [rows[1], false], [rows[2], true]]));
       expect(all.verify!.parts).toEqual(['up to 80 attempts a failing run, 200 pairs a good one', 'live from the first model call, writes stubbed']);
+      // Each run in its role, for Verify's rows.
+      expect(all.runs).toEqual([{ runId: checked, role: 'target' }, { runId: passing, role: 'good' }, { runId: broken, role: 'target' }]);
+      // Run more attempts' raised limits, as its job passes them: verify's gate with its max raised, and a good run's pairs.
+      const more = await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000V/estimates?max=160&keptMax=400');
+      expect(more.verify).toEqual(plain(verifyEstimate([decisionRunCost(rows[0], true), decisionRunCost(rows[1], false), decisionRunCost(rows[2], true)], { rule: { ...RULE, gate: { kind: 'sprt', ...SPRT_DEFAULTS, max: 160 }, keptMax: 400 }, live: 'first', writes: 'stub' })));
+      expect(more.verify!.parts[0]).toBe('up to 160 attempts a failing run, 400 pairs a good one');
+      expect((await api('decisions/dc-01M5000000000000000000000V/estimates?max=1001')).status).toBe(400);
+      expect((await api('decisions/dc-01M5000000000000000000000V/estimates?keptMax=two')).status).toBe(400);
       // One run, named by a prefix; one the preview cleared has nothing to verify.
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing.slice(0, 22)}`)).verify).toEqual(expected([[rows[1], false]]));
-      expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${cleared}`)).verify).toBeNull();
+      expect(await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${cleared}`)).toEqual({ verify: null, runs: [] });
       // Several, as Preview names the runs no verify took yet: each priced in its role; one the preview cleared among them, nothing to verify there.
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing}&runId=${broken}`)).verify).toEqual(expected([[rows[1], false], [rows[2], true]]));
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing}&runId=${cleared}`)).verify).toBeNull();
@@ -468,5 +482,101 @@ describe('a kept preview’s Verify', () => {
     session('dc-01M5000000000000000000000Y', rows.slice(3), { flagged: [] });
     expect((await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000Y/estimates')).verify).toBeNull();
     expect((await api('decisions/dc-01M5000000000000000000000Z/estimates')).status).toBe(404);
+  });
+});
+
+describe('a new preview’s estimate', () => {
+  const ask = { model: MODEL, messages: [{ role: 'user', content: 'refund order 1042' }] };
+  /** The estimate is a POST that changes nothing, so the 500 runs a preview takes fit in its body. */
+  const post = (body: Record<string, unknown>) => fetch(`${dash.url}/api/decisions/estimates`, { method: 'POST', headers: { 'x-shadowlap-token': dash.token, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const read = async (body: Record<string, unknown>): Promise<PreviewEstimates> => {
+    const res = await post(body);
+    expect(res.status, await res.clone().text()).toBe(200);
+    return (await res.json()) as PreviewEstimates;
+  };
+  const call = (outputTokens: number, o: { model?: string; provider?: string } = {}) => ({ code: 'l', request: ask, usage: { inputTokens: 1200, outputTokens }, ...(o.model ? { model: o.model } : {}), ...(o.provider ? { endMeta: { provider: o.provider } } : {}) });
+
+  it('prices the change it names on the runs’ recorded calls, says what it asks, and gives the job’s targets', async () => {
+    const run = addRun(store, { startedAt: T0, calls: [call(1840), call(300), { code: 'o' }] });
+    const est = (change: Record<string, unknown>) => read({ runs: [run], ...change });
+    // A switch asks the calls made with the model the run uses most, 3 samples each and as many as recorded.
+    const sw = await est({ model: 'claude-haiku-4-5' });
+    expect(sw.preview).toEqual(plain(previewEstimate([priced(run)], { model: 'claude-haiku-4-5', from: [MODEL] }, { samples: 3 })));
+    expect(sw.preview!.parts).toEqual(['about 12 requests, half as recorded']);
+    expect(sw).toMatchObject({ asks: { calls: 2, from: [MODEL], control: true, runs: 1, otherFamily: null }, recorded: [{ id: MODEL, family: 'claude', calls: 2 }], targets: [run], ways: null });
+    expect((await est({ model: 'claude-haiku-4-5', samples: 1 })).preview!.parts).toEqual(['about 2 requests']);
+    // A model of another family is asked nothing, in the engine's words.
+    const other = await est({ model: 'gpt-5.5' });
+    expect(other.asks).toMatchObject({ calls: 0, otherFamily: otherFamilyWords('gpt-5.5') });
+    expect(other.preview).toMatchObject({ usd: 0, parts: [otherFamilyWords('gpt-5.5')] });
+    // A field set at every call: what the recorded answers show of max_tokens, a value sent as JSON where it parses.
+    const field = await est({ set: { max_tokens: 512 }, samples: 1 });
+    expect(field.answers).toEqual({ most: 1840, cut: 1 });
+    expect(field.asks).toMatchObject({ calls: 2, from: [] });
+    expect((await est({ set: { temperature: 0 } })).answers).toEqual({ most: 1840, cut: null });
+    // The change the job would refuse, refused in its words.
+    expect((await post({ runs: [run], set: { model: 'x' } })).status).toBe(400);
+    expect((await post({ runs: [run], samples: 50 })).status).toBe(400);
+    expect((await post({ runs: ['nope'] })).status).toBe(404);
+    expect((await post({})).status).toBe(400);
+    // The working tree's prompt has no estimate until its offline read names the calls it changes; then the calls it named.
+    expect((await est({ fromCode: true })).preview).toMatchObject({ usd: null, none: expect.stringContaining('replayed it offline') });
+    const named = await est({ fromCode: true, samples: 1, changed: { [run]: [1] } });
+    expect(named.preview).toEqual(plain(previewEstimate([priced(run)], { from: null, fromCode: true, changed: [[1]] }, { samples: 1 })));
+    expect(named.preview!.parts).toEqual(['about 1 request']);
+    expect((await post({ runs: [run], fromCode: true, changed: { [run]: ['x'] } })).status).toBe(400);
+    // A GET is no read of it: the targets go in the body.
+    expect((await api(`decisions/estimates?runId=${run}`)).status).not.toBe(200);
+  });
+
+  it('says which field the model refuses, by the engine’s table, and prices each way’s card while no change is named', async () => {
+    const run = addRun(store, { startedAt: T0, calls: [call(700, { model: 'claude-opus-4-7', provider: 'anthropic' })] });
+    const refused = (await read({ runs: [run], set: { temperature: 0.5 }, samples: 1 })).refused;
+    expect(refused).toMatchObject({ field: 'temperature', model: 'claude-opus-4-7', source: expect.stringMatching(/^https:/) });
+    expect(refused!.says).toContain('a non-default temperature, top_p or top_k returns a 400 error');
+    expect((await read({ runs: [run], set: { temperature: 1 }, samples: 1 })).refused).toBeNull();
+    // No change named: the field change's card at max_tokens 512, asked once; no provider lists a model here, and the run has one, so the switch has no card.
+    const ways = await read({ runs: [run] });
+    expect(ways.preview).toBeNull();
+    expect(ways.ways).toEqual({ model: null, modelSwitch: null, fieldChange: plain(previewEstimate([priced(run)], { from: [] }, { samples: 1 })) });
+    // A model the config prices is offered where a provider couldn't be listed, and the switch's card is priced at it.
+    config = { ...NO_CONFIG, prices: { 'claude-sonnet-5-5': { input: 3, output: 15 } } };
+    try {
+      const priced5 = await read({ runs: [run] });
+      expect(priced5.ways).toMatchObject({ model: 'claude-sonnet-5-5', modelSwitch: { usd: expect.any(Number) } });
+    } finally {
+      config = NO_CONFIG;
+    }
+  });
+
+  it('has no estimate on a golden whose recording isn’t in the store, rather than a sum without it', async () => {
+    const run = addRun(store, { startedAt: T0, calls: [call(400)] });
+    const had = goldens;
+    goldens = [golden('goldens/kept', run), golden('goldens/lost', '01MISSINGRUN00000000000000')];
+    try {
+      const one = await read({ goldens: ['goldens/kept'], model: 'claude-haiku-4-5' });
+      expect(one.preview).toMatchObject({ usd: expect.any(Number) });
+      expect(one.targets).toEqual(['goldens/kept']);
+      const all = await read({ goldens: 'all', model: 'claude-haiku-4-5' });
+      expect(all.preview).toMatchObject({ usd: null });
+      expect(all.asks.runs).toBe(2);
+      expect(all.targets).toEqual(['goldens/kept', 'goldens/lost']);
+      // The project's goldens are listed once a request, each listing a read of every pack, and not at all where it names none.
+      let listed = 0;
+      const counted = await startDashboard({ store, readOnly: false, port: 0, project: { path: dir }, goldens: () => (listed++, goldens), loadConfig: () => config });
+      try {
+        const ask = (body: Record<string, unknown>) => fetch(`${counted.url}/api/decisions/estimates`, { method: 'POST', headers: { 'x-shadowlap-token': counted.token, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        listed = 0;
+        expect((await ask({ goldens: 'all', model: 'claude-haiku-4-5' })).status).toBe(200);
+        expect(listed).toBe(1);
+        listed = 0;
+        expect((await ask({ runs: [run], model: 'claude-haiku-4-5' })).status).toBe(200);
+        expect(listed).toBe(0);
+      } finally {
+        await counted.close();
+      }
+    } finally {
+      goldens = had;
+    }
   });
 });

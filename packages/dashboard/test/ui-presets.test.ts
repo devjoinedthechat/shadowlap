@@ -165,7 +165,7 @@ describe('a preset’s attempts in the Forks view', () => {
       node(UNSURE, REC, 'provider 500 #3', 'completed', { label: 'provider 500', verdict: 'inconclusive' }),
     ];
     // No matrix to read: the family's tree goes by the lineage alone.
-    const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), runChaos: () => Promise.reject(new Error('not asked')) } as unknown as Client;
+    const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), injectionResults: () => Promise.resolve({ results: [] }), runChaos: () => Promise.reject(new Error('not asked')) } as unknown as Client;
     const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true };
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
     await r.until('the family to load', () => r!.all('.fnode .f2').length === 4);

@@ -1,18 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { FOUND, GOLDEN, REV, routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
+import { FOUND, GOLDEN, NAME, REV, routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
 import { openPage, seriousViolations } from './dashboard.js';
+import { openReport } from './tests-fixture.js';
 
 /**
  * Revert, once Find breaking commit named a crash's first bad commit, on the invented data of
  * crash-fixture.ts: on a crash's run page the commit's finding leads, Show change opens the change in
  * the inspector's place, and Revert leads the header with Open in editor and Run blame plain; on
- * Tests the change sits under the commit's card and Revert leads the verdict; on the crash's fix its
- * Blame step shows the commit, its change and where to look, and Revert leads its head with Open in
- * editor beside it and no Find breaking commit. Each has no serious axe violation at 1440 and 390
- * with the change open, nor has Revert's dialog, whose code box of the change undone keeps to its
- * width. A revert's drawer reads Reverting, then Reverted where git reverted, its status not saying
+ * Tests the change sits under the commit in the crash's report and Revert leads the verdict; on the
+ * crash's fix its Blame step shows the commit, its change, the exception the agent died of and where
+ * to look, and Revert leads its head with Open in editor beside it and no Find breaking commit. Each
+ * has no serious axe violation at 1440 and 390 with the change open, nor has Revert's dialog, whose
+ * code box of the change undone keeps to its width. A revert's drawer reads Reverting, then Reverted
+ * where git reverted, its status not saying
  * reverted again, or Tried reverting where git refused.
  */
+
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 const DIALOG = '[role="dialog"][aria-modal="true"]';
 
@@ -61,6 +66,10 @@ for (const [width, height] of [
     await expect(line.locator('b')).toHaveText(FOUND.subject);
     await expect(page.locator('#view .bisect.fxbis + .codewrap.bisectdiff')).toContainText('agent/refund.py');
     await expect(page.locator('#view .fxnote')).toHaveText(`The agent stopped part way from ${REV} on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.`);
+    // Under As recorded, the exception the agent died of where its code raised it, its traceback folded until found.
+    const error = page.locator('#view .rperrw');
+    await expect(error.locator('p.rperr')).toContainText("TypeError: limit() missing 1 required positional argument: 'order' in agent/refund.py, line 12, in refund");
+    await expect(error.locator('pre.report.tail')).toHaveAttribute('hidden', 'until-found');
     const lead = page.locator('.ph .actions .btn.lime[data-next="revert"]');
     await expect(lead).toHaveText('Revert');
     await expect(lead).toHaveAttribute('data-at', String(FOUND.at));
@@ -97,8 +106,9 @@ for (const [width, height] of [
   test(`at ${width}×${height} Tests shows the commit's change under its card and leads with Revert, passing axe`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await routeTests(page);
-    await openPage(page, '/tests', 'main#view .bisectdiff');
-    // The demo's own divergence keeps its commit's change too; the crash's is the invented one.
+    await openPage(page, '/tests', 'main#view table.gt');
+    // The crash's report, folded under its row: open, the change sits under its first bad commit.
+    await openReport(page, NAME);
     await expect(page.locator('#view .bisectdiff', { hasText: 'agent/refund.py' })).toBeVisible();
     await expect(page.locator('#view .btn.lime', { hasText: /^Revert$/ }).first()).toBeVisible();
     await expect(page.locator('#view')).toContainText('The agent stopped part way at the commit above: revert it or fix the code, then run the tests.');

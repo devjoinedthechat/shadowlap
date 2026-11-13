@@ -13,8 +13,12 @@ import type { CrashStep } from './next-step.js';
  * what its card says. Null when the fix has no step to lead with: its row opens it.
  */
 export type FixLead =
-  /** As its ask says it: where the last search stopped (`soFar`), or the gate it raises and the last blame's rescue rate. */
-  | { key: 'blame-again'; label: string; command: string; use: 'reads'; stopped: boolean; gate: SprtGate | null; soFar: number | null; lastGood: number | null }
+  /**
+   * As its ask says it: where the last search stopped (`soFar`), or the gate it raises and the last
+   * blame's rescue rate; or, for a blame found under the fix's old check (`underCheck`), that it
+   * searches under the fix's check.
+   */
+  | { key: 'blame-again'; label: string; command: string; use: 'reads'; stopped: boolean; gate: SprtGate | null; soFar: number | null; lastGood: number | null; underCheck: boolean }
   | { key: 'blame-stronger'; label: string; command: string; use: 'reads' }
   /** `repairer`: the one shadowlap.config.json names, which its card says it asks; null for your own Claude Code. */
   | { key: 'repair'; label: string; command: string; use: 'writes'; repairer: string | null }
@@ -48,23 +52,25 @@ export function repairSpent(rec: FixRecords): boolean {
 }
 
 /** Run more attempts or Verify again, for the newest verdict that counts when it is incomplete and can be settled; else none. */
-function verifyLead(rec: FixRecords): FixLead | null {
+function verifyLead(rec: FixRecords, keptMax: number | null): FixLead | null {
   const v = counting(rec).at(-1);
-  const more = v ? verifyMore(v) : null;
+  const more = v ? verifyMore(v, keptMax) : null;
   if (!v || !more) return null;
   return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max, attempts: v.report.attempts };
 }
 
 /**
  * An open fix's lead: what its spent repair's last verdict left, blame again, a crash's own step once
- * no model rescued it (`crash`: Find breaking commit, then Revert), blame with a stronger model, or
- * Run repair when it can run the agent.
+ * no model rescued it (`crash`: Find breaking commit, then Revert) while the fix still holds its run,
+ * blame with a stronger model, or Run repair when it can run the agent. A crashed run that a check
+ * given since passed left the fix (runsLeft): its step is its own, and Run repair blames the runs the
+ * fix holds.
  */
 function openLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixLead | null {
-  if (repairSpent(rec)) return verifyLead(rec);
+  if (repairSpent(rec)) return verifyLead(rec, o.keptMax ?? null);
   const again = actions.blameAgain;
-  if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood };
-  if (o.crash) return crashLead(o.crash.runId, o.crash.step);
+  if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood, underCheck: again.underCheck };
+  if (o.crash && rec.failing.includes(o.crash.runId)) return crashLead(o.crash.runId, o.crash.step);
   const stronger = actions.blameStronger;
   if (stronger) return { key: 'blame-stronger', label: ACTIONS.runBlameStronger.label, command: stronger.command, use: 'reads' };
   // A repair that would end "No fix to try" runs nothing: the row opens the fix, which says why.
@@ -72,10 +78,15 @@ function openLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixL
   return repair && !repair.noFix ? { key: 'repair', label: ACTIONS.runRepair.label, command: repair.command, use: 'writes', repairer: o.repairer?.trim() || null } : null;
 }
 
-/** What a fix's lead reads besides its records: the repairer the config names, and its blamed run's crash step, which its caller works out (fix-crash.ts). */
+/**
+ * What a fix's lead reads besides its records: the repairer the config names, its blamed run's crash
+ * step, which its caller works out (fix-crash.ts), and the config's `verify.max` (`keptMax`), which Run
+ * more attempts keeps a good run's pairs to.
+ */
 export interface FixLeadOptions {
   repairer: string | null;
   crash?: { runId: string; step: CrashStep } | null;
+  keptMax?: number | null;
 }
 
 /**

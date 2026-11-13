@@ -1,6 +1,7 @@
-import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyCount, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
 import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
-import { decisionSession, runDecisions, sessionReport } from './decisions.js';
+import { moreOf, type PreviewMore } from './decision-more.js';
+import { decisionSession, runDecisions, sessionGate, sessionKeptMax, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsWithin } from './run-about.js';
 import { loadRunIndex } from './run-index.js';
@@ -23,8 +24,8 @@ export interface PreviewRowFacts {
   inStore: boolean;
   /** Whether the session left it to verify (`toVerify`, else flagged). */
   toVerify: boolean;
-  /** Verify took it: its outcome, and its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`). */
-  verified: { outcome: string; tally: string } | null;
+  /** Verify took it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), and the tally alone (`4 of 4`). */
+  verified: { outcome: string; tally: string; count: string } | null;
   /** Verify ran, and the preview cleared it: not run end to end (`view.cleared` says why). */
   cleared: boolean;
   /** The run it was forked from and the call it forked at, where the change's turn is told from the parent's. */
@@ -49,8 +50,8 @@ export interface PreviewVerify {
 export interface PreviewNext {
   /** The runs it could not clear that no verify has taken; `every`, when that is all of them; `gone`, how many left the store. */
   verify: { runs: string[]; every: boolean; gone: number } | null;
-  /** The runs verify took and left inconclusive, once none is left to verify. */
-  more: string[];
+  /** Run more attempts, or Verify again, on the runs verify left open, once none is left to verify (`moreOf`); null for none. */
+  more: PreviewMore | null;
   /** A model switch it can migrate to: the model, the recorded models it switches from, and its goldens and runs. */
   migrate: { to: string; from: string[]; goldens: string[]; runs: string[] } | null;
 }
@@ -153,11 +154,13 @@ function verifyView(v: DecisionsVerify, runs: readonly DecisionRun[]): PreviewVe
 }
 
 /** What the next step is picked from. */
-function nextFacts(store: Store, kind: 'decisions' | 'migrate', report: PreviewReport, v: DecisionsVerify | null, o: { asked: boolean; word: PreviewVerdict['word'] }): PreviewNext {
+function nextFacts(store: Store, session: NonNullable<ReturnType<typeof decisionSession>>, report: PreviewReport, v: DecisionsVerify | null, o: { asked: boolean; word: PreviewVerdict['word']; keptMax?: number | null | undefined }): PreviewNext {
+  const kind = session.kind;
   const toVerify = report.toVerify ?? report.flagged;
   const taken = new Set(v?.runs.map((x) => x.runId) ?? []);
   const left = toVerify.filter((id) => !taken.has(id));
-  const more = left.length ? [] : (v?.runs ?? []).filter((x) => runOutcomeWord(x.outcome) === 'inconclusive').map((x) => x.runId);
+  // Run more attempts under the gate the session's verify was decided by, a good run's pairs as it ran under them (else as the config gives them).
+  const more = left.length || !v ? null : moreOf(v, sessionGate(store, session), sessionKeptMax(store, session) ?? o.keptMax ?? null);
   const change = report.change;
   // Settled as Verdicts says it: accepted with none left, or nothing to verify (not a preview that stopped short).
   const settled = o.word === 'accepted' || o.word === 'nothing to verify';
@@ -257,7 +260,7 @@ function keptReport(r: Partial<PreviewReport>): PreviewReport {
 }
 
 /** One kept session, its matrix's rows with their facts and its `view`; null for an id the store doesn't keep. `redacted`: the project has redaction rules; `clock`, its clock (PreviewView). */
-export function previewSession(store: Store, sessionId: string, o: { redacted?: boolean; clock?: 'auto' | 'exact' | null } = {}): PreviewSession | null {
+export function previewSession(store: Store, sessionId: string, o: { redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null } = {}): PreviewSession | null {
   const session = decisionSession(store, sessionId);
   const verdict = session && previewVerdictOf(store, sessionId);
   if (!session || !verdict) return null;
@@ -272,7 +275,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     const run = store.getRun(row.runId);
     const entry = v?.runs.find((x) => x.runId === row.runId) ?? null;
     const forkAt = run?.mode === 'replay' ? (run.divergence?.callNo ?? null) : null;
-    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
+    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
   });
   const headline = decisionsHeadline({ counts: report.counts, flagged: report.flagged, runs });
   const c = report.counts;
@@ -290,7 +293,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     later: headline.asked ? { text: JUDGED_LATER, ...LATER_STEPS } : null,
     within: withinVariationLine({ samples: report.samples, flagged: report.flagged, runs }),
     verify: v ? verifyView(v, runs) : null,
-    next: nextFacts(store, session.kind, report, v, { asked: headline.asked, word: verdict.word }),
+    next: nextFacts(store, session, report, v, { asked: headline.asked, word: verdict.word, keptMax: o.keptMax }),
     counts: { writes: c[1], stops: c[2], reads: c[3] + c[4], text: c[5], same: c.same, left: c.untouched, notAsked: c.notAsked, noise: c.noise ?? 0, waits: cells.filter(ringed).length, split: cells.filter(split).length },
     key: previewKey(c, cells, { notes: report.notes ?? [], warnings: report.warnings ?? [], samples: report.samples, refused: runs.some((x) => x.refused), fromCode: !!report.change?.fromCode }),
     warnings: [...new Set([...(report.warnings ?? []), ...runs.flatMap((x) => (Array.isArray(x.warnings) ? x.warnings : []))])],
@@ -303,17 +306,17 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
 }
 
 /** One kept session for Changes' Preview, as `GET /api/decisions/:id` answers it. */
-export type DecisionSessionJob = { kind: 'decision-session'; sessionId: string; redacted?: boolean; clock?: 'auto' | 'exact' | null };
+export type DecisionSessionJob = { kind: 'decision-session'; sessionId: string; redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null };
 
 /** A run's decisions under each session that asked it again, for its Decisions view, as `GET /api/runs/:id/decisions` answers it. */
-export type RunDecisionsJob = { kind: 'run-decisions'; runId: string };
+export type RunDecisionsJob = { kind: 'run-decisions'; runId: string; keptMax?: number | null };
 
 function sessionRead(store: Store, job: DecisionSessionJob): ReadAnswer {
-  const session = previewSession(store, job.sessionId, { redacted: job.redacted === true, clock: job.clock === undefined ? 'auto' : job.clock });
+  const session = previewSession(store, job.sessionId, { redacted: job.redacted === true, clock: job.clock === undefined ? 'auto' : job.clock, keptMax: job.keptMax ?? null });
   return session ? answer(session, { tagged: true }) : failed(404, `no session ${job.sessionId.slice(0, 40)}`);
 }
 
 export const DECISION_READS: ReadTable<DecisionSessionJob | RunDecisionsJob> = {
   'decision-session': (store, job) => sessionRead(store, job),
-  'run-decisions': (store, job) => (store.getRun(job.runId) ? answer(runDecisions(store, job.runId), { tagged: true }) : failed(404, `no run ${job.runId.slice(0, 40)}`)),
+  'run-decisions': (store, job) => (store.getRun(job.runId) ? answer(runDecisions(store, job.runId, 10, job.keptMax ?? null), { tagged: true }) : failed(404, `no run ${job.runId.slice(0, 40)}`)),
 };

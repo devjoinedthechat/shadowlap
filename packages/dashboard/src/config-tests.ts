@@ -143,6 +143,26 @@ function keyFor(tests: unknown, golden: string, dir: string): string | null {
   return testsEntryFor(entryKeys(tests).map((recording) => ({ recording })), resolve(dir, golden), dir)?.recording ?? null;
 }
 
+/** A golden's key under `tests` and its entry as the file holds it (a pattern's, for a pattern key); a null entry without one. */
+function writtenEntry(tests: unknown, golden: string, dir: string): { key: string | null; entry: unknown } {
+  const key = keyFor(tests, golden, dir);
+  return { key, entry: (key !== null && isObject(tests) ? tests[key] : undefined) ?? null };
+}
+
+/**
+ * Each golden's entry as shadowlap.config.json holds it now, by its path: the builder's `entry`
+ * (GoldenEntry), read for the goldens Tests shows a gate of. None where the file can't be read.
+ */
+export function writtenEntries(dir: string, goldens: readonly string[]): Map<string, unknown> {
+  let tests: unknown;
+  try {
+    tests = readConfigFile(dir).data.tests;
+  } catch {
+    return new Map();
+  }
+  return new Map(goldens.map((g) => [g, writtenEntry(tests, g, dir).entry]));
+}
+
 /**
  * The agent a golden's recording ran: its run's in the store, else its pack's command, read from its
  * run.json without bringing the pack in. Null for a capture's, or a pack that can't be read.
@@ -175,8 +195,7 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
     relaid: editRelaysConfig(dir),
     agent,
     goldens: goldens.map((g) => {
-      const key = keyFor(tests, g.path, dir);
-      const entry = key !== null && isObject(tests) ? tests[key] : undefined;
+      const { key, entry } = writtenEntry(tests, g.path, dir);
       return {
         path: g.path,
         key,
@@ -184,7 +203,7 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
         mode: modeOf(g),
         runId: g.runId,
         inStore: g.runId !== null && store.getRun(g.runId) !== null,
-        entry: entry ?? null,
+        entry,
         error: g.error ?? null,
       };
     }),
@@ -205,6 +224,8 @@ export interface TestsWritten {
   removed: string[];
   changed: boolean;
   event: ConfigEvent | null;
+  /** The entry under `key` as the write found it, which its Undo puts back: undefined where there was none (the golden followed a pattern, or had no entry), which Undo deletes. */
+  prior: { key: string; entry: unknown };
 }
 
 /** The labels of an entry's checks, or none for an entry that has no checks or none that can be read. */
@@ -254,10 +275,32 @@ export function writeTestsEntry(dir: string, golden: string, edit: EntryEdit, o:
     }
     tests[key] = next;
     checkTests(tests);
-    return { key, added: without(labelsOf(next), labelsOf(was)), removed: without(labelsOf(was), labelsOf(next)) };
+    const prior = { key, entry: key === found ? structuredClone(was) : undefined };
+    return { key, added: without(labelsOf(next), labelsOf(was)), removed: without(labelsOf(was), labelsOf(next)), prior };
   });
-  const event: ConfigEvent | null = changed ? { kind: 'checks.changed', ref: golden, data: { key: result.key, added: result.added, removed: result.removed } } : null;
-  return { ...result, version: file.version, changed, event };
+  return { ...result, version: file.version, changed, event: entryEvent(golden, result, changed) };
+}
+
+/** A write of a golden's checks in the activity feed, as `checks.changed` with the labels it added and removed; none for a write that changed nothing. */
+const entryEvent = (golden: string, r: { key: string; added: string[]; removed: string[] }, changed: boolean): ConfigEvent | null =>
+  changed ? { kind: 'checks.changed', ref: golden, data: { key: r.key, added: r.added, removed: r.removed } } : null;
+
+/**
+ * Undo of a write of `golden`'s entry: puts back the entry as that write found it (`prior`, which the
+ * server held), deleting one the write made, against the version the write left (`expect`), whatever
+ * the page sends: ConfigConflictError when the file changed since, so an edit made there stays.
+ */
+export function restoreTestsEntry(dir: string, golden: string, prior: TestsWritten['prior'], o: { expect: string; wait?: number }): TestsWritten {
+  const { file, result, changed } = editConfigFile(dir, o, (data) => {
+    const tests = isObject(data.tests) ? data.tests : {};
+    const now: unknown = tests[prior.key];
+    if (prior.entry === undefined) delete tests[prior.key];
+    else tests[prior.key] = structuredClone(prior.entry);
+    data.tests = tests;
+    checkTests(tests);
+    return { key: prior.key, added: without(labelsOf(prior.entry), labelsOf(now)), removed: without(labelsOf(now), labelsOf(prior.entry)), prior: { key: prior.key, entry: now } };
+  });
+  return { ...result, version: file.version, changed, event: entryEvent(golden, result, changed) };
 }
 
 /** `tests` checked as `shadowlap test` checks it, refused with its words. */

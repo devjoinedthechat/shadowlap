@@ -4,16 +4,21 @@ import { liveChaosSession } from '../chaos.js';
 import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { foundsHere, servesFound } from '../found-here.js';
+import { goldenReports, withFailedRuns, withStepHints, type TestsAnswer } from '../golden-report.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { searchedCommits, type NextStep } from '../next-step.js';
-import { nextStepWork } from '../outcome-work.js';
+import { nextStepWork, projectWork } from '../outcome-work.js';
 import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
+import { goldenExpect } from '../run-offers.js';
 import { namesTeamStore } from './verdicts.js';
+import { writtenEntries } from '../config-tests.js';
+import { withInjectionGates } from '../injection-gates.js';
 import { revertJob } from '../revert-job.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
+import { withJudgeAsks } from '../tests-checks.js';
 import { gateQuery } from '../tests-gate.js';
 import { liveAsk } from '../tests-live.js';
 import { bisectChoices, bisectJob, checkedRevision, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testRunBanner, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
@@ -248,22 +253,38 @@ export function register(router: Router, ctx: RouteContext): void {
   // Another job replaying or rewriting the goldens, then a session from a terminal: the job is named first.
   const busy = (store: StoreOf<'tests' | 'chaos'>, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
 
+  // A pooled read's answer, or null where it fails: what it adds is left out, never the page.
+  const pooled = async <T>(read: () => ReturnType<typeof ctx.reads.run>): Promise<T | null> => {
+    try {
+      return answerData<T>(await read());
+    } catch {
+      return null;
+    }
+  };
+
   // Each golden that didn't pass with the step it leads with, as its replay's page leads, worked out
   // beside the server: the light form, which reads no call. Left out when that read fails: the page
-  // then leads with Run tests.
-  const withSteps = async (view: TestsView): Promise<TestsView> => {
-    const named = [...view.divergences, ...view.failures, ...view.inconclusive].map((d) => d.golden);
-    if (!named.length) return view;
-    try {
-      return { ...view, steps: answerData<Record<string, NextStep>>(await ctx.reads.run({ kind: 'tests-steps', goldens: named, next: nextStepWork(ctx) })) };
-    } catch {
-      return view;
-    }
+  // then leads with Run tests. And its report (golden-report.ts), from its last result read by key,
+  // after the first bad commit is served as the card shows it, with its own failed replays under
+  // Runs › Failed, which reads every run's row, so beside the server too.
+  const withSteps = async (view: TestsView): Promise<TestsAnswer> => {
+    const listed = [...view.divergences, ...view.failures, ...view.inconclusive];
+    if (!listed.length) return view;
+    const reports = goldenReports(view, { store: ctx.store, goldens: goldens(), normalizers: normalizers(), project: ctx.project?.path ?? null });
+    const named = Object.values(reports).map((x) => x.golden);
+    const [steps, runs] = await Promise.all([
+      pooled<Record<string, NextStep>>(() => ctx.reads.run({ kind: 'tests-steps', goldens: listed.map((d) => d.golden), next: nextStepWork(ctx) })),
+      named.length ? pooled<Record<string, { count: number; ids: string[] }>>(() => ctx.reads.run({ kind: 'tests-failed-runs', goldens: named, outcome: projectWork(ctx).outcome })) : null,
+    ]);
+    return { ...view, ...(steps ? { steps } : {}), reports: withStepHints(withFailedRuns(reports, runs, steps ?? undefined), steps ?? undefined) };
   };
 
   router.get('/tests', async (r) => {
     const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
-    r.tagged(await withSteps(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path)));
+    const { tests } = nextStepWork(ctx);
+    // A gate's card shows its entry as the config holds it, read as the check builder reads it.
+    const written = (gated: readonly string[]) => (ctx.project ? writtenEntries(ctx.project.path, gated) : new Map<string, unknown>());
+    r.tagged(withInjectionGates(ctx.store, await withSteps(withJudgeAsks(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path), (golden) => goldenExpect(tests, golden))), goldens(), written));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's

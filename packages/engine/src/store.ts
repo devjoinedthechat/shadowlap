@@ -40,7 +40,8 @@ export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageSc
 export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store/decisions.js';
 export { stillDismissed } from './store/dismissals.js';
 export type { NewDismissal, StoredDismissal } from './store/dismissals.js';
-export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store/fixes.js';
+export type { FixCheckEntry, FixCheckJudged, FixData, FixLink, FixLinkKind, FixRunOutcome, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store/fixes.js';
+export { FIX_RUN_OUTCOMES } from './store/fixes.js';
 export type { StoredInjectionResult } from './store/injection.js';
 export { RECORDING_RUNS_SQL, rowToRun, splitRecordingRuns } from './store/recording.js';
 export type { CreateRunInput } from './store/recording.js';

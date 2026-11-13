@@ -183,7 +183,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           })}
           onPick={onPick}
         />
-        <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned) : ''}</span>
+        <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned, view.preview.kept) : ''}</span>
       </div>
       {data.config.error ? null : broken ? (
         <p className="fieldnote err">

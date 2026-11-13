@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
+import type { TestsAnswer } from '../src/golden-report.js';
 import { inTestFamily, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
 
 /**
@@ -131,6 +132,10 @@ describe('GET /api/tests', () => {
     expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 1, untested: 2, title: '1 of 4 goldens passed · refund-in-limit diverged at call 1 · 2 goldens not tested yet', session: { revision: 'd2e8a1f', passed: 1, failed: 1 } });
     expect(view.revisions).toEqual(['c91d0f4', 'd2e8a1f']);
     expect(view.steps).toMatchObject({ 'goldens/refund-in-limit': { key: 'replay', off: 'Replay once the recording finishes' } });
+    // Each golden that didn't pass with its report, drawn under its row; the one that passed has none.
+    const { reports } = view as TestsAnswer;
+    expect(Object.keys(reports ?? {})).toEqual(['goldens/refund-in-limit']);
+    expect(reports?.['goldens/refund-in-limit']).toMatchObject({ verdict: 'failed', head: ['Diverged at call 1: ', { code: '$.metadata.user_id' }, ' changed'], printed: [{ text: expect.stringMatching(/^✗ refund-in-limit: diverged at call 1/), tone: 'no' }] });
     expect(view.rows.map((r) => [r.name, r.modeLabel, r.last.result])).toEqual([
       ['refund-flow', 'replay', 'pass'],
       ['refund-in-limit', 'replay', 'fail'],

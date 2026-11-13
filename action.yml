@@ -76,8 +76,11 @@ inputs:
     description: The token fix-on-failure pushes a fix's branch and opens its pull request with, and the pull request comment is kept with. A GitHub App's token or a personal access token makes GitHub start the fix pull request's workflows. Empty uses the job's GITHUB_TOKEN, for which GitHub starts none, so the action then starts the workflow it runs in on the fix's branch, which needs a workflow_dispatch trigger and actions write permission; the pull request says which happened. The CLI and the agent never get this token.
     default: ''
   comment:
-    description: On a pull request, keep one comment on it with each golden's verdict line, compared with the base branch's last session when the test history has one, edited in place on every run. Needs pull-requests write permission. A pull request from a fork, whose token may not comment, gets none, and the job summary says so.
+    description: On a pull request, keep one comment on it with each golden's verdict line, compared with the base branch's last session when the test history has one, with what a run costs and each injection gate's verdict, edited in place on every run. Needs pull-requests write permission. A pull request from a fork, whose token may not comment, gets none, and the job summary says so.
     default: 'true'
+  decisions:
+    description: On a pull request, add to the comment the decisions the branch changes at rank 1 and 2, from shadowlap decisions --from-code. It asks the goldens' models on every push, so the step needs their providers' keys.
+    default: 'false'
 
 outputs:
   passed:
@@ -216,6 +219,7 @@ runs:
         INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}
         INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_DECISIONS: ${{ inputs.decisions }}
         # For git's push and GitHub's API alone: run.mjs takes both, and every other GitHub token the job
         # holds, out of what the CLI and the agent get.
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}

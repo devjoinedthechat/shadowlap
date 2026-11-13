@@ -11,6 +11,8 @@ import { REPAIRER, type BucketCredentials } from './ci-yaml.js';
  */
 export interface FileSwitches {
   comment: boolean;
+  /** The comment's decisions part: `decisions: true`. */
+  decisions: boolean;
   fix: boolean;
   budget?: string;
   repairer?: string;
@@ -37,6 +39,7 @@ export function fileSwitches(read: WorkflowRead): FileSwitches | null {
   const push = flag(inputs.push);
   return {
     comment: flag(inputs.comment) !== 'false',
+    decisions: flag(inputs.decisions) === 'true',
     fix: flag(inputs['fix-on-failure']) === 'true',
     ...(inputs['fix-budget'] !== undefined && Number.isFinite(budget) && budget > 0 && budget <= 1000 ? { budget: budget.toFixed(2) } : {}),
     ...(repairer && REPAIRER.test(repairer) ? { repairer } : {}),

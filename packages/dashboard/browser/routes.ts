@@ -1,7 +1,7 @@
 import { expect, type Page, type Request } from '@playwright/test';
-import { routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
+import { NAME as CRASH, routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
 import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
-import { routeTestsFixture } from './tests-fixture.js';
+import { openReport, routeTestsFixture } from './tests-fixture.js';
 
 /**
  * The dashboard's routes for the sweeps, and the walkers that show them. ROUTES holds one state for
@@ -187,6 +187,25 @@ const openBuilder = async (page: Page): Promise<void> => {
   await click(page, `${MENU}.ckm [role="menuitem"]`, 'Never call issue_refund', { shows: `${DIALOG} .cb-kinds` })();
 };
 
+/** The goldens whose reports Tests' fixture draws, a crash's, a failed gate's and the demo's divergence's, by the page it routed. */
+const reported = new WeakMap<Page, string[]>();
+const testsFixture = async (page: Page): Promise<void> => {
+  const { crash, gate, diverged } = await routeTestsFixture(page);
+  reported.set(page, [crash, gate, diverged]);
+};
+/** A gated golden's evidence open under its row, then each report the fixture draws, with its traceback and lines as printed, the divergence's request diffed. */
+const openEvidence = async (page: Page): Promise<void> => {
+  await click(page, 'main#view button.gev:not(.grptog)', undefined, { shows: 'main#view tr.gevrow .alist' })();
+  const names = reported.get(page) ?? [];
+  for (const name of names) await openReport(page, name);
+  await settled(page, { shows: `main#view section[id="report-${names.at(-1)}"] .rpdiff .jl` });
+};
+/** Tests with the named crash's report open under its row: the change under its first bad commit. */
+const crashReport = async (page: Page): Promise<void> => {
+  await openReport(page, CRASH);
+  await settled(page, { shows: 'main#view .bisectdiff' });
+};
+
 /** Every route state, for a sweep to show one at a time with `show`. */
 export const ROUTES: readonly RouteState[] = [
   route('/', 'overview'),
@@ -217,11 +236,11 @@ export const ROUTES: readonly RouteState[] = [
   // Runs keeps its calendar open for the page's life once shown (a link opened in the page doesn't reload it): after every other Runs route.
   { name: '/runs with its calendar', path: () => '/runs', drawn: 'main#view table.runst tbody tr', then: (p) => click(p, 'main#view button.linkbtn[aria-expanded="false"]', 'Calendar', { shows: 'main#view .calgrid' })() },
   // Answers the demo can't give: kept last, as they stay routed for the page's life.
-  { name: 'Tests with a gated golden’s evidence open', path: () => '/tests', drawn: 'main#view table.gt', fixture: routeTestsFixture, then: (p) => click(p, 'main#view button.gev', undefined, { shows: 'main#view tr.gevrow .alist' })() },
+  { name: 'Tests with a gated golden’s evidence and three reports open', path: () => '/tests', drawn: 'main#view table.gt', fixture: testsFixture, then: openEvidence },
   // A crash whose first bad commit is named: its run page with the change open, its fix's Blame step, Tests with it leading, and Revert's dialog last.
   { name: 'a named crash’s run page with its change open', path: () => `/run/${demoId('ticket')}`, drawn: 'run', fixture: routeCrash, then: (p) => click(p, 'main#view [data-act="change"]', undefined, { shows: '#insp.fpanel[data-kind="change"]' })() },
   { name: 'a named crash’s fix · blame', path: () => `/fixes/${demoId('refundFix')}/blame`, drawn: 'fix', fixture: routeCrashFix },
-  { name: 'Tests with a named crash leading', path: () => '/tests', drawn: 'main#view .bisectdiff', fixture: routeTests },
+  { name: 'Tests with a named crash leading, its report open', path: () => '/tests', drawn: 'main#view table.gt', fixture: routeTests, then: crashReport },
   { name: 'Revert’s dialog', path: () => `/run/${demoId('ticket')}`, drawn: 'run', fixture: routeCrash, then: (p) => click(p, '.rhead .btn.lime[data-next="revert"]', undefined, { shows: DIALOG })() },
 ];
 

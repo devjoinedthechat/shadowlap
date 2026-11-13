@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, type MouseEvent } from 'react';
+import { ActionButton } from '../components/ActionButton.js';
 import { Conversation, useChange } from '../components/Conversation.js';
 import { Decision } from '../components/Decision.js';
 import { Icon } from '../components/Icon.js';
@@ -10,10 +11,12 @@ import { focusQuiet, pageUp } from '../focus-manager.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { glueBound } from '../matrix.js';
+import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { CellOpen, DecisionCell, DecisionRun, DecisionStep, PreviewSession, Toned } from '../types.js';
+import { CLEARED_RUN, GONE_RUN, PreviewVerifyButton, VERIFY_THIS_RUN_TIP } from './VerifyAsk.js';
 
 /**
  * A preview's cell, opened (`#/changes/decisions/<session>/<run>/<call>`): its most consequential
@@ -86,6 +89,7 @@ export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSe
         {step?.scope ? <span className="scopetag">{step.scope}</span> : null}
         <span className="sp" />
         <span className="dacts">
+          <CellVerify session={session} row={row} />
           {row.inStore ? (
             <a className="btn" href={runLink}>
               Open run
@@ -111,6 +115,29 @@ export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSe
       {cell && row.inStore ? <CellConversation row={row} callNo={callNo} /> : null}
     </section>
   );
+}
+
+/**
+ * Verify this run, before Open run: plain, on a run the preview left to verify that verify hasn't
+ * taken; waiting, with why, on one the preview cleared or one gone from the store; none once verify
+ * took it, nor on a migration, which Changes never verifies from here.
+ */
+function CellVerify({ session, row }: { session: PreviewSession; row: Row }) {
+  if (session.kind !== 'decisions' || row.verified) return null;
+  const label = ACTIONS.verifyThisRun.label;
+  if (!row.toVerify)
+    return (
+      <ActionButton className="btn" why={CLEARED_RUN.why} tip={CLEARED_RUN.tip}>
+        {label}
+      </ActionButton>
+    );
+  if (!row.inStore)
+    return (
+      <ActionButton className="btn" why={GONE_RUN} tip={VERIFY_THIS_RUN_TIP}>
+        {label}
+      </ActionButton>
+    );
+  return <PreviewVerifyButton sessionId={session.sessionId} change={session.view.change} rows={[{ runId: row.runId, golden: row.golden, about: row.about?.text ?? null, verified: null }]} label={label} one tip={VERIFY_THIS_RUN_TIP} />;
 }
 
 function CellBody({ session, row, cell, step }: { session: PreviewSession; row: Row; cell: DecisionCell; step: DecisionStep | null }) {

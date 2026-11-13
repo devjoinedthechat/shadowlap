@@ -7,6 +7,7 @@ import type { Block } from './deltas.js';
 import { sha256 } from './ids.js';
 import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest, type RequestManifest } from './manifest.js';
+import { keepingRunCanaries } from './injection.js';
 import { applyNormalizers, compilePattern } from './normalize.js';
 import { normalizeResponse } from './responses.js';
 import type { StoreOf } from './store.js';
@@ -1072,40 +1073,39 @@ function answerMessage(answer: PairAnswer, rules: ReturnType<typeof pathRules>):
 export function pairRows(store: StoreOf<'recording'>, pairs: readonly Pair[], options: PairRowsOptions): unknown[] {
   const rules = options.redact ?? [];
   const paths = pathRules(rules);
-  const pathless = rules.filter((x) => x.path === undefined && x.pattern !== undefined).map((x) => ({ re: compilePattern(x.pattern!), replace: x.replace }));
+  const patterned = rules.filter((x) => x.path === undefined && x.pattern !== undefined);
   const rows: unknown[] = [];
   const calls = new Map<string, CallRecord[]>();
   for (const pair of pairs) {
     let runCalls = calls.get(pair.rejected.runId);
     if (!runCalls) calls.set(pair.rejected.runId, (runCalls = store.getCalls(pair.rejected.runId)));
     const call = runCalls.find((c) => c.callNo === pair.rejected.callNo);
-    if (!call?.requestRef) continue;
-    let body: unknown;
-    try {
-      body = loadApiRequest(store, call.requestRef);
-    } catch {
-      continue;
-    }
-    if (paths.api.length) body = applyNormalizers(body, paths.api, 'api', call.name);
-    const conv = normalizeConversation(body);
-    if (!conv) continue;
-    // The rules without a path apply to every string while tool calls' arguments are still objects,
-    // as `export dataset` applies them: on the JSON text a format writes them as, a pattern would
-    // mask a number or a quote and leave text that no longer parses.
-    const mask = <T>(value: T): T => (pathless.length ? (redactDeep(value, pathless) as T) : value);
-    const messages = mask(messagesOf(redactTurns(conv.turns, paths)));
-    const tools = mask(openAITools(body));
-    const chosen = mask(answerMessage(pair.chosen, paths));
-    const rejected = mask(answerMessage(pair.rejected, paths));
-    let row: unknown;
-    if (options.format === 'trl') {
-      const names = new Map<string, string>();
-      const prompt = messages.map((m) => hfMessage(m, names));
-      row = { prompt, chosen: [hfMessage(chosen, new Map(names))], rejected: [hfMessage(rejected, new Map(names))], ...(tools.length ? { tools } : {}) };
-    } else {
-      row = { input: { messages: messages.map(openAIMessage), ...(tools.length ? { tools } : {}) }, preferred_output: [openAIMessage(chosen)], non_preferred_output: [openAIMessage(rejected)] };
-    }
-    rows.push(row);
+    // A row from an injection attempt keeps its canaries, as its pack does: its rules apply, and are compiled, within keepingRunCanaries.
+    const row = keepingRunCanaries([store.getRun(pair.rejected.runId), store.getRun(pair.chosen.runId)], (): unknown => {
+      if (!call?.requestRef) return null;
+      let body: unknown;
+      try {
+        body = loadApiRequest(store, call.requestRef);
+      } catch {
+        return null;
+      }
+      if (paths.api.length) body = applyNormalizers(body, paths.api, 'api', call.name);
+      const conv = normalizeConversation(body);
+      if (!conv) return null;
+      // The rules without a path apply to every string while tool calls' arguments are still objects,
+      // as `export dataset` applies them: on the JSON text a format writes them as, a pattern would
+      // mask a number or a quote and leave text that no longer parses.
+      const pathless = patterned.map((x) => ({ re: compilePattern(x.pattern!), replace: x.replace }));
+      const mask = <T>(value: T): T => (pathless.length ? (redactDeep(value, pathless) as T) : value);
+      const [messages, tools, chosen, rejected] = [mask(messagesOf(redactTurns(conv.turns, paths))), mask(openAITools(body)), mask(answerMessage(pair.chosen, paths)), mask(answerMessage(pair.rejected, paths))] as const;
+      if (options.format === 'trl') {
+        const names = new Map<string, string>();
+        const prompt = messages.map((m) => hfMessage(m, names));
+        return { prompt, chosen: [hfMessage(chosen, new Map(names))], rejected: [hfMessage(rejected, new Map(names))], ...(tools.length ? { tools } : {}) };
+      }
+      return { input: { messages: messages.map(openAIMessage), ...(tools.length ? { tools } : {}) }, preferred_output: [openAIMessage(chosen)], non_preferred_output: [openAIMessage(rejected)] };
+    }).value;
+    if (row !== null) rows.push(row);
   }
   return rows;
 }

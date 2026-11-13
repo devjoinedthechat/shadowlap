@@ -60,6 +60,14 @@ export const ACTIONS = {
   verifyThisRun: { label: 'Verify this run', doing: 'Verifying' },
   verifyTheseRuns: { label: 'Verify these runs', doing: 'Verifying' },
   applyFix: { label: 'Apply fix', doing: 'Applying fix' },
+  // Changes: a preview of a change, from Preview, a run's Decisions view, Runs and the palette. A
+  // menu's opener and Open preview ask nothing; a way that asks for its model or its field does.
+  newPreview: { label: 'New preview' },
+  previewChange: { label: 'Preview change' },
+  previewModelSwitch: { label: 'Preview model switch…', doing: 'Previewing model switch' },
+  previewChangedPrompt: { label: 'Preview changed prompt', doing: 'Previewing changed prompt' },
+  previewFieldChange: { label: 'Preview field change…', doing: 'Previewing field change' },
+  openPreview: { label: 'Open preview' },
   // Tests.
   runTests: { label: 'Run tests', doing: 'Running tests' },
   updateGolden: { label: 'Update golden', doing: 'Updating golden' },
@@ -74,6 +82,9 @@ export const ACTIONS = {
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // What a run's page leads with besides those: a page to open, a test run again, a pack made a golden.
   openFix: { label: 'Open fix' },
+  // A check changed in the check builder: a golden's its own recording fails (Tests, a run's page, Needs a
+  // look), or an open fix's (`shadowlap fix check`), whose Save is the builder's confirm.
+  editCheck: { label: 'Edit check…', confirm: 'Save check', doing: 'Changing check' },
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
   openCandidates: { label: 'Open candidates' },
@@ -100,6 +111,8 @@ export const ACTIONS = {
   // Share, each item the copy it makes, its dialog the verb; a dataset's names the runs it copies.
   exportHtml: { label: 'HTML report', doing: 'Exporting HTML report' },
   pack: { label: 'Pack…', confirm: 'Pack run', doing: 'Packing' },
+  // A kept injection test's report: its dialog asks for nothing, so no ellipsis.
+  securityReport: { label: 'Security report', confirm: 'Download report', doing: 'Downloading security report' },
   exportDataset: { label: 'Eval dataset…', title: 'Export eval dataset', confirm: 'Export dataset', doing: 'Exporting dataset' },
   // To a file or a collector alike.
   exportTrace: { label: 'OpenTelemetry trace…', title: 'Export OpenTelemetry trace', confirm: 'Export trace', doing: 'Exporting trace' },
@@ -110,6 +123,8 @@ export const ACTIONS = {
   addProject: { label: 'Add project…' },
   setUpTeamStore: { label: 'Set up team store' },
   continueTeamStoreSetup: { label: 'Continue team store setup' },
+  // Settings → CI's pull request comment, from the last test session: it only reads.
+  previewPrComment: { label: 'Preview pull request comment' },
   keyboardShortcuts: { label: 'Keyboard shortcuts' },
 } as const satisfies Record<string, ActionWords>;
 

@@ -266,7 +266,7 @@ describe('the Forks view’s bundles', () => {
       // Another verdict decided by the same rule: stated once in the family.
       bundle({ kind: 'verify', key: 'v:2', title: 'verify · target', verdict: 'rejected', change: 'repair candidate 2', verdictLine: 'not fixed · 0 of 3 passed · rate <= 0.56 (95%)', tone: 'no', rule: VERIFY, spent: 0.03, at: 4 }),
     ];
-    const client = { lineage: () => Promise.resolve([node(REC, null)]), fixBundles: () => Promise.resolve(bundles), runChaos: () => Promise.resolve(null) } as unknown as Client;
+    const client = { lineage: () => Promise.resolve([node(REC, null)]), fixBundles: () => Promise.resolve(bundles), injectionResults: () => Promise.resolve({ results: [] }), runChaos: () => Promise.resolve(null) } as unknown as Client;
     const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true };
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
     await r.until('the bundles to load', () => r!.all('.fnode').length === 6);

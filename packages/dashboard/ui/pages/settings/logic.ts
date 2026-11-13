@@ -265,12 +265,13 @@ export function previewChip(rule: { path?: string; pattern?: string; replace: st
 /**
  * `3 values would be masked`; `, 2 left as they are` when the rules match values a pack keeps as
  * recorded (numbers); `, 1 more in HTML, HAR and dataset copies` when a path rule masks what a call
- * got back, which only those copies do.
+ * got back, which only those copies do; `, canaries kept` when the rules match the run's own
+ * canaries (an injection attempt's), which a copy keeps and the count leaves out.
  */
-export function maskedLine(total: number, unmasked = 0, returned = 0): string {
+export function maskedLine(total: number, unmasked = 0, returned = 0, kept = 0): string {
   const left = unmasked ? `, ${unmasked.toLocaleString('en-US')} left as ${unmasked === 1 ? 'it is' : 'they are'}` : '';
   const read = returned ? `, ${returned.toLocaleString('en-US')} more in HTML, HAR and dataset copies` : '';
-  return `${total.toLocaleString('en-US')} value${total === 1 ? '' : 's'} would be masked${left}${read}`;
+  return `${total.toLocaleString('en-US')} value${total === 1 ? '' : 's'} would be masked${left}${read}${kept ? ', canaries kept' : ''}`;
 }
 
 /** What a rule matches that a pack leaves as it is, as the preview gives it (`redact preview --json`, a rule's `unmasked`). */
@@ -618,6 +619,7 @@ export function pasteWhere(files: ReadonlyArray<{ path: string; found: boolean }
 export function ciShown(changed: Partial<CiWorkflowOptions>, view: CiWorkflowsView): CiWorkflowOptions {
   return {
     comment: changed.comment ?? view.comment.on,
+    decisions: changed.decisions ?? view.comment.decisions,
     fix: changed.fix ?? view.fixOnFailure.on,
     alerts: changed.alerts ?? view.alerts.on ?? true,
     budget: changed.budget ?? view.fixOnFailure.budget,

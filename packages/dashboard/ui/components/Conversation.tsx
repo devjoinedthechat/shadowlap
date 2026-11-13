@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { CallDetail, Turn, TurnBlock } from '../api.js';
 import { asJson, num } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
+import { MarksContext } from './marks.js';
 import { Switch } from './Switch.js';
 
 /**
@@ -11,7 +12,10 @@ import { Switch } from './Switch.js';
  * six, those between folded behind a button before the third; the message a fork changed marked, with
  * Jump to change; Format JSON, one preference for both. `from` numbers each message by the call it
  * came from, and `which` says which of a batch's conversations it is; a cell has neither. `foldKey`
- * keeps a cell's fold open while the page is (`<run>:<call>`); the inspector's is its own.
+ * keeps a cell's fold open while the page is (`<run>:<call>`); the inspector's is its own. Its text
+ * goes through the inspector's marks (marks.ts): an injection attempt's page marks its canary and
+ * its planted text, and labels the message its replay changed in its own words; a cell's text draws
+ * as it is.
  */
 
 /** Format JSON: one preference for every conversation drawn, as long as the page is open. */
@@ -130,8 +134,9 @@ export function Conversation({ detail, from, which = '', change, note, foldKey }
 
 function Message({ turn, callNo, format, names, changed, changedBy, firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; changedBy: 'fork' | 'replay'; firstAt: number | null; innerRef?: RefObject<HTMLDivElement | null> | undefined }) {
   const role = turn.role;
+  const words = useContext(MarksContext).changed;
   return (
-    <div className={`msg ${role}${changed ? ' changed' : ''}`} ref={innerRef}>
+    <div className={`msg ${role}${changed ? ' changed' : ''}${changed && words ? ' ov' : ''}`} ref={innerRef}>
       <div className="role">
         {role}
         {callNo !== null ? <small>#{callNo}</small> : null}
@@ -141,16 +146,17 @@ function Message({ turn, callNo, format, names, changed, changedBy, firstAt, inn
         {turn.blocks.map((b, i) => (
           <MessageBlock key={i} block={b} format={format} names={names} />
         ))}
-        {changed ? <span className="chg">changed in this {changedBy}{firstAt ? ` · first sent at #${firstAt}` : ''}</span> : null}
+        {changed ? <span className="chg">{words ?? `changed in this ${changedBy}${firstAt ? ` · first sent at #${firstAt}` : ''}`}</span> : null}
       </div>
     </div>
   );
 }
 
 function MessageBlock({ block, format, names }: { block: TurnBlock; format: boolean; names: Map<string, string> }) {
+  const { mark } = useContext(MarksContext);
   switch (block.type) {
     case 'text':
-      return <div className="txt">{block.text}</div>;
+      return <div className="txt">{mark(block.text)}</div>;
     case 'thinking':
       return (
         <div className="think">
@@ -161,7 +167,7 @@ function MessageBlock({ block, format, names }: { block: TurnBlock; format: bool
     case 'tool_call':
       return (
         <div className="tu">
-          <span className="ar">→</span> <b>{block.name}</b> {JSON.stringify(block.input)}
+          <span className="ar">→</span> <b>{block.name}</b> {mark(JSON.stringify(block.input))}
         </div>
       );
     case 'tool_result': {
@@ -171,7 +177,7 @@ function MessageBlock({ block, format, names }: { block: TurnBlock; format: bool
           <div className="tu">
             <span className="ar">←</span> {block.isError ? 'error' : null} <b>{name ?? 'result'}</b>
           </div>
-          <div className="jbox">{shown(block.content, format)}</div>
+          <div className="jbox">{mark(shown(block.content, format))}</div>
         </>
       );
     }

@@ -2,6 +2,7 @@ import { act, createElement, useLayoutEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
 import { ToastHost, useUndoKeys } from '../ui/components/Toast.js';
+import { SERVED_PARTS } from '../ui/pages/served.js';
 import { OfflineBar } from '../ui/shell/Connection.js';
 import { setSingleKeys } from '../ui/shortcuts.js';
 import { AppContext, AppProvider, useApp, type AppState } from '../ui/state.js';
@@ -293,7 +294,7 @@ describe('a job the page follows', () => {
   function job(over: Partial<JobView> = {}): JobView {
     return { id: 'a1', kind: 'action', args: ['replay', 'X'], worktree: null, runId: 'X', opensRun: true, startedAt: 1, done: false, stopped: false, code: null, newRunId: null, lines: [], total: 0, ...over };
   }
-  /** The app over a client whose job polls answer `answer`; `on.app` is the app as it stands. */
+  /** The app over a client whose job polls answer `answer`, as the served dashboard draws it, the words of a job's kind handed in; `on.app` is the app as it stands. */
   async function follow(answer: (id: string) => JobView | Error) {
     vi.stubGlobal('location', { search: '', hash: '#/', pathname: '/', host: '127.0.0.1:4777' });
     const on: { app: AppState | null } = { app: null };
@@ -313,7 +314,7 @@ describe('a job the page follows', () => {
       on.app = app;
       return null;
     }
-    r = await render(createElement(AppProvider, { client, children: createElement(Probe) }));
+    r = await render(createElement(AppProvider, { client, jobWords: SERVED_PARTS.jobs, children: createElement(Probe) }));
     return on;
   }
 

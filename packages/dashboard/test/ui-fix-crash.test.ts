@@ -15,15 +15,16 @@ import { ServedPartsContext } from '../ui/served-parts.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixDetail, FixLead, NeedsLookRow } from '../ui/types.js';
-import { crashFixtures, GOLDEN, source, T0, MIN, work } from './crash-fixtures.js';
+import { crashFixtures, GOLDEN, PY_TAIL, source, T0, MIN, work } from './crash-fixtures.js';
 import { addressBar, app, watchThePage } from './ui-route-helpers.js';
-import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
  * A crash no model rescued, as its fix and its rows draw it: the Blame step's first bad commit, its
- * change and where to look; the fix's head leading with Find breaking commit, then Revert with Open
- * in editor beside it; the same step on a Fixes row and a Needs a look row, run on the crashed run;
- * and the focus going on from Find breaking commit to the Revert that took its place.
+ * change, the exception the agent died of and where to look; the fix's head leading with Find
+ * breaking commit, then Revert with Open in editor beside it; the same step on a Fixes row and a
+ * Needs a look row, run on the crashed run; and the focus going on from Find breaking commit to the
+ * Revert that took its place.
  */
 
 const CHANGE = { file: 'agent/refund.py', files: ['agent/refund.py'], hunk: '@@ -1,2 +1,3 @@\n def total(items):\n+    log(items)\n     return sum(items)', line: 2, merge: false };
@@ -45,8 +46,8 @@ const { named, blamed, detail } = crashFixtures(() => store);
 const text = (el: FakeElement) => el.textContent.replace(/\s+/g, ' ').trim();
 
 /** The fix of a crash, as the server serves it, its found change's path worked out as a project's would be. */
-function crashFix(o: { named?: boolean; stronger?: boolean; live?: boolean; rerun?: boolean; report?: Partial<BlameReport> } = {}): FixDetail {
-  const { rec, fixId } = blamed('crashed', { stronger: !!o.stronger, rerun: !!o.rerun, ...(o.report ? { report: o.report } : {}) });
+function crashFix(o: { named?: boolean; stronger?: boolean; live?: boolean; rerun?: boolean; report?: Partial<BlameReport>; output?: string } = {}): FixDetail {
+  const { rec, fixId } = blamed('crashed', { stronger: !!o.stronger, rerun: !!o.rerun, ...(o.report ? { report: o.report } : {}), ...(o.output ? { output: o.output } : {}) });
   if (o.named) named(T0 + 2 * MIN, CHANGE);
   const d = detail(fixId, work([source(rec, o.live ? { mode: 'fork' } : {})]));
   const change = d.blame?.crash?.commit?.change;
@@ -99,6 +100,26 @@ describe('a crash’s Blame step', () => {
     expect(r!.all('.codewrap.bisectdiff')).toHaveLength(1);
     expect(r!.all('.codewrap.bisectdiff button').map(text)).toEqual(['Open in editor', 'Copy git revert']);
     expect(text(r!.one('.fxnote'))).toBe('The agent stopped part way from ccccccc on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.');
+  });
+
+  it('names the exception its agent died of under As recorded, as Tests’ report does, its traceback folded until asked or found', async () => {
+    const fix = crashFix({ named: true, output: PY_TAIL });
+    await fixPage(fix, 'blame');
+    const body = r!.one('.fxlist.bad').closest('.pbody')!;
+    expect(body.children.map((c) => c.className)).toEqual(['fxlist', 'lbl', 'fxlist bad', 'rperrw', 'fxnote']);
+    expect(text(r!.one('.rperrw p.rperr'))).toBe("NameError: name 'log' is not defined in agent/refund.py, line 2, in total Show traceback");
+    expect(text(r!.one('.rperrw code.rpsrc'))).toBe('log(items)');
+    const show = r!.one('.rperrw button.rptog');
+    const tail = r!.one(`pre.report.tail[id="${show.getAttribute('aria-controls')!}"]`);
+    expect([tail.id, show.getAttribute('aria-expanded'), tail.getAttribute('hidden')]).toEqual([`bte-${fix.blame!.blameId}`, 'false', 'until-found']);
+    await r!.click(show);
+    expect([text(r!.one('.rperrw button.rptog')), tail.hasAttribute('hidden'), shownText(tail)]).toEqual(['Hide traceback', false, PY_TAIL]);
+    // A crash whose agent kept no lines names nothing there.
+    await r!.unmount();
+    store.close();
+    store = Store.open(':memory:');
+    await fixPage(crashFix({ named: true }), 'blame');
+    expect(r!.all('.rperrw')).toEqual([]);
   });
 
   it('says to look at the code first, the search offline and free only where its golden replays so, and the stronger model only where the head offers it', async () => {

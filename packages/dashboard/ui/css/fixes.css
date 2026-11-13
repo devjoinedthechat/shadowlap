@@ -122,6 +122,9 @@ table.probes tr.hot td { background: var(--sel); }
 /* what failed and what must hold are sentences, in the UI face; only a value in them is data */
 .fm .fmv { white-space: normal; overflow-wrap: anywhere; color: var(--dim); }
 .pslist .fm { margin-top: 4px; }
+/* the way to change the check, after it: a link whose padding hangs out of the line's start as a list's links do */
+.fm .fmx { position: relative; }
+.fm .fmx .linkbtn { margin-left: -7px; }
 
 /* The fix page while its fix loads (FixWaiting) draws the steps in the stepper's look, in a class of its own (`.fxsks`): the tests read `.stepper` as the fix drawn. */
 .stepper, .fxsks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
@@ -211,7 +214,13 @@ table.probes tr.hot td { background: var(--sel); }
 .fxwhere .fxbase { display: block; margin-top: 2px; font-size: 12px; color: var(--faint); white-space: normal; }
 
 .fxnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
-/* A crash's first bad commit under the Blame step's lead, then its change, closer to it than on Tests. */
+/* A crash's first bad commit under the Blame step's lead (revert/FoundLine.tsx), then its change, closer to it than on Tests. */
+.bisect { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
+.bisect .k { font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.bisect code { font-size: 12.5px; color: var(--ink); }
+.bisect b { font-weight: 500; }
+.bisect .m { color: var(--faint); }
+.bisect .m + .m { flex-basis: 100%; }
 .bisect.fxbis { margin: 0 0 16px; padding-top: 0; border-top: 0; }
 .bisect.fxbis + .codewrap.bisectdiff { margin: -6px 0 20px; }
 .fxcmd { margin-top: 14px; }
@@ -228,6 +237,9 @@ table.t td.fxwhere { color: var(--faint); }
 .fxreceipt + .fxreceipt { margin-top: -4px; }
 .fxreceipt.vmore { margin: -4px 0 16px; }
 .fxreceipt code.rnm { font-size: 12px; }
+/* A blame or verdict made under the fix's old check: what it was made under, then what runs under its check now. */
+.fxreceipt.fxold { margin: 14px 0 8px; }
+.cmdline.fxoldcmd { margin: 12px 0 14px; }
 .fxbad { color: var(--err); }
 .fxdim { color: var(--faint); }
 .ph p.fxbad { margin-top: 6px; font-size: 12.5px; }
@@ -238,9 +250,11 @@ table.t td.fxwhere { color: var(--faint); }
 .fxwarn.bad li.unsure { color: var(--warn); }
 .fxlist { margin: 6px 0 12px; padding-left: 18px; color: var(--dim); font-size: 13.5px; }
 .fxlist.bad li::marker { color: var(--cq-red); }
+/* a crash's blame names its exception as Tests' report does (ErrorPart), under what was recorded */
+.fxlist + .rperrw, .lbl + .rperrw { margin: 8px 0 12px; color: var(--faint); font-size: 12.5px; }
 /* a part's label in sentence case, over what it labels: the recording, a rescued fork, as recorded */
 .lbl { display: block; font: 500 12px var(--body); color: var(--faint); }
-.lbl + .fxlist, .lbl + code { margin-top: 4px; }
+.lbl + .fxlist, .lbl + code, .lbl + .rperrw { margin-top: 4px; }
 .ans .lbl { display: inline; }
 .ans .rfid code { display: inline; margin: 0; font-size: 12.5px; }
 /* on a fix's step the two answers are one column: a hairline between them, none above the first */

@@ -98,6 +98,35 @@ test('x picks a row and the bar comes; Delete takes the run off the table and th
   await expect(page.locator('.toast')).toContainText('Restored');
 });
 
+test('with Push and Preview change both on the bar every action stays in view: on one line from 921 px, and wrapped under the count below, at 721 px too', async ({ page }) => {
+  // A team store as this machine would know one, so the bar offers Push too.
+  const url = 's3://northwind-agent-runs/support-agent';
+  const store = { url, key: url, configured: url, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', account: null, region: null, name: 'northwind-agent-runs/support-agent', pushedAt: null, pulledAt: null, syncedAt: null, inStore: 0, onlyLocal: 0, localRuns: [], localAttempts: 0, queued: 0, check: null };
+  await page.route('**/api/store', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { store, you: 'maya@example.com' } }) : route.continue()));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const row = page.locator('main#view table.runst tbody tr:not(.wspace)').first();
+  await row.locator('a.rowa').focus();
+  await page.keyboard.press('x');
+  const bar = page.locator('.bulkbar');
+  await expect(bar.locator('button', { hasText: /^Push/ })).toBeVisible();
+  await expect(bar.locator('button', { hasText: 'Preview change' })).toBeVisible();
+  // Every action whole inside the bar, with nothing to scroll to: one line wide, wrapped under the count when narrower.
+  const reach = () => bar.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const inView = [...el.querySelectorAll('button')].every((b) => {
+      const r = b.getBoundingClientRect();
+      return r.left >= box.left - 0.5 && r.right <= box.right + 0.5 && r.right <= innerWidth;
+    });
+    return { wrap: getComputedStyle(el).flexWrap, fits: el.scrollWidth <= el.clientWidth, inView };
+  });
+  expect(await reach()).toEqual({ wrap: 'nowrap', fits: true, inView: true });
+  await page.setViewportSize({ width: 921, height: 900 });
+  await expect.poll(reach).toEqual({ wrap: 'nowrap', fits: true, inView: true });
+  await page.setViewportSize({ width: 721, height: 900 });
+  await expect.poll(reach).toEqual({ wrap: 'wrap', fits: true, inView: true });
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

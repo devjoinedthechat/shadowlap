@@ -1,6 +1,7 @@
-import { ACTIONS, listingInput, listModelChoices, messageOf, type ModelListing, type Normalizer, type Price, type Task } from '@shadowlap/engine';
+import { ACTIONS, listingInput, messageOf, type Normalizer, type Task } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
+import { listModels } from '../model-listing.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { liveAsk } from '../tests-live.js';
@@ -23,14 +24,13 @@ import { exportPairsJob, modelsView, scoreModelJob, taskUpdateJob, type PairFilt
  * read. Listing models asks each configured provider with the keys already on this machine, and
  * Ollama only where a server already answers; nothing is started, every request times out fast, and a
  * provider that doesn't answer becomes a note. The listing is kept for a few seconds, so opening the
- * dialog again doesn't ask again. A read-only dashboard asks no provider.
+ * dialog again doesn't ask again (model-listing.ts, which a preview's model field asks too). A
+ * read-only dashboard asks no provider.
  */
 
 const FILTERS: readonly PairFilter[] = ['all', 'high', 'medium'];
 /** How long a read of the goldens is reused: a page that reloads on every change of a live run doesn't reread them each time. */
 const TASKS_TTL_MS = 1500;
-/** How long a model listing is reused. */
-const LISTING_TTL_MS = 15_000;
 const NO_LOADER = 'This dashboard doesn’t read the project’s goldens: start it with shadowlap dashboard in the project folder.';
 
 export function register(router: Router, ctx: RouteContext): void {
@@ -73,29 +73,6 @@ export function register(router: Router, ctx: RouteContext): void {
     }
   };
 
-  /** Prices from the config as it is now, else the ones the dashboard started with. */
-  const prices = (): Record<string, Price> | undefined => {
-    try {
-      return ctx.config().prices ?? ctx.options.prices;
-    } catch {
-      return ctx.options.prices;
-    }
-  };
-
-  let listing: { key: string; at: number; value: Promise<ModelListing> } | null = null;
-  const listModels = (input: ReturnType<typeof listingInput> & { ask?: boolean }): Promise<ModelListing> => {
-    const p = prices();
-    const key = JSON.stringify([input, p ?? null]);
-    if (listing && listing.key === key && Date.now() - listing.at < LISTING_TTL_MS) return listing.value;
-    const value = listModelChoices({ ...input, ...(p ? { prices: p } : {}), ...(o.env ? { env: o.env } : {}), ...(o.fetch ? { fetch: o.fetch } : {}), ...(o.timeoutMs ? { timeoutMs: o.timeoutMs } : {}) });
-    const entry = { key, at: Date.now(), value };
-    listing = entry;
-    value.catch(() => {
-      if (listing === entry) listing = null;
-    });
-    return value;
-  };
-
   // The pairs every run makes, read beside the server (read-jobs.ts `training`); the goldens and the config here.
   router.get('/training', async (r) => {
     const filter = (r.query.get('filter') ?? 'all') as PairFilter;
@@ -109,7 +86,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const scores = ctx.store.listTaskScores();
     // Nothing can be scored from a read-only dashboard, so it asks no provider with this machine's
     // keys: it lists the recorded models and those scored before.
-    r.json(modelsView(t.tasks, scores, await listModels({ ...listingInput(t.tasks, scores), ...(ctx.readOnly ? { ask: false } : {}) })));
+    r.json(modelsView(t.tasks, scores, await listModels(ctx, { ...listingInput(t.tasks, scores), ...(ctx.readOnly ? { ask: false } : {}) })));
   });
 
   ctx.jobs.registerJobKind('pairs', {

@@ -12,7 +12,7 @@ import { useLatest, useLoad } from '../hooks.js';
 import { moreCard, testsJob } from '../pages/tests-cards.js';
 import { useApp } from '../state.js';
 import { goldenPrice } from '../tests-estimates.js';
-import type { EvidenceWords } from '../types.js';
+import type { EvidenceWords, NextStep } from '../types.js';
 import type { LeadPress } from './Verdict.js';
 
 /** A golden's last gate, where it decided the result. */
@@ -30,33 +30,61 @@ const evidenceId = (name: string) => `ev-${name.replace(/[^\w-]/g, '-')}`;
 /** The verdict's colour on the bar and the line's last point. */
 const toneOf = (d: GateShown['decision']) => (d === 'pass' ? 'ok' : d === 'inconclusive' ? 'y' : 'no');
 
+/** The bar's parts: its marks (the gate's two rates, or the baseline and the drop that fails it), its words, and its hover. */
+function barOf(g: GateShown, name: string) {
+  const baseline = g.kind === 'baseline' && g.evidence.kind === 'baseline' ? { at: g.evidence.baseline, drop: g.drop } : null;
+  const marks = g.kind === 'sprt' ? [g.bad, g.good] : baseline ? [baseline.at - baseline.drop, baseline.at] : [];
+  const w = g.words;
+  const against = g.kind === 'sprt' ? `against ${rate2(g.bad)} and ${rate2(g.good)}` : 'against its baseline';
+  const tip = w ? tipCard(`${name} · ${w.head}`, w.row ? [{ label: w.row[0], value: w.row[1], color: 'var(--faint)' }] : [], w.tip) : undefined;
+  return { bar: <IntervalBar lo={g.interval.lo} hi={g.interval.hi} marks={marks} tone={toneOf(g.decision)} />, against, tip };
+}
+
 /**
  * Under a gated golden's line, its interval bar against the gate's two rates, or against the
  * baseline and the drop that fails it, in the verdict's colour: the toggle of the row under it that
  * says why the gate stopped where it did. Its hover says what the line shows, in the gate's figures.
  */
 export function EvidenceToggle({ g, name, open, onToggle }: { g: GateShown; name: string; open: boolean; onToggle: () => void }) {
-  const baseline = g.kind === 'baseline' && g.evidence.kind === 'baseline' ? { at: g.evidence.baseline, drop: g.drop } : null;
-  const marks = g.kind === 'sprt' ? [g.bad, g.good] : baseline ? [baseline.at - baseline.drop, baseline.at] : [];
-  const w = g.words;
+  const { bar, against, tip } = barOf(g, name);
   const id = evidenceId(name);
   // The bar is a picture: these words are what the button shows, and its name holds them.
-  const against = g.kind === 'sprt' ? `against ${rate2(g.bad)} and ${rate2(g.good)}` : 'against its baseline';
   return (
-    <button
-      type="button"
-      className="gev"
-      data-ev={id}
-      aria-expanded={open}
-      {...(open ? { 'aria-controls': id } : {})}
-      aria-label={`${open ? 'Hide' : 'Show'} why it stopped at attempt ${g.attempts}, ${against}`}
-      data-tip={w ? tipCard(`${name} · ${w.head}`, w.row ? [{ label: w.row[0], value: w.row[1], color: 'var(--faint)' }] : [], w.tip) : undefined}
-      onClick={onToggle}
-    >
-      <IntervalBar lo={g.interval.lo} hi={g.interval.hi} marks={marks} tone={toneOf(g.decision)} />
+    <button type="button" className="gev" data-ev={id} aria-expanded={open} {...(open ? { 'aria-controls': id } : {})} aria-label={`${open ? 'Hide' : 'Show'} why it stopped at attempt ${g.attempts}, ${against}`} data-tip={tip} onClick={onToggle}>
+      {bar}
       <small>{against}</small>
       <Icon name="caret" className="cr" />
     </button>
+  );
+}
+
+/** The gate's interval bar alone, as its report's Gate part draws it after the figures. */
+export const GateIntervalBar = ({ g }: { g: GateShown }) => barOf(g, '').bar;
+
+/** The bar of a golden with a report, which holds its evidence: the bar alone, with its hover, and Show report beside it opens both. */
+export function EvidenceBar({ g, name }: { g: GateShown; name: string }) {
+  const { bar, against, tip } = barOf(g, name);
+  return (
+    <span className="gev" data-tip={tip}>
+      {bar}
+      <small>{against}</small>
+    </span>
+  );
+}
+
+/** A gated golden's evidence inside its report, above it: why its gate stopped where it did, and the line between its bounds. */
+export function ReportEvidence({ g }: { g: GateShown }) {
+  const w = g.words;
+  if (!w) return null;
+  const plot = linePlot(g);
+  return (
+    <div className="gevx grpev">
+      <p className="lead">
+        {w.why}
+        {w.carriedNote}
+      </p>
+      {plot ? <EvidenceLine p={plot} w={w} tone={toneOf(g.decision)} /> : null}
+    </div>
   );
 }
 
@@ -203,13 +231,16 @@ function Attempts({ golden, at }: { golden: string; at: number | null }) {
 
 /**
  * The row under a gated golden: why its gate stopped where it did, the line between its bounds, its
- * attempts, what each attempt weighs, and for an inconclusive gate, Run more attempts, plain. A part
- * of the page of its own (a `section` with an id), so a job's end can hand the focus to it.
+ * attempts, what each attempt weighs, and for an inconclusive gate, its step, plain: Run more
+ * attempts, or Run tests where its checks changed since (`step`, the server's), as more attempts
+ * would judge checks the config no longer holds. A part of the page of its own (a `section` with an
+ * id), so a job's end can hand the focus to it.
  */
-export function EvidenceRow({ row, g, span, press, inc }: { row: GoldenRow; g: GateShown; span: number; press: LeadPress | undefined; inc: InconclusiveView | undefined }) {
+export function EvidenceRow({ row, g, span, press, inc, step }: { row: GoldenRow; g: GateShown; span: number; press: LeadPress | undefined; inc: InconclusiveView | undefined; step: NextStep | null }) {
   const w = g.words;
   const plot = linePlot(g);
-  const more = inc?.gate?.more;
+  const stale = inc && step?.key === 'run-tests' ? step : null;
+  const more = stale ? null : inc?.gate?.more;
   return (
     <tr className="sub gevrow still">
       <td colSpan={span}>
@@ -223,6 +254,13 @@ export function EvidenceRow({ row, g, span, press, inc }: { row: GoldenRow; g: G
           {w && plot ? <EvidenceLine p={plot} w={w} tone={toneOf(g.decision)} /> : null}
           <Attempts golden={row.path} at={row.last.at} />
           {w ? <p className="receipt">{glossed([w.step, w.passK ? `pass^5 ${w.passK}` : '', w.forked, w.provider].filter(Boolean).join(' · '))}</p> : null}
+          {stale && press?.runTests ? (
+            <div className="actions gevact">
+              <JobButton className="btn" why={press.wait('run the tests')} {...press.runTests} sub={stale.sub}>
+                {stale.label}
+              </JobButton>
+            </div>
+          ) : null}
           {more && inc && press ? (
             <div className="actions gevact">
               <JobButton className="btn" why={press.wait('run the tests')} {...testsJob(moreCard(more), goldenPrice(press.prices, inc.golden, 'more'), (e) => press.onMore(inc, e))}>

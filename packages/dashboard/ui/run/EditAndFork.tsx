@@ -5,7 +5,7 @@ import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { tipEst } from '../components/JobButton.js';
-import { onShow } from '../components/OnShow.js';
+import { useServedParts } from '../served-parts.js';
 import { heldRunEstimates } from './estimates.js';
 
 /**
@@ -26,11 +26,10 @@ export function overrideAction(detail: Pick<CallDetail, 'actions'>): ActionItem 
   return detail.actions.find((a) => a.key === 'o' || a.key === 'u') ?? null;
 }
 
-/** Its dialog, which a run's page rarely opens: a part of its own, as Find breaking commit's and Delete run's are (OnShow.tsx). */
-const EditDialog = onShow(() => import('./EditDialog.js').then((m) => m.EditDialog));
-
 export function EditAndFork({ runId, detail, live }: { runId: string; detail: CallDetail; live: boolean }) {
   const app = useApp();
+  // Its dialog, which a run's page rarely opens: a part the served entry hands in, as Find breaking commit's is (OnShow.tsx). A copy draws none of this.
+  const { EditDialog } = useServedParts();
   const [open, setOpen] = useState(false);
   const [consent, setConsent] = useState<{ fields: Record<string, unknown>; why: string; confirm: string } | null>(null);
   const action = overrideAction(detail);
@@ -52,7 +51,7 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
       <ActionButton className="linkbtn" why={off} tip="Edit and fork" sub="Fork with this result edited: every call before it replays" est={held ? tipEst(held.actions[action.key] ?? null, true) : null} onClick={() => app.guard(() => setOpen(true))}>
         Edit and fork…
       </ActionButton>
-      {open ? <EditDialog runId={runId} detail={detail} action={action} onFork={start} onClose={() => setOpen(false)} /> : null}
+      {open && EditDialog ? <EditDialog runId={runId} detail={detail} action={action} onFork={start} onClose={() => setOpen(false)} /> : null}
       {consent ? (
         <ConsentDialog why={consent.why} ok="Run command" onClose={() => setConsent(null)} onOk={() => app.guard(() => void start({ ...consent.fields, yes: consent.confirm }))} />
       ) : null}

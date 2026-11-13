@@ -196,6 +196,29 @@ describe('what each colour may mean', () => {
     ]);
   });
 
+  it('tags an untrusted read as its effect is tagged, never in a consequence colour, and marks an injection test in the colours of what it found', () => {
+    // Where a read's text came from is a fact of the call, not a finding: dim, one step brighter than its effect's faint.
+    expect(value('.eff.untrusted', 'color')).toBe('var(--dim)');
+    expect(value('.eff', 'color')).toBe('var(--faint)');
+    // The canary, wherever the inspector marks it, is what got out: the one red, on a tint of it.
+    expect(value('mark.cnry', 'color')).toBe('var(--cq-red)');
+    expect(value('mark.cnry', 'background')).toBe('color-mix(in srgb, var(--cq-red) 16%, transparent)');
+    expect(value('.cnry', 'color')).toBe('var(--cq-red)');
+    // The planted text is the planted origin's violet, as the turn it changed is: an override, not a failure.
+    expect(value('mark.ins-plant', 'color')).toBe('var(--o-over)');
+    expect(value('mark.ins-plant', 'background')).toBe('color-mix(in srgb, var(--o-over) 14%, transparent)');
+    expect(value('.msg.changed.ov .chg', 'color')).toBe('var(--o-over)');
+    // An attempt that ignored it, and a plant's clean replays, are muted: they showed nothing to look at.
+    expect(value('.astrip .ac.mu', 'background')).toBe('var(--cq-muted-fill)');
+    // The Security report's example mask reads as a diff does: the value struck through in the removed colour, its mask in the added one.
+    expect(value('.injmask .del', 'color')).toBe('var(--del)');
+    expect(value('.injmask .add', 'color')).toBe('var(--add)');
+    // A golden's injection gate is one of its checks (`.ck.injck`), its mark in a check's colours, a hairline above it.
+    for (const [status, colour] of [['passed', 'var(--ok)'], ['failed', 'var(--err)'], ['inconclusive', 'var(--warn)']] as const) expect(value(`table.gt .chk .ck.${status} .cm`, 'color'), status).toBe(colour);
+    expect(value('table.gt .chk .ck.injck', 'border-top')).toBe('1px solid var(--line)');
+    expect(value('table.gt .chk .ck.injck', 'color')).toBeNull();
+  });
+
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
     expect(value('.tchip.s em', 'color')).toBe('var(--o-stub)');
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');
@@ -264,6 +287,7 @@ describe('lime', () => {
     '.attempts span i': 'an attempt that passed',
     '.attempts a i': 'an attempt that passed',
     '.st.ok i': 'a run that came out well',
+    '.banner.jv .jvw b.ok': 'a judge’s verdict on the run that passed: its ✓',
     '.evl .ed.end.ok': 'the last point of a gate’s evidence line that passed',
     '.st.ok': 'a status that passed: its word, in passed’s colour as its dot is',
     '.vw.ok': 'a verdict line’s word: passed',
@@ -277,6 +301,7 @@ describe('lime', () => {
     'td.hist i.meter.pass b': 'a golden that passed at a revision: the share of its attempts that passed',
     '.gtw .gstrip i.meter.pass': 'a golden that passed at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.passed .cm': 'a check that passed',
+    '.rpck .ck.passed .cm': 'a check that passed, in a golden’s report as in its row',
     '.checks': 'a fork’s checks, passed',
     '.callrow .ok .cn': 'a probe that rescued the run',
     '.callrow .ok .pl': 'a probe that rescued the run',
@@ -297,6 +322,8 @@ describe('lime', () => {
     '.dsv.ok b': 'a preview’s run that verify kept passing or fixed: its word',
     '.dlead .dlv.ok b': 'an opened cell’s run that verify kept passing or fixed: its word',
     '.djudge b.ok': 'a judge check that passed',
+    '.prc-g li.pass i': 'the pull request comment’s mark, drawn, of a golden that passed',
+    '.prc-i.pass i': 'the pull request comment’s mark, drawn, of an injection gate that passed',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -377,6 +404,7 @@ describe('amber', () => {
     'td.hist i.meter.inc b': 'a golden inconclusive at a revision: the share of its attempts that passed',
     '.gtw .gstrip i.meter.inc': 'a golden inconclusive at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.inconclusive .cm': 'a check that couldn’t decide',
+    '.rpck .ck.inconclusive .cm': 'a check that couldn’t decide, in a golden’s report as in its row',
     'table.gt td.glast .gpre.warn': 'a golden whose last test needs a look',
     'pre.report .y': 'a report’s inconclusive line',
     '.drawer .st2.warn': 'a job that ended needing a look',
@@ -414,6 +442,7 @@ describe('amber', () => {
     '.cb-units li.bad .cb-ul code': 'a rule the check builder refuses, in the engine’s words: Save waits until it is fixed',
     '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',
+    '.cb-row.y .cb-d': 'a fix’s run the check being built would change for it: a failing run it passes, a good one it fails, or one it can’t settle',
     '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
     'i.dg.s': 'a preview key’s swatch for a change of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
     'i.dg.jw': 'a preview key’s swatch for a step that waits on a judge: its ring',
@@ -428,6 +457,11 @@ describe('amber', () => {
     '.drk.q2': 'a change of rank 2’s label: a look',
     '.dside.q2': 'an opened cell’s decision now, of rank 2: its edge, a look',
     '.djudge b.y': 'a judge check that couldn’t decide',
+    '.prc b.inc': 'the pull request comment’s decisions, drawn, where only reads or text changed or no step was asked: their mark, a look',
+    '.prc-g li.inc i': 'the pull request comment’s mark, drawn, of a golden that couldn’t decide',
+    '.prc-i.inc i': 'the pull request comment’s mark, drawn, of an injection gate that couldn’t decide',
+    '.prc-rk.r2': 'a step of rank 2’s label in the pull request comment’s decisions: a look, as the design ranks them',
+    '.vdflag': 'a session whose pull request merged though it failed or couldn’t decide',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {

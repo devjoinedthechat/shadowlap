@@ -83,7 +83,7 @@ describe('a row’s words', () => {
   });
 
   it('cards each lead as the fix’s page does, reads the fix only for a dialog that shows it, and says why one waits', () => {
-    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame r --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null };
+    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame r --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
     const repair: FixLead = { key: 'repair', label: 'Run repair', command: 'shadowlap repair --fixes label:x', use: 'writes', repairer: null };
     const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'v1', max: 80, attempts: 20 };
     const apply: FixLead = { key: 'apply', label: 'Finish applying', command: 'shadowlap fix apply fx-a', use: 'writes', pending: 'the goldens weren’t re-recorded' };
@@ -439,7 +439,7 @@ describe('the Fixes list', () => {
     const a = opened('send_email');
     const b = opened('escalate');
     const c = opened('lookup');
-    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: `shadowlap blame ${a.run} --again`, use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null };
+    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: `shadowlap blame ${a.run} --again`, use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
     const repair: FixLead = { key: 'repair', label: 'Run repair', command: 'shadowlap repair --fixes label:escalate', use: 'writes', repairer: null };
     const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'verify-1', max: 80, attempts: 20 };
     const stand = app({ leads: { [a.fixId]: again, [b.fixId]: repair, [c.fixId]: more } });

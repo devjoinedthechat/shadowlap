@@ -1,4 +1,4 @@
-import { agentCallsOf, FixIdError, fixRecords, pathOf, resolveFix, type StoredBlame, type StoreOf } from '@shadowlap/engine';
+import { agentCallsOf, FixIdError, fixRecords, pathOf, resolveFix, shownBlame, type StoreOf } from '@shadowlap/engine';
 import { links } from './links.js';
 
 /**
@@ -81,11 +81,6 @@ export function groupAttempts(store: StoreOf<'recording'>, attempts: readonly At
   return { groups: [...groups.values()].sort((x, y) => y.count - x.count || ORDER[x.verdict] - ORDER[y.verdict]), cut: attempts.length > MAX_ATTEMPTS };
 }
 
-/** The blame a fix's Blame step shows: the latest that found where a run was lost, else the latest. */
-function shownBlame(blames: readonly StoredBlame[]): StoredBlame | null {
-  return [...blames].reverse().find((b) => b.outcome === 'blamed') ?? blames.at(-1) ?? null;
-}
-
 /** The attempts of a fix's blame and verifies, grouped by what each did; null for no such fix. */
 export function fixAttemptGroups(store: StoreOf<'recording' | 'fixes'>, idOrPrefix: string): FixAttemptGroups | null {
   let fix;
@@ -103,7 +98,7 @@ export function fixAttemptGroups(store: StoreOf<'recording' | 'fixes'>, idOrPref
     cut ||= g.cut;
     return g.groups;
   };
-  const b = shownBlame(rec.blames);
+  const b = shownBlame(rec);
   const blame = b ? { blameId: b.blameId, probes: b.report.probes.map((p) => ({ callNo: p.callNo, attempts: p.attempts.length, groups: grouped(p.attempts.map((a) => ({ ...a, forkedAt: p.callNo }))) })) } : null;
   const verify = [...rec.verdicts].reverse().map((v) => ({
     verifyId: v.verifyId,

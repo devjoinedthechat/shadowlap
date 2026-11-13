@@ -1,9 +1,10 @@
-import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, GATE_TOO_LITTLE, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
-import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
+import { addedTimes, changedReason, checksChanged, checksNow, goldenChecks, heldVerdict, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
+import { causeOf, divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -34,10 +35,14 @@ export interface GoldenSource {
   checks: string[];
   /** Its tests entry gives it an injection test, which `shadowlap test` runs live from each planted payload. */
   injection?: boolean;
+  /** That injection gate, as parsed with its defaults (the CLI's goldenMode): Tests shows it among the golden's checks. */
+  injectionGate?: InjectionEntry | null;
   /** The models of its judge checks, which a golden that forks asks live. */
   judges?: string[];
   /** Why the pack can't be read, when it can't. */
   error?: string | null;
+  /** Set where the config's tests couldn't be read (a file mid-edit): `checks` is then empty for want of a read, so nothing says they changed since (`checksNow`). */
+  checksUnread?: boolean;
 }
 
 /** How a golden came out: passed, failed, or inconclusive (its gate ran out of attempts between its bounds, or a check couldn't be judged). */
@@ -171,43 +176,9 @@ export interface TestsVerdict {
 
 export type { FollowedGolden, HistoryCell, HistoryDrop, RevisionFact, SessionFollowing } from './tests-history.js';
 
-/**
- * One of a golden's checks, with how its last result came out on it: what the table marks it by
- * (✓ passed, ✗ failed, ? inconclusive, – not applicable, and no mark without one).
- */
-export interface GoldenCheck {
-  /** As the CLI labels it. */
-  label: string;
-  /**
-   * Its status in the last result, in the attempt that result shows; null when the golden hasn't run
-   * yet, when its last test couldn't run it, or when the check was `added` since.
-   */
-  status: CheckStatus | null;
-  /**
-   * No status because the check is newer than the last result: that result judged the checks the
-   * golden had then, and this one wasn't among them (added to the config since, or changed, which
-   * reads as a new check). Its next test judges it.
-   */
-  added: boolean;
-  /** The result's words for it: what it found when it failed, why it couldn't be decided or didn't apply. */
-  detail: string | null;
-  /** A judge check: its reason for the verdict, and where the verdict came from (the recording, or the judge asked live). */
-  reason: string | null;
-  source: 'recording' | 'live' | null;
-  /**
-   * A judge check whose verdict was asked live: what asking it cost (USD) and in how many attempts it
-   * was asked, from the result's judge summary when it is the result's only judge check, else in the
-   * attempt shown for a result of one attempt. Null for a verdict from the recording (free), for a
-   * judge model with no price, and for any other check.
-   */
-  live: { cost: number; asked: number } | null;
-  /**
-   * A golden run more than once in its last result: of the attempts that judged this check, how many
-   * passed it. Null for one attempt, when an attempt's run is no longer in the store, or when the
-   * result carried attempts over from an earlier session (`test --continue`), whose runs pruning thins.
-   */
-  attempts: { passed: number; of: number } | null;
-}
+export type { ChangedCheck, GoldenCheck } from './tests-checks.js';
+/** Whether a result was judged by the checks a golden has now: the engine's rule, under the name this module's callers use. */
+export { underChecks };
 
 export interface GoldenRow {
   path: string;
@@ -228,6 +199,8 @@ export interface GoldenRow {
   checks: string[];
   /** Each of `checks`, in their order, with how its last result came out on it. */
   checkResults: GoldenCheck[];
+  /** The checks its last result failed or couldn't decide that its checks no longer hold, when that result failed or was undecided by them (tests-checks.ts); null for none. */
+  changed: ChangedCheck[] | null;
   /** It has an injection test, which runs live, so CI needs the providers' keys for it whatever its mode. */
   injection: boolean;
   history: HistoryCell[];
@@ -273,8 +246,6 @@ export interface DivergenceView {
   callNo: number;
   kind: string;
   callName: string;
-  /** The report as `shadowlap test` printed it. */
-  text: string;
   /**
    * The value that changes every run, and the normalizer that masks it, when that is what diverged.
    * `certain` false: an id that may be a real change (another customer, another order), not known to
@@ -334,7 +305,7 @@ export interface BisectRange {
   live: boolean;
 }
 
-/** A golden that failed for another reason: a check, an exit, no calls. As `test --markdown` prints it. */
+/** A golden that failed for another reason: a check, an exit, no calls. */
 export interface FailureView {
   golden: string;
   name: string;
@@ -343,9 +314,6 @@ export interface FailureView {
   reason: string;
   /** Its checks as the result kept them, each with its status (passed, failed, inconclusive, not-applicable) since results had one. */
   checks: StoredCheck[] | null;
-  details: string | null;
-  /** The last lines the agent printed, as `test --markdown` shows them; null when none were kept. */
-  output: string | null;
   /**
    * A live call: the connections the network guard blocked during the failing replay (`host:port`).
    * They bypassed Shadowlap, so CI, replaying offline, refused them. Null when it blocked none.
@@ -367,7 +335,6 @@ export interface InconclusiveView {
   reason: string;
   /** Its checks as the result kept them, each with its status (passed, failed, inconclusive, not-applicable) since results had one. */
   checks: StoredCheck[] | null;
-  details: string | null;
   /** What its gate decided; null when a check couldn't be judged, or its injection gate showed too little to say, instead. */
   gate: GateResultView | null;
   /** `injection` when its injection gate is what is inconclusive. */
@@ -485,7 +452,7 @@ export const unreadable = (g: GoldenSource): string | null => (optionLike(g.path
 /** A word as a shell reads it: a plain path stays as it is; a pattern (`goldens/*`), which the CLI expands itself, and a path with a space are quoted. */
 const ciWord = (s: string) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
-function nameOf(path: string, folder: string): string {
+export function nameOf(path: string, folder: string): string {
   return path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path;
 }
 
@@ -545,12 +512,9 @@ const UNGUARDED = /^The network guard could not watch every process of the agent
 export function shortReason(r: TestResult): string {
   if (r.ok) return 'passed';
   // Its gate ran out of attempts; else a check could not be judged (which stops a gate before it decides), or its injection gate showed too little.
-  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? 'inconclusive: its injection test showed too little to say' : 'inconclusive: a check could not be judged';
+  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? `inconclusive: ${GATE_TOO_LITTLE}` : 'inconclusive: a check could not be judged';
   const reason = r.reason ?? 'failed';
-  if (r.failure === 'diverged') {
-    const d = r.data?.divergence;
-    return d ? `diverged at call ${d.callNo}` : reason.replace(/\s*\(.*\)$/, '');
-  }
+  if (r.failure === 'diverged') return r.data?.divergence ? `diverged at call ${r.data.divergence.callNo}` : reason.replace(/\s*\(.*\)$/, '');
   if (r.failure === 'check') return reason.replace(/, but .*$/, '');
   if (r.failure === 'exit') return /exited with code \d+/.exec(reason)?.[0] ?? reason.replace(/^the agent /, '');
   if (r.failure === 'no-calls') return 'made no calls';
@@ -565,32 +529,25 @@ export function shortReason(r: TestResult): string {
 /**
  * The verdict's reason after the name: `shortReason`'s, but for a failed check its gate decided
  * (`failed its gate`, `failed against its own history`), one over several attempts (`failed its
- * check`), and a judge check a replay couldn't judge offline.
+ * check`), a failed injection gate (`failed its injection gate`), and a judge check a replay couldn't
+ * judge offline.
  */
-function leadReason(r: TestResult): string {
+function leadReason(r: TestResult, checks: readonly string[] | null): string {
   const gate = r.data?.gate;
-  if (r.failure === 'check' && gate && gate.decision !== 'continue') return gate.kind === 'baseline' ? 'failed against its own history' : 'failed its gate';
-  if (r.failure === 'check' && (r.data?.attempts?.total ?? 1) > 1) return 'failed its check';
+  const gated = r.failure === 'check' && gate && gate.decision !== 'continue' ? (gate.kind === 'baseline' ? 'failed against its own history' : 'failed its gate') : null;
+  // A golden whose checks changed since: its base, as the failed check's own words no longer apply.
+  if (checks && checksChanged(r, checks)) return changedReason(r, gated);
+  if (gated || (r.failure === 'check' && (r.data?.attempts?.total ?? 1) > 1)) return gated ?? 'failed its check';
+  if (r.failure === 'injection' && r.data?.injection?.verdict === 'failed') return 'failed its injection gate';
   return unjudgedOffline(r) ? 'inconclusive: its judge check wasn’t judged offline' : shortReason(r);
 }
 
 /** The verdict's line: the tally first wherever a golden leads or one wasn't tested, then the golden that leads and what wasn't tested; else that they all pass ("All 1 goldens pass" isn't English). */
-function verdictTitle(c: { first: TestResult | null; passing: number; total: number; notRun: number; presetsOnly: number }, folder: string): string {
+function verdictTitle(c: { first: TestResult | null; goldens: readonly GoldenSource[]; passing: number; total: number; notRun: number; presetsOnly: number }, folder: string): string {
   if (!c.first && !c.notRun && !c.presetsOnly) return c.total === 1 ? 'The golden passes' : `All ${c.total} goldens pass`;
   const goldens = (n: number) => `${n} golden${n === 1 ? '' : 's'}`;
-  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first)}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
+  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first, checksNow(c.goldens.find((g) => g.path === c.first!.golden)))}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
   return parts.filter(Boolean).join(' · ');
-}
-
-/**
- * The change that made a stored divergence diverge: the first one the normalizers in force did not
- * mask, as the CLI kept it (`cause`); for a result kept before it did, the first one `normalizers`
- * (the config's now) leave unmasked. The report lists the masked changes too.
- */
-function causeOf(r: TestResult, d: DivergenceReport, normalizers: readonly Normalizer[]): string | null {
-  const kept = r.data?.divergence?.cause;
-  if (kept !== undefined) return kept;
-  return (d.diff ?? []).find((e) => !maskedChange(e, normalizers, d))?.path ?? null;
 }
 
 /**
@@ -717,88 +674,6 @@ function moreAttempts(g: GateResult, golden: string, perAttempt: number | null):
 const runIfKept = (store: StoreOf<'recording'>, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
 
 /**
- * For a result of more than one attempt: of the attempts that judged each check (it passed, failed or
- * couldn't be decided there), how many passed it, by label. Each attempt's run keeps its checks. Null
- * for a single attempt, when a run is gone, or for a result that carried attempts over from an earlier
- * session (`test --continue`): its `attempts` are this session's alone, and pruning keeps only some of
- * the carried ones' runs. A tally missing an attempt would claim too much.
- */
-function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, { passed: number; of: number }> | null {
-  const runs = r.data?.attempts?.runs ?? [];
-  if (runs.length < 2 || r.data?.continued) return null;
-  const out = new Map<string, { passed: number; of: number }>();
-  for (const id of runs) {
-    const run = store.getRun(id);
-    if (!run) return null;
-    const seen = new Set<string>();
-    for (const c of run.meta?.checks ?? []) {
-      // A label once per attempt; a check that did not apply there says nothing either way.
-      if (seen.has(c.label)) continue;
-      seen.add(c.label);
-      const status = checkStatus(c);
-      if (status === 'not-applicable') continue;
-      const t = out.get(c.label) ?? { passed: 0, of: 0 };
-      t.of++;
-      if (status === 'passed') t.passed++;
-      out.set(c.label, t);
-    }
-  }
-  return out;
-}
-
-/**
- * What asking a judge check's verdict live cost, and in how many attempts it was asked: the result's
- * judge summary (every attempt) when this is the result's only judge check and every judge model in it
- * has a price; else, for a result of one attempt, the check's own call. Null for a verdict from the
- * recording, which is free, and when the cost isn't known.
- */
-function judgeLive(r: TestResult, c: StoredCheck): GoldenCheck['live'] {
-  if (c.source !== 'live' || !c.judge) return null;
-  const s = r.data?.judge;
-  const judges = (r.data?.checks ?? []).filter((x) => x.judge).length;
-  if (s && judges === 1 && s.live > 0 && !s.unknownModels.length) return { cost: s.spent, asked: s.live };
-  return (r.data?.attempts?.total ?? 1) <= 1 && c.judge.cost !== null ? { cost: c.judge.cost, asked: 1 } : null;
-}
-
-/**
- * A golden's checks with how its last result came out on each: the status the attempt it shows kept
- * for it (the CLI judges a diverged replay's checks too, and fails what it didn't do), where a judge's
- * verdict came from and what asking it live cost, and over several attempts, how many passed it. A
- * check the result didn't judge has no status, as none has before the golden's first result: one added
- * since (the result judged the golden's checks of then), or one whose golden couldn't run.
- */
-function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r: TestResult | null): GoldenCheck[] {
-  const kept = r?.data?.checks ?? [];
-  // The golden ran, and its checks of then were judged (none, if it had none): a check it lacks is newer.
-  const ran = !!r && (r.data?.checks !== undefined || r.data?.calls !== undefined);
-  const used = new Set<number>();
-  const tallies = r && labels.length ? checkTallies(store, r) : null;
-  return labels.map((label) => {
-    const i = kept.findIndex((c, j) => !used.has(j) && c.label === label);
-    if (i < 0) return { label, status: null, added: ran, detail: null, reason: null, source: null, live: null, attempts: null };
-    used.add(i);
-    const c = kept[i]!;
-    const tally = tallies?.get(label);
-    return { label, status: checkStatus(c), added: false, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeLive(r!, c), attempts: tally && tally.of > 1 ? tally : null };
-  });
-}
-
-/**
- * What a golden's pack holds for a judge check its test couldn't decide, read from the CLI's words for
- * why (`whyNotAnswered` in the CLI's judge.ts): no verdict, one given to an older form of the judge's
- * request, or one given on other material, with where it differs. Null for any other reason.
- */
-function heldVerdict(why: string): Pick<UnjudgedCheck, 'held' | 'changed'> {
-  const w = why.replace(/^not judged: /, '');
-  if (w.startsWith('no recorded verdict')) return { held: 'none', changed: null };
-  if (w.startsWith("the recording's verdict was given to an older form of the judge's request")) return { held: 'older', changed: null };
-  // `…on other material: it read "…" where it now reads "…", and <why the judge couldn't be asked>`, the last clause without a comma.
-  const other = /^the recording's verdict was given on other material(?:: (it read [\s\S]*))?, and [^,]*$/.exec(w);
-  if (other) return { held: 'material', changed: other[1] ?? null };
-  return { held: null, changed: null };
-}
-
-/**
  * The judge check an inconclusive result couldn't decide for want of a verdict it could use, and what
  * settles it: for a golden that replays offline and replayed clean, Update golden, which asks the judge
  * once and keeps its verdict in the pack, when what the pack holds is why; for a golden that forks,
@@ -860,16 +735,6 @@ function cellNote(store: StoreOf<'recording'>, r: TestResult, checks: readonly s
 function normalizeSteps(volatile: VolatileValues, golden: string): string[][] | null {
   if (!volatile.values.length) return null;
   return [...volatile.values.map((v) => normalizeAddArgs(v.normalizer)), volatile.coversAll ? ['test', golden] : ['test', golden, '--update']];
-}
-
-/** The checks a result was judged by, as their labels in order: none when it ran without any. */
-const labelsOf = (r: TestResult): string[] => (r.data?.checks ?? []).map((c) => c.label).sort();
-
-/** Whether a result was judged by the checks a golden has now (`now`, as the CLI labels them). */
-export function underChecks(r: TestResult, now: readonly string[]): boolean {
-  const had = labelsOf(r);
-  const want = [...now].sort();
-  return had.length === want.length && had.every((label, i) => label === want[i]);
 }
 
 /**
@@ -998,16 +863,6 @@ function fullSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[])
   return { sessions, whole: whole.length ? whole : sessions };
 }
 
-/**
- * The session Tests' verdict line names (the newest that ran every golden, else the newest with a
- * result), as the screen counts it, inconclusive goldens apart; null before the first. Settings →
- * CI's line under Your workflow names it without a team store.
- */
-export function lastFullSession(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): TestsSessionView | null {
-  const shown = fullSessions(store, goldens).whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null;
-  return shown ? sessionView(store, shown) : null;
-}
-
 /** Results newest first, grouped by golden. */
 function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
   const out = new Map<string, TestResult[]>();
@@ -1038,6 +893,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
   const columns = new Set(revisions);
   const sessionIds = new Set(sessionsView.columnOf.keys());
   const columnOf = (x: TestResult) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns));
+  const added = addedTimes(store);
 
   const rows: GoldenRow[] = goldens.map((g) => {
     const list = history.get(g.path) ?? [];
@@ -1055,7 +911,8 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       modeHint: mode.hint,
       gate: gateView(g.gate),
       checks: g.checks,
-      checkResults: goldenChecks(store, g.checks, latest),
+      checkResults: goldenChecks(store, g.checks, latest, (label) => added(g.path, label)),
+      changed: checksChanged(latest, checksNow(g)),
       injection: !!g.injection,
       history: historyCells(store, list, revisions, { columnOf, columns: sessionIds, note: (r) => cellNote(store, r, g.checks, rules), runId: (r) => runIfKept(store, r.runId) }),
       last: latest
@@ -1079,7 +936,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       // Its gate ran out of attempts between its bounds; or a check, or its injection gate, is what is
       // inconclusive (an attempt a check could not decide stopped its gate, which decided nothing).
       const gate = latest.data?.gate?.decision === 'inconclusive' ? latest.data.gate : null;
-      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: gate ? row.last.gate : null, failure: latest.failure, judge: gate ? null : unjudgedCheck(row.path, row.mode, latest) });
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, gate: gate ? row.last.gate : null, failure: latest.failure, judge: gate ? null : unjudgedCheck(row.path, row.mode, latest) });
       continue;
     }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });
@@ -1099,7 +956,6 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
         callNo: d.callNo,
         kind: d.kind,
         callName: d.name,
-        text: `✗ ${row.name}: ${latest.reason ?? `diverged at call ${d.callNo}`}\n${(latest.data?.divergence?.text ?? '').split('\n').map((l) => `    ${l}`).join('\n')}`,
         volatile: shownValue(volatile),
         normalizerFixes: volatile.explainsAll,
         maybeReal: volatile.values.some((v) => !v.certain),
@@ -1116,7 +972,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       });
     } else {
       const blocked = blockedTargets(store, latest);
-      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, output: latest.data?.output ?? null, blocked: blocked.length ? blocked : null, bisect, found, missed, revisions: revisionsToOffer, unreadable: row.error });
+      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, blocked: blocked.length ? blocked : null, bisect, found, missed, revisions: revisionsToOffer, unreadable: row.error });
     }
   }
 
@@ -1143,7 +999,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       inconclusive: unsure.length,
       passing,
       untested,
-      title: verdictTitle({ first, passing, total, notRun, presetsOnly }, folder),
+      title: verdictTitle({ first, goldens, passing, total, notRun, presetsOnly }, folder),
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(store, shown),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),
@@ -1265,7 +1121,7 @@ export interface FailingTest {
   /** Where its line goes: the fix its failing run belongs to, else the failing run, else the Tests screen. */
   href: string;
   /** What the line's word says it leads to (Needs a look's "Fix →", "Run more →"): see `failingNext`. */
-  next: 'fix' | 'open' | 'run-more' | 'run-again' | 'update';
+  next: 'fix' | 'open' | 'run-more' | 'run-again' | 'update' | 'run-tests';
   /** The fix that holds the failing run, when one does. */
   fixId: string | null;
   at: number;
@@ -1281,7 +1137,8 @@ export interface FailingTest {
  * its verdict (`update`, `unjudgedOffline`). Any other reason is opened (`open`): a judge that lacked
  * a key on a golden that forks, a check that couldn't be decided for another reason.
  */
-function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSource['mode'] | null }): FailingTest['next'] {
+function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSource['mode'] | null; checks: readonly string[] | null }): FailingTest['next'] {
+  if (o.checks && checksChanged(r, o.checks)) return 'run-tests';
   if (verdictOfResult(r) !== 'inconclusive') return o.fixId ? 'fix' : 'open';
   if (gateResultView(r, r.golden)?.more) return 'run-more';
   if (r.failure === 'injection') return 'run-again';
@@ -1311,7 +1168,7 @@ export function failingTests(store: StoreOf<'recording' | 'fixes' | 'tests'>, op
       const runId = runIfKept(store, r.runId);
       const verdict = verdictOfResult(r) === 'inconclusive' ? 'inconclusive' : 'failed';
       const fixId = verdict === 'failed' && runId ? (fixOfRun(store, runId)?.fixId ?? null) : null;
-      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null });
+      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null, checks: checksNow(sources.get(r.golden)) });
       const href = fixId ? links.fixes(fixId) : verdict === 'inconclusive' ? links.tests() : runId ? links.run(runId) : links.tests();
       // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
       const gate = decidedByGate(r) ? r.data!.gate! : null;

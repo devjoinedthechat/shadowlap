@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, parseTraceback, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex, type IndexedRun } from './run-index.js';
@@ -138,10 +138,14 @@ function keepOffer(store: Store, run: RunRecord, input: RunOffersInput): RunOffe
   return row && keepable(row, run, input.dir, input.goldens ?? []) ? { folder: goldenFolder(run.runId) } : null;
 }
 
-/** Share's Security report: the newest of the run's kept injection results with a report, not one still running. */
-function securityOffer(store: Store, run: RunRecord): RunOffers['security'] {
-  const done = injectionResults(store, { runId: run.runId }).results.find((r) => !r.running);
-  return done ? { resultId: done.resultId, mode: done.mode } : null;
+/**
+ * Share's Security report: the run's newest kept test that has ended, the one its finding shows, else
+ * its newest --clean answer that has ended; none while the only one still runs.
+ */
+export function securityOffer(store: Store, run: Pick<RunRecord, 'runId'>): RunOffers['security'] {
+  const done = injectionResults(store, { runId: run.runId }).results.filter((r) => !r.running);
+  const kept = done.find((r) => r.mode === 'plant') ?? done[0];
+  return kept ? { resultId: kept.resultId, mode: kept.mode } : null;
 }
 
 function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {
@@ -284,26 +288,31 @@ export function crashed(row: Pick<IndexedRun, 'status' | 'outcome'> | null, resu
   return !!row && row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
 }
 
-/** A test replay that crashed (`crashed`, by its golden's result): what the agent printed last, and where it stopped. */
-export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
+/** A test replay's newest result for its golden, read by key, where it says the agent exited with an error (`crashed`); null for any other run. */
+export function crashResult(store: StoreOf<'tests'>, run: RunRecord): TestResult | null {
   const test = testOf(run);
   const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
-  if (!result || !crashed(null, result)) return null;
-  const line = result.data?.output?.split('\n').map((l) => l.trim()).filter(Boolean).at(-1);
+  return result && crashed(null, result) ? result : null;
+}
+
+/** A test replay that crashed (`crashResult`): the exception it died of (the engine's parseTraceback), and where it stopped. */
+export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
+  const result = crashResult(store, run);
+  if (!result) return null;
+  const line = result.data?.output ? parseTraceback(result.data.output)?.exception : null;
   if (!line) return null;
   const d = run.divergence?.type === 'ended_early' ? run.divergence : null;
   return { line, at: d?.callNo ?? null, of: d?.recorded ?? null };
 }
 
 /**
- * The commit Find breaking commit named for a test replay that crashed (`crashed`, by its golden's
- * result), by the one rule of whether an answer stands (`standingAnswer`), while no later replay of its
- * golden passed (`fixedBy`, which Runs' `fixed by <run>` reads). Null for any other run.
+ * The commit Find breaking commit named for a test replay that crashed (`crashResult`), by the one
+ * rule of whether an answer stands (`standingAnswer`), while no later replay of its golden passed
+ * (`fixedBy`, which Runs' `fixed by <run>` reads). Null for any other run.
  */
 export function crashCommit(store: StoreOf<'recording' | 'tests' | 'activity' | 'readModels'>, run: RunRecord): FoundCommit | null {
   const test = testOf(run);
-  const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
-  if (!test || !result || !crashed(null, result)) return null;
+  if (!test || !crashResult(store, run)) return null;
   const row = loadRunIndex(store).byId.get(run.runId);
   if (!row || fixedBy(store, row, (golden) => store.listTestResults({ golden, limit: GOLDEN_HISTORY }))) return null;
   return standingFound(store, test.golden);

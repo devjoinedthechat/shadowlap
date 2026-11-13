@@ -405,11 +405,9 @@ describe('uploads', () => {
       req.end();
     });
     expect(streamed).toBe(413);
-    // The refused file goes once its write stream has closed, which on a busy machine took more than
-    // two seconds: wait up to fifteen, well inside the test's own limit.
-    const left = () => readdirSync(uploadsDir()).filter((n) => n.endsWith('big.har'));
-    for (const until = Date.now() + 15_000; left().length && Date.now() < until; ) await new Promise((r) => setTimeout(r, 10));
-    expect(left()).toEqual([]);
+    // The refusal comes once the refused file is gone, however long a busy machine takes to open and
+    // close it (limits.test.ts holds both).
+    expect(readdirSync(uploadsDir()).filter((n) => n.endsWith('big.har'))).toEqual([]);
     // A JSON body past its own limit is refused too.
     expect((await api(dash, 'jobs', { method: 'POST', body: JSON.stringify({ kind: 'fake', pad: 'x'.repeat(300 * 1024) }) })).status).toBe(413);
   });

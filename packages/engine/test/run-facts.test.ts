@@ -261,14 +261,14 @@ describe('show --json', () => {
     b.tool('send_email', { to: 'team@example.com' }, 'sent', { effect: 'write', meta: { trust: 'untrusted', trustFrom: 'sdk' } });
     b.end();
     const run = store.getRun(b.runId)!;
-    // A write is no place to plant, and a read nothing marks is trusted.
+    // A write is no place to plant, and a read nothing marks is trusted. No model call follows these reads, so none reads them.
     expect(showJson(store, run).untrusted).toEqual([
-      { callNo: 1, name: 'fetch_page', from: 'sdk' },
-      { callNo: 2, name: 'web_search', from: 'mcp' },
+      { callNo: 1, name: 'fetch_page', from: 'sdk', readAt: null },
+      { callNo: 2, name: 'web_search', from: 'mcp', readAt: null },
     ]);
     expect(showJson(store, run, { tools: { read_inbox: { trust: 'untrusted' }, web_search: { trust: 'trusted' } } }).untrusted).toEqual([
-      { callNo: 1, name: 'fetch_page', from: 'sdk' },
-      { callNo: 3, name: 'read_inbox', from: 'config' },
+      { callNo: 1, name: 'fetch_page', from: 'sdk', readAt: null },
+      { callNo: 3, name: 'read_inbox', from: 'config', readAt: null },
     ]);
     store.close();
   });
