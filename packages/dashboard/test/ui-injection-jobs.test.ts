@@ -30,6 +30,7 @@ import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { errorText, type ToastAction } from '../ui/toast.js';
 import type { RunDetail, RunInjection, UntrustedView } from '../ui/types.js';
+import { ruleWords } from '../ui/components/Verdict.js';
 import { render, type Rendered } from './ui-render.js';
 import { STEP_PARTS } from './ui-served-now.js';
 
@@ -192,11 +193,11 @@ const pressed = () => r!.all('.dialog .togchips button').filter((b) => b.getAttr
 describe('Run injection test…’s dialog', () => {
   it('starts a run of nine reads from two templates, says why, and names the reads it plants in', async () => {
     await testDialog({ reads: readsOf(9), estimate: price(0.8), why: 'It stopped early' });
-    expect(r!.one('.dialog h3').textContent).toBe('Run injection test on 01K5CQ4N7G');
-    expect(r!.one('.dialog .dwarn').textContent).toBe('It stopped early');
+    expect(r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Run injection test on 01K5CQ4N7G');
+    expect(r!.one('.dialog .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('It stopped early');
     expect([count(), r!.one('.dialog .injwhy').textContent]).toEqual(['2 of 12', '· fewer to start: 9 reads multiply the cost']);
     expect(pressed()).toEqual(['system-notice', 'user-urgent']);
-    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4\u00a0get_ticket, #6\u00a0read_1, #8\u00a0read_2 and 6 more');
+    expect(r!.one('.dialog .dfacts').textContent.replace(/\u00a0/g, ' ')).toBe('Plants in#4 get_ticket, #6 read_1, #8 read_2 and 6 more');
     expect(cmd()).toContain('shadowlap injection 01K5CQ4N7G --templates system-notice,user-urgent');
   });
 
@@ -212,7 +213,7 @@ describe('Run injection test…’s dialog', () => {
     await r!.wait(300);
     expect(asked).toEqual([{ runId: RUN, payloads: 11, repeat: 1, budget: null }]);
     await r!.click(r!.byText('.dialog .linkbtn', 'None'));
-    expect([count(), ok().getAttribute('aria-disabled'), r!.one('.dialog .dcost').textContent]).toEqual(['0 of 12', 'true', 'Pick a template or add a payload file.']);
+    expect([count(), ok().getAttribute('aria-disabled'), r!.one('.dialog .dcost').textContent.replace(/\u00a0/g, ' ')]).toEqual(['0 of 12', 'true', 'Pick a template or add a payload file.']);
     await r!.click(r!.byText('.dialog .togchips button', 'user-urgent'));
     expect([pressed(), cmd()]).toEqual([['user-urgent'], '$shadowlap injection 01K5CQ4N7G --templates user-urgent']);
     await r!.click(r!.byText('.dialog .togchips button', 'system-notice'));
@@ -257,7 +258,7 @@ describe('Run injection test…’s dialog', () => {
     await r!.until('the dialog is ready', () => ok().getAttribute('aria-disabled') !== 'true');
     await r!.click(ok());
     await r!.until('the refusal stays in the dialog', () => r!.all('.dialog .dwarn').length === 1);
-    expect([r!.one('.dialog .dwarn').textContent, started]).toEqual([errorText(new Error('Another job is replaying the goldens')), []]);
+    expect([r!.one('.dialog .dwarn').textContent.replace(/\u00a0/g, ' '), started]).toEqual([errorText(new Error('Another job is replaying the goldens')), []]);
   });
 
   it('says a bill far over Spending’s threshold as its amber line, and reads the run’s reads itself where its opener has none', async () => {
@@ -265,9 +266,9 @@ describe('Run injection test…’s dialog', () => {
     const runs: string[] = [];
     await testDialog({ estimate: price(410) }, { injectionRun: async (id: string) => (runs.push(id), { untrusted: [...readsOf(2), { callNo: 30, name: 'unread', from: 'config', readAt: null }], results: [], rule: null, answers: [], cause: [], attempt: null }) });
     expect(runs).toEqual([RUN]);
-    expect(r!.one('.dialog .dwarn').textContent).toBe('≈$410 at these picks: set Stop at $ to stop it there');
+    expect(r!.one('.dialog .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('≈$410 at these picks: set Stop at $ to stop it there');
     // A read no model call reads is never planted in.
-    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4\u00a0get_ticket and #6\u00a0read_1');
+    expect(r!.one('.dialog .dfacts').textContent.replace(/\u00a0/g, ' ')).toBe('Plants in#4 get_ticket and #6 read_1');
   });
 });
 
@@ -319,7 +320,7 @@ describe('Run injection test…’s openers', () => {
     expect(JSON.parse(r.one('.trusttab .tooltest').getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4\u00a0get_ticket and #6\u00a0read_1 of refund’s recording', cmd: '$ shadowlap injection 01K5CQ4N7G' });
     await r.click(r.one('.trusttab .tooltest'));
     await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 12);
-    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent]).toEqual(['Run injection test on 01K5CQ4N7G', 'Plants in#4\u00a0get_ticket and #6\u00a0read_1']);
+    expect([r.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), r.one('.dialog .dfacts').textContent.replace(/\u00a0/g, ' ')]).toEqual(['Run injection test on 01K5CQ4N7G', 'Plants in#4 get_ticket and #6 read_1']);
   });
 });
 
@@ -478,9 +479,10 @@ describe('Find cause…', () => {
     const started = await findCause(causeView());
     await r!.until('its price', () => (link().getAttribute('data-tip') ?? '').includes('0.481'));
     await r!.click(link());
-    expect(r!.one('.dialog h3').textContent).toBe('Find cause of #28 send_email');
+    expect(r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Find cause of #28 send_email');
     expect(r!.one('.dialog header p').textContent).toContain('Replays the run with an untrusted read made neutral until the gate decides whether #28 comes back.');
-    expect(r!.one('.dialog .dfacts').textContent).toBe('Gatetells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts');
+    // The gate's rule breaks only between its figures, each kept with its words.
+    expect(r!.one('.dialog .dfacts').textContent).toBe(`Gate${ruleWords('tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts')}`);
     expect(JSON.parse(r!.one('.dialog .dfacts .dtip').getAttribute('data-tip')!)).toMatchObject({ t: 'If #28 goes away', s: 'what the read brought in caused it' });
     expect(r!.all('.dialog .injreads label').map((l) => l.textContent)).toEqual(['#4 get_ticketits result holds refunds@acme.test, which #28 sends', '#14 get_shippinguntrusted · MCP openWorldHint']);
     expect([cmd(), plain(r!.one('.dialog .dcost').textContent), ok().textContent, r!.focused().textContent]).toEqual(['$shadowlap injection 01K5CQ4N7G --clean 4 --write 28', 'At most ≈$0.481 · up to 10 attempts · live from the read, writes stubbed', 'Find cause', 'Find cause']);
@@ -495,7 +497,7 @@ describe('Find cause…', () => {
     await r!.until('its price', () => (link().getAttribute('data-tip') ?? '').includes('0.12'));
     expect([link().textContent, tip().t, tip().s, tip().cmd]).toEqual(['Test another read…', 'Test another read for #28 send_email', 'The finding has the answer: caused by #4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%). Ask of another read, or again', '$ shadowlap injection 01K5CQ4N7G --clean 14 --write 28']);
     await r!.click(link());
-    expect([r!.one('.dialog h3').textContent, ok().textContent, r!.all('.dialog input[type="radio"]').map((x) => x.checked)]).toEqual(['Test another read for #28 send_email', 'Test another read', [false, true]]);
+    expect([r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), ok().textContent, r!.all('.dialog input[type="radio"]').map((x) => x.checked)]).toEqual(['Test another read for #28 send_email', 'Test another read', [false, true]]);
   });
 
   it('asks the consent a command someone else recorded needs, sending it with the yes, and keeps any other refusal in the dialog', async () => {
@@ -509,11 +511,11 @@ describe('Find cause…', () => {
     });
     await r!.click(link());
     await r!.click(ok());
-    await r!.until('the consent', () => r!.all('.dialog').length === 1 && (r!.one('.dialog').textContent ?? '').includes('came from Langfuse'));
+    await r!.until('the consent', () => r!.all('.dialog').length === 1 && (r!.one('.dialog').textContent ?? '').replace(/\u00a0/g, ' ').includes('came from Langfuse'));
     await r!.click(ok());
     expect(started.map(([, b]) => b.yes)).toEqual([undefined, 'c1']);
     await r!.until('the refusal', () => r!.all('.dialog .dwarn').length === 1);
-    expect([r!.one('.dialog .dwarn').textContent, r!.one('.dialog h3').textContent]).toEqual([errorText(new Error('no run 01K5CQ4N7G')), 'Find cause of #28 send_email']);
+    expect([r!.one('.dialog .dwarn').textContent.replace(/\u00a0/g, ' '), r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')]).toEqual([errorText(new Error('no run 01K5CQ4N7G')), 'Find cause of #28 send_email']);
   });
 });
 
@@ -533,6 +535,8 @@ describe('Find cause’s answers as the run’s finding', () => {
     expect([f.getAttribute('class'), r.one('.bk').textContent, plain(r.one('.why').textContent)]).toEqual(['banner wrap blame', 'caused by', '#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)']);
     expect([r.one('.end a').textContent, r.one('.end a').getAttribute('href')]).toEqual(['Clean attempts →', `#/run/${RUN}/28/forks`]);
     expect(r.all('.fbody p').map((p) => plain(p.textContent))).toEqual(['not caused by #14 get_shipping · #28 send_email is gone in 0 of 3 clean attempts · rate >= 0.29 (95%)', CAUSE_RULE]);
+    // The gate's rule breaks only between its figures, each kept with its words.
+    expect(r.one('.fbody p.injrule').textContent).toBe(ruleWords(CAUSE_RULE));
     await r.click(r.one('.why .bn'));
     await r.click(r.one('.injline2 .pbn'));
     expect(picked).toEqual([4, 14]);
@@ -566,7 +570,7 @@ describe('Pack with injection gate…', () => {
 
   it('asks the golden, the templates and attempts each, the entry folded behind Show entry, both commands and each test session’s price', async () => {
     const { started, asked } = await gateDialog();
-    expect([r!.one('.dialog h3').textContent, plain(r!.one('.dialog header p').textContent)]).toEqual(['Pack 01K5CQ4N7G with injection gate?', 'Packs the run as a golden that fails while a tool call carries a planted payload’s canary. Injection tests in the docs →']);
+    expect([r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), plain(r!.one('.dialog header p > span:not([hidden])').textContent)]).toEqual(['Pack 01K5CQ4N7G with injection gate?', 'Packs the run as a golden that fails while a tool call carries a planted payload’s canary. Injection tests in the docs →']);
     expect(plain(r!.one('.dialog .dfacts').textContent)).toContain('the golden’s folder, and the entry below');
     expect(plain(r!.one('.dialog .dfacts').textContent)).toContain('Plants in#4 get_ticket');
     expect([r!.one('.dialog input[type="text"]').value, r!.one('.dialog input[type="number"]').value, count(), r!.all('.dialog .injwhy').length]).toEqual(['goldens/01k5cq4n7g', '3', '12 of 12', 0]);
@@ -607,11 +611,11 @@ describe('Pack with injection gate…', () => {
       },
     });
     await r!.click(ok());
-    await r!.until('the consent', () => (r!.one('.dialog').textContent ?? '').includes('came from Langfuse'));
+    await r!.until('the consent', () => (r!.one('.dialog').textContent ?? '').replace(/\u00a0/g, ' ').includes('came from Langfuse'));
     expect(ok().textContent).toBe('Pack with injection gate');
     await r!.click(ok());
     await r!.until('the refusal', () => r!.all('.dialog .dwarn').length === 1);
-    expect([sent.map((b) => b.yes), r!.one('.dialog .dwarn').textContent, r!.one('.dialog input[type="text"]').value]).toEqual([[undefined, 'c1'], errorText(new Error('goldens/01k5cq4n7g already holds a golden. Give this one another name')), 'goldens/01k5cq4n7g']);
+    expect([sent.map((b) => b.yes), r!.one('.dialog .dwarn').textContent.replace(/\u00a0/g, ' '), r!.one('.dialog input[type="text"]').value]).toEqual([[undefined, 'c1'], errorText(new Error('goldens/01k5cq4n7g already holds a golden. Give this one another name')), 'goldens/01k5cq4n7g']);
   });
 });
 
@@ -630,7 +634,7 @@ describe('Tests → Security', () => {
 
   it('lists each golden whose recording reads something untrusted, its reads and its last test or gate, one it can’t read too, and names the rest', async () => {
     r = await render(createElement(AppContext.Provider, { value: app({}, []) }, createElement(SecurityTable, { read: READ })));
-    expect([r.one('.panel.sec h2').textContent, r.one('.panel.sec header .sub').textContent]).toEqual(['Security', 'the untrusted reads each golden makes, where an injection test plants']);
+    expect([r.one('.panel.sec h2').textContent, r.one('.panel.sec header .sub').textContent.replace(/\u00a0/g, ' ')]).toEqual(['Security', 'the untrusted reads each golden makes, where an injection test plants']);
     expect([r.one('.panel.sec header a.more').textContent, r.one('.panel.sec header a.more').getAttribute('href')]).toEqual(['Trust on Settings → Tools', '#/settings/tools']);
     expect(r.all('table.sect thead th').map((h) => h.textContent)).toEqual(['Golden', 'Untrusted reads', 'Last test', 'Test']);
     // The reads a space apart, each whole: a screen reader hears them apart, and a narrow cell wraps between them.
@@ -662,7 +666,7 @@ describe('Tests → Security', () => {
     await r.until('the section', () => r!.all('table.sect tbody tr').length === 4);
     await act(async () => SECURITY_TEST_ASK.ask('goldens/billing'));
     await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 12);
-    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent, r.one('.dialog .cmdline').textContent]).toEqual(['Run injection test on 01K5CQ9ZZZ', 'Plants in#4\u00a0get_ticket', '$shadowlap injection goldens/billing']);
+    expect([r.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), r.one('.dialog .dfacts').textContent, r.one('.dialog .cmdline').textContent]).toEqual(['Run injection test on 01K5CQ9ZZZ', 'Plants in#4\u00a0get_ticket', '$shadowlap injection goldens/billing']);
     // A pick is priced from the golden's pack, as the store doesn't hold its recording.
     await r.click(r.all('.dialog .togchips button')[0]);
     await r.until('the price asked', () => asked.length === 1);
@@ -670,7 +674,7 @@ describe('Tests → Security', () => {
     await r.click(r.one('.dialog .dlg-cancel'));
     await r.click(r.all('table.sect .btn')[0]);
     await r.until('the dialog', () => r!.all('.dialog h3').length === 1);
-    expect([r.one('.dialog h3').textContent, reads]).toEqual(['Run injection test on 01K5CQ4N7G', 1]);
+    expect([r.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), reads]).toEqual(['Run injection test on 01K5CQ4N7G', 1]);
     await act(async () => setJobs([{ job: { id: 'j1', kind: 'injection', done: true } }] as unknown as AppState['jobs']));
     await r.until('read again', () => reads === 2);
   });

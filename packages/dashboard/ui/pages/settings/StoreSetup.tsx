@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { PageHeader } from '../../components/bits.js';
 import { CodeBox } from '../../components/CodeBox.js';
+import { Code, Command, Copy, Words } from '../../components/Copy.js';
 import { Page } from '../../components/Page.js';
 import { Skeleton } from '../../components/States.js';
 import { VerdictLine } from '../../components/VerdictLine.js';
@@ -49,9 +50,7 @@ function Step({ n, state, title, cli, children }: { n: number; state: SetupStepS
         {cli && state === 'cur' ? (
           <div className="cli">
             <span>or in a terminal</span>
-            <code>
-              <span aria-hidden="true">$</span> {cli}
-            </code>
+            <Command cmd={cli} inline prompt />
           </div>
         ) : null}
       </div>
@@ -141,15 +140,15 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
               <div className="recline ok">
                 <span className="ic" />
                 <span>
-                  Connected <code>{store.url}</code> · list, write, read and delete work
+                  Connected <Code>{store.url}</Code>{'\u00a0· '}list, write, read and delete work
                 </span>
               </div>
               {view.check && (view.check.versioning === 'off' || view.check.versioning === 'suspended') ? (
-                <p className="fieldnote warn">Versioning is off, so a run deleted or overwritten in the bucket can’t be recovered. Turn it on in the bucket’s settings; shadowlap store check says how.</p>
+                <Copy className="fieldnote warn">Versioning is off, so a run deleted or overwritten in the bucket can’t be recovered. Turn it on in the bucket’s settings; shadowlap store check says how.</Copy>
               ) : null}
             </>
           ) : (
-            <p>{CONNECT_LEAD}</p>
+            <Copy>{CONNECT_LEAD}</Copy>
           )}
           {states.connect === 'cur' ? (
             <>
@@ -180,7 +179,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
               <dl className="kvs onbkv">
                 <dt>Credentials</dt>
                 <dd className={credentials ? undefined : 'prose'}>
-                  {credentials ? credentials.uses : <span className="warnt">none found on this machine</span>} <small>{credentials ? credentials.from : `${p.hint.uses}: ${p.hint.from}`}</small>
+                  {credentials ? credentials.uses : <span className="warnt">none found on this machine</span>} <small><Words>{credentials ? credentials.from : `${p.hint.uses}: ${p.hint.from}`}</Words></small>
                 </dd>
               </dl>
               {current ? (
@@ -188,9 +187,9 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                   <summary>The access to ask your cloud admin for</summary>
                   {[current.policy.writer, current.policy.pullRequest].map((part) => (
                     <div key={part.for} className="policypart">
-                      <p className="muted">
+                      <Copy className="muted">
                         For {part.for}: {part.kind}
-                      </p>
+                      </Copy>
                       <CodeBox code={part.text} what={`the access policy for ${part.for}`} />
                     </div>
                   ))}
@@ -217,9 +216,9 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
               ) : null}
             </div>
           ) : (
-            <p>
+            <Copy>
               {num(runs)} {runs === 1 ? 'run' : 'runs'} on this machine. Push copies them to the bucket so teammates can open them. A run still recording goes when it ends.
-            </p>
+            </Copy>
           )}
           {states.push === 'cur' ? (
             <div className="actions">
@@ -235,9 +234,9 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
         </Step>
 
         <Step n={4} state={states.team} title={STEP_TITLES[3]} cli={view.commit && states.team === 'cur' ? view.commit.command : null}>
-          <p>
+          <Copy>
             Commit the project config. Anyone who pulls the commit and can read the bucket gets the team’s runs with <code>shadowlap pull</code>.
-          </p>
+          </Copy>
           {states.team !== 'todo' && view.commit ? (
             <>
               <pre tabIndex={0} className="codebox">
@@ -347,7 +346,7 @@ function StoreSetupLoading() {
       <ol className="setup storesetup">
         {STEP_TITLES.map((title, i) => (
           <Step key={title} n={i + 1} state={i === 0 ? 'cur' : 'todo'} title={title}>
-            <p>{CONNECT_LEAD}</p>
+            <Copy>{CONNECT_LEAD}</Copy>
           </Step>
         ))}
       </ol>

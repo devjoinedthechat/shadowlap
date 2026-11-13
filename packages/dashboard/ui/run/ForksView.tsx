@@ -12,6 +12,8 @@ import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 import { lineageRunLike } from './view-model.js';
 import { goldenName } from './offers.js';
 import { useOfflineLink } from '../components/ActionButton.js';
+import { Command, Words } from '../components/Copy.js';
+import { DotNodes, DotParts } from '../components/DotParts.js';
 import { byResult, testedRuns } from '../injection/fork-node.js';
 import { TestNode } from '../injection/TestNode.js';
 import { inPresets, presetSessions } from '../presets/fork-node.js';
@@ -90,8 +92,7 @@ export function ForksView({ runId }: { runId: string }) {
             {here ? <span className="chip thisrun">this run</span> : null}
           </span>
           <span className="f2 block">
-            {line.err ? <em>{line.err}</em> : null}
-            {line.text.slice(said)}
+            <FamilyLine err={line.err} text={line.text.slice(said)} />
           </span>
           {n.checks ? (
             <span className="checks">
@@ -166,6 +167,19 @@ export function ForksView({ runId }: { runId: string }) {
 }
 
 /**
+ * A run's line in its family, its parts each whole with its dot where the line holds it ("fork @17 ·",
+ * "15 replayed ·"), so it breaks only after a dot: a failed recording's word first.
+ */
+function FamilyLine({ err, text }: { err: string | null; text: string }) {
+  const lead = err ? { text: err, node: <em>{err}</em> } : null;
+  const parts = text
+    .split(' · ')
+    .filter(Boolean)
+    .map((t) => ({ text: t, node: t.length <= 44 ? t : <Words>{t}</Words> }));
+  return <DotNodes parts={lead ? [lead, ...parts] : parts} />;
+}
+
+/**
  * Attempts made together, as one node: a `--repeat`'s, or a golden's in one test session. A golden
  * with a gate says what the gate made of them, as Tests does: the verdict word, the tally and the
  * Wilson bound, then the rule, once, under it; without one, how many passed.
@@ -187,10 +201,17 @@ function Bundle({ attempts, current, title, gate = null }: { attempts: LineageNo
       {title ? <Glyph kind={word === 'failed' ? 'fail' : word === 'inconclusive' ? 'warn' : 'test'} label="Test attempts" /> : <Glyph kind="fork" label="Repeated attempts" />}
       <span>
         <span className="f1">
-          <code>{b.title}</code>
+          {title ? (
+            <code>
+              <Words>{b.title}</Words>
+            </code>
+          ) : (
+            <Command cmd={b.title} inline />
+          )}
         </span>
         <span className="f2 block">
-          {gate ? `${gate.verdict}${spent ? ` · ${approx(spent)}` : ''}` : b.line}
+          {/* "forked 5 attempts, 5 passed" may break after its comma in a narrow family */}
+          <DotParts parts={(gate ? `${gate.verdict}${spent ? ` · ${approx(spent)}` : ''}` : b.line).split(' · ')} max={24} />
           {gate?.rule ? <span className="frule">{gate.rule}</span> : null}
         </span>
         <span className="attempts">

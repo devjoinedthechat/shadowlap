@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type ModelsView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
 import { EmptyState, PageHeader, SrSpace } from '../components/bits.js';
+import { Code, Copy } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
@@ -70,11 +71,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
       <PageHeader
         eyebrow={[projectOf(meta)?.name, 'training data'].filter(Boolean).join(' · ')}
         title="Training"
-        text={
-          <>
-            <span className="ln">Answers to prefer, from attempts already in the store,</span> <span className="ln">and your goldens as tasks to score.</span>
-          </>
-        }
+        text="Answers to prefer, from attempts already in the store, and your goldens as tasks to score."
         actions={
           action?.kind === 'score' ? (
             <ScoreModelButton why={action.off} onOpen={() => guard(() => setDialog('score'))} />
@@ -132,7 +129,8 @@ function TasksTab({ view }: { view: TrainingView }) {
   // Updating a golden runs the agent from the working tree: not while a repair or an apply changes it.
   const busy = useTreeBusy('reads', 'update the golden');
   const t = view.tasks;
-  if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} command="shadowlap tasks" />;
+  // a message the server wrote, kept as written
+  if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} copy={false} command="shadowlap tasks" />;
   if (t.empty) return <TabEmpty empty={t.empty} />;
   // A task its test's early fork blocks: Update golden, off with the reason when nothing can run.
   const updateOff = actionsOff ?? busy;
@@ -154,7 +152,7 @@ function Scores({ view }: { view: TrainingView }) {
     <Section title="Scores" sub={s.sub}>
       {s.empty ? (
         <div className="pbody">
-          <p className="muted flat">{s.empty}</p>
+          <Copy className="muted flat">{s.empty}</Copy>
         </div>
       ) : (
         <>
@@ -218,7 +216,7 @@ function Scores({ view }: { view: TrainingView }) {
           </div>
         </>
       )}
-      <p className="pfootnote">{s.footnote}</p>
+      <Copy className="pfootnote">{s.footnote}</Copy>
     </Section>
   );
 }
@@ -361,9 +359,9 @@ export function TaskUpdateDialog({ name, update, estimate, busy, onClose }: { na
       onClose={onClose}
     >
       {rules && update.rerecords ? (
-        <p className="muted trnote">
-          First {rules === 1 ? 'a normalizer for' : 'normalizers for'} <code>{values}</code>, which {rules === 1 ? 'changes' : 'change'} on every run: without {rules === 1 ? 'it' : 'them'}, the next test forks there again.
-        </p>
+        <Copy className="muted trnote">
+          First {rules === 1 ? 'a normalizer for' : 'normalizers for'} <Code>{values}</Code>, which {rules === 1 ? 'changes' : 'change'} on every run: without {rules === 1 ? 'it' : 'them'}, the next test forks there again.
+        </Copy>
       ) : null}
     </Dialog>
   );

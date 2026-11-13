@@ -3,6 +3,7 @@ import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { Copy } from '../components/Copy.js';
 import type { TipEst } from '../components/HoverCard.js';
 import { tipEst } from '../components/JobButton.js';
 import type { RunEstimates } from '../estimates-api.js';
@@ -81,7 +82,9 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
       <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName, { untrusted: !!untrusted?.has(c.callNo) })}</div>
       {capture && replay ? (
         <>
-          <div className="pnote">A capture has no command. Replay it with yours first; every fork works on that replay.</div>
+          <Copy as="div" className="pnote">
+            A capture has no command. Replay it with yours first; every fork works on that replay.
+          </Copy>
           <ActionButton role="menuitem" tip={confirmWords(menuLabel(replay))} sub="Gives the capture your command; every fork works on that replay" command={`$ shadowlap replay ${shortId(runId)} -- <your command>`} onClick={() => pick(replay, null)}>
             <b>{menuLabel(replay)}</b>
             <small>replay</small>
@@ -106,7 +109,11 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
               <small>{m.flag}</small>
             </ActionButton>
           ))}
-          {menu.call.length === 0 ? <div className="pnote">Nothing forks at this call.</div> : null}
+          {menu.call.length === 0 ? (
+            <Copy as="div" className="pnote">
+              Nothing forks at this call.
+            </Copy>
+          ) : null}
           <hr />
           <div className="pk">The whole run</div>
           {menu.run.map((m) => (

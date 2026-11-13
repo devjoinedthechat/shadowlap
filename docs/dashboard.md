@@ -2770,6 +2770,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on. On a touch screen a run's checkbox takes a tap across 44 px, a caret across 32 px and a calendar day across 24 px.
 - **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
 - **On a phone**, no label is under 11 px: the small labels over titles, column heads, tags and shortcut keys rise to it. Down to 320 px wide, no page scrolls sideways.
+- **Line breaks** fall where they read at every width: a short sentence stays whole where it fits, a number keeps its unit, and a small word keeps the word after it. An id, a name or a command's argument stays whole where its line holds it, a long path breaks only after a slash, and a screen reader still reads each paragraph as one.
 - **A screen reader** hears each part a margin sets apart as its own word: a filter's name and its count, a call's kind, name and effect. Where a run's about line is drawn shorter, it hears the whole line, and it reads a command without its `$`.
 - **Headings** step down one level at a time: each page has one top heading, and its parts sit under it.
 - **With reduced motion** set, nothing moves: the live ring, a switch and the carets keep still.

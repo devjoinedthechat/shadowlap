@@ -9,6 +9,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { FILE_FORMATS, fileHead, importWords, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, OTEL_SAMPLE_NAME, phoenixProjectNote, phoenixProjectOk, pickedFormat, sampleTrace, TRACE_COPY, traceIdOk, type ImportFileFormat, type TraceSource } from './imports.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { Copy } from '../components/Copy.js';
 
 /**
  * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and its
@@ -214,8 +215,8 @@ function TracePane({ source, host, project, trace, setTrace, idOk }: { source: T
           <input spellCheck={false} autoComplete="off" placeholder={TRACE_COPY[source].id} value={trace.id} onChange={(e) => setTrace({ ...trace, id: e.target.value })} />
         </label>
       </div>
-      {trace.id.trim() && !idOk ? <p className="fieldnote err">That is not a trace id: {TRACE_COPY[source].idRule}.</p> : null}
-      {phoenixProjectNote(project) ? <p className="fieldnote err">{phoenixProjectNote(project)}</p> : null}
+      {trace.id.trim() && !idOk ? <Copy className="fieldnote err">{`That is not a trace id: ${TRACE_COPY[source].idRule}.`}</Copy> : null}
+      {phoenixProjectNote(project) ? <Copy className="fieldnote err">{phoenixProjectNote(project)}</Copy> : null}
     </div>
   );
 }

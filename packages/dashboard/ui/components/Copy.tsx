@@ -1,7 +1,7 @@
 import { Fragment, isValidElement, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { commandParts, pieceText, type CmdPiece } from '../cmdline.js';
 import { planCopy, type CopyMeasure, type CopyPlan, type CopyUnit } from '../typeset-lines.js';
-import { codePieces, inlineCodeCuts, longPieces, pathPieces, type CopyPart, type Piece } from '../typeset.js';
+import { codeCuts, codePieces, inlineCodeCuts, longPieces, pathPieces, type CopyPart, type Piece } from '../typeset.js';
 import { Id } from './Id.js';
 import { Link } from './Link.js';
 
@@ -74,10 +74,17 @@ export function blockOf(el: HTMLElement): HTMLElement {
   return el;
 }
 
-/** The width a line of a block has: its content width, never more than the window's less its margins. */
+/**
+ * The width a line of a block has: its content width to a fraction of a pixel (a sentence of 563.4px
+ * fits a line of 564), never more than the window's less its margins. The box's own width less its
+ * borders, any scrollbar and its padding; where a transform scales it (a dialog as it opens), its
+ * whole pixels, as `clientWidth` has them.
+ */
 function lineWidth(b: HTMLElement): number {
   const cs = getComputedStyle(b);
-  const w = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const box = b.getBoundingClientRect().width;
+  const outer = Math.abs(box - b.offsetWidth) < 1 ? box : b.offsetWidth;
+  const w = outer - (b.offsetWidth - b.clientWidth) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   return typeof innerWidth === 'number' && innerWidth > 0 ? Math.min(w, innerWidth - 32) : w;
 }
 
@@ -118,17 +125,17 @@ interface Box {
   fonts: number;
 }
 
-/** The font of `ref`'s element and the width of its block's lines, read once laid out and again as the width changes or the fonts load. */
-function useBox(ref: { current: HTMLElement | null }): Box | null {
+/** The font of `ref`'s element and the width of its block's lines, read once laid out and again as the width changes or the fonts load; nothing while `on` is false. */
+function useBox(ref: { current: HTMLElement | null }, on = true): Box | null {
   const [box, setBox] = useState<Box | null>(null);
   useRemeasure(
-    () => ref.current,
+    () => (on ? ref.current : null),
     (el, block, fontsLoaded) => {
       const font = fontOf(getComputedStyle(el));
       const width = lineWidth(block);
       setBox((b) => (b && !fontsLoaded && b.font === font && b.width === width ? b : { font, width, fonts: (b?.fonts ?? 0) + (fontsLoaded ? 1 : 0) }));
     },
-    [],
+    [on],
   );
   return box;
 }
@@ -162,7 +169,8 @@ function shownText(el: AnyElement): string {
   return el.type === Link && p.to ? `${own}\u00a0→` : own;
 }
 
-function textOf(n: ReactNode): string {
+/** The text a piece of copy shows, its elements read as the text they show: a dialog's lead as its description reads it. */
+export function textOf(n: ReactNode): string {
   if (typeof n === 'string' || typeof n === 'number') return String(n);
   if (Array.isArray(n)) return n.map(textOf).join('');
   return isValidElement(n) ? shownText(n as AnyElement) : '';
@@ -186,7 +194,8 @@ function partsOf(children: ReactNode): { parts: CopyPart[]; nodes: ReactNode[] }
     } else if (Array.isArray(c)) c.forEach(walk);
     else if (isValidElement(c) && c.type === Fragment) walk((c as AnyElement).props.children);
     else if (isValidElement(c)) {
-      const text = shownText(c as AnyElement);
+      // an element whose text its props don't say (a run's link, an icon) stands for a word joiner, so it is placed and drawn
+      const text = shownText(c as AnyElement) || '\u2060';
       parts.push({ atom: nodes.length, text, starts: startsSentence(c as AnyElement, text) });
       nodes.push(c);
     }
@@ -203,12 +212,12 @@ function partsOf(children: ReactNode): { parts: CopyPart[]; nodes: ReactNode[] }
  * after a dot or a hyphen (`.ts-long`: each piece nowrap, a <wbr> after it, not laid out while the
  * name is whole). `whole` where the copy around it measured it; else it measures itself.
  */
-export function LongWord({ children, whole }: { children: string; whole?: boolean | null | undefined }) {
+export function LongWord({ children, whole, pieces = longPieces(children) }: { children: string; whole?: boolean | null | undefined; pieces?: readonly string[] }) {
   const ref = useRef<HTMLElement | null>(null);
   const own = useFitsWhole(ref, children, whole === undefined || whole === null, 0.96);
   return (
     <ts-w ref={(el: HTMLElement | null) => void (ref.current = el)} className={`ts-long${(whole ?? own) ? ' whole' : ''}`}>
-      {longPieces(children).map((p, i) => (
+      {pieces.map((p, i) => (
         <Fragment key={i}>
           {i ? <wbr /> : null}
           <ts-p className="ts-seg">{p}</ts-p>
@@ -238,7 +247,7 @@ function drawOwn(plan: Pick<CopyPlan, 'text' | 'words' | 'long'>, from: number, 
           {pathPieces(word).map((p, i) => (
             <Fragment key={i}>
               {i ? <wbr /> : null}
-              <ts-w>{p}</ts-w>
+              {p.length > 20 ? <LongWord>{p}</LongWord> : <ts-w>{p}</ts-w>}
             </Fragment>
           ))}
         </Fragment>,
@@ -346,9 +355,10 @@ function useAtoms(nodes: readonly ReactNode[], block: { current: HTMLElement | n
  * its last line a third of the measure where it can. `phrases`: a dialog's lead, a row's value, a
  * card or a setup step, which also break before a phrase, and a sentence too long for its line at
  * its clauses. Longer prose (five sentences or more, or past 640 characters) keeps its flow. Data
- * never goes in it: a model's answer, a prompt, code or an id.
+ * never goes in it: a model's answer, a prompt, code or an id. `title`, the block's hover, for a
+ * line whose part would otherwise carry it as an element, kept whole.
  */
-export function Copy({ children, as: Tag = 'p', className, phrases = false }: { children: ReactNode; as?: Block; className?: string | undefined; phrases?: boolean }) {
+export function Copy({ children, as: Tag = 'p', className, phrases = false, id, title }: { children: ReactNode; as?: Block; className?: string | undefined; phrases?: boolean; id?: string | undefined; title?: string | undefined }) {
   const ref = useRef<HTMLElement | null>(null);
   const box = useBox(ref);
   const { parts, nodes } = useMemo(() => partsOf(children), [children]);
@@ -369,7 +379,7 @@ export function Copy({ children, as: Tag = 'p', className, phrases = false }: { 
   }, [parts]);
   const drawer: Drawer = { plan, atoms: placed, nodes, wrap: atoms.wrap };
   return (
-    <Tag ref={(el: HTMLElement | null) => void (ref.current = el)} className={[className, plan.wrap].filter(Boolean).join(' ') || undefined} onFocus={(e) => atoms.onFocus(e.target)}>
+    <Tag ref={(el: HTMLElement | null) => void (ref.current = el)} id={id} title={title} className={[className, plan.wrap].filter(Boolean).join(' ') || undefined} onFocus={(e) => atoms.onFocus(e.target)}>
       {plan.units ? drawUnits(drawer, plan.units) : drawRange(drawer, 0, plan.text.length)}
     </Tag>
   );
@@ -387,11 +397,35 @@ export function Words({ children, glued = true }: { children: string; glued?: bo
   return <>{drawOwn(glued ? plan : { ...plan, text: children }, 0, children.length)}</>;
 }
 
+/** A line's words as `Words` glues them where they are a string (a section's sub, a fact's words); a node as it is. */
+export const asWords = (n: ReactNode): ReactNode => (typeof n === 'string' ? <Words>{n}</Words> : n);
+
+/**
+ * A title's words, for a heading's props (a page's h1, a dialog's h3, an empty state's h2): a string
+ * glued by `Words`, which keeps names whole without measuring, and a node as it is. A title holding a
+ * long name or a path, which `Words` draws in pieces that may break, names itself as written
+ * (`aria-label`), since a screen reader reads each break as a pause.
+ */
+export function titled(title: ReactNode): { children: ReactNode; 'aria-label'?: string } {
+  if (typeof title !== 'string') return { children: title };
+  const children = <Words>{title}</Words>;
+  return planCopy([{ text: title }], null).words.some((w) => w.kind !== 'w') ? { children, 'aria-label': title } : { children };
+}
+
 // ---------------------------------------------------------------------------------------------- code
 
-/** Pieces as elements: whole ones nowrap, a place to break a <wbr>, the rest as text. */
+/** Past this many characters a piece of code kept whole may be wider than the narrowest line code sits on: a run's inspector at 320px holds 29. */
+const PIECE_ROOM = 24;
+
+/** A piece kept whole: nowrap, or, too long for a narrow line with a place to break in it, whole where its line holds it and else broken there (`LongWord`). */
+function WholePiece({ text }: { text: string }) {
+  const cuts = text.length > PIECE_ROOM ? codeCuts(text) : null;
+  return cuts && cuts.length > 1 ? <LongWord pieces={cuts}>{text}</LongWord> : <span className="nw">{text}</span>;
+}
+
+/** Pieces as elements: whole ones kept whole (`WholePiece`), a place to break a <wbr>, the rest as text. */
 function drawn(pieces: readonly Piece[]): ReactNode[] {
-  return pieces.map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <span key={i} className="nw">{p.text}</span> : p.text));
+  return pieces.map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <WholePiece key={i} text={p.text} /> : p.text));
 }
 
 /** Whether `text` fits whole on a line of the block `ref`'s element sits in (`share` of it), measured again as the block's width changes or the fonts load. */
@@ -410,8 +444,8 @@ function useFitsWhole(ref: { current: HTMLElement | null }, text: string, on: bo
 }
 
 /** Inline code's pieces: JSON as code shown as text, a phrase as a command, a path or a host in its pieces, else its text. */
-function codeBody(text: string, spaced: boolean, cuts: readonly string[] | null): ReactNode {
-  if (spaced) return /^[\s"'{[]/.test(text) ? drawn(codePieces(text)) : <CommandPieces pieces={commandParts(text)} room={null} />;
+function codeBody(text: string, spaced: boolean, cuts: readonly string[] | null, room: Room | null): ReactNode {
+  if (spaced) return /^[\s"'{[]/.test(text) ? drawn(codePieces(text)) : <CommandPieces pieces={commandParts(text)} room={room} />;
   if (!cuts) return text;
   return cuts.map((p, i) => (
     <Fragment key={i}>
@@ -434,10 +468,13 @@ export function Code({ children, className }: { children: string; className?: st
   const spaced = long && /\s/.test(children);
   const cuts = spaced ? null : inlineCodeCuts(children);
   const whole = useFitsWhole(ref, children, long);
+  // a command set inside it measures its line's room, as `Command` does, so a flag lets go of its value where the two don't fit
+  const box = useBox(ref, spaced);
+  const text = box ? widthIn(box.font) : null;
   const kind = spaced || cuts ? `ts-cb${whole ? ' whole' : ''}` : !long || whole ? 'ts-code' : null;
   return (
     <code ref={(el: HTMLElement | null) => void (ref.current = el)} className={[kind, className].filter(Boolean).join(' ') || undefined}>
-      {codeBody(children, spaced, cuts)}
+      {codeBody(children, spaced, cuts, box && text && box.width > 0 ? { width: box.width, text } : null)}
     </code>
   );
 }
@@ -529,12 +566,23 @@ export function Command({ cmd, inline = false, prompt = !inline }: { cmd: string
   return inline ? <code className="ts-cmd">{body}</code> : body;
 }
 
+/** The most characters of code shown as text that `CodeText` sets in pieces: a few lines of a tool call's arguments or an answer. */
+export const CODE_SET = 2048;
+
 /**
  * Code shown as text: a failure line, a model's tool call, a decision's step (`codePieces`). It
  * breaks at its spaces, after a comma and after a run of opening braces, a field or a call keeping
  * its number and an operator the word before it, so no line starts with `>`; a short object stays
- * whole. Never with a <wbr> before a space, which crashed Chromium in a block that balances.
+ * whole. Never with a <wbr> before a space, which crashed Chromium in a block that balances. Code
+ * past `CODE_SET` characters (a file a tool writes, a long answer) is drawn as written, one text a
+ * browser breaks where it must (`long`): set, 108 KB of a tool's input was 32,003 pieces. So is code
+ * an injection attempt's page marks (`mark`, the inspector's marks): a mark may span its pieces.
  */
-export function CodeText({ children, className }: { children: string; className?: string | undefined }) {
-  return <code className={['ts-ct', className].filter(Boolean).join(' ')}>{drawn(codePieces(children))}</code>;
+export function CodeText({ children, className, id, mark }: { children: string; className?: string | undefined; id?: string | undefined; mark?: ((text: string) => ReactNode) | undefined }) {
+  const long = children.length > CODE_SET || !!mark;
+  return (
+    <code id={id} className={['ts-ct', long ? 'long' : null, className].filter(Boolean).join(' ')}>
+      {mark ? mark(children) : long ? children : drawn(codePieces(children))}
+    </code>
+  );
 }

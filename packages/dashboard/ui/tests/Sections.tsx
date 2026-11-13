@@ -1,5 +1,6 @@
 import type { TestsView } from '../api.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { Code, Copy } from '../components/Copy.js';
 import { Link } from '../components/Link.js';
 import { Section } from '../components/Section.js';
 import { href } from '../route.js';
@@ -26,31 +27,31 @@ export function CiSections({ view }: { view: TestsView }) {
     <>
       <div className="grid2 secs">
         <Section title="In CI">
-          <p className="muted">
+          <Copy className="muted">
             {liveWords(view)} A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
-          </p>
+          </Copy>
           <CodeBox command={view.commands.ci} what="the CI command" />
           {historyGate ? (
-            <p className="muted after">
-              A gate against history needs the store kept between runs: the Action’s <code>keep-history</code> does it, or cache <code>.shadowlap/shadowlap.db</code>.
-            </p>
+            <Copy className="muted after">
+              A gate against history needs the store kept between runs: the Action’s <Code>keep-history</Code> does it, or cache <Code>.shadowlap/shadowlap.db</Code>.
+            </Copy>
           ) : null}
-          <p className="muted after">
+          <Copy className="muted after">
             On GitHub, <Link href="#/settings/ci">Settings → CI</Link> builds the whole workflow, with the pull request comment, Fix on failure and alerts.
-          </p>
+          </Copy>
         </Section>
         <Section title="Add a golden">
-          <p className="muted">Pack a run you consider correct into the repository. Redaction rules apply to the copy.</p>
+          <Copy className="muted">Pack a run you consider correct into the repository. Redaction rules apply to the copy.</Copy>
           <CodeBox command={view.commands.pack} what="the pack command" />
-          <p className="muted after">
+          <Copy className="muted after">
             A golden whose checks say what the agent must do is also a task a model can be scored on.{' '}
             <Link href={href.training('tasks')} to>
               Training tasks
             </Link>
-          </p>
+          </Copy>
         </Section>
       </div>
-      <p className="muted tfoot">{view.note}</p>
+      <Copy className="muted tfoot">{view.note}</Copy>
     </>
   );
 }

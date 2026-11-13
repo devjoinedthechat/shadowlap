@@ -201,7 +201,7 @@ describe('a run page’s Delete', () => {
     await page.until('the run back', () => !pendingHidden().has(id));
     await page.wait(10);
     expect(sent).toEqual([]);
-    expect(page.one('.toast').textContent).toContain('Restored 01M5JEQWB4');
+    expect(page.one('.toast').textContent.replace(/\u00a0/g, ' ')).toContain('Restored 01M5JEQWB4');
   });
 
   it('sends nothing after Undo, and puts the run back', async () => {

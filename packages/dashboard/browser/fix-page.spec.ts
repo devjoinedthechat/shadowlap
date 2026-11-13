@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { GLOSSARY } from '../ui/glossary.js';
-import { demoId, expectAccessible, openPage } from './dashboard.js';
+import { demoId, expectAccessible, glued, openPage } from './dashboard.js';
 
 /**
  * A fix's header in a browser, as the design's fitFixHead() fits it: wider than 1280px its buttons sit
@@ -100,7 +100,8 @@ test('a verified fix offers a check added to the golden that guards it, beside t
   await expect(link).toHaveText(/^Add check( to \S+)?…$/);
   await link.click();
   const dialog = page.locator('[role="dialog"][aria-modal="true"]');
-  await expect(dialog.locator('header h3')).toHaveText(/^Add check/);
+  // Its title set as a dialog's title is, its last two words glued: a RegExp's spaces aren't normalised as a string's are.
+  await expect(dialog.locator('header h3')).toHaveText(glued(/^Add check/));
   await expect(dialog.locator('.cb-kinds')).toBeVisible();
   await expectAccessible(page);
 });

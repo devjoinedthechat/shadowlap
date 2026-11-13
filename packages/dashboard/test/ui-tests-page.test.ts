@@ -158,28 +158,28 @@ describe('the Tests page', () => {
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
     const page = await open();
     // golden defined at its first use: its definition a hidden part of the paragraph.
-    expect(page.one('.ph p').textContent).toMatch(/^Every golden.+ CI runs, and how it did at each revision\.$/);
+    expect(page.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toMatch(/^Every golden.+ CI runs, and how it did at each revision\.$/);
     expect(all(page.one('.ph p'), '.term').map((t) => t.textContent.slice(0, 6))).toEqual(['golden']);
     expect(page.all('button').map((b) => b.textContent.trim())).not.toContain('Copy CI command');
-    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
-    expect(ci.textContent).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
+    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!;
+    expect(ci.textContent.replace(/\u00a0/g, ' ')).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
     expect(ci.textContent).not.toContain('throwaway store');
     // Settings → CI writes each part the workflow has, so the line names them.
-    expect(ci.textContent).toContain('On GitHub, Settings → CI builds the whole workflow, with the pull request comment, Fix on failure and alerts.');
+    expect(ci.textContent.replace(/\u00a0/g, ' ')).toContain('On GitHub, Settings → CI builds the whole workflow, with the pull request comment, Fix on failure and alerts.');
     expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     // In its box alone, with the box's one Copy, named by what it copies.
     expect(all(ci, 'button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy CI command']);
     // budget has a gate against history: CI must keep the store between runs.
-    expect(all(ci, 'p.muted.after')[0].textContent).toBe('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
+    expect(all(ci, 'p.muted.after')[0].textContent.replace(/\u00a0/g, ' ')).toBe('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
     expect(all(ci, 'a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Settings → CI', '#/settings/ci']]);
-    expect(page.document.body.textContent).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
+    expect(page.document.body.textContent.replace(/\u00a0/g, ' ')).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
   });
 
   it('says an injection test runs live too, and needs the keys, when a golden has one, and that a short history only warns whatever the goldens', async () => {
     // No gate against history here: the store need not be kept, and a short history still only warns.
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x.path === 'goldens/budget' ? { ...x, gate: null } : x)));
-    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
-    expect(all(ci, 'p.muted')[0].textContent).toBe('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
+    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!;
+    expect(all(ci, 'p.muted')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
     expect(ci.textContent).not.toContain('keep-history');
   });
 
@@ -189,16 +189,16 @@ describe('the Tests page', () => {
     const panel = page.all('section.gpanel').find((s) => one(s, 'h2').textContent === 'judged')!;
     expect(panel.textContent).not.toContain('a key to ask');
     // Its hint says why in one sentence; what Update golden does is its hover.
-    expect(one(panel, 'p.hintx').textContent).toBe('Its pack holds no verdict for the judge check explains-escalation, and the test replays offline.');
+    expect(one(panel, 'p.hintx').textContent.replace(/\u00a0/g, ' ')).toBe('Its pack holds no verdict for the judge check explains-escalation, and the test replays offline.');
     expect(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!.getAttribute('data-tip')).toContain('Asks the judge once, live, and keeps its verdict in the pack');
     await page.click(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!);
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
-    expect(all(dialog, 'h2, h3')[0].textContent).toBe('Update judged?');
+    expect(all(dialog, 'h2, h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Update judged?');
     expect(dialog.textContent).toContain('nothing is re-recorded');
     // No card and no Diverged list: nothing diverged, and the title names the golden.
     expect(all(dialog, '.rmp, .ondisk.first')).toHaveLength(0);
-    expect(all(dialog, '.ondisk.steps li span').map((s) => s.textContent)).toEqual(['Replayed offline, as recorded', 'Its judge asked once, live', 'Its verdict kept in the pack', 'You review the change']);
+    expect(all(dialog, '.ondisk.steps li > span').map((s) => s.textContent.replace(/\u00a0/g, ' '))).toEqual(['Replayed offline, as recorded', 'Its judge asked once, live', 'Its verdict kept in the pack', 'You review the change']);
     expect(one(dialog, '.cmdline').textContent).toBe('$shadowlap test goldens/judged --update');
     await page.click(page.byText('.dialog button', 'Update golden'));
     expect(started).toEqual([{ kind: 'test-update', fields: { golden: 'goldens/judged' } }]);
@@ -237,10 +237,10 @@ describe('the Tests page', () => {
   it('says older than your working tree, in amber, after the facts of a session that ended, and not while one runs', async () => {
     const ended = await open([], GOLDENS, (v) => ({ ...v, older: true }));
     expect(all(ended.one('.verdict.tv'), '.tstale').map((s) => s.textContent)).toEqual(['older than your working tree']);
-    expect(ended.one('.verdict.tv').textContent).toMatch(/ · \d+ upstream requests? · older than your working tree$/);
+    expect(ended.one('.verdict.tv').textContent.replace(/\u00a0/g, ' ')).toMatch(/ · \d+ upstream requests? · older than your working tree$/);
     await r!.unmount();
     const running = await open([], GOLDENS, (v) => ({ ...v, older: true, verdict: { ...v.verdict!, session: { ...v.verdict!.session, endedAt: null, live: true } } }));
-    expect(running.one('.verdict.tv').textContent).toContain('so far');
+    expect(running.one('.verdict.tv').textContent.replace(/\u00a0/g, ' ')).toContain('so far');
     expect(all(running.one('.verdict.tv'), '.tstale')).toEqual([]);
   });
 
@@ -300,11 +300,11 @@ describe('a gated golden’s evidence', () => {
     // No line between the golden's row and its evidence: the row is open while the evidence shows.
     expect(page.all('table.gt tbody tr.open').map((tr) => one(tr, 'code.gn').textContent)).toEqual(['passes']);
     const why = 'Stopped at attempt 12: the score reached +3.02, past +3.00, where it passes.';
-    expect([one(row, 'p.lead').textContent, one(row, '.evl').getAttribute('aria-label'), one(row, 'td').props.colSpan]).toEqual([why, why, 4]);
+    expect([one(row, 'p.lead').textContent.replace(/\u00a0/g, ' '), one(row, '.evl').getAttribute('aria-label'), one(row, 'td').props.colSpan]).toEqual([why, why, 4]);
     expect(all(row, '.eb').map((e) => e.textContent)).toEqual(['passes at +3.00', 'fails at −3.00']);
     expect(all(row, '.evx span').map((e) => e.textContent)).toEqual(['attempt 12']);
-    expect(one(row, 'p.receipt').textContent).toMatch(/^a pass adds 0\.25, a failure −1\.10 · pass\^5/);
-    expect(one(row, 'p.receipt').textContent).toContain('forked at call 3, each attempt live from there');
+    expect(one(row, 'p.receipt').textContent.replace(/\u00a0/g, ' ')).toMatch(/^a pass adds 0\.25, a failure −1\.10 · pass\^5/);
+    expect(one(row, 'p.receipt').textContent.replace(/\u00a0/g, ' ')).toContain('forked at call 3, each attempt live from there');
     expect(evidenceAsked).toEqual(['goldens/passes']);
     expect([page.one('button.gev:not(.grptog)').getAttribute('aria-expanded'), page.one('button.gev:not(.grptog)').getAttribute('aria-controls')]).toEqual(['true', one(row, 'section.gevx').getAttribute('id')]);
     await page.focus(one(row, '.alist a'));
@@ -364,7 +364,7 @@ describe('Tests\' states, parts and keys', () => {
     expect(late.one('.loaderr p > span:not(.st)').textContent).toBe('The goldens took longer than 10 s to read, so it was stopped');
     const empty = await drawn({});
     await empty.until('the empty state', () => empty.all('.stepempty').length === 1);
-    expect([empty.one('.stepempty h2').textContent, empty.all('.stepempty .cmdline').length]).toEqual(['No goldens yet', 1]);
+    expect([empty.one('.stepempty h2').textContent.replace(/\u00a0/g, ' '), empty.all('.stepempty .cmdline').length]).toEqual(['No goldens yet', 1]);
     const none = await drawn({ app: { runs: [] } });
     await none.until('the empty state', () => none.all('.stepempty').length === 1);
     expect(none.all('.stepempty .cmdline')).toHaveLength(0);
@@ -395,10 +395,10 @@ describe('Tests\' states, parts and keys', () => {
     g.location = { hash: '#/tests' };
     const p = (r = await render(page(started, [], undefined, { app: { runs } })));
     await p.until('the step', () => p.all('.stepempty .actions .btn.lime').length === 1);
-    expect([p.one('.stepempty .actions .btn.lime').textContent, p.one('.stepempty .cli code').textContent, p.all('.stepempty .cmdline').length]).toEqual(['Pack 01K5CQ4N7G as golden…', '$ shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', 0]);
+    expect([p.one('.stepempty .actions .btn.lime').textContent, p.one('.stepempty .cli code').textContent, p.all('.stepempty .cmdline').length]).toEqual(['Pack 01K5CQ4N7G as golden…', '$shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', 0]);
     await p.click(p.one('.stepempty .actions .btn.lime'));
     await p.until('the dialog', () => p.all('.dialog').length === 1);
-    expect(all(p.one('.dialog'), 'h2, h3')[0].textContent).toBe('Pack 01K5CQ4N7G as golden?');
+    expect(all(p.one('.dialog'), 'h2, h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Pack 01K5CQ4N7G as golden?');
     await p.click(p.byText('.dialog button', 'Pack as golden'));
     await p.until('the job', () => started.length === 1);
     expect(started).toEqual([{ kind: JOB_KINDS.keepGolden, fields: { runId: '01K5CQ4N7G0000000000000000', golden: 'goldens/01k5cq4n7g' } }]);
@@ -425,7 +425,7 @@ describe('Tests\' states, parts and keys', () => {
     expect([scope.name, items.map((i) => [i.label, i.hint])]).toEqual(['judged', [['Open run', expect.stringMatching(/^01M5H2DKE9/)], ['Update golden', 'shadowlap test goldens/judged --update']]]);
     items[1].run();
     await page.until('the dialog', () => page.all('.dialog').length === 1);
-    expect(all(page.one('.dialog'), 'h2, h3')[0].textContent).toBe('Update judged?');
+    expect(all(page.one('.dialog'), 'h2, h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Update judged?');
     // One with no run and no report has nothing to offer: ⌘K opens the whole palette, and Enter nothing.
     expect(goldenRowScope({ name: 'passes', runId: null }, () => page.one('.page') as unknown as ParentNode)).toBeNull();
   });
@@ -436,7 +436,7 @@ describe('Tests\' states, parts and keys', () => {
     const page = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix }, running: { ...v.verdict!.session, endedAt: null, live: true }, following }));
     const verdict = page.one('.verdict.tv');
     expect([one(verdict, '.vw').textContent, one(verdict, 'h2').textContent.replace(/\u00a0/g, ' '), all(verdict, '.actions').length]).toEqual(['running', 'running 3 of 4 goldens', 0]);
-    expect(one(verdict, 'p').textContent).toMatch(/ · rev d2e8a1f · just now · 1 passed, 1 failed, 1 inconclusive so far$/);
+    expect(one(verdict, 'p').textContent.replace(/\u00a0/g, ' ')).toMatch(/ · rev d2e8a1f · just now · 1 passed, 1 failed, 1 inconclusive so far$/);
     const rows = page.all('table.gt tbody tr[data-rowkey]').map((tr) => [one(tr, 'code.gn').textContent, all(tr, 'td.glast > .st').map((x) => `${x.className}: ${x.textContent}`)[0], all(tr, 'td.glast > .rsub')[0]?.textContent, one(tr, '.glastw').hasAttribute('hidden')]);
     expect(rows).toEqual([
       ['passes', 'st ok: passed', 'this session, just now', true],

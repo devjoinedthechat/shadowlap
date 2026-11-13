@@ -1,6 +1,8 @@
 import { Fragment, type ReactNode } from 'react';
 import { JUDGE_ASKED } from '../../../engine/src/checks/labels.js';
+import { titled, Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
+import { headingRef } from '../focus-manager.js';
 import { judgeRows } from '../judge-rows.js';
 import type { FixRow } from '../types.js';
 import { failedMust, flagParts, wholeParts } from './model.js';
@@ -54,6 +56,38 @@ export function Whole({ text, tip = null }: { text: string; tip?: string | null 
   );
 }
 
+/** A title's last clause from its conjunction on (`before the refund was issued`), as the mock's `clauseHtml` finds it. */
+const CLAUSE = / ((?:before|after|when|while|until|unless|because|once|since) \S.*)$/;
+
+/**
+ * A fix's title as `titled` sets it, its last clause from a conjunction kept whole where its line
+ * holds it (`.clause`), so a narrow heading breaks before the conjunction, never after it.
+ */
+export function clauseTitled(title: string): { children: ReactNode; 'aria-label'?: string } {
+  const head = titled(title);
+  const m = CLAUSE.exec(title);
+  if (!m) return head;
+  const children = (
+    <>
+      <Words>{title.slice(0, m.index)}</Words>{' '}
+      <span className="clause">
+        <Words>{m[1]!}</Words>
+      </span>
+    </>
+  );
+  return { ...head, children };
+}
+
+/** A fix page's heading: its title as `clauseTitled` sets it, the page's focus target. */
+export function FixTitle({ title }: { title: string }) {
+  const head = clauseTitled(title);
+  return (
+    <h1 ref={headingRef} aria-label={head['aria-label']}>
+      {head.children}
+    </h1>
+  );
+}
+
 /** Text whose command-line flags are set as code, each kept on one line (`--stronger <model>`). */
 export function Flagged({ text }: { text: string }) {
   return (
@@ -64,7 +98,7 @@ export function Flagged({ text }: { text: string }) {
             {p.text}
           </code>
         ) : (
-          <Fragment key={i}>{p.text}</Fragment>
+          <Words key={i}>{p.text}</Words>
         ),
       )}
     </>

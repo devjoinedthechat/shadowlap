@@ -190,7 +190,7 @@ describe("a dialog's Cost line", () => {
       const r = await render(createElement(CostLine, line));
       try {
         const tip = r.one('.dcost .dtip');
-        expect(tip.textContent).toBe('live where a replay forks');
+        expect(tip.textContent.replace(/\u00a0/g, ' ')).toBe('live where a replay forks');
         expect(JSON.parse(String(tip.props['data-tip']))).toMatchObject({ t: 'A run whose replay doesn’t fork', s: 'settles in one free attempt' });
         expect((r.one('.dcost').textContent ?? '').replace(/\s+/g, ' ')).toMatch(/ · up to 80 attempts a failing run · live where a replay forks, writes stubbed$/);
       } finally {

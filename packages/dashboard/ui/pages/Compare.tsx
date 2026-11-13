@@ -3,7 +3,9 @@ import type { CompareHead } from '../../src/compare.js';
 import { ApiError, type CompareView, type RunDetail, type RunListItem } from '../api.js';
 import { ChangesHead } from '../changes/Head.js';
 import { forgetComparePair, noteComparePair } from '../changes-tab.js';
-import { CmdLine, PageHeader, Said } from '../components/bits.js';
+import { PageHeader, Said } from '../components/bits.js';
+import { CodeBox } from '../components/CodeBox.js';
+import { asWords, Code, Copy } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { Page } from '../components/Page.js';
@@ -497,7 +499,7 @@ function TheRest({ h, stopped }: { h: CompareHead | null; stopped: { why: string
       {h && stopped ? (
         <div className="cmpwait">
           <p aria-hidden="true">{words}</p>
-          <CmdLine>{stopped.command}</CmdLine>
+          <CodeBox command={stopped.command} />
         </div>
       ) : h ? (
         <p className="cmpwait" aria-hidden="true">
@@ -597,7 +599,7 @@ export function ResponseDifferences({ c }: { c: CompareView }) {
   // A call the model answered the same way in a new response is in the prefix line, not here.
   const rows = changedAnswers(c);
   if (!rows.length)
-    return <p className="cmpnote">Same request, different response: none.{first ? ` The paths differ because the request at #${first} did.` : ''}</p>;
+    return <Copy className="cmpnote">Same request, different response: none.{first ? ` The paths differ because the request at #${first} did.` : ''}</Copy>;
   return (
     <Section className="cmpresp" title="Same request, different answer" sub={answersSub(c)}>
       <div className="tscroll">
@@ -616,12 +618,12 @@ export function ResponseDifferences({ c }: { c: CompareView }) {
                 <td className="num">{r.callNo}</td>
                 <td>{callName(r.kind, r.name)}</td>
                 <td className="wrapcell">
-                  {r.detail}
-                  {/* The call a replay's flag answered: what it got instead, and the flag. */}
+                  {asWords(r.detail)}
+                  {/* The call a replay's flag answered: what it got instead, and the flag, broken only between its arguments. */}
                   {r.by ? (
                     <>
-                      {' · '}
-                      <code>{r.by}</code>
+                      {'\u00a0· '}
+                      <Code>{r.by}</Code>
                     </>
                   ) : null}
                 </td>

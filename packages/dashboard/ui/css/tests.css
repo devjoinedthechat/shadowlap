@@ -162,8 +162,7 @@ table.gt .chk .ck .cw { text-wrap: balance; }
 table.gt td.glast .rsub { font: 12px/1.5 var(--body); color: var(--faint); }
 /* Its checks changed since its last test: under the result, which stays the last test's. */
 table.gt td.glast .ckst { display: block; margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--faint); }
-table.gt td.glast code.jp { white-space: nowrap; font-size: 11px; color: var(--dim); }
-@media (max-width: 640px) { table.gt td.glast code.jp { white-space: normal; } }
+table.gt td.glast code.jp { font-size: 11px; color: var(--dim); }
 
 .gfoot, table.gt td.glast .rsub { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 

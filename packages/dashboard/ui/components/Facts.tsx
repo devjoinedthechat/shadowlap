@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { asWords } from './Copy.js';
 
 /**
  * A page's facts, under its header, in the run page's stat style (`.metrics.pfacts`): each figure
@@ -40,7 +41,7 @@ function FactItem({ f }: { f: Fact }) {
   const body = (
     <>
       <b className={f.money ? 'q' : f.tone}>{f.value}</b>
-      <span>{f.words}</span>
+      <span>{asWords(f.words)}</span>
     </>
   );
   const tip = factTip(f);

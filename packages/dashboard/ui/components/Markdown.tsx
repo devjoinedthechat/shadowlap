@@ -1,4 +1,5 @@
 import { Fragment, useId, useMemo, useState } from 'react';
+import { Code, CodeText, Words } from './Copy.js';
 import { Icon } from './Icon.js';
 
 /**
@@ -162,20 +163,37 @@ export function inlineParts(text: string): InlinePart[] {
   return out;
 }
 
-/** Text with its `code` set in code and its links as links. `breaks` lets a narrow table cell wrap JSON after its commas and colons (`breakPoints`). */
+/** An operator, a dot or an arrow kept with the word or the code before it, so no line starts with one (`<= 0.10`). */
+const heldBefore = (t: string) => t.replace(/ (?=(?:[<>]=?|!=|[·→]) )/g, '\u00a0');
+
+/**
+ * Code in a line: code holding an object or a list is code shown as text, a tool call's arguments
+ * (`CodeText`, breaking after a comma or a brace); any other is inline code (`Code`, a name whole, a
+ * command breaking only between its arguments).
+ */
+const inlineCode = (key: number, code: string) => (/[{[]/.test(code) ? <CodeText key={key}>{code}</CodeText> : <Code key={key}>{code}</Code>);
+
+/**
+ * Text with its `code` set in code (`inlineCode`) and its links as links, its words joined and kept whole as a report keeps
+ * them, never set apart by sentence. `breaks` lets a narrow table cell wrap JSON after its commas and colons (`breakPoints`).
+ */
 function Inline({ text, breaks = false }: { text: string; breaks?: boolean }) {
-  const words = (t: string) => (breaks ? breakPoints(t).map((w, i) => (i ? <Fragment key={i}><wbr />{w}</Fragment> : <Fragment key={i}>{w}</Fragment>)) : t);
+  const words = (t: string) => breakPoints(heldBefore(t)).map((w, i) => (i ? <Fragment key={i}><wbr />{w}</Fragment> : <Fragment key={i}>{w}</Fragment>));
   return (
     <>
       {inlineParts(text).map((p, i) =>
         p.code ? (
-          <code key={i}>{words(p.text)}</code>
+          breaks ? (
+            <code key={i}>{words(p.text)}</code>
+          ) : (
+            inlineCode(i, p.text)
+          )
         ) : p.href ? (
           <a key={i} href={p.href} target="_blank" rel="noopener noreferrer">
             {p.text}
           </a>
         ) : (
-          <span key={i}>{words(p.text)}</span>
+          <span key={i}>{breaks ? words(p.text) : <Words>{heldBefore(p.text)}</Words>}</span>
         ),
       )}
     </>

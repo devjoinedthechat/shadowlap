@@ -96,7 +96,7 @@ const KEY = '3f9a2c1d00112233';
 const GONE = 'aaaa0000bbbb1111';
 const SAME = 'cccc2222dddd3333';
 const RUN = '01M3S1C7QDZ3W8X2V6B9TDRM4P';
-const WHY = "python agent.py doesn't reproduce 01M3S1C7QD: diverged at call 11 (api POST /v1/messages), where the agent sends something else now";
+const WHY = "python agent.py A-1077 doesn't reproduce 01M3S1C7QD: diverged at call 11 (api POST /v1/messages), where the agent sends something else now";
 
 function group(over: Partial<CoverageGroupView> = {}): CoverageGroupView {
   const key = over.key ?? KEY;
@@ -168,11 +168,12 @@ describe('Tests › Not covered', () => {
 
   it('draws a behaviour no golden covers in two lines from where it parts from its nearest golden, one group named in words', async () => {
     r = await render(tests(view()));
-    expect(r.one('section#notcovered h2').textContent).toBe('Not covered');
+    expect(r.one('section#notcovered h2').textContent.replace(/\u00a0/g, ' ')).toBe('Not covered');
     expect(text(r.one('#notcovered > header .sub'))).toBe('what production did that no golden tests, from where it parts from the nearest one: pack it, and CI replays it on every commit');
     expect(rows().map((li) => li.getAttribute('data-rowkey'))).toEqual([`cov:${KEY}`, `cov:${GONE}`, `cov:${SAME}`]);
     const [first, second, third] = rows();
-    expect(text(first.querySelector('.l1')!)).toBe('get_policy → check_stock → … 2 more → issue_refund → send_email → answered');
+    // Each arrow kept with the step before it, so a line that breaks ends on one, never starts on one.
+    expect(text(first.querySelector('.l1')!)).toBe('get_policy\u00a0→ check_stock\u00a0→ … 2 more\u00a0→ issue_refund\u00a0→ send_email\u00a0→ answered');
     expect(first.querySelector('.cvmore')!.getAttribute('data-tip')).toContain('lookup_customer → lookup_history');
     expect(first.querySelectorAll('code.wr').map((c) => [c.textContent, c.getAttribute('title')])).toEqual([
       ['issue_refund', 'a write'],
@@ -188,7 +189,7 @@ describe('Tests › Not covered', () => {
     expect(text(second.querySelector('.l2')!)).toBe('no golden starts this way\u00a0· the agent no longer does this');
     expect(JSON.parse(second.querySelector('.cvst')!.getAttribute('data-tip')!)).toMatchObject({ t: `Pack as golden, ${minuteStamp(NOW - 3_600_000)} · dana`, s: WHY });
     // The same steps as its golden, another ending: its last step, red where it failed, and the dashboard's words.
-    expect(text(third.querySelector('.l1')!)).toBe('lookup_order → agent failed');
+    expect(text(third.querySelector('.l1')!)).toBe('lookup_order\u00a0→ agent failed');
     expect(third.querySelector('.cvend')!.className).toBe('cvend err');
     expect(text(third.querySelector('.l2')!)).toBe('triage takes the same steps, but it ends another way');
     expect(third.querySelector('.cvln')!.getAttribute('aria-label')).toContain('Nearest golden triage, the same for 2 steps, but it ends another way.');
@@ -218,12 +219,16 @@ describe('Tests › Not covered', () => {
     expect(dd[1]).toBe(`3 runs, the newest ${minuteStamp(NOW - 6_000_000)}: 01M3S1C7QD 01M3S1C7QE 01M3S1C7QFin prod.har and tickets.har`);
     // Seen links each run the store still holds, however old, and only those: not the app's list of the newest runs.
     expect(r.all('dl#cvx-3f9a2c1d dd')[1].querySelectorAll('a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${RUN}`]);
-    expect(dd[2]).toBe('refund-flow-budget, the same for 2 steps; then it calls get_policy where the golden calls lookup_customer');
+    // Its words set: a number kept with its unit.
+    expect(dd[2].replace(/\u00a0/g, ' ')).toBe('refund-flow-budget, the same for 2 steps; then it calls get_policy where the golden calls lookup_customer');
+    expect(dd[2]).toContain('2\u00a0steps');
     expect(dd[3]).toBe(KEY);
     await r.click(rows()[1].querySelector('button.cvn')!);
     expect(terms('cvx-aaaa0000')).toEqual(['Path', 'Seen', 'Last tried', 'Behaviour']);
     const tried = r.all('dl#cvx-aaaa0000 dd')[2];
+    // As written, its spaces kept (it holds the agent's command), each word whole: a ticket's A-1077 never breaks at its hyphen.
     expect(text(tried.querySelector('p')!)).toBe(`${minuteStamp(NOW - 3_600_000)}, by dana: ${WHY}`);
+    expect(tried.querySelector('p')!.querySelectorAll('ts-w').map((w) => w.textContent)).toContain('A-1077');
     expect(text(tried.querySelector('.cmdline')!)).toContain(`shadowlap coverage --pack ${GONE} -- python agent.py '{message}'`);
     const plain = tried.querySelector('.cvq .btn')!;
     expect(text(plain)).toBe('Pack as golden');
@@ -261,7 +266,7 @@ describe('Tests › Not covered', () => {
     const reload = vi.fn();
     const failed = (v: CoverageView | null) => createElement(AppContext.Provider, { value: app({ hasKind: () => true, feeds: {} }) }, served(createElement(NotCovered, { read: read(v, new ApiError(500, 'HTTP 500'), reload), lime: true })));
     r = await render(failed(null));
-    expect(text(r.one('#notcovered > header h2'))).toBe('Not covered');
+    expect(text(r.one('#notcovered > header h2')).replace(/\u00a0/g, ' ')).toBe('Not covered');
     expect(r.one('#notcovered .loaderr').getAttribute('role')).toBe('alert');
     expect(text(r.one('#notcovered .loaderr p span:not(.st)'))).toBe('The dashboard server answered 500 for this page’s data.');
     await r.click(r.byText('#notcovered .loaderr button', 'Retry'));
@@ -277,18 +282,18 @@ describe('Tests › Not covered', () => {
     r = await render(tests(view(), true, { startJob }));
     await r.click(rows()[0].querySelector('.cvacts .btn')!);
     await r.until('the dialog opens', () => r!.all('.dialog').length === 1);
-    expect(text(r.one('.dialog h3'))).toBe('Pack 3f9a2c1d as golden?');
-    expect(text(r.one('.dialog header p'))).toContain('Packs 01M3S1C7QD into goldens/ once it reproduces offline.');
-    expect(r.all('.dialog .dfacts > div').map((d) => [d.querySelector('dt')?.textContent, d.querySelector('dd')?.textContent])).toEqual([
+    expect(text(r.one('.dialog h3')).replace(/\u00a0/g, ' ')).toBe('Pack 3f9a2c1d as golden?');
+    expect(text(r.one('.dialog header p')).replace(/\u00a0/g, ' ')).toContain('Packs 01M3S1C7QD into goldens/ once it reproduces offline.');
+    expect(r.all('.dialog .dfacts > div').map((d) => [d.querySelector('dt')?.textContent.replace(/\u00a0/g, ' '), d.querySelector('dd')?.textContent.replace(/\u00a0/g, ' ')])).toEqual([
       ['Changes', 'your working treea golden’s folder under goldens/'],
       ['Tools', 'answered from the capturea tool with no result there runs live, writes stubbed'],
     ]);
     expect(r.one('.dialog .cvk').getAttribute('aria-label')).toBe('get_ticket, then lookup_order, then get_policy, then check_stock, then lookup_customer, then lookup_history, then issue_refund, then send_email, then answered. Writes issue_refund, send_email.');
     expect(r.all('.dialog .cvc code').map((c) => c.textContent)).toEqual(['get_ticket', 'lookup_order', 'get_policy', 'check_stock', 'lookup_customer', 'lookup_history', 'issue_refund', 'send_email']);
     expect(r.one('.dialog input.cvin').value).toBe("python agent.py '{message}'");
-    expect(text(r.one('.dialog .cvmsg'))).toBe('{message} stands for 01M3S1C7QD’s first message');
+    expect(text(r.one('.dialog .cvmsg')).replace(/\u00a0/g, ' ')).toBe('{message} stands for 01M3S1C7QD’s first message');
     expect(text(r.one('.dialog .cmdline'))).toContain(`shadowlap coverage --pack ${KEY} -- python agent.py '{message}'`);
-    expect(text(r.one('.dialog .dcost'))).toContain('Free');
+    expect(text(r.one('.dialog .dcost')).replace(/\u00a0/g, ' ')).toContain('Free');
     await r.click(r.one('.dialog .dlg-ok'));
     expect(startJob).toHaveBeenCalledWith(JOB_KINDS.coveragePack, { key: KEY, command: "python agent.py '{message}'", confirmed: true });
     await r.unmount();
@@ -297,14 +302,14 @@ describe('Tests › Not covered', () => {
     r = await render(tests(view(), true, { startJob }));
     await r.click(rows()[1].querySelector('.cvacts .btn')!);
     await r.until('the dialog opens', () => r!.all('.dialog').length === 1);
-    expect(text(r.one('.dialog h3'))).toBe('Pack aaaa0000 with checks?');
-    expect(r.all('.dialog .dfacts dd')[0].textContent).toBe('your working treea golden’s folder under goldens/, and its entry in shadowlap.config.json with your checks');
+    expect(text(r.one('.dialog h3')).replace(/\u00a0/g, ' ')).toBe('Pack aaaa0000 with checks?');
+    expect(r.all('.dialog .dfacts dd')[0].textContent.replace(/\u00a0/g, ' ')).toBe('your working treea golden’s folder under goldens/, and its entry in shadowlap.config.json with your checks');
     const [command, expect_] = r.all('.dialog input.cvin');
     expect([command.value, command.getAttribute('placeholder'), expect_.getAttribute('placeholder')]).toEqual(['', 'python agent.py {message}', '{"tools":{"issue_refund":0}}']);
     await r.type(command, 'python agent.py {message}');
     await r.type(expect_, '{"tools":{"issue_refund":0}}');
     expect(text(r.one('.dialog .cmdline'))).toContain(`shadowlap coverage --pack ${GONE} --fork --expect '{"tools":{"issue_refund":0}}' -- python agent.py {message}`);
-    expect(text(r.one('.dialog .dlg-ok'))).toBe('Pack with checks');
+    expect(text(r.one('.dialog .dlg-ok')).replace(/\u00a0/g, ' ')).toBe('Pack with checks');
     await r.click(r.one('.dialog .dlg-ok'));
     expect(startJob).toHaveBeenCalledWith(JOB_KINDS.coveragePack, { key: GONE, command: 'python agent.py {message}', fork: true, expect: '{"tools":{"issue_refund":0}}', confirmed: true });
   });
@@ -340,7 +345,7 @@ describe('Needs a look’s coverage step', () => {
     expect(JSON.parse(button.getAttribute('data-tip')!)).toMatchObject({ t: 'Pack as golden', s: 'Asks first: replays 01M3S1C7QD offline with the agent’s command, and packs it when it reproduces', cmd: `$ shadowlap coverage --pack ${KEY}` });
     await r.click(button);
     await r.until('the dialog opens', () => r!.all('.dialog').length === 1);
-    expect(text(r.one('.dialog h3'))).toBe('Pack 3f9a2c1d as golden?');
+    expect(text(r.one('.dialog h3')).replace(/\u00a0/g, ' ')).toBe('Pack 3f9a2c1d as golden?');
     await r.click(r.one('.dialog .dlg-ok'));
     expect(startJob).toHaveBeenCalledWith(JOB_KINDS.coveragePack, { key: KEY, command: "python agent.py '{message}'", confirmed: true });
     await r.unmount();

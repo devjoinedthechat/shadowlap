@@ -75,7 +75,7 @@ export function StepDialog({ ask, onClose }: StepDialogProps) {
           title={namedIn(`Pack ${id} as golden?`, id)}
           lead="Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit."
           doc="makeGolden"
-          {...(ask.refused ? { warn: { text: ask.refused } } : {})}
+          {...(ask.refused ? { warn: { text: ask.refused, written: true } } : {})}
           facts={[CHANGES, PACK_HOLDS, packRules(ask.offers)]}
           label="Golden"
           initial={ask.dir}

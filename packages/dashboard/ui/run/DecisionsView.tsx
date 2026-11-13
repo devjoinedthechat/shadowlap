@@ -1,8 +1,10 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { DecisionCells } from '../changes/DecisionCells.js';
 import { moreTip, PreviewVerifyButton, VERIFY_THIS_RUN_TIP } from '../changes/VerifyAsk.js';
 import { SrSpace } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { CodeText, Copy } from '../components/Copy.js';
+import { DotNodes } from '../components/DotParts.js';
 import { tipCard } from '../components/HoverCard.js';
 import { ErrorState } from '../components/States.js';
 import { NewPreviewMenu, PreviewWayButtons } from '../components/NewPreviewMenu.js';
@@ -30,6 +32,13 @@ export { forgetDecisionsPick } from './decisions-pick.js';
 /** Why New preview waits on a run still recording, as Fork does. */
 const RECORDING = 'Preview once the recording finishes';
 
+/** A session's head as its dot parts: its name, when, and how many samples a step where more than one, each dot kept with the part before it. */
+function headParts(s: RunDecisionsSession): Array<{ text: string; node: ReactNode }> {
+  const when = minuteStamp(s.at);
+  const samples = s.samples && s.samples > 1 ? [`${s.samples} samples a step`] : [];
+  return [{ text: s.name, node: <b>{s.name}</b> }, ...[when, ...samples].map((t) => ({ text: t, node: t }))];
+}
+
 export function DecisionsView({ runId, selected, onSelect, live = false }: { runId: string; selected: number | null; onSelect: (n: number) => void; live?: boolean }) {
   const { client, feeds } = useApp();
   // A preview or a migration that ends while the view is open joins it, as Preview reloads on the same count.
@@ -38,7 +47,7 @@ export function DecisionsView({ runId, selected, onSelect, live = false }: { run
   // A preview of this run that ends picks itself here.
   useEffect(() => onPick(() => repick((n) => n + 1)), []);
   // A copy keeps no previews, so it says so rather than that nobody previewed the run.
-  if (client.exported) return <p className="dview dvnone">An exported copy holds no previews.</p>;
+  if (client.exported) return <Copy className="dview dvnone">An exported copy holds no previews.</Copy>;
   if (answer.error) return <ErrorState retry={answer.reload}>{`This run’s previews could not be read: ${answer.error.message}.`}</ErrorState>;
   if (!answer.data) return <div className="empty">Loading this run’s previews…</div>;
   const { sessions, later } = answer.data;
@@ -51,9 +60,7 @@ export function DecisionsView({ runId, selected, onSelect, live = false }: { run
       {sessions.length > 1 ? <Pick sessions={sessions} shown={s.sessionId} onPick={choose} /> : null}
       <div className="dvhead">
         <p>
-          <b>{s.name}</b>
-          {` · ${minuteStamp(s.at)}`}
-          {s.samples && s.samples > 1 ? ` · ${s.samples} samples a step` : ''}
+          <DotNodes parts={headParts(s)} />
         </p>
         <a className="more" href={s.changes}>
           {s.kind === 'migrate' ? 'Migration in Changes →' : 'Preview in Changes →'}
@@ -69,7 +76,7 @@ export function DecisionsView({ runId, selected, onSelect, live = false }: { run
           ))}
         </div>
       ) : (
-        <p className="dvnone">{noneLine(s.run)}</p>
+        <Copy className="dvnone">{noneLine(s.run)}</Copy>
       )}
       {later ? (
         <p className="dvlater">
@@ -137,29 +144,29 @@ function Step({ st, sel, onSelect }: { st: ViewStep; sel: boolean; onSelect: (n:
           </>
         )}
         <Said detail={st.detail} />
-        {st.within ? <span className="dlm">{` · ${st.within}`}</span> : null}
-        {st.short ? <span className="dlm">{` · ${st.short}`}</span> : null}
-        {st.waits ? <span className="dsy">{' · waits on a judge'}</span> : null}
+        {st.within ? <span className="dlm">{`\u00a0· ${st.within}`}</span> : null}
+        {st.short ? <span className="dlm">{`\u00a0· ${st.short}`}</span> : null}
+        {st.waits ? <span className="dsy">{'\u00a0· waits on a judge'}</span> : null}
       </p>
       <p className="dvs2">
         <span className="k">
           recorded
           <SrSpace />
         </span>
-        <code>{st.recorded}</code>
+        <CodeText>{st.recorded}</CodeText>
       </p>
       <p className="dvs2">
         <span className="k">
           now
           <SrSpace />
         </span>
-        <code>{st.now}</code>
+        <CodeText>{st.now}</CodeText>
         {st.delta ? <span className="dlm">{st.delta}</span> : null}
       </p>
       {st.args.map((a) => (
         <p key={a} className="dvs2 dargs">
           <span className="k" />
-          <code>{a}</code>
+          <CodeText>{a}</CodeText>
         </p>
       ))}
     </div>
@@ -184,7 +191,7 @@ function SessionVerify({ s, runId }: { s: RunDecisionsSession; runId: string }) 
 function Unpreviewed({ runId, live }: { runId: string; live: boolean }) {
   return (
     <div className="dview dvempty">
-      <p>No change has been previewed on this run. Each of its model calls can be asked again with only the change swapped in, and no tool runs.</p>
+      <Copy>No change has been previewed on this run. Each of its model calls can be asked again with only the change swapped in, and no tool runs.</Copy>
       <CodeBox command={`shadowlap decisions ${runId} --model <model>`} />
       <PreviewWayButtons target={{ runs: [runId] }} small plain why={live ? RECORDING : null} />
     </div>

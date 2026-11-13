@@ -9,9 +9,9 @@ import { describe, expect, it } from 'vitest';
  * serves the files as they are.
  *
  * - The served build is split. What the first look loads before any page (app.js and the chunks it
- *   imports up front): at most 544 KB (421 KB when this was written; React DOM is half of it). It
+ *   imports up front): at most 527 KB (421 KB when this was written; React DOM is half of it). It
  *   was one script of 803 KB with every page in it. The budget was 480 KB until port/runs took the
- *   first look to 479.79 KB; 544 KB is sized for the rest of the port.
+ *   first look to 479.79 KB, then 544 KB to leave room for the rest of the port.
  * - Each page the shell routes to is a chunk of its own that loads when the page first opens
  *   (ui/pages/lazy.tsx). What opening a page loads beyond the first look, its own code and the
  *   chunks only pages need: at most 200 KB each (the run page, the largest, 144 KB; Runs 70 KB; the
@@ -30,7 +30,12 @@ import { describe, expect, it } from 'vitest';
  */
 
 const KB = 1024;
-const FIRST_LOOK = 544 * KB;
+/**
+ * Set by port/line-breaks-sweep, the port's last slice to land, from the first look it measured with
+ * every slice of the port in (522,505 B in 54 scripts, 510.26 KB): rounded up, plus 16 KB, so the
+ * budget guards closely again now the port's room is spent, as d3 asked of the last sweep.
+ */
+const FIRST_LOOK = 527 * KB;
 const PAGE = 200 * KB;
 const PART = 100 * KB;
 const COPY = 900 * KB;
@@ -42,8 +47,9 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * A run's status loads its card (outcome-card) as the pointer or the focus first reaches it.
  * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
  * Preview pull request comment's (PrCommentDialog), a served part, loads as Settings → CI or the newest revision's page under Changes first opens it; an exported copy's script holds none of it.
+ * Apply config change?'s (ApplyConfigDialog) and Migrate to…'s (MigrateToDialog), served parts too, load as the Migrate report's Apply config change and a Migrate to… first ask.
  */
-const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'ChangeBox', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FailedIssues', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'Migrate', 'MoreMenu', 'NewPreview', 'OtelDialog', 'PackDialog', 'PackWithGate', 'Palette', 'PrCommentDialog', 'PresetsDialog', 'PresetsFinding', 'PresetsResults', 'Preview', 'Proof', 'ProvenanceView', 'RemoveCheck', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevertDialog', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'RunNotes', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs', 'outcome-card'];
+const PARTS = ['ActionDialog', 'ApplyConfigDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'ChangeBox', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FailedIssues', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'Migrate', 'MigrateToDialog', 'MoreMenu', 'NewPreview', 'OtelDialog', 'PackDialog', 'PackWithGate', 'Palette', 'PrCommentDialog', 'PresetsDialog', 'PresetsFinding', 'PresetsResults', 'Preview', 'Proof', 'ProvenanceView', 'RemoveCheck', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevertDialog', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'RunNotes', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs', 'outcome-card'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, the words of a run's notes, the card its status shows on hover, what a fork did differently, and the shell's shortcuts sheet. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; the fork menu and the header's …; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check menu at a tool call with the check builder its pick opens; Runs › Failed as issues; Revert's dialog and the change box; the dialogs a run's steps ask in, Run injection test…'s and Pack with injection gate…'s among them; Run error-path presets…'s, a recording's presets' finding and results, and Not covered's pack dialogs; Find cause… and the answers it finds; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks; the palette, the job's drawer with the words of a job's kind, and Remove project's dialog; the dialog a run's action asks in, Find breaking commit's, a diverged test's and Edit and fork's; the In page; and Preview pull request comment's dialog (test/ui-exported-copy.test.ts pins what keeps each undrawn in a copy). */

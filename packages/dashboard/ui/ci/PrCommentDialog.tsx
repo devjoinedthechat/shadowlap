@@ -78,7 +78,10 @@ export function DrawnComment({ preview: p }: { preview: PrCommentPreview }) {
   const d = p.decisions;
   return (
     <div className="prc">
-      <h4>Shadowlap: {p.head}</h4>
+      {/* the tally glued as the mock's is, a count with its noun */}
+      <h4>
+        <Words>{`Shadowlap: ${p.head}`}</Words>
+      </h4>
       <ul className="prc-g">
         {p.rows.map((r) => (
           <li key={r.golden} className={markTone(r.verdict)}>

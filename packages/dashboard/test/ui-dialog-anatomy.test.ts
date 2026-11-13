@@ -101,7 +101,7 @@ function appWith(over: Record<string, unknown> = {}): AppState {
 /** Reads a dialog as it is drawn, against what it promises. */
 function holds(page: Rendered, want: Expect): void {
   const dialog = page.one('[role="dialog"]');
-  const title = page.one('[role="dialog"] h3').textContent;
+  const title = page.one('[role="dialog"] h3').textContent.replace(/\u00a0/g, ' ');
   if (typeof want.title === 'string') expect(title).toBe(want.title);
   else expect(title).toMatch(want.title);
   expect(title, 'verb and object').toMatch(VERB);
@@ -123,8 +123,8 @@ function holds(page: Rendered, want: Expect): void {
   const lines = page.all('[role="dialog"] .dwarn');
   expect(lines.length, 'one line at most').toBeLessThanOrEqual(1);
   if (want.warn === undefined) expect(lines).toEqual([]);
-  else if (typeof want.warn === 'string') expect(lines[0].textContent).toBe(want.warn);
-  else expect(lines[0].textContent).toMatch(want.warn);
+  else if (typeof want.warn === 'string') expect(lines[0].textContent.replace(/\u00a0/g, ' ')).toBe(want.warn);
+  else expect(lines[0].textContent.replace(/\u00a0/g, ' ')).toMatch(want.warn);
   // What a screen reader hears: the line, then the lead, never the link.
   const described = (dialog.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
   expect(described.length, 'described').toBeGreaterThan(0);
@@ -318,7 +318,7 @@ describe('a run’s dialogs', () => {
     await page.until('its check to be asked', () => page.all('[role="dialog"] textarea').length === 1);
     await page.type(page.one('[role="dialog"] textarea'), '{"tools":{"a":1}}');
     await page.click(page.one('[role="dialog"] .dlg-ok'));
-    await page.until('the question', () => page.all('[role="dialog"] .dwarn').some((w) => w.textContent === why));
+    await page.until('the question', () => page.all('[role="dialog"] .dwarn').some((w) => w.textContent.replace(/\u00a0/g, ' ') === why));
     holds(page, { title: 'Run command from imported pack', doc: 'commandsFromSomeoneElse', first: CANCEL, ok: 'Run blame', warn: why });
     await page.click(page.one('[role="dialog"] .dlg-ok'));
     await page.until('the job', () => sent.length === 3);
@@ -363,7 +363,7 @@ describe('a run’s next steps that ask first', () => {
     expect(JSON.parse(String(page.byText('button', 'Run blame').props['data-tip']))).toMatchObject({ est: { usd: 10.88, ceiling: true } });
     await pressBlame(page);
     holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: OK, ok: 'Run blame' });
-    expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$10.88');
+    expect(page.one('[role="dialog"] .dcost').textContent.replace(/\u00a0/g, ' ')).toContain('At most ≈$10.88');
     expect(page.one('[role="dialog"] .dlgcost').textContent).toContain('Asks above $0.50');
     expect(page.one('[role="dialog"]').textContent).toContain(`shadowlap blame ${RUN.slice(0, 10)}`);
     await page.unmount();
@@ -371,7 +371,7 @@ describe('a run’s next steps that ask first', () => {
     await page.click(page.byText('button', 'Run blame'));
     await page.until('its check to be asked', () => page.all('[role="dialog"] textarea').length === 1);
     expect([page.all('[role="dialog"]').length, page.all('[role="dialog"] textarea').length, page.all('[role="dialog"] .dlgcost').length]).toEqual([1, 1, 0]);
-    expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$0.100');
+    expect(page.one('[role="dialog"] .dcost').textContent.replace(/\u00a0/g, ' ')).toContain('At most ≈$0.100');
     await page.unmount();
     resetSpending();
   });
@@ -396,7 +396,7 @@ describe('a run’s next steps that ask first', () => {
     };
     const page = await pressed({ key: 'injection-test', label: 'Run injection test…', runId: RUN, command: `shadowlap injection ${RUN.slice(0, 10)}` }, served({ startJob }));
     await page.click(page.one('[role="dialog"] .dlg-ok'));
-    await page.until('the question', () => page.all('[role="dialog"] .dwarn').some((w) => w.textContent === why));
+    await page.until('the question', () => page.all('[role="dialog"] .dwarn').some((w) => w.textContent.replace(/\u00a0/g, ' ') === why));
     holds(page, { title: 'Run command from imported pack', doc: 'commandsFromSomeoneElse', first: CANCEL, ok: 'Run injection test', warn: why });
     await page.click(page.one('[role="dialog"] .dlg-ok'));
     await page.until('the job', () => sent.length === 2);
@@ -409,7 +409,7 @@ describe('a run’s next steps that ask first', () => {
     await page.until('the question', () => page.all('[role="dialog"]').length === 1);
     holds(page, { title: 'Re-run refund-in-limit', doc: 'injectionTests', first: OK, ok: 'Re-run' });
     expect(page.one('[role="dialog"] h3 code').textContent).toBe('refund-in-limit');
-    expect(page.one('[role="dialog"] .dcost').textContent).toContain('live from each read, writes stubbed');
+    expect(page.one('[role="dialog"] .dcost').textContent.replace(/\u00a0/g, ' ')).toContain('live from each read, writes stubbed');
     answerTestsQuestion(app, false);
     await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
   });
@@ -431,7 +431,7 @@ describe('what a screen reader hears', () => {
     );
     const ids = (page.one('[role="dialog"]').getAttribute('aria-describedby') ?? '').split(' ');
     const byId = (want: string) => page.all('[id]').find((el) => el.getAttribute('id') === want);
-    expect(ids.map((x) => byId(x)?.textContent)).toEqual(['It runs on this machine', 'Runs herenode a.mjs', 'Asyou', 'Runs the command a teammate recorded.']);
+    expect(ids.map((x) => byId(x)?.textContent.replace(/\u00a0/g, ' '))).toEqual(['It runs on this machine', 'Runs herenode a.mjs', 'Asyou', 'Runs the command a teammate recorded.']);
   });
 });
 
@@ -465,9 +465,9 @@ describe('a golden’s dialogs', () => {
     expect(page.all('.cmdlbl').map((c) => c.textContent)).toEqual(['Add normalizer and updateShow command', 'Update anywayShow command']);
     // The advice names the action whole, never broken across its line.
     expect(page.all('.advise p .nw').map((x) => x.textContent)).toEqual(['Add normalizer and update']);
-    expect(page.one('.advise p').textContent).toBe('a diverged on a value that is new every run. Add normalizer and update masks it first.');
+    expect(page.one('.advise p').textContent.replace(/\u00a0/g, ' ')).toBe('a diverged on a value that is new every run. Add normalizer and update masks it first.');
     expect(page.all('.dcost')).toHaveLength(1);
-    expect(page.one('.dcost').textContent).toMatch(/^Billed by your provider\W+either way, as their recordings cost$/);
+    expect(page.one('.dcost').textContent.replace(/\u00a0/g, ' ')).toMatch(/^Billed by your provider\W+either way, as their recordings cost$/);
   });
   it('Update golden with no advice', async () => {
     const quiet = { ...view, divergences: [{ ...div, volatile: null, normalizeAndTest: null }] } as unknown as TestsView;
@@ -500,8 +500,8 @@ describe('a golden’s dialogs', () => {
   it('Find breaking commit over a range, with nothing to ask', async () => {
     const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, goods: { revisions: [] }, onRun: () => undefined, ...closes }));
     holds(page, { title: 'Find breaking commit for a', doc: 'bisect', first: OK, ok: 'Find breaking commit' });
-    expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Goodc91d0f4', 'Badd2e8a1fthe commit the last test session ran at']);
-    expect(page.one('.dcost').textContent).toContain('bisect replays offline');
+    expect(page.all('.dfacts div').map((d) => d.textContent.replace(/\u00a0/g, ' '))).toEqual(['Goodc91d0f4', 'Badd2e8a1fthe commit the last test session ran at']);
+    expect(page.one('.dcost').textContent.replace(/\u00a0/g, ' ')).toContain('bisect replays offline');
   });
 
   it.each<[string, TestsAsk, Expect]>([
@@ -514,7 +514,7 @@ describe('a golden’s dialogs', () => {
     startTestsJob(app, 'test', {}, say);
     await page.until('the question', () => page.all('[role="dialog"]').length === 1);
     holds(page, want);
-    expect(page.one('[role="dialog"] .dfacts').textContent).toBe('Runs live1 golden marked forkfrom where it forks, writes blocked');
+    expect(page.one('[role="dialog"] .dfacts').textContent.replace(/\u00a0/g, ' ')).toBe('Runs live1 golden marked forkfrom where it forks, writes blocked');
     answerTestsQuestion(app, false);
     await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
   });
@@ -596,8 +596,8 @@ describe('a fix’s dialogs', () => {
     await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
     holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair' });
     expect(page.all('.dfacts div').map((d) => d.querySelectorAll('dt')[0].textContent)).toEqual(['Changes', 'Hands over', 'Keeps', 'While it runs']);
-    expect(page.all('.dfacts div')[2].textContent).toBe('Keepsb, c passing');
-    expect(page.one('.dcost').textContent).toContain('up to 3 candidates');
+    expect(page.all('.dfacts div')[2].textContent.replace(/\u00a0/g, ' ')).toBe('Keepsb, c passing');
+    expect(page.one('.dcost').textContent.replace(/\u00a0/g, ' ')).toContain('up to 3 candidates');
   });
   it('Run repair whose repairer can’t be asked keeps the focus on Cancel, and says why in one line', async () => {
     const problem = 'This repair asks your own Claude Code, and claude was not found on the PATH: install Claude Code, or name another repairer in shadowlap.config.json (repair.repairer).';
@@ -607,7 +607,7 @@ describe('a fix’s dialogs', () => {
     expect(page.focused()).toBe(page.one('[role="dialog"] .dlg-cancel'));
     answer(fix({ repairer: { name: 'claude-code', configured: false, problem } }));
     await page.until('the fix to be read', () => page.all('[role="dialog"] .dwarn').length > 0);
-    expect(page.one('[role="dialog"] .dwarn').textContent).toBe(problem.replace(/\.$/, ''));
+    expect(page.one('[role="dialog"] .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe(problem.replace(/\.$/, ''));
     expect(page.one('.dlg-ok').disabled).toBe(true);
     expect(page.all('.dfacts')).toEqual([]);
     expect(page.focused(), 'the rows go, the focus stays').toBe(page.one('[role="dialog"] .dlg-cancel'));
@@ -618,7 +618,7 @@ describe('a fix’s dialogs', () => {
     await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
     holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair', warn: 'Blame couldn’t settle' });
     expect(page.all('.dfacts')).toEqual([]);
-    expect(page.one('.dcost').textContent).toContain('nothing runs: the blame it reuses didn’t settle');
+    expect(page.one('.dcost').textContent.replace(/\u00a0/g, ' ')).toContain('nothing runs: the blame it reuses didn’t settle');
   });
   it('Run blame with stronger model', async () => {
     const f = fix({}, { blameStronger: { command: 'shadowlap blame x --model <model>', attempts: 4, spent: 0.1 } });
@@ -627,7 +627,7 @@ describe('a fix’s dialogs', () => {
   it('Apply fix', async () => {
     const page = await open(createElement(ApplyDialog, { fix: fix({}, { apply: APPLY }), label: 'Apply fix', onRun: () => true, ...closes }));
     holds(page, { title: 'Apply fix?', doc: 'repairHandover', first: OK, ok: 'Apply fix' });
-    expect(page.all('.ondisk.steps li').map((l) => l.querySelectorAll('span')[0].textContent)).toEqual(['Patch applied', 'Recording copied', 'Golden replayed', 'Other goldens replayed']);
+    expect(page.all('.ondisk.steps li').map((l) => l.querySelectorAll('span')[0].textContent.replace(/\u00a0/g, ' '))).toEqual(['Patch applied', 'Recording copied', 'Golden replayed', 'Other goldens replayed']);
     await page.unmount();
     // A golden it copies asks its name, under the patch: the field takes the focus.
     const named = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, names: [{ run: '01K5CQ2E8M', name: 'double-email' }], held: [] } }), label: 'Apply fix', onRun: () => true, ...closes }));
@@ -779,7 +779,7 @@ describe('the bulk bar’s dialogs', () => {
     await page.click(page.byText('.bulkbar button', 'Delete 3 runs'));
     holds(page, { title: 'Delete 2 runs?', doc: 'deletingRuns', first: CANCEL, ok: 'Delete 2 runs', tone: 'danger' });
     expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Deletes the runs, their 3 attempts and the recorded data nothing else uses.');
-    expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Forks, replayskeep their own datathey lose the link to them', 'Left alone01M5H2DJR4still recording']);
+    expect(page.all('.dfacts div').map((d) => d.textContent.replace(/\u00a0/g, ' '))).toEqual(['Forks, replayskeep their own datathey lose the link to them', 'Left alone01M5H2DJR4still recording']);
   });
 });
 

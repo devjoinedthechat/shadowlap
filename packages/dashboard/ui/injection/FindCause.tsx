@@ -6,6 +6,7 @@ import { JOB_KINDS } from '../api.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { DialogTip } from '../components/DialogFacts.js';
 import { JobButton } from '../components/JobButton.js';
+import { RuleText } from '../components/Verdict.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
@@ -141,7 +142,7 @@ function CauseDialog({ runId, f, reads, again, first, rule: gate, onClose }: { r
           label: 'Gate',
           value: (
             <DialogTip title={`If #${f.write} goes away`} tip="what the read brought in caused it">
-              {rule}
+              <RuleText rule={rule} />
             </DialogTip>
           ),
         },

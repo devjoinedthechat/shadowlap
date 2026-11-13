@@ -1,5 +1,6 @@
 import { type ReactNode, useId, useRef, useState } from 'react';
 import { Seg } from '../components/bits.js';
+import { Copy } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
 import { Glyph } from '../components/RunIcon.js';
@@ -71,9 +72,9 @@ export function Usage({ s }: { s: Pick<OverviewSummary, 'sums' | 'cache' | 'outc
             <SpendPart daily={s.daily} />
           </div>
           {served ? (
-            <p className="leaknote">
+            <Copy className="leaknote">
               Today {num(served)} {served === 1 ? 'call was' : 'calls were'} served from recordings: {cents(s.today.notRespent)} {glossed('not re-spent')}.
-            </p>
+            </Copy>
           ) : null}
         </>
       ) : null}
@@ -124,7 +125,7 @@ function OriginPart({ origins }: { origins: Readonly<Record<string, number>> }) 
           </li>
         ))}
       </ul>
-      {total === 0 ? <p className="leaknote">No calls this week yet.</p> : null}
+      {total === 0 ? <Copy className="leaknote">No calls this week yet.</Copy> : null}
     </Part>
   );
 }
@@ -178,12 +179,10 @@ function CachePart({ cache }: { cache: CacheUse }) {
               );
             })}
           </div>
-          <p className="leaknote">
-            <span className="ln">Usually a change in the prompt.</span> <span className="ln">The run’s Context view shows where.</span>
-          </p>
+          <Copy className="leaknote">Usually a change in the prompt. The run’s Context view shows where.</Copy>
         </>
       ) : (
-        <p className="leaknote">{pct === null ? 'Live model calls that report the cache show here.' : 'The cache hit on every live call after the first.'}</p>
+        <Copy className="leaknote">{pct === null ? 'Live model calls that report the cache show here.' : 'The cache hit on every live call after the first.'}</Copy>
       )}
     </Part>
   );

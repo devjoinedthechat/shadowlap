@@ -4,8 +4,8 @@
 .setrow { display: flex; align-items: center; gap: 20px; padding: 14px 18px; border-top: 1px solid var(--line); }
 .setrow > div:first-child { flex: 1; min-width: 0; }
 .setrow b { display: block; font-weight: 500; }
-/* A row's lines under its label, never the spans of a picker or a field beside them. */
-.setrow > :where(div:first-child) span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
+/* A row's lines under its label, never the spans of a picker or a field beside them, nor the pieces a line's copy keeps whole. */
+.setrow > :where(div:first-child) > span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
 .setrow span.fieldnote { margin-top: 6px; }
 /* A picker's about line keeps to one line, fitted to the button (base.css sets every row's spans in pretty lines, which wrap). */
 .setrow .pick .rab { white-space: nowrap; }
@@ -66,8 +66,7 @@
 .skrow > div:first-child > span.warn { color: var(--warn); }
 .skrow > .btn, .skrow > .st { margin-top: 2px; }
 .skrow .skcmd { margin-top: 10px; max-width: 520px; }
-.skrow .cmdline span { margin: 0; max-width: none; color: inherit; font-size: inherit; }
-.skrow .cmdline:not(.words) span { display: inline; }
+.skrow .cmdline span { display: inline; margin: 0; max-width: none; color: inherit; font-size: inherit; }
 .skrow .cmdline b { display: inline; font-weight: 400; }
 .skrow .skall { margin-top: 10px; margin-left: -7px; }
 .skrow .skall svg { transition: transform .15s; transform: rotate(-90deg); }
@@ -121,9 +120,8 @@ ul.fails { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; li
 /* A setting under a list of values starts on the list's last hairline, not a second one under it (Store, Project). */
 .settab dl.kvs + .setrow { border-top: 0; }
 /* On a phone a button beside a value (Copy access policy, Check again) takes a line of its own, whole; at 340px and under
-   each value goes under its key. */
+   each value goes under its key, as every key and value list does (base.css). */
 @media (max-width: 640px) { .settab .kvs dd :is(.btn, .linkbtn) { display: flex; width: fit-content; margin-top: 6px; } }
-@media (max-width: 340px) { .settab .kvs { grid-template-columns: minmax(0, 1fr); } .settab .kvs dt { border-bottom: 0; padding-bottom: 0; } }
 /* Rows run the section's full width: sections sit between hairlines, not in boxes. */
 .panel.sec.set .setrow { padding-left: 0; padding-right: 0; }
 .panel.sec.set dl.kvs { padding-left: 0 !important; padding-right: 0 !important; }
@@ -143,7 +141,7 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 
 /* Settings → CI: settings left, what lands where right; the workflow file reads as a file, with its own copy button. */
 .cip .cimain > p.muted { margin: 0 0 6px; }
-.cip .offnote { display: block; margin-top: 6px; font-weight: 500; color: var(--warn); }
+.cip .offnote { display: block; margin: 0 0 6px; font-weight: 500; color: var(--warn); }
 /* What a feature turned off would do: the faint ink, never faded, which fell under AA's contrast (2.0 to 4.0:1). */
 /* Off, only the pull request's preview goes quiet: its ink words in --dim and its lime marks grey, so every word still reads
    at 4.5:1. The settings and the lists stay as they are: they apply the moment it's turned on. */
@@ -168,7 +166,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .prl code { font-size: 12px; color: var(--ink); }
 @media (max-width: 640px) { .setrow.tight:has(.sel, .inp) { flex-wrap: wrap; } .setrow select.sel, .setrow input.inp { min-width: 0; width: 100%; } }
 .cip .cimain > p.muted, .cip .setrow > div > span, .cip .fails li { text-wrap: balance; }
-.cip .cimain > p.muted .ln { display: block; text-wrap: balance; }
 /* CI tab, second pass: settings and the preview side by side, the workflow file across the panel. */
 .cip .cicode { border-top: 1px solid var(--line); padding-top: 16px; }
 .cip .cicode .codewrap { margin-top: 0; }
@@ -249,8 +246,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .egrp.mcp .fieldnote.mcpnote code { color: var(--ink); }
 .egrp.mcp .mcpform2 { margin-top: 12px; display: grid; gap: 6px; }
 .egrp.mcp .mcpform2 .muted { font-size: 12.5px; }
-
-.cmdline.words > span { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
 
 .fieldnote.storeerr { margin: 0 0 12px; }
 

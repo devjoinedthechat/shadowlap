@@ -134,6 +134,7 @@ export function keepParts(text: string): KeptPart[] {
     text
       .replace(/(\S+) called (\d+) (times?)\b/g, `$1${NB}called${NB}$2${NB}$3`)
       .replace(/ · /g, `${NB}· `)
+      .replace(/ → /g, `${NB}→ `)
       .replace(/\bused by /g, `used${NB}by `)
       .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
       .replace(/\bplanted instruction\b/g, `planted${NB}instruction`)

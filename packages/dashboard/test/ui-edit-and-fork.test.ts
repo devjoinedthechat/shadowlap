@@ -90,7 +90,7 @@ describe('Edit and fork in the inspector', () => {
     const page = await open(detail(), sent);
     await edit(page);
     const dialog = page.one('[role="dialog"]');
-    expect(dialog.textContent).toContain('Edit and fork #16 lookup_policy');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('Edit and fork #16 lookup_policy');
     const field = page.one('.editfork textarea');
     // The field takes the focus, ready to edit.
     expect(page.focused()).toBe(field);
@@ -121,7 +121,7 @@ describe('Edit and fork in the inspector', () => {
     const sent: Sent = { uploads: [], jobs: [] };
     const page = await open(detail({ callNo: 1, name: 'user_input', key: 'u', result: { text: 'Refund it.' } }), sent);
     await edit(page);
-    expect(page.one('[role="dialog"]').textContent).toContain('Edit and fork user reply at #1');
+    expect(page.one('[role="dialog"]').textContent.replace(/\u00a0/g, ' ')).toContain('Edit and fork user reply at #1');
     expect(page.all('.editmode')).toEqual([]);
     await page.type(page.one('.editfork textarea'), 'Cancel it instead.');
     await page.click(page.byText('.dlg-ok', 'Edit and fork'));
@@ -153,10 +153,10 @@ describe('Edit and fork in the inspector', () => {
     await edit(page);
     await page.type(page.one('.editfork textarea'), '{"region": "EU", "limit": 40}');
     await page.click(page.byText('.dlg-ok', 'Edit and fork'));
-    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from imported pack')));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.replace(/\u00a0/g, ' ').includes('Run command from imported pack')));
     // Nothing ran yet; the dialog shows the command the server named.
     expect(sent.jobs).toEqual([]);
-    expect(page.one('[role="dialog"] .dwarn').textContent).toBe(why);
+    expect(page.one('[role="dialog"] .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe(why);
     // Confirmed, the same upload goes with the yes: the question's confirm.
     await page.click(page.byText('.dlg-ok', 'Run command'));
     await page.until('the fork to start', () => sent.jobs.length === 1);
@@ -176,7 +176,7 @@ describe('Edit and fork in the inspector', () => {
     const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
     await edit(page);
     await page.click(page.byText('.dlg-ok', 'Edit and fork'));
-    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from team store')));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.replace(/\u00a0/g, ' ').includes('Run command from team store')));
     await page.click(page.byText('.dlg-cancel', 'Cancel'));
     expect(page.all('[role="dialog"]')).toEqual([]);
     expect(asked).toHaveLength(1);
@@ -192,7 +192,7 @@ describe('Edit and fork in the inspector', () => {
   it('says so first when the run came from someone else’s pack', async () => {
     const page = await open(detail({ label: 'This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. Result for #16 lookup_policy, as JSON:' }), { uploads: [], jobs: [] });
     await edit(page);
-    expect(page.one('.dwarn').textContent).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs');
+    expect(page.one('.dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs');
   });
 });
 

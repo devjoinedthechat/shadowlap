@@ -387,7 +387,7 @@ describe('the bulk bar’s Dataset', () => {
     await r.click(r.byText('.bulkbar button', 'Export dataset…'));
     await r.until('the rules to load', () => r!.all('.dialog .dfacts div').length === 2);
     expect(s.client.offers).toHaveBeenCalledWith(A);
-    expect(r.all('.dialog .dfacts div')[1].textContent).toBe('Redactsby 3 rulesthe store never changes');
+    expect(r.all('.dialog .dfacts div')[1].textContent.replace(/\u00a0/g, ' ')).toBe('Redactsby 3 rulesthe store never changes');
     const cmd = text(r, '.dialog .cmdline');
     expect(cmd).toMatch(/^\$shadowlap export dataset 01M5H2DJ1W 01M5H2DJR4 --calls final --format jsonl --out \.shadowlap\/exports\/dataset-2-runs-\d{8}-\d{6}\.jsonl$/);
     // Titled and confirmed as a run's Share names it, for the runs it copies.

@@ -122,7 +122,7 @@ describe('a section', () => {
     // its heading gives the page its outline; named, every section would be a region of its own
     expect([s.getAttribute('aria-labelledby'), s.getAttribute('aria-label')]).toEqual([null, null]);
     expect(r!.one('section header h2').textContent).toBe('Probes');
-    expect(r!.one('header .sub').textContent).toBe('gate: rescue at 60%+');
+    expect(r!.one('header .sub').textContent.replace(/\u00a0/g, ' ')).toBe('gate: rescue at 60%+');
     expect(r!.one('header .actions a').textContent).toBe('All runs');
     expect(s.children.map((c) => c.tagName)).toEqual(['HEADER', 'TABLE']);
   });
@@ -475,20 +475,20 @@ describe('the three states', () => {
   it('says nothing is here yet in a section: its heading, a sentence, the one step and the command quiet under it', async () => {
     await draw(createElement(EmptyState, { title: 'No runs yet', text: 'Every recording shows here.', copy: true, step: createElement('a', { className: 'btn lime', href: '#/' }, 'Set up triage-bot'), command: 'shadowlap run -- <command>' }));
     const s = r!.one('section.panel.stepempty');
-    expect(r!.one('.stepempty h2').textContent).toBe('No runs yet');
+    expect(r!.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('No runs yet');
     expect(text(r!.one('.stepempty p'))).toBe('Every recording shows here.');
     // set as copy, its words are glued: its last two never part
     expect(r!.one('.stepempty p').textContent).toBe('Every recording shows\u00a0here.');
     expect(r!.one('.stepempty .actions a').textContent).toBe('Set up triage-bot');
-    expect(r!.one('.stepempty .cli').textContent).toBe('or in a terminal$ shadowlap run -- <command>');
+    expect(r!.one('.stepempty .cli').textContent).toBe('or in a terminal$shadowlap run -- <command>');
     // its prompt apart, so it is never copied with the command
-    expect(r!.one('.stepempty .cli code b').textContent).toBe('$ ');
+    expect(r!.one('.stepempty .cli code b').textContent).toBe('$');
     expect(s.querySelector('.cmdline')).toBeNull();
   });
 
   it('gives the command its box where there is no step, draws a message as the server wrote it, and says a list that matches nothing in a line', async () => {
     const message = 'the store at /work/support-agent-production-replica/.shadowlap is locked; run shadowlap doctor.';
-    await draw(createElement('div', null, createElement(EmptyState, { title: 'Tests could not be loaded', text: message, command: 'shadowlap pack 01K --name escalates' }), createElement(EmptyLine, null, 'No runs match.')));
+    await draw(createElement('div', null, createElement(EmptyState, { title: 'Tests could not be loaded', text: message, copy: false, command: 'shadowlap pack 01K --name escalates' }), createElement(EmptyLine, null, 'No runs match.')));
     expect(r!.one('.stepempty .cmdline button.boxcopy').getAttribute('aria-label')).toBe('Copy command');
     // nothing set in a message: no sentence kept, no no-break space in its command, no word held whole
     expect(r!.one('.stepempty p').textContent).toBe(message);

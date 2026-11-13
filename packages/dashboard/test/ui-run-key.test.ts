@@ -387,7 +387,7 @@ describe('a toast with an action', () => {
     await r.until('the words', () => status.textContent !== '');
     expect(r.one('[role="status"]')).toBe(status);
     expect(status.textContent).toBe('01M5GRX8K4 is good');
-    expect(r.one('.toast').textContent).toBe('01M5GRX8K4 is good');
+    expect(r.one('.toast').textContent.replace(/\u00a0/g, ' ')).toBe('01M5GRX8K4 is good');
     expect(r.one('[role="alert"]').textContent).toBe('');
     // An error alone keeps its alert, and the polite region says nothing new.
     await act(async () => set.toast!({ id: 2, text: 'The server refused it', kind: 'error' }));

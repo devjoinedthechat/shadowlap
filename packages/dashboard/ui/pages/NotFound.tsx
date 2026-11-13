@@ -1,4 +1,5 @@
 import { PageHeader } from '../components/bits.js';
+import { Code } from '../components/Copy.js';
 import { Page } from '../components/Page.js';
 import { notFoundWords, type NotFoundKind } from '../not-found-words.js';
 import { codeParts } from '../projects.js';
@@ -23,7 +24,7 @@ export function NotFoundPage({ kind = 'page', id, what, back }: { kind?: NotFoun
         title="Nothing here"
         text={
           <>
-            {what ?? codeParts(words.text, words.code ? [words.code] : []).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : p.text))}{' '}
+            {what ?? codeParts(words.text, words.code ? [words.code] : []).map((p, i) => (p.code ? <Code key={i}>{p.text}</Code> : p.text))}{' '}
             <a className="more" href={to[0]}>
               {to[1]}
             </a>

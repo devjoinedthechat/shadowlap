@@ -3,7 +3,8 @@ import { CHECK_MARKS } from '../../../engine/src/checks/labels.js';
 import { plural } from '../../../engine/src/words.js';
 import type { CheckPreview } from '../checks-api.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { Copy } from '../components/Copy.js';
+import { Code, Copy } from '../components/Copy.js';
+import { DotParts } from '../components/DotParts.js';
 import { Id } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
 import { checkCommand, headWords, rowsWords, type Fragment, type PreviewNote } from './model.js';
@@ -57,10 +58,10 @@ export function Preview({ answer, error, retry, notes, judged, judgesOnly, agent
     <section className="cb-sec">
       {head}
       {error ? <ErrorState retry={retry}>{error}</ErrorState> : null}
-      {!answer ? error ? null : <p className="cb-note">Judging it on your recordings…</p> : !total ? (
-        <p className="cb-count">
-          No recording of <code>{agent ?? 'this agent'}</code> to judge it on yet
-        </p>
+      {!answer ? error ? null : <Copy className="cb-note">Judging it on your recordings…</Copy> : !total ? (
+        <Copy className="cb-count">
+          No recording of <Code>{agent ?? 'this agent'}</Code> to judge it on yet
+        </Copy>
       ) : (
         <Judged answer={answer} notes={notes} judged={judged} open={open} onOpen={() => setOpen(!open)} />
       )}
@@ -79,8 +80,8 @@ function Judged({ answer, notes, judged, open, onOpen }: { answer: CheckPreview;
   return (
     <>
       <p className="cb-count">
-        {headWords(answer)}
-        {na ? <span className="cb-na"> · not applicable to {na}: the condition never held</span> : null}
+        <DotParts parts={headWords(answer).split(' · ')} />
+        {na ? <span className="cb-na">{'\u00a0· '}not applicable to {na}: the condition never held</span> : null}
       </p>
       {notes.length ? (
         <ul className="cb-notes">

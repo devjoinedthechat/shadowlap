@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pastedLink } from '../ui/connection.js';
-import { ExpiredCard } from '../ui/shell/Connection.js';
+import { ExpiredCard, Gate } from '../ui/shell/Connection.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -49,7 +49,7 @@ describe('the card for a refused session token', () => {
   it('says the token isn’t this dashboard’s, from a restart or another dashboard', async () => {
     r = await card(async () => '');
     expect(r.one('#connT').textContent).toBe('This link’s session token isn’t this dashboard’s');
-    expect(r.one('#connD').textContent).toBe('It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:');
+    expect(r.one('#connD').textContent.replace(/\u00a0/g, ' ')).toBe('It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:');
     expect(r.one('.connblock').getAttribute('aria-describedby')).toBe('connD');
     // One command box, with its own Copy, and the card's one lime way out.
     expect(r.one('.cb .cmdline').textContent).toContain('shadowlap dashboard');
@@ -101,5 +101,41 @@ describe('the card for a refused session token', () => {
     answer('https://example.com/#token=abc');
     await r.until('the reason again', () => region.textContent !== '');
     expect([r.one('.cb .said > [role="alert"]') === region, region.textContent]).toEqual([true, refused]);
+  });
+});
+
+describe('the token gate’s Copy', () => {
+  let r: Rendered | null = null;
+  afterEach(async () => {
+    await r?.unmount();
+    r = null;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  // Outside the app no toast can come from, and asking for one would throw (useApp outside
+  // AppProvider): the gate, drawn with no provider, says what its Copy did on the button itself.
+  it('says Copied on its button for 1.6 s, then goes back, and Copy failed where the browser refuses', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const writes: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } });
+    r = await render(createElement(Gate));
+    const copy = () => r!.one('.gate .cmdline button.boxcopy');
+    const said = () => [copy().textContent, copy().getAttribute('aria-label')];
+    expect(said()).toEqual(['', 'Copy command']);
+    await r.click(copy());
+    await r.wait(0);
+    expect(writes).toEqual(['shadowlap dashboard']);
+    expect(said()).toEqual(['Copied', 'Copied']);
+    await r.wait(1599);
+    expect(said()).toEqual(['Copied', 'Copied']);
+    await r.wait(1);
+    expect(said()).toEqual(['', 'Copy command']);
+    vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } });
+    await r.click(copy());
+    await r.wait(0);
+    expect(said()).toEqual(['Copy failed', 'Copy failed']);
+    await r.wait(1600);
+    expect(said()).toEqual(['', 'Copy command']);
   });
 });

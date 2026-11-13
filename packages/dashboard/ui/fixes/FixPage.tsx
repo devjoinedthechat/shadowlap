@@ -7,7 +7,6 @@ import { tipCard } from '../components/HoverCard.js';
 import { Link } from '../components/Link.js';
 import { Status } from '../components/Status.js';
 import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
-import { headingRef } from '../focus-manager.js';
 import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { ErrorState, failedRead, Skeleton } from '../components/States.js';
@@ -32,7 +31,7 @@ import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.j
 import { failingCard, leadCard, rungStatus, STEP_NAMES } from './list.js';
 import { useFixRead, useFollowJobs } from './page-fix.js';
 import { MustCheckLink, useFixCheckEntry } from './check-entry.js';
-import { FailedMust } from './parts.js';
+import { FailedMust, FixTitle } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useServerJobs, useTreeBusy } from './tree.js';
 import { leadWait, verifyTip } from './lead.js';
@@ -160,7 +159,7 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
         <div className="eyebrow">
           fix · <code>{fixName(fix)}</code>
         </div>
-        <h1 ref={headingRef}>{fix.title}</h1>
+        <FixTitle title={fix.title} />
         <p className="pmeta">
           {/* Each separator is held to the item before it, so a wrapped line never starts with one. */}
           <Status tone={status.tone}>{status.text}</Status>

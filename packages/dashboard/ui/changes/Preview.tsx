@@ -2,6 +2,7 @@ import { Fragment, useEffect, useLayoutEffect } from 'react';
 import { ApiError } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { asWords, Copy, Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Link } from '../components/Link.js';
 import { MigrateButton } from '../components/MigrateDialog.js';
@@ -121,12 +122,12 @@ function NoPreview({ goldens }: { goldens: number }) {
   if (!goldens)
     return (
       <EmptyState title="Preview a change on your goldens" text={text}>
-        <p className="emptyline">
+        <Copy className="emptyline">
           {NO_GOLDENS} <Link href={href.runs()}>Open Runs</Link>
-        </p>
+        </Copy>
       </EmptyState>
     );
-  return <EmptyState title="Preview a change on your goldens" text={text} step={<PreviewWayButtons target={EVERY_GOLDEN} />} copy command="shadowlap decisions goldens/* --model <model>" />;
+  return <EmptyState title="Preview a change on your goldens" text={text} step={<PreviewWayButtons target={EVERY_GOLDEN} />} command="shadowlap decisions goldens/* --model <model>" />;
 }
 
 const EVERY_GOLDEN = { goldens: 'all' } as const;
@@ -167,8 +168,10 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
     const f = v.verify;
     return (
       <>
-        <span className="pline">{`${h.lead}${h.rest}${h.detail}`}</span>
-        {v.within ? <span className="pline">{v.within}</span> : null}
+        <span className="pline">
+          <Words>{`${h.lead}${h.rest}${h.detail}`}</Words>
+        </span>
+        {v.within ? <span className="pline">{asWords(v.within)}</span> : null}
         {f.rules.map((r) => (
           <span key={r.rule ?? ''} className="pline">
             {glossed(r.rule ?? '')}
@@ -180,8 +183,8 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
             {w}
           </span>
         ))}
-        <span className="pline">{f.count}</span>
-        {later ? <span className="pline">{later}</span> : null}
+        <span className="pline">{asWords(f.count)}</span>
+        {later ? <span className="pline">{asWords(later)}</span> : null}
       </>
     );
   }
@@ -189,17 +192,17 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
   return (
     <>
       {h.unasked && state !== 'unsettled' ? <span className="pline dsy">{h.unasked}</span> : null}
-      {v.within ? <span className="pline">{v.within}</span> : null}
+      {v.within ? <span className="pline">{asWords(v.within)}</span> : null}
       <span className="pline">
         <span tabIndex={v.steps.notes.length ? 0 : undefined} data-tip={v.steps.notes.length ? tipCard(v.steps.text, v.steps.notes.map((n, i) => ({ label: `${i + 1}`, value: n }))) : undefined}>
           {steps.map((s, i) => (
             <Fragment key={s}>
-              {i ? ' · ' : null}
-              {s}
+              {i ? '\u00a0· ' : null}
+              {asWords(s)}
             </Fragment>
           ))}
         </span>
-        {later ? <> · {later}</> : null}
+        {later ? <>{`\u00a0· `}{asWords(later)}</> : null}
       </span>
     </>
   );

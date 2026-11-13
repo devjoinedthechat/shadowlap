@@ -4,6 +4,7 @@ import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
 import type { ChaosMatrix, FoundCommit, RunInjection, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { Code } from '../components/Copy.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
 import { Icon } from '../components/Icon.js';
@@ -97,7 +98,7 @@ function Why({ children, code, lead, gloss }: { children: string; code?: string 
  */
 function said(text: string, code?: string | readonly string[] | null, gloss = false): ReactNode[] {
   return codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) =>
-    typeof p !== 'string' ? <code key={i}>{p.code}</code> : gloss ? <Fragment key={i}>{glossed(glued(wholeTallies(p)))}</Fragment> : glued(wholeTallies(p)),
+    typeof p !== 'string' ? <Code key={i}>{p.code}</Code> : gloss ? <Fragment key={i}>{glossed(glued(wholeTallies(p)))}</Fragment> : glued(wholeTallies(p)),
   );
 }
 

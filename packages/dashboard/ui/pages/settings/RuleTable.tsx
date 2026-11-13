@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
+import { Copy } from '../../components/Copy.js';
 import { Dialog, pressWayOn } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import { ACTIONS, confirmWords } from '../../labels.js';
@@ -323,7 +324,7 @@ function RuleAdvanced({ list, f, set, open: advanced, onToggle }: { list: RuleLi
               </label>
             ) : null}
           </div>
-          <p className="muted advnote">
+          <Copy className="muted advnote">
             {f.mode === 'whole'
               ? list === 'redact'
                 ? 'No pattern: the whole value at the path is replaced, a number too. What a call got back (a tool’s result is under $.result) only HTML, HAR and dataset copies mask: a pack keeps it for its replay.'
@@ -333,7 +334,7 @@ function RuleAdvanced({ list, f, set, open: advanced, onToggle }: { list: RuleLi
                 : f.kind === 'tool' || f.kind === 'api'
                   ? `A name scopes the rule to one ${f.kind === 'tool' ? 'tool' : 'call'}; empty, it applies to every ${f.kind} call.`
                   : 'Pick a scope of api or tool to name one call or tool.'}
-          </p>
+          </Copy>
         </div>
       ) : null}
     </>

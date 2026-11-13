@@ -348,3 +348,5 @@ table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background
 .ph.fxh.stack > div:first-child { flex: none; width: 100%; }
 .ph.fxh.stack .actions { flex-wrap: wrap; margin-left: 0; justify-content: flex-start; }
 .ph.fxh.stack .actions .btn.lime { order: -1; }
+/* A title's last clause from its conjunction, whole where its line holds it (`clauseTitled`). */
+.clause { display: inline-block; max-width: 100%; }

@@ -268,12 +268,16 @@ describe('a golden’s report under its row', () => {
     const page = await draw(answer());
     const drawn = (name: string) => {
       const s = report(page, name);
-      return { head: one(s, '.verdict').textContent.replace(/\u00a0/g, ' '), parts: s.querySelectorAll('dl.rpx > dt').map((dt) => dt.textContent), hint: s.querySelectorAll('p.hintx').map((p) => p.textContent) };
+      return { head: one(s, '.verdict').textContent.replace(/\u00a0/g, ' '), parts: s.querySelectorAll('dl.rpx > dt').map((dt) => dt.textContent), hint: s.querySelectorAll('p.hintx').map((p) => p.textContent.replace(/\u00a0/g, ' ')) };
     };
     expect(drawn('refund')).toEqual({ head: expect.stringContaining('The agent exited with code 1 at call 19'), parts: ['Replay', 'Error', 'Checks'], hint: ['The agent stopped part way, so its checks say little.'] });
     expect(drawn('drift')).toEqual({ head: expect.stringContaining('Diverged at call 1: $.metadata.user_id changed, a UUID'), parts: ['Request'], hint: ['Normalizers apply at match time, so older goldens keep working.'] });
     expect(drawn('judged')).toEqual({ head: expect.stringContaining('Replayed clean, but its judge check wasn’t judged'), parts: ['Checks'], hint: [hintWords({ key: 'judge', held: 'none', name: 'polite' })] });
     expect(drawn('flaky')).toEqual({ head: expect.stringContaining('and its gate ran out before deciding'), parts: ['Gate', 'Attempts'], hint: [hintWords({ key: 'gate' })] });
+    // Its sentence glued as a verdict's words are, a small word kept with the word after it, its path as code kept whole.
+    const drift = one(report(page, 'drift'), '.verdict h3');
+    expect(drift.textContent).toContain('at\u00a0call');
+    expect(drift.querySelector('code')!.className).toBe('ts-code');
     // The lines as printed, the CLI's, under Show as printed: the golden's line red, a crash's tail dim.
     const printed = one(report(page, 'refund'), 'pre.report[role="log"]');
     expect([printed.getAttribute('aria-label'), printed.querySelectorAll('span')[0].textContent.trim(), printed.querySelectorAll('span')[0].className]).toEqual(['refund as printed', '✗ refund: the agent exited with code 1', 'no']);
@@ -369,7 +373,7 @@ describe('a golden’s report under its row', () => {
     };
     const page = await draw(answer(steps), '#/tests', { CheckBuilder: shownNow(() => createElement('div', { className: 'builderstub' })) });
     const buttons = (name: string) => report(page, name).querySelectorAll('div.actions .btn').map((b) => [b.textContent, b.className]);
-    const hint = (name: string) => report(page, name).querySelector('p.hintx')?.textContent;
+    const hint = (name: string) => report(page, name).querySelector('p.hintx')?.textContent.replace(/\u00a0/g, ' ');
     // More attempts would judge checks the config no longer holds: Run tests, the whole session, alone.
     expect(buttons('flaky')).toEqual([['Run tests', 'btn']]);
     expect(hint('flaky')).toBe('Run tests judges its checks as they are now.');
@@ -490,7 +494,7 @@ describe('an injection gate’s proof and its Security report', () => {
     r = await render(served({ SecurityReportDialog: shownNow(SecurityReportDialog) }, page, client));
     await r.click(r.byText('div.actions .btn', 'Security report'));
     await r.until('the dialog’s preview', () => r!.all('[role="dialog"] .injmask').length === 2);
-    expect(shownText(r.one('[role="dialog"] h3'))).toBe(`Download security report for ${TESTED.slice(0, 10)}`);
+    expect(shownText(r.one('[role="dialog"] h3')).replace(/\u00a0/g, ' ')).toBe(`Download security report for ${TESTED.slice(0, 10)}`);
     await r.click(r.one('.dlg-cancel'));
     expect(r.all('[role="dialog"]')).toHaveLength(0);
     // ⌘K on the golden's row presses the report's own button.
@@ -620,6 +624,6 @@ describe('a golden a migration left waiting', () => {
     expect(s2.querySelectorAll('dl.rpx > dt').map((dt) => dt.textContent)).toEqual(['Request']);
     expect(shownText(one(s2, 'dl.rpx > dd > p.rpcause')).replace(/\u00a0/g, ' ')).toBe('The config change of migration mg-01M5000000 switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.');
     expect(one(s2, 'p.rpcause a').getAttribute('href')).toBe(`#/changes/migrate/${id}`);
-    expect(s2.querySelectorAll('p.hintx').map((p) => p.textContent)).toEqual(['A golden recorded before the switch diverges on it: update it once the switch is what you meant.']);
+    expect(s2.querySelectorAll('p.hintx').map((p) => shownText(p).replace(/\u00a0/g, ' '))).toEqual(['A golden recorded before the switch diverges on it: update it once the switch is what you meant.']);
   });
 });

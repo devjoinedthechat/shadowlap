@@ -1,5 +1,5 @@
 /**
- * A shell command as `.cmdline` sets it (`CmdLine`, `Command`), cut where it may wrap, as the mock's
+ * A shell command as `.cmdline` sets it (`CodeBox`, `Command`), cut where it may wrap, as the mock's
  * cmdArgs() and argHtml() cut one. Words break at the spaces between them. A flag stays with the
  * value after it, so a line never ends on `--expect`, and no flag breaks inside itself (after its
  * first hyphen, `--` / `expect` reads as two). An id, a short value and a short quoted string stay

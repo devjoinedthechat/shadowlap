@@ -66,6 +66,8 @@ describe('glue', () => {
     expect(j('Probe 3 rescued it at tier 2 or exit code 1 then')).toBe('Probe~3~rescued it~at~tier~2 or~exit code~1~then');
     expect(j('pull requests and system prompts with judge checks up to 3 times')).toBe('pull~requests and~system~prompts with~judge~checks up~to~3~times');
     expect(j('neither x nor y but it runs onto my bench and our desk')).toBe('neither x nor~y but~it~runs onto~my~bench and~our~desk');
+    // a revision keeps its word, its hash starting with a letter or a digit
+    expect(j('golden from rev a7b3c2e, then revision 3f9e2d1 kept it')).toBe('golden from~rev~a7b3c2e, then revision~3f9e2d1 kept~it');
     // "no" holds its word as an article does, more than a small word
     expect(joinOf(['no', 'runs'], 0)).toBe(JOIN.article);
     expect(joinOf(['with', 'runs'], 0)).toBe(JOIN.small);
@@ -153,8 +155,8 @@ describe('copy set at a width', () => {
     expect(keptWords(flatText('Adds refund-in-limit and get_policy.result.limit'), null).map((w) => w.kind)).toEqual(['w', 'w']);
   });
 
-  it('balances no block, nor sentence, whose every word is kept whole', () => {
-    expect(setAt('refund-in-limit escalate-over-limit', 20).wrap).toBeNull();
+  it('balances no block, nor sentence, whose every word is kept whole: it wraps pretty, outranking a stylesheet’s balance', () => {
+    expect(setAt('refund-in-limit escalate-over-limit', 20).wrap).toBe('ts-pretty');
   });
 
   it('sets copy unmeasured as a block not laid out yet: short copy’s sentences whole, a run of joined words giving way past 30 characters', () => {

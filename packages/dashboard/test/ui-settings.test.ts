@@ -40,7 +40,6 @@ import {
   serverNameFor,
   settingsTab,
   shareLinksLine,
-  shellWords,
   sizeNote,
   suggestedReplace,
   syncText,
@@ -152,19 +151,6 @@ describe('the Add dialog', () => {
       expect(validateRule(list, ruleFromCommand(command))).toEqual(validateRule(list, ruleInput(f)));
     }
     expect(ruleCommand('normalize', form({ kind: 'api', path: '$.metadata.user_id' }))).toBe("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
-  });
-});
-
-describe('a command line on the page', () => {
-  it('wraps between the words a shell splits, never inside a quoted value or a flag', () => {
-    expect(shellWords("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'")).toEqual(['shadowlap', 'normalize', 'add', '--kind', 'api', '--path', "'$.metadata.user_id'", '--pattern', 'uuid', '--replace', "'<UUID>'"]);
-    expect(shellWords("shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: •••'")).toEqual(['shadowlap', 'mcp', '--url', "'https://mcp.stripe.com/?key=•••'", '--header', "'Authorization: •••'"]);
-    expect(shellWords(`shadowlap redact add --name "o'brien  tool"  x`)).toEqual(['shadowlap', 'redact', 'add', '--name', `"o'brien  tool"`, 'x']);
-    expect(shellWords('shadowlap gc --before 1757000000000 --expect 3-0123456789abcdef')).toEqual(['shadowlap', 'gc', '--before', '1757000000000', '--expect', '3-0123456789abcdef']);
-    // A quote escaped between two quoted parts stays in its word; joined again, the words are the command.
-    const line = "shadowlap normalize add --kind tool --name 'o'\\''brien tool' --path '$.args.path'";
-    expect(shellWords(line)).toEqual(['shadowlap', 'normalize', 'add', '--kind', 'tool', '--name', "'o'\\''brien tool'", '--path', "'$.args.path'"]);
-    expect(shellWords(line).join(' ')).toBe(line);
   });
 });
 
@@ -431,15 +417,15 @@ describe('the CI tab', () => {
     const row = (teamStore: { store: string | null; ciPush?: boolean }) =>
       renderToStaticMarkup(createElement(TeamStoreRow, { store: ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, teamStore }).fixOnFailure.teamStore }));
     const on = row({ store: 's3://northwind-agent-runs/support-agent' });
-    expect(on).toContain('<b>Team store</b><span>Follows Push from CI: on, so the test runs, and fixes from your branches, go there too.</span>');
+    expect([on.includes('<b>Team store</b><span>'), on.replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')]).toEqual([true, expect.stringContaining('Team storeFollows Push from CI: on, so the test runs, and fixes from your branches, go there too.Settings')]);
     expect(on).toContain('href="#/settings/store"');
     expect(on).toContain('title="Push from CI is set in Settings → Store, for northwind-agent-runs/support-agent"');
     // No switch of its own: Push from CI is set in one place.
     expect(on).not.toMatch(/<button|<select|<input|role="switch"|aria-pressed/);
-    expect(row({ store: 's3://northwind-agent-runs/support-agent', ciPush: false })).toContain('Follows Push from CI: off, so test runs and fixes stay in GitHub.');
+    expect(row({ store: 's3://northwind-agent-runs/support-agent', ciPush: false }).replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')).toContain('Follows Push from CI: off, so test runs and fixes stay in GitHub.');
     // With none, the link leads to setting one up, which the row says there isn't yet.
     const none = row({ store: null });
-    expect(none).toContain('None yet, so test runs and fixes stay in GitHub. With one, this follows Push from CI.');
+    expect(none.replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')).toContain('None yet, so test runs and fixes stay in GitHub. With one, this follows Push from CI.');
     expect(none).toContain('title="Set up a team store in Settings → Store"');
   });
 });

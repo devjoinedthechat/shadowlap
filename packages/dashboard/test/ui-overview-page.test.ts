@@ -14,6 +14,7 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { addRun, DAY } from './read-model-store.js';
 import { addressBar, app, watchThePage } from './ui-route-helpers.js';
 import { render, type Rendered } from './ui-render.js';
+import { withMigrateDialogs } from './ui-served-now.js';
 
 /**
  * The Overview as the shell draws it: Watch live naming the recording by what it is about, Recent
@@ -81,7 +82,7 @@ async function overview(first: Shown, more: Partial<Client> = {}): Promise<{ sho
     move = setTick;
     counters = setFeeds;
     const state = app({ client, runs: now.runs ?? [], live: now.live ?? [], tick, runsTick: 0, feeds, hasKind: () => true });
-    return createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, 'Overview'), createElement(OverviewPage)), createElement(Keyboard));
+    return withMigrateDialogs(createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, 'Overview'), createElement(OverviewPage)), createElement(Keyboard)));
   }
   r = await render(createElement(Host));
   await r.until('the Overview', () => r!.all('.ovg').length > 0);
@@ -261,7 +262,7 @@ describe('a retiring model’s row', () => {
     await overview({ summary: { ...week, needsLook: { items: [retire], total: 1, dismissals: 0 } } });
     await r!.click(r!.byText('.arow .ast .btn', 'Migrate to claude-sonnet-5-5'));
     await r!.until('the ask', () => r!.all('.dialog').length === 1);
-    expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p')), text(r!.one('.dialog .dcost'))]).toEqual([
+    expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p > span:not([hidden])')), text(r!.one('.dialog .dcost'))]).toEqual([
       'Migrate claude-sonnet-4-5 to claude-sonnet-5-5',
       'Asks claude-sonnet-4-5’s calls again under claude-sonnet-5-5, then verifies end to end the runs the preview can’t clear. Migrate in the docs →',
       'Billed by your provider',

@@ -141,13 +141,13 @@ export const isShortCopy = (text: string): boolean => text.length <= 640 && sent
 // ---------------------------------------------------------------------------------------------- glue
 
 /** The small words a line shouldn't end on (rule 3): an article, a preposition, a conjunction, an auxiliary. */
-const SMALL = new Set(
+export const SMALL = new Set(
   'a an the of to in on at by for and or nor but with from as is its it your my our no not than into onto per via vs vs. if so be until unless while because whether once since that which whose when where before after over under through across against within without between are was were been has have had can could will would should may might must'.split(
     ' ',
   ),
 );
 /** An article or a possessive, which holds its word more than the other small words do. */
-const ARTICLES = new Set(['a', 'an', 'the', 'its', 'your', 'my', 'our', 'no']);
+export const ARTICLES = new Set(['a', 'an', 'the', 'its', 'your', 'my', 'our', 'no']);
 /** What a number never holds after it: a small word, or a preposition (`#19 with`, `0.94 over`). */
 const NOT_A_UNIT = new Set([...SMALL, 'over', 'above', 'below', 'under', 'against', 'after', 'before', 'until', 'since', 'across', 'between', 'within', 'without']);
 /** A figure ending a word: a count, a price, a rate, a share, a call's number, a number in words. */
@@ -157,6 +157,8 @@ const NAMES_NUMBER =
   /\b(?:calls?|attempts?|probes?|steps?|turns?|candidates?|revisions?|rev|runs?|sessions?|goldens?|HTTP|PR|exit|exited|code|tier|lines?|version|port|page|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec|against|over|above|below|under|than)$/i;
 /** How a number a word names starts. */
 const A_NUMBER = /^[#≈~$€£]?\d/;
+/** A revision's short hash, after the word that names it (`rev a7b3c2e`): it starts with a letter as often as a digit. */
+const REV_HASH = /^[0-9a-f]{7,40}\b/;
 /** An operator, a word of its own: no line starts with one. */
 const OPERATOR = /^(?:[<>=≤≥≠]|[<>!=]=)$/;
 /** A separator, a word of its own: no line starts with one. */
@@ -206,6 +208,7 @@ function figureJoin(a: string, b: string, before: string | undefined, after: str
   if (a === 'of' && !!before && /\d$/.test(before) && A_NUMBER.test(b)) return JOIN.figure;
   if (NUMBER.test(a) && /^[A-Za-z%×(]/.test(b) && !NOT_A_UNIT.has(b.toLowerCase())) return JOIN.figure;
   if (NAMES_NUMBER.test(a) && A_NUMBER.test(b)) return JOIN.figure;
+  if (/^rev(?:ision)?$/i.test(a) && REV_HASH.test(b)) return JOIN.figure;
   return 0;
 }
 
@@ -390,6 +393,12 @@ export function keptWords(f: Flat, fits: ((word: string) => boolean) | null): Ke
 export const longPieces = (w: string): string[] => w.split(/(?<=\w[.-])(?=\w)/);
 /** A path's pieces, each ending on a slash after which it may break: never inside `//`, nor right after `:/`. */
 export const pathPieces = (w: string): string[] => w.split(/(?<=[^/:]\/)(?!\/)/);
+/**
+ * A piece of code kept whole that a narrow line may not hold (a key with a URL in a tool call's
+ * arguments), cut where a name or a path may break: after a dot or a hyphen between words, or after a
+ * path's slash, never inside `//`. Joined, the pieces are the code.
+ */
+export const codeCuts = (s: string): string[] => s.split(/(?<=\w[.-])(?=\w)|(?<=[^/:]\/)(?!\/)/);
 
 // ---------------------------------------------------------------------------------------------- code
 

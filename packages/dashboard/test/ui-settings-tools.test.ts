@@ -54,8 +54,8 @@ describe('Settings → Tools', () => {
     r = await page(app({ tools: async () => tools([]) }), 'tools');
     await r.until('the tab', () => r!.all('.egrp.mcp').length > 0);
     expect(r.one('.settab .panel.sec h2').textContent).toBe('Tools');
-    expect(r.one('.settab .panel.sec .sub').textContent).toBe('what a fork runs again, and what brings outside text in');
-    expect(r.one('.settab .panel.sec .pbody p.muted').textContent).toBe(`${SETTLED} A read marked untrusted brings outside text in, and shadowlap injection plants its payloads there.`);
+    expect(r.one('.settab .panel.sec .sub').textContent.replace(/\u00a0/g, ' ')).toBe('what a fork runs again, and what brings outside text in');
+    expect(r.one('.settab .panel.sec .pbody p.muted').textContent.replace(/\u00a0/g, ' ')).toBe(`${SETTLED} A read marked untrusted brings outside text in, and shadowlap injection plants its payloads there.`);
     // With no config to copy, nothing folds.
     expect(r.all('.egrp.mcp .wftog')).toHaveLength(0);
   });
@@ -109,6 +109,6 @@ describe('Settings → Coding agents', () => {
     expect(r.one('.boxwrap.md .boxcopy').getAttribute('aria-label')).toBe('Copy section');
     const kids = r.one('.boxwrap.md').parentNode!.children;
     const hint = kids[kids.indexOf(r.one('.boxwrap.md')) + 1];
-    expect([hint.tagName.toLowerCase(), hint.className, hint.textContent]).toEqual(['p', 'hintx', 'Paste it into CLAUDE.md.']);
+    expect([hint.tagName.toLowerCase(), hint.className, hint.textContent.replace(/\u00a0/g, ' ')]).toEqual(['p', 'hintx', 'Paste it into CLAUDE.md.']);
   });
 });

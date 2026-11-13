@@ -7,6 +7,7 @@ import { copyCompares } from '../runs.js';
 import { ACTIONS } from '../labels.js';
 import { setSingleKeys, sheetLines, switchSentence, useSingleKeys, type SheetGroup, type SheetLine, type SheetPlace } from '../shortcuts.js';
 import { useApp } from '../state.js';
+import { Copy } from '../components/Copy.js';
 
 /**
  * The shortcuts sheet (?), grouped by where they work: Anywhere and In a list on the left, Go to on
@@ -82,7 +83,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
             <Switch on={singleKeys} onChange={setSingleKeys}>
               Single-key shortcuts
             </Switch>
-            <span>{switchSentence(exported, paletteKeyLabel(), undoKeyLabel())}</span>
+            <Copy as="span">{switchSentence(exported, paletteKeyLabel(), undoKeyLabel())}</Copy>
           </div>
         </div>
         <footer>

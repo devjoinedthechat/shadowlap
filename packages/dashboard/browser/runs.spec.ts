@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openPage, seriousViolations } from './dashboard.js';
+import { glued, openPage, seriousViolations } from './dashboard.js';
 
 /**
  * Runs as the design draws it, in a real browser: the twelve weeks a slim row of days that a drag
@@ -47,7 +47,7 @@ test('the twelve weeks are a row of days a drag picks from, and Calendar opens t
   await page.mouse.up();
   await expect.poll(() => hash(page)).toMatch(/^#\/runs\?from=\d{4}-\d\d-\d\d&to=\d{4}-\d\d-\d\d$/);
   await expect(row.locator('.hbars button[aria-pressed="true"]')).toHaveCount(3);
-  await expect(row.locator('.hsum')).toHaveText(/^\d[\d,]* (run|runs) from \w{3} \d+ to \w{3} \d+(, \d[\d,]* failed)?\.$/);
+  await expect(row.locator('.hsum')).toHaveText(glued(/^\d[\d,]* (run|runs) from \w{3} \d+ to \w{3} \d+(, \d[\d,]* failed)?\.$/));
   await expect(row.locator('.hact button', { hasText: 'Clear' })).toBeVisible();
   expect(await seriousViolations(page)).toEqual([]);
   // Calendar shows the grid in the row's place, its own button in focus; Hide calendar brings the row back.

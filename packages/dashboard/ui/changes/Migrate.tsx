@@ -3,6 +3,7 @@ import { MODEL_NAME } from '../../src/decisions-argv.js';
 import { ApiError } from '../api.js';
 import { forgetMigration, noteMigration } from '../changes-tab.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { Copy } from '../components/Copy.js';
 import { inCode } from '../components/DialogFacts.js';
 import { Link } from '../components/Link.js';
 import { MigrateAskNow, MigrateButton } from '../components/MigrateDialog.js';
@@ -142,18 +143,18 @@ function RetiringStart({ n, start }: { n: MigrateRetiring; start: MigrateStartVi
   return (
     <section className="panel stepempty mgstart">
       <h2>{n.heading}</h2>
-      <p>{inCode(n.facts)}</p>
+      <Copy>{inCode(n.facts)}</Copy>
       <div className="form one mgform">
         <ModelField label="Switch to" value={to} onChange={setTo} recorded={recordedOf(start.use, n.model)} listing={listing} recommended={n.replacements} />
       </div>
       <StartGo s={s} />
-      <p className="muted mgsrc">
+      <Copy className="muted mgsrc">
         {n.matched && n.matched !== n.model ? `${n.model} names the snapshot ${n.matched}. ` : ''}The date is from the retirement table that ships with Shadowlap, read from {who ? `${who}’s` : 'the provider’s'}{' '}
         <a className="dlink" href={n.source} target="_blank" rel="noreferrer">
           model deprecations
         </a>{' '}
         page; nothing is fetched.
-      </p>
+      </Copy>
     </section>
   );
 }
@@ -184,7 +185,7 @@ function SwitchStart({ use }: { use: readonly MigrateUse[] }) {
   return (
     <section className="panel stepempty mgstart">
       <h2>Switch models with the evidence</h2>
-      <p>{INTRO}</p>
+      <Copy>{INTRO}</Copy>
       <div className="form mgform">
         <label>
           Switch from

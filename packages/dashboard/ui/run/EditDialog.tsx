@@ -8,6 +8,7 @@ import { messageOf } from '../../../engine/src/message-of.js';
 import { useApp } from '../state.js';
 import { sentEstimate } from '../spending.js';
 import { rowPriced, useRunEstimates } from './estimates.js';
+import { Words } from '../components/Copy.js';
 
 /**
  * Edit and fork's dialog (EditAndFork.tsx): the result edited, as JSON or as text, or what a person
@@ -102,7 +103,7 @@ export function EditDialog({ runId, detail, action, onFork, onClose }: { runId: 
         <textarea value={text} spellCheck={false} rows={12} onChange={(e) => setText(e.target.value)} aria-invalid={'error' in out} aria-describedby="editforkWhy" />
       </label>
       <p id="editforkWhy" className={`fieldnote${'error' in out ? ' err' : ''}`} role={'error' in out ? 'alert' : undefined}>
-        {'error' in out ? out.error : `${new TextEncoder().encode(out.body).length.toLocaleString('en-US')} bytes, checked again by the dashboard before it forks.`}
+        {'error' in out ? out.error : <Words>{`${new TextEncoder().encode(out.body).length.toLocaleString('en-US')} bytes, checked again by the dashboard before it forks.`}</Words>}
       </p>
     </Dialog>
   );

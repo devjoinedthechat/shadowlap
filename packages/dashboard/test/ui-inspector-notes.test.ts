@@ -33,7 +33,7 @@ describe('a failed call’s note', () => {
   it('says Failed. on a line of its own, then the provider’s status and error', () => {
     const html = note(LIVE);
     expect(html).toContain('<div class="inote err"><b>Failed.</b>');
-    expect(text(html)).toBe('Failed. The provider answered HTTP 529: Overloaded. This is the conversation the agent sent.');
+    expect(text(html).replace(/\u00a0/g, ' ')).toBe('Failed. The provider answered HTTP 529: Overloaded. This is the conversation the agent sent.');
   });
 
   it('names the status once when the error repeats it, and says what it can without one', () => {
@@ -45,8 +45,8 @@ describe('a failed call’s note', () => {
   });
 
   it('says Never sent. for --fail-at, with its flag and attempts, and Refused. for an offline replay', () => {
-    expect(note(INJECTED, '--fail-at 19=529')).toBe('<div class="inote inj"><b>Never sent.</b> Shadowlap answered with HTTP 529 (<code>--fail-at 19=529</code>), 3 attempts. This is the conversation the agent would have sent.</div>');
-    expect(text(note(REFUSED))).toBe('Refused. The replay is offline and this request is not in the recording, so it got HTTP 503. This is what the agent sent.');
+    expect(note(INJECTED, '--fail-at 19=529').replace(/\u00a0/g, ' ')).toBe('<div class="inote inj"><b>Never sent.</b> Shadowlap answered with HTTP 529 (<code class="ts-code">--fail-at 19=529</code>), 3 attempts. This is the conversation the agent would have sent.</div>');
+    expect(text(note(REFUSED)).replace(/\u00a0/g, ' ')).toBe('Refused. The replay is offline and this request is not in the recording, so it got HTTP 503. This is what the agent sent.');
   });
 
   it('draws nothing over a call that answered', () => {
@@ -56,19 +56,19 @@ describe('a failed call’s note', () => {
   it('heads the conversation with it, with nothing about a conversation a tool call doesn’t have', () => {
     expect(tab(LIVE, 'conversation')).toContain('<b>Failed.</b>');
     const conversation = { turns: [], fromCallNo: 19, n: null };
-    expect(text(tab(LIVE, 'conversation', { conversation } as unknown as Partial<CallDetail>))).toContain('DetailsFailed. The provider answered HTTP 529: Overloaded. This is the conversation the agent sent.0 messages · what the model would have seen at #19');
+    expect(text(tab(LIVE, 'conversation', { conversation } as unknown as Partial<CallDetail>)).replace(/\u00a0/g, ' ')).toContain('DetailsFailed. The provider answered HTTP 529: Overloaded. This is the conversation the agent sent.0 messages · what the model would have seen at #19');
     const tool = { ...LIVE, kind: 'tool', name: 'refund', outcome: 'ok', status: null, error: null } as Call;
     const html = tab(tool, 'conversation', { request: { args: { amount: 40 } }, result: { result: { ok: true } } });
-    expect(html).toContain('<div class="ibar">Its arguments, then its result:</div>');
+    expect(html.replace(/\u00a0/g, ' ')).toContain('<div class="ibar"><span>Its arguments, then its result:</span></div>');
   });
 });
 
 describe('a tool call’s response, as the fork changed it', () => {
   const tool = { ...LIVE, kind: 'tool', name: 'refund', status: null, error: null } as Call;
   it('says what a blocked write and a blocked read got instead, in one sentence each', () => {
-    expect(tab({ ...tool, origin: 'blocked', effect: 'write' }, 'response')).toContain('Blocked: a write tool after the fork, so the agent got this instead of the real result:');
-    expect(tab({ ...tool, origin: 'blocked', effect: 'read' }, 'response')).toContain('Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:');
-    expect(tab({ ...tool, origin: 'stubbed', effect: 'write' }, 'response')).toContain('Stubbed: a write tool after the fork answered with a stand-in:');
+    expect(tab({ ...tool, origin: 'blocked', effect: 'write' }, 'response').replace(/\u00a0/g, ' ')).toContain('Blocked: a write tool after the fork, so the agent got this instead of the real result:');
+    expect(tab({ ...tool, origin: 'blocked', effect: 'read' }, 'response').replace(/\u00a0/g, ' ')).toContain('Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:');
+    expect(text(tab({ ...tool, origin: 'stubbed', effect: 'write' }, 'response')).replace(/\u00a0/g, ' ')).toContain('Stubbed: a write tool after the fork answered with a stand-in:');
   });
 
   it('says who wrote a failed model call’s HTTP answer', () => {
@@ -97,7 +97,7 @@ describe('a failed model call’s details', () => {
   it('names the flag that overrode a call, and keeps an answered call’s split of its input', () => {
     const over = { ...LIVE, origin: 'overridden', outcome: 'ok', status: 200, error: null } as Call;
     const html = tab(over, 'details', {}, '--override 16=@policy.json');
-    expect(html).toContain('<dt>Origin</dt><dd>overridden <small>--override 16=@policy.json</small></dd>');
+    expect(html).toContain('<dt>Origin</dt><dd>overridden <small><code class="ts-code">--override 16=@policy.json</code></small></dd>');
     expect(html).toContain('<small>0 cache read · 0 cache creation · 1,200 uncached</small>');
     expect(html).not.toContain('answered by');
   });
@@ -108,11 +108,11 @@ describe('a preset’s attempt, at the call its preset played in at', () => {
   const TIMEOUT: Call = { ...LIVE, callNo: 4, kind: 'tool', name: 'get_ticket', origin: 'injected', status: null, model: null };
 
   it('names the preset in place of --fail-at: its note, its Response tab’s head and its details', () => {
-    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(19, 'provider 429')))).toContain('Never sent. The provider 429 preset answered with HTTP 529, 3 attempts. This is the conversation the agent would have sent.');
+    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(19, 'provider 429'))).replace(/\u00a0/g, ' ')).toContain('Never sent. The provider 429 preset answered with HTTP 529, 3 attempts. This is the conversation the agent would have sent.');
     expect(tab(INJECTED, 'details', {}, null, at(19, 'provider 429'))).toContain('<dt>Outcome</dt><dd>error · HTTP 529<small> by the provider 429 preset, never sent</small></dd>');
     const result = { error: { name: 'TimeoutError', message: 'get_ticket timed out' } };
-    expect(text(tab(TIMEOUT, 'response', { result }, null, at(4, 'tool timeout')))).toContain('Played in by the tool timeout preset: get_ticket didn’t run, and the agent got this error:');
-    expect(text(tab({ ...TIMEOUT, outcome: 'ok' }, 'response', { result: { result: [] } }, null, at(4, 'empty result')))).toContain('Played in by the empty result preset, in place of the recorded result:');
+    expect(text(tab(TIMEOUT, 'response', { result }, null, at(4, 'tool timeout'))).replace(/\u00a0/g, ' ')).toContain('Played in by the tool timeout preset: get_ticket didn’t run, and the agent got this error:');
+    expect(text(tab({ ...TIMEOUT, outcome: 'ok' }, 'response', { result: { result: [] } }, null, at(4, 'empty result'))).replace(/\u00a0/g, ' ')).toContain('Played in by the empty result preset, in place of the recorded result:');
     const details = tab(TIMEOUT, 'details', { result }, null, at(4, 'tool timeout'));
     expect(details).toContain('injected <small>by the tool timeout preset</small>');
     expect(details).toContain('<small> by the tool timeout preset; the tool didn’t run</small>');
@@ -121,6 +121,6 @@ describe('a preset’s attempt, at the call its preset played in at', () => {
     expect(served).toContain('<dt>Origin</dt><dd>overridden <small>by the malformed JSON preset</small></dd>');
     expect(served).not.toContain('--override');
     // Any other call of the attempt keeps the inspector's own words.
-    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(4, 'tool timeout')))).toContain('Shadowlap answered with HTTP 529');
+    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(4, 'tool timeout'))).replace(/\u00a0/g, ' ')).toContain('Shadowlap answered with HTTP 529');
   });
 });

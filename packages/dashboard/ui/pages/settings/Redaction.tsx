@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api.js';
 import { CopyButton } from '../../components/bits.js';
+import { Code, Copy, Words } from '../../components/Copy.js';
 import { tipCard, tipText } from '../../components/HoverCard.js';
 import { RunPicker } from '../../compare/RunPicker.js';
 import { num } from '../../format.js';
@@ -61,9 +62,9 @@ export function RedactionTab() {
         }
       >
         <div className="pbody">
-          <p className="muted">
-            Applied to every export, pack and share link: <Where where={data.where} />. {redactionNotes(teamStore)}
-          </p>
+          <Copy className="muted">
+            Applied to every export, pack and share link: {whereCodes(data.where)}. {redactionNotes(teamStore)}
+          </Copy>
         </div>
         <RuleTable list="redact" rows={data.rules} off={off} unreadable={unreadable} onRemove={removeRule(app, editor, 'redact', version, putBack)} focus={putBack} />
         {/* No rules to preview while the file can't be read or the folder is gone: the table says so. */}
@@ -99,8 +100,8 @@ export function RedactionTab() {
   );
 }
 
-/** The commands a copy leaves by, each with how it applies the rules on hover. */
-function Where({ where }: { where: RedactionSettings['where'] }) {
+/** The commands a copy leaves by, each with how it applies the rules on hover: pieces of the lead, so its `Copy` sets them as words. */
+function whereCodes(where: RedactionSettings['where']) {
   return (
     <>
       {where.map((w, i) => (
@@ -183,14 +184,16 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           })}
           onPick={onPick}
         />
-        <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned, view.preview.kept) : ''}</span>
+        <span className="muted">
+          <Words>{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned, view.preview.kept) : ''}</Words>
+        </span>
       </div>
       {data.config.error ? null : broken ? (
         <p className="fieldnote err">
           Redaction rule #{broken.n} can’t be used: {broken.error}. Remove it or fix it in {CONFIG_FILE} to see the preview.
         </p>
       ) : !data.rules.length ? (
-        <p className="muted pvnone">Add a rule to see what it would mask in this run before you export, pack or share it.</p>
+        <Copy className="muted pvnone">Add a rule to see what it would mask in this run before you export, pack or share it.</Copy>
       ) : p.error && !view ? (
         <p className="fieldnote err">{p.error.message}</p>
       ) : view ? (
@@ -271,11 +274,11 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
             </div>
           ) : null}
           {view.preview.partial ? (
-            <p className="muted pvfoot">
-              {partialLine(view.preview.partial)} <code>{view.command}</code> reads them all.
-            </p>
+            <Copy className="muted pvfoot">
+              {partialLine(view.preview.partial)} <Code>{view.command}</Code> reads them all.
+            </Copy>
           ) : null}
-          {view.preview.unreadable ? <p className="fieldnote warn">{view.preview.unreadable === 1 ? '1 call could not be read and is' : `${view.preview.unreadable} calls could not be read and are`} not counted.</p> : null}
+          {view.preview.unreadable ? <Copy className="fieldnote warn">{view.preview.unreadable === 1 ? '1 call could not be read and is' : `${view.preview.unreadable} calls could not be read and are`} not counted.</Copy> : null}
         </>
       ) : null}
     </div>

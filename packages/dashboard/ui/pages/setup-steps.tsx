@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from 'react';
 import { JOB_KINDS } from '../api.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { Command } from '../components/Copy.js';
+import { Code, Command, Copy } from '../components/Copy.js';
 import type { CalibrateStep, InspectStep, RecordStep, SetupView, TestStep } from '../projects-api.js';
 import { aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass, terminalLine } from '../projects.js';
 import { tipEst } from '../spending.js';
@@ -26,13 +26,12 @@ export function SetupSteps({ view, jobs, off, treeBusy, testsWait }: { view: Set
   );
 }
 
-/** Words with the names in them shown as code, as the mock writes tools, paths and goldens. */
-function Coded({ text, names }: { text: string; names: readonly string[] }) {
-  return (
-    <>
-      {codeParts(text, names).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : <span key={i}>{p.text}</span>))}
-    </>
-  );
+/**
+ * Words with the names in them shown as code, as the mock writes tools, paths and goldens: pieces,
+ * so the `Copy` around them sets the words and keeps each name whole.
+ */
+function coded(text: string, names: readonly string[]): ReactNode[] {
+  return codeParts(text, names).map((p, i) => (p.code ? <Code key={i}>{p.text}</Code> : p.text));
 }
 
 /** JSON paths in a sentence (`$.metadata.user_id`): calibrate's words name them. */
@@ -53,9 +52,8 @@ function SetupStep({ step, cli, children }: { step: SetupView['steps'][number]; 
         {cli.length ? (
           <div className="cli">
             <span>or in a terminal</span>
-            <code>
-              <span aria-hidden="true">$</span> {cli.join(' && ')}
-            </code>
+            {/* the prompt is never copied with the command */}
+            <Command cmd={cli.join(' && ')} inline prompt />
           </div>
         ) : null}
       </div>
@@ -98,7 +96,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
   ) : null;
   return (
     <SetupStep step={step} cli={step.cli}>
-      {step.text ? <p>{step.text}</p> : null}
+      {step.text ? <Copy phrases>{step.text}</Copy> : null}
       {step.button ? (
         <div className="actions">
           <ActionButton className={limeIf(step.button.lime)} why={why} onClick={() => onInspect(false)}>
@@ -118,9 +116,9 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       )}
       {step.warning ? (
         <div className="warnline">
-          <p>
-            <b>{step.warning.title}</b> <Coded text={step.warning.text} names={unwrapped} />
-          </p>
+          <Copy phrases>
+            <b>{step.warning.title}</b> {coded(step.warning.text, unwrapped)}
+          </Copy>
           {step.warning.code.map((w) => (
             <CodeBox key={w.language + w.tools.join(',')} code={w.code} what="the wrappers" />
           ))}
@@ -133,9 +131,9 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       ) : null}
       {step.node ? (
         <div className="warnline">
-          <p>
+          <Copy phrases>
             <b>{step.node.title}</b> {step.node.text}
-          </p>
+          </Copy>
           <div className="actions">
             <ActionButton className={limeIf(step.node.recheck.lime)} why={why} onClick={() => onInspect(true)}>
               {step.node.recheck.label}
@@ -180,7 +178,7 @@ function FoundRow({ label, value, code, small }: { label: string; value: string;
     <>
       <dt>{label}</dt>
       <dd>
-        {code ? <code>{value}</code> : file ? <Coded text={value} names={[file]} /> : value}
+        {code ? <code>{value}</code> : file ? coded(value, [file]) : value}
         {small ? <small>{small}</small> : null}
       </dd>
     </>
@@ -276,16 +274,14 @@ function RecordBody({
           </span>
         </div>
         {step.warning ? (
-          <p className="fieldnote warn">
-            <Coded text={step.warning} names={names} />
-          </p>
+          <Copy className="fieldnote warn">{coded(step.warning, names)}</Copy>
         ) : null}
       </>
     );
   } else {
     body = (
       <>
-        {step.text ? <p>{step.text}</p> : null}
+        {step.text ? <Copy phrases>{step.text}</Copy> : null}
         {step.command ? <CommandField value={value} enabled={enabled} onChange={setCommand} onEnter={go} /> : null}
         {step.button ? (
           <div className="actions">
@@ -302,12 +298,12 @@ function RecordBody({
     <SetupStep step={step} cli={terminalLine(step.cli, field?.value ?? '', command)}>
       {body}
       {step.empty ? (
-        <p className="fieldnote warn">
-          <Coded text={step.empty.text} names={[step.empty.runId.slice(0, 10)]} />{' '}
+        <Copy className="fieldnote warn">
+          {coded(step.empty.text, [step.empty.runId.slice(0, 10)])}{' '}
           <a className="more" href={step.empty.href}>
             Open it
           </a>
-        </p>
+        </Copy>
       ) : null}
       {step.again ? (
         <div className="again">
@@ -330,9 +326,7 @@ function CalibrateBody({ step, off, tree, busy, canCalibrate, runId, onCalibrate
   const button = step.button;
   return (
     <SetupStep step={step} cli={step.cli}>
-      <p>
-        <Coded text={step.text} names={names} />
-      </p>
+      <Copy phrases>{coded(step.text, names)}</Copy>
       {button ? (
         <div className="actions">
           <ActionButton className={limeIf(button.lime)} disabled={!button.enabled || !runId} why={why} tip={button.tip ? button.label : undefined} sub={button.tip?.sub} command={button.tip ? `$ ${button.tip.command}` : undefined} onClick={() => runId && onCalibrate(runId, button.action === 'calibratewrite')}>
@@ -356,7 +350,7 @@ function PackLead({ step }: { step: TestStep }) {
   if (!text && !redaction) return null;
   const settings = redaction ? aroundWord(redaction.text, 'Settings') : null;
   return (
-    <p>
+    <Copy phrases>
       {text}
       {redaction ? ' ' : null}
       {redaction && settings ? (
@@ -370,8 +364,26 @@ function PackLead({ step }: { step: TestStep }) {
       ) : (
         redaction?.text
       )}
-    </p>
+    </Copy>
   );
+}
+
+/** Pack's line once packed, set as a step's words are; a failed test's line holds the test's reason, so it is drawn as written. */
+function Packed({ packed }: { packed: NonNullable<TestStep['packed']> }) {
+  const words = (
+    <>
+      {coded(packed.text, [packed.golden])}
+      {packed.link ? (
+        <>
+          {' '}
+          <a className="more" href={packed.link.href}>
+            {packed.link.label}
+          </a>
+        </>
+      ) : null}
+    </>
+  );
+  return packed.failed ? <p className="fieldnote err">{words}</p> : <Copy phrases>{words}</Copy>;
 }
 
 function TestBody({
@@ -415,19 +427,7 @@ function TestBody({
     <SetupStep step={step} cli={step.cli}>
       <PackLead step={step} />
       {step.golden ? <CommandField id="goldName" label="Golden" mark="→" value={value} enabled={enabled} onChange={setGolden} onEnter={() => whenFree(go)} /> : null}
-      {step.packed ? (
-        <p className={step.packed.failed ? 'fieldnote err' : undefined}>
-          <Coded text={step.packed.text} names={[step.packed.golden]} />
-          {step.packed.link ? (
-            <>
-              {' '}
-              <a className="more" href={step.packed.link.href}>
-                {step.packed.link.label}
-              </a>
-            </>
-          ) : null}
-        </p>
-      ) : null}
+      {step.packed ? <Packed packed={step.packed} /> : null}
       {step.button ? (
         <div className="actions">
           {/* Not disabled while it waits: a plain disabled would win over the reason, which it says on a press. */}
@@ -437,15 +437,13 @@ function TestBody({
         </div>
       ) : null}
       {wait && step.button ? (
-        <p className="fieldnote warn">
-          <Coded text={wait.text} names={wait.tools} />
-        </p>
+        <Copy className="fieldnote warn">{coded(wait.text, wait.tools)}</Copy>
       ) : null}
       {step.result ? (
         <div className="recline ok">
           <span className="ic" />
           <span className="rtext">
-            <Coded text={step.result.text} names={goldenNames} />
+            {coded(step.result.text, goldenNames)}
           </span>
           <a className="btn" href={step.result.link.href}>
             {step.result.link.label}

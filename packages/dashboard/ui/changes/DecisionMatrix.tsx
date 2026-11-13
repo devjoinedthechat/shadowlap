@@ -1,5 +1,6 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import { AboutLine, useFitAbouts } from '../components/About.js';
+import { Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
 import { MatrixKey, type KeyEntry } from '../components/MatrixKey.js';
@@ -51,9 +52,12 @@ function Ending({ row, cleared }: { row: Row; cleared: string }) {
   return (
     <>
       <p className="dsl" data-tip={e.why ? tipCard(e.text, [], e.why) : undefined}>
-        <span className={tone}>{e.text}</span>
-        {e.then ? <span className="dsm">{` ${e.then}`}</span> : null}
-        {e.waits ? <span className="dsy">{` · ${e.waits} wait${e.waits === 1 ? 's' : ''} on a judge`}</span> : null}
+        {/* each part's dot kept with the part before it */}
+        <span className={tone}>
+          <Words>{e.text}</Words>
+        </span>
+        {e.then ? <span className="dsm">{`\u00a0${e.then}`}</span> : null}
+        {e.waits ? <span className="dsy">{`\u00a0· ${e.waits} wait${e.waits === 1 ? 's' : ''} on a judge`}</span> : null}
       </p>
       {row.verified ? (
         <span className={`dsv ${outcomeTone(row.verified.outcome)}`}>

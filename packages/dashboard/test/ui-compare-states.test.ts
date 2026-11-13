@@ -94,8 +94,8 @@ describe('one run named', () => {
     addressBar(`#/compare/${ALONE}`);
     page = await render(createElement(AppContext.Provider, { value: app({ run: () => Promise.resolve(detail(ALONE)) }) }, createElement(ComparePage, { a: ALONE, b: null })));
     await page.until('the run to load', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('Nothing to compare yet');
-    expect(page.one('.stepempty p').textContent).toBe('01M5GRYHR0 has no replay or fork, and no parent. Replay it, or fork it at a call, and the two compare call by call.');
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Nothing to compare yet');
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe('01M5GRYHR0 has no replay or fork, and no parent. Replay it, or fork it at a call, and the two compare call by call.');
     expect(page.one('.stepempty .cmdline').textContent).toContain('shadowlap replay 01M5GRYHR0');
     expect(page.all('.stepempty .actions a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Open run', `#/run/${ALONE}`],
@@ -107,16 +107,16 @@ describe('one run named', () => {
     addressBar(`#/compare/${GONE}`);
     page = await render(createElement(AppContext.Provider, { value: app({ run: missing }) }, createElement(ComparePage, { a: GONE, b: null })));
     await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
-    expect(page.one('.stepempty p').textContent).toBe(`No run ${GONE} in this store. Pick two runs to compare, or open Runs to find the one you meant.`);
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Not in this store');
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe(`No run ${GONE} in this store. Pick two runs to compare, or open Runs to find the one you meant.`);
   });
 
   it('says an id that starts several runs’ ids matches several runs, not that there is no such run', async () => {
     addressBar(`#/compare/${SEVERAL}`);
     page = await render(createElement(AppContext.Provider, { value: app({ run: several }) }, createElement(ComparePage, { a: SEVERAL, b: null })));
     await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('More than one run');
-    expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.`);
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('More than one run');
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe(`${SEVERAL} matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.`);
   });
 });
 
@@ -130,14 +130,14 @@ describe('two runs named', () => {
     const client = { run: (id: string) => Promise.resolve(detail(REC.startsWith(id.toUpperCase()) ? REC : id)), compare: () => (compared++, Promise.resolve({} as CompareView)) };
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: REC })));
     await page.until('the panel', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('The same run on both sides');
-    expect(page.one('.stepempty p').textContent).toBe('01M5GRVTKS against itself is identical. Pick another run for A or B.');
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('The same run on both sides');
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe('01M5GRVTKS against itself is identical. Pick another run for A or B.');
     expect(compared).toBe(0);
     // A whole id and a prefix of it name one run too.
     await page.unmount();
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: REC.slice(0, 10).toLowerCase() })));
     await page.until('the panel', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('The same run on both sides');
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('The same run on both sides');
     expect(compared).toBe(0);
   });
 
@@ -206,8 +206,8 @@ describe('two runs named', () => {
     const client = { run: (id: string) => (id === GONE ? missing() : Promise.resolve(detail(id))), compare: () => Promise.reject(new ApiError(404, 'one of the runs does not exist')) };
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: GONE })));
     await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
-    expect(page.one('.stepempty p').textContent).toBe(`No run ${GONE} in this store. Pick another run for B.`);
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Not in this store');
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe(`No run ${GONE} in this store. Pick another run for B.`);
     // The run pickers stay, to pick it.
     expect(page.all('.rpick').length).toBe(2);
   });
@@ -217,21 +217,21 @@ describe('two runs named', () => {
     const client = { run: (id: string) => (id === SEVERAL ? several() : id === GONE ? missing() : Promise.resolve(detail(id))), compare: () => Promise.reject(new ApiError(409, `run id prefix ${SEVERAL} matches several runs: use more of the id`)) };
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: FORK })));
     await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('More than one run');
-    expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A.`);
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('More than one run');
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A.`);
     // With a run the store doesn't hold on the other side, both are said.
     await page.unmount();
     addressBar(`#/compare/${SEVERAL}/${GONE}`);
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: GONE })));
     await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
-    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
-    expect(page.one('.stepempty p').textContent).toBe(`No run ${GONE} in this store; ${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Not in this store');
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe(`No run ${GONE} in this store; ${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
     // The same prefix on both sides names no run to compare with itself.
     await page.unmount();
     addressBar(`#/compare/${SEVERAL}/${SEVERAL}`);
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: SEVERAL })));
-    await page.until('the answer', () => page!.all('.stepempty h2').some((h) => h.textContent === 'More than one run'));
-    expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
+    await page.until('the answer', () => page!.all('.stepempty h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'More than one run'));
+    expect(page.one('.stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
   });
 });
 
@@ -345,7 +345,7 @@ describe('the whole comparison', () => {
     expect(page.one('#cmpd .cmpx').getAttribute('aria-label')).toBe('Close #19');
     expect(page.one('#cmpd .dtool b').textContent).toBe('issue_refund');
     expect(page.one('#cmpd .dstop').textContent).toBe('calls tools');
-    expect(page.one('#cmpd .cmpnote').textContent).toBe('Never sent. Shadowlap answered with HTTP 529 (--fail-at 19=529), 3 attempts.');
+    expect(page.one('#cmpd .cmpnote').textContent.replace(/\u00a0/g, ' ')).toBe('Never sent. Shadowlap answered with HTTP 529 (--fail-at 19=529), 3 attempts.');
     expect(page.all('#cmpd a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Open run at #19, 01M5GRVTKS', `#/run/${REC}/19`],
       ['Open run at #19, 01M5GRXFM1', `#/run/${FORK}/19`],
@@ -356,7 +356,7 @@ describe('the whole comparison', () => {
     await page.until('the row closed', () => page!.all('#cmpd').length === 0);
     await page.click(page.all('button.cprow')[1]);
     await page.until('the second row opened', () => page!.all('#cmpd').length > 0);
-    expect(page.one('#cmpd .cmpnone').textContent).toBe('No call: the run had ended.');
+    expect(page.one('#cmpd .cmpnone').textContent.replace(/\u00a0/g, ' ')).toBe('No call: the run had ended.');
     await page.click(page.one('#cmpd .cmpx'));
     expect(bar.hash).toBe(`#/compare/${REC}/${FORK}`);
     await page.until('the row closed', () => page!.all('#cmpd').length === 0);
@@ -437,7 +437,7 @@ describe('the whole comparison', () => {
     expect(page.all('#cmpd a.more').map((a) => a.textContent)).toEqual(['Open run at #20, 01M5GRVTKS', 'Open run at #19, 01M5GRXFM1']);
     // A failure with no status heads its side as its row says it, not with a status it never got.
     expect(page.one('#cmpd .cmperr').textContent).toBe('failed');
-    expect(page.one('#cmpd .cmpnote').textContent).toBe('Failed. socket hang up.');
+    expect(page.one('#cmpd .cmpnote').textContent.replace(/\u00a0/g, ' ')).toBe('Failed. socket hang up.');
   });
 
   it('draws a row both made alike on one dimmed line, nothing in it marked', async () => {

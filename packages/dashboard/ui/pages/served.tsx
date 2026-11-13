@@ -40,13 +40,13 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
  * the fork menu, the header's …, the check menu, Revert's dialog, Run blame's dialogs, New
  * preview's dialogs, the steps' dialogs, Run injection test…'s, Run error-path presets…'s, Not
  * covered's pack dialogs and Pack with injection gate…'s, a run's action's, Find breaking commit's,
- * a diverged test's, Edit and fork's, Remove project's and Preview pull request comment's, each a
- * `menu` or a `dialog` in the toast's words. The parts drawn in place keep their own: the first bad
- * commit's change box's LoadFailed, the check builder's BuilderLost, Runs › Failed's issues'
- * LoadFailed, the injection and the presets results panels' LoadFailed, Find cause…'s (CauseLost),
- * an injection test's finding's, the presets' finding's and Find cause's answers' (FindingLost) and
- * the In page's, its page's not-found. The palette and the job's drawer, drawn before any press asks
- * for them, draw nothing.
+ * a diverged test's, Edit and fork's, Remove project's, Preview pull request comment's, Apply config
+ * change?'s and Migrate to…'s, each a `menu` or a `dialog` in the toast's words. The parts drawn in
+ * place keep their own: the first bad commit's change box's LoadFailed, the check builder's
+ * BuilderLost, Runs › Failed's issues' LoadFailed, the injection and the presets results panels'
+ * LoadFailed, Find cause…'s (CauseLost), an injection test's finding's, the presets' finding's and
+ * Find cause's answers' (FindingLost) and the In page's, its page's not-found. The palette and the
+ * job's drawer, drawn before any press asks for them, draw nothing.
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -139,6 +139,9 @@ export const SERVED_PARTS: ServedParts = {
   EditDialog: onShow(() => import('../run/EditDialog.js').then((m) => m.EditDialog), failed('dialog', closes)),
   // Settings → CI's and the newest revision's, from one script.
   PrCommentDialog: onShow(() => import('../ci/PrCommentDialog.js').then((m) => m.PrCommentDialog), failed('dialog', closes)),
+  // The Migrate report's, opened on a press of Apply config change alone; and every Migrate to…'s.
+  ApplyConfigDialog: onShow(() => import('../changes/ApplyConfigDialog.js').then((m) => m.ApplyConfigDialog), failed('dialog', closes)),
+  MigrateToDialog: onShow(() => import('../components/MigrateToDialog.js').then((m) => m.MigrateToDialog), failed('dialog', closes)),
   // The page's own looks, from the page that asked (held-elsewhere.tsx), while its script comes and should it fail to come.
   Elsewhere: onShow(() => import('./Elsewhere.js').then((m) => m.ElsewherePage), { waiting: <ElsewhereWaiting />, failed: <ElsewhereFallback /> }),
 };

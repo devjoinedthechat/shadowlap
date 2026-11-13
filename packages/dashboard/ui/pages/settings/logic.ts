@@ -238,9 +238,6 @@ export function shellArg(a: string): string {
   return /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`;
 }
 
-/** A command line's words, which a command line on any page wraps between (`CommandLine`). */
-export { shellWords } from '../../format.js';
-
 /** The CLI command that adds the same rule: what the dialog shows under its fields. */
 export function ruleCommand(list: RuleListName, f: RuleFormState): string {
   const r = ruleInput(f);

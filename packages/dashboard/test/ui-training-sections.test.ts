@@ -108,7 +108,7 @@ function app(v: TrainingView, runs?: unknown[]): AppState {
 }
 
 const page = (value: AppState, tab: 'pairs' | 'tasks') => render(createElement(AppContext.Provider, { value }, createElement(TrainingPage, { tab })));
-const texts = (r: Rendered, selector: string) => r.all(selector).map((el) => el.textContent);
+const texts = (r: Rendered, selector: string) => r.all(selector).map((el) => el.textContent.replace(/\u00a0/g, ' '));
 /** A verdict glues its last words with no-break spaces: read as plain spaces. */
 const plain = (t: string) => t.replace(/\s+/g, ' ');
 

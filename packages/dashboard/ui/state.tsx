@@ -157,6 +157,13 @@ export function guardedWayOn<T>(guard: AppState['guard'], run: () => Promise<T>)
   return out;
 }
 
+/** Whether a component is drawn inside the app (AppProvider's, or a test's plain value): the token gate is drawn outside it. */
+export function useInApp(): boolean {
+  const kept = useContext(AppStoreContext);
+  const plain = useContext(AppContext);
+  return kept !== null || plain !== null;
+}
+
 /** The store a component reads: AppProvider's, or one holding a test's plain value. */
 function useAppStore(): AppStore {
   const kept = useContext(AppStoreContext);

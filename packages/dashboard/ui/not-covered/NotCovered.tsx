@@ -3,7 +3,8 @@ import { ENDS_ANOTHER_WAY } from '../../../engine/src/coverage-words.js';
 import { quoteArgv } from '../../../engine/src/text.js';
 import { JOB_KINDS } from '../api.js';
 import { useFitAbouts } from '../components/About.js';
-import { CmdLine } from '../components/bits.js';
+import { CodeBox } from '../components/CodeBox.js';
+import { Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
@@ -122,10 +123,11 @@ export function Lines({ g, note }: { g: CoverageGroupView; note?: ReactNode }) {
   return (
     <span className="cvs cvln" role="group" aria-label={coverageSaid(g)}>
       <span className="l1">
+        {/* each arrow kept with the step before it, so a line that breaks ends on one */}
         {steps.map((s, i) => (
           <Fragment key={i}>
             <Step s={s} />
-            <span className="ar"> → </span>
+            <span className="ar">{'\u00a0→ '}</span>
           </Fragment>
         ))}
         <span className={`cvend${end.swatch === 'k-err' ? ' err' : ''}`}>{end.words}</span>
@@ -209,7 +211,7 @@ function Details({ g, id, packs }: { g: CoverageGroupView; id: string; packs: bo
           <dd>
             <p className="rpc">
               <code>{name}</code>
-              {nearestWords(n, '; ').slice(name.length)}
+              <Words>{nearestWords(n, '; ').slice(name.length)}</Words>
             </p>
           </dd>
         </>
@@ -218,11 +220,11 @@ function Details({ g, id, packs }: { g: CoverageGroupView; id: string; packs: bo
         <>
           <dt>Last tried</dt>
           <dd>
+            {/* its words whole (a ticket's A-1077), its spaces as written: it holds the agent's command */}
             <p className="rpc">
-              {minuteStamp(last.at)}
-              {by ? `, by ${by}` : ''}: {triedWhy(last)}
+              <Words glued={false}>{`${minuteStamp(last.at)}${by ? `, by ${by}` : ''}: ${triedWhy(last)}`}</Words>
             </p>
-            <CmdLine>{packCommand(g.key, { command: last.command ? quoteArgv(last.command.argv) : '' })}</CmdLine>
+            <CodeBox command={packCommand(g.key, { command: last.command ? quoteArgv(last.command.argv) : '' })} />
             {packs && g.pack?.forkable ? (
               <span className="cvq">
                 <PackButton g={g} fork={false} quiet />

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { asNumber } from '../../../engine/src/checks/grammar.js';
 import { referenceParts } from '../../../engine/src/checks/parse.js';
 import type { ContextCall, ResultField } from '../checks-api.js';
+import { Copy } from '../components/Copy.js';
 import { SegmentedControl } from '../components/Segmented.js';
 import { JudgeRows } from './Judge.js';
 import { Row } from './Row.js';
@@ -43,7 +44,7 @@ export function Sentence({ rule, ctx, run, models, onRule, onKind }: SentencePro
     return (
       <>
         {kinds}
-        <p className="cb-note">Pick what it checks.</p>
+        <Copy className="cb-note">Pick what it checks.</Copy>
       </>
     );
   }

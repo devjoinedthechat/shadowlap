@@ -3,6 +3,7 @@ import type { CallDetail, Turn, TurnBlock } from '../api.js';
 import { asJson, num } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
+import { CodeText } from './Copy.js';
 import { MarksContext } from './marks.js';
 import { Switch } from './Switch.js';
 
@@ -153,7 +154,7 @@ function Message({ turn, callNo, format, names, changed, changedBy, firstAt, inn
 }
 
 function MessageBlock({ block, format, names }: { block: TurnBlock; format: boolean; names: Map<string, string> }) {
-  const { mark } = useContext(MarksContext);
+  const { mark, holds } = useContext(MarksContext);
   switch (block.type) {
     case 'text':
       return <div className="txt">{mark(block.text)}</div>;
@@ -167,7 +168,9 @@ function MessageBlock({ block, format, names }: { block: TurnBlock; format: bool
     case 'tool_call':
       return (
         <div className="tu">
-          <span className="ar">→</span> <b>{block.name}</b> {mark(JSON.stringify(block.input))}
+          {/* its arguments break only between them: after a comma or a run of opening braces, a short object whole; past a few
+              lines (`CODE_SET`), or holding what an injection attempt's page marks, as written */}
+          <span className="ar">→</span> <b>{block.name}</b> <CodeText mark={holds(block.input) ? mark : undefined}>{JSON.stringify(block.input)}</CodeText>
         </div>
       );
     case 'tool_result': {

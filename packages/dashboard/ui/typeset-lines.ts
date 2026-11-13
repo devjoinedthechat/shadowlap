@@ -8,6 +8,7 @@ import {
   ownSpace,
   sentenceGaps,
   sentenceRanges,
+  SMALL,
   trimRange,
   WEAK,
   type CopyPart,
@@ -292,10 +293,14 @@ const PREP = /^[ \t\n\r]+(?=(?:to|in|on|at|into|onto|over|through|across|against
 /** A phrase that completes the word before it ("the golden that guards", "judged on your recordings"): it gives way to a comma on its line. */
 const WEAK_PHRASE = /^[ \t\n\r]+(?:that|with|from|for|under|than)\b/;
 
-/** The space before a phrase, at the start of `after`, unless it is inside one noun (`prompt and tool rewrites`). */
+/**
+ * The space before a phrase, at the start of `after`, unless it is inside one noun (`prompt and tool rewrites`) or
+ * follows a small word, which would end its line ("runs the agent on" / "from there", rule 3's small word kept with the next).
+ */
 export function phraseAt(before: string, after: string): string | null {
   const m = PHRASE.exec(after) ?? PREP.exec(after);
-  return m && !(/\bprompts?$/i.test(before) && /^[ \t\n\r]+and[ \t\n\r]+tools?\b/i.test(after)) ? m[0] : null;
+  if (!m || SMALL.has(/(\S+)$/.exec(before)?.[1]?.toLowerCase() ?? '')) return null;
+  return /\bprompts?$/i.test(before) && /^[ \t\n\r]+and[ \t\n\r]+tools?\b/i.test(after) ? null : m[0];
 }
 
 interface Cut {
@@ -479,8 +484,8 @@ export function planCopy(parts: readonly CopyPart[], m: CopyMeasure | null, opts
   const words = keptWords(f, fitsWord);
   const long = new Map(words.filter((w) => w.kind === 'long').map((w) => [w.from, fitsWord ? fitsWord(f.str.slice(w.from, w.to)) : null] as const));
   const wide = new Set(at ? f.atoms.filter((a) => at.m.atom(a.atom) > at.width).map((a) => a.atom) : []);
-  // never balance a block, nor a sentence, whose words are each kept whole
-  if (wrap === 'ts-bal' && allKept(toks, words, 0, f.str.length)) wrap = null;
+  // never balance a block, nor a sentence, whose words are each kept whole: set it pretty, which outranks a stylesheet's balance
+  if (wrap === 'ts-bal' && allKept(toks, words, 0, f.str.length)) wrap = 'ts-pretty';
   for (const u of units ?? []) if (u.set === 'balanced' && allKept(toks, words, u.from, u.to)) u.set = 'flow';
   return { text: joined(f.str, joins), wrap, units, words, long, wide };
 }

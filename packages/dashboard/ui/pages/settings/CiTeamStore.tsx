@@ -1,3 +1,4 @@
+import { Copy } from '../../components/Copy.js';
 import { href } from '../../route.js';
 import type { CiTeamStore } from '../../types.js';
 
@@ -12,7 +13,7 @@ export function TeamStoreRow({ store }: { store: CiTeamStore }) {
     <div className="setrow tight cistore">
       <div>
         <b>Team store</b>
-        <span>{store.note}</span>
+        <Copy as="span">{store.note}</Copy>
       </div>
       <a className="linkbtn" href={href.settings('store')} title={store.name ? `Push from CI is set in Settings → Store, for ${store.name}` : 'Set up a team store in Settings → Store'}>
         Settings → Store

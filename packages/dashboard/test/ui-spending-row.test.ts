@@ -61,7 +61,7 @@ async function row(start: Spending, o: { refuse?: string; actionsOff?: string; h
   return { puts, toasts };
 }
 
-const words = () => r!.all('#spending .spendsay .ln').map((l) => l.textContent);
+const words = () => r!.all('#spending .spendsay .ln').map((l) => l.textContent.replace(/\u00a0/g, ' '));
 const input = () => r!.one('#askAbove');
 const pressed = () => r!.all('#spending .seg button').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
 const pick = (label: string) => r!.byText('#spending .seg button', label);

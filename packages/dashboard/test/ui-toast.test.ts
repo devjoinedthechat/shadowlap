@@ -133,7 +133,7 @@ describe('what a screen reader hears', () => {
     await show({ id: 1, kind: 'error', text: 'Tried repairing · exit 1', action: { label: 'Open fix', run: () => undefined } });
     const alert = r.one('[role="alert"]');
     expect(r.one('[role="alert"] .toast').className).toContain('err');
-    expect(alert.textContent).toContain('Tried repairing · exit 1');
+    expect(alert.textContent.replace(/\u00a0/g, ' ')).toContain('Tried repairing · exit 1');
     expect(r.one('[role="alert"] .tbtn').textContent).toBe('Open fix');
     expect(r.one('[role="alert"] .tx').getAttribute('aria-label')).toBe('Dismiss');
     await r.click(r.one('[role="alert"] .tx'));
@@ -286,7 +286,7 @@ describe('the offline bar', () => {
     await r.click(why);
     expect(r.one('.connbar').className).toContain('open');
     expect(r.byText('.connbar button', 'Why').getAttribute('aria-expanded')).toBe('true');
-    expect(r.one('#connWhyText').textContent).toMatch(/^Can’t reach the dashboard server, so this shows what loaded at .+\. Start it again:$/);
+    expect(r.one('#connWhyText').textContent.replace(/\u00a0/g, ' ')).toMatch(/^Can’t reach the dashboard server, so this shows what loaded at .+\. Start it again:$/);
   });
 });
 

@@ -22,8 +22,12 @@ export function runs(): Array<[string, string]> {
 /** The demo's fixes, by id. */
 export const fixes = () => Object.values(dash().runs).filter((v): v is string => typeof v === 'string' && v.startsWith('fx-'));
 
-/** A state of the page: its name in a failure, and how to show it. */
-export type State = [string, () => Promise<void>];
+/**
+ * A state of the page: its name in a failure, how to show it, and, in a walk to an overlay, whether
+ * it is the overlay itself (`shown`: a menu or a dialog open), not its page on the way or the step
+ * that closes it. The axe sweep reads every state; the line-breaks sweep reads what is shown.
+ */
+export type State = [name: string, show: () => Promise<void>, shown?: true];
 
 /** Each violation found, under the state it was found in. */
 export async function sweep(page: Page, states: State[]): Promise<string[]> {
@@ -282,7 +286,8 @@ const removeFromTests = async (page: Page): Promise<void> => {
 /** A fix's head's check (port/fix-check): Edit check… on an open fix, its runs judged by the change; Add check… on a verified one. */
 const fixCheck = (page: Page, shows: string) => click(page, 'main#view .ph p.chk .fmx button', undefined, { shows: `${DIALOG} ${shows}` })();
 /** New preview's menu (port/preview-jobs) from `where`, and a dialog it opens. */
-const newPreview = (page: Page, where: string) => click(page, where, 'New preview', { shows: MENU })();
+const newPreviewMenu = (page: Page, where: string) => click(page, where, 'New preview', { shows: MENU });
+const newPreview = (page: Page, where: string) => newPreviewMenu(page, where)();
 const previewWay = (way: string, where = 'main#view button') => async (page: Page): Promise<void> => {
   await newPreview(page, where);
   await click(page, `${MENU} [role="menuitem"]`, way, { shows: DIALOG })();
@@ -375,8 +380,8 @@ const migrationAs = (over: (m: MigrationRead, id: string) => Record<string, unkn
 };
 /** The golden the demo's switch leaves behind, at the call its replay diverges on once the change is in. */
 const LEFT = { golden: CHECKED, callNo: 3 };
-/** All clear: Apply config change its next step, leaving that golden behind. */
-const allClear = migrationAs((m, id) => ({ applied: null, next: 'apply', apply: { files: m.config.files.map((f) => f.path), leftOut: null, leftBehind: [LEFT], stays: null, command: `shadowlap migrate apply ${id.slice(0, 13)}` } }));
+/** All clear: Apply config change its next step, leaving that golden behind (load-failed.spec.ts asks it too). */
+export const allClear = migrationAs((m, id) => ({ applied: null, next: 'apply', apply: { files: m.config.files.map((f) => f.path), leftOut: null, leftBehind: [LEFT], stays: null, command: `shadowlap migrate apply ${id.slice(0, 13)}` } }));
 /** Applied an hour ago, the golden it left behind waiting: Update goldens its next step. */
 const appliedWaiting = migrationAs((m) => ({
   word: { text: 'applied', tone: 'ok' },
@@ -789,3 +794,233 @@ export const show = (page: Page, r: RouteState) => async () => {
 
 /** The table as a sweep's states, each named with `on` after it. */
 export const routeStates = (page: Page, on = '', routes: readonly RouteState[] = ROUTES): State[] => routes.map((r): State => [`${r.name}${on}`, show(page, r)]);
+
+/**
+ * Tests' Update goldens, as the palette opens it (`#/tests?update`): the header offers it only when
+ * more than one golden diverged, and the demo has one, so its dialog is for that one.
+ */
+export const updateGoldens = (page: Page) => async () => {
+  apiRequests(page);
+  await page.evaluate(() => {
+    location.hash = '#/tests?update';
+  });
+  await settled(page, { shows: DIALOG });
+};
+
+/** A menu or a picker opened by a click, shown, and closed by Escape. */
+export const menu = (page: Page, name: string, selector: string, text?: string, shows = MENU): State[] => [
+  [name, click(page, selector, text, { shows }), true],
+  [`${name} closed`, escape(page, shows)],
+];
+
+/**
+ * The overlays both sweeps open, each open one shown, its page on the way (`where` names a
+ * phone's): on a phone the sidebar first, then the project switcher, a run picker and one that
+ * finds nothing, Redaction's picker, a dialog asking to discard what was typed, a run's Share, fork
+ * menu and More with Delete's dialog, the shortcuts and the palette.
+ */
+export function overlayStates(page: Page, where = '', phone = !!where): State[] {
+  return [
+    [`Runs${where}`, at(page, '/runs', 'main#view table.runst tbody tr')],
+    ...(phone ? [[`the sidebar${where}`, click(page, 'button.menu-toggle', undefined, { shows: 'aside#side.open' }), true] satisfies State] : []),
+    ...menu(page, `the project switcher${where}`, 'button.proj'),
+    [`Compare${where}`, at(page, '/compare', 'main#view .pickers .rpick')],
+    [`a run picker${where}`, click(page, '.rpick', undefined, { shows: '.pop.picker' }), true],
+    [
+      `a run picker that finds nothing${where}`,
+      async () => {
+        await page.locator('.pop.picker input.pfilter').fill('zzzz nothing like it');
+        await settled(page, { shows: '.pop.picker .pnone' });
+      },
+      true,
+    ],
+    [`a run picker closed${where}`, escape(page, '.pop.picker')],
+    [`Redaction${where}`, at(page, '/settings/redaction', 'main#view .pvhead')],
+    ...menu(page, `Redaction’s run picker${where}`, '.pvhead .rpick', undefined, '.pop.picker'),
+    [`Add redaction rule${where}`, click(page, 'main#view button', 'Add redaction rule', { shows: DIALOG }), true],
+    [
+      `Add redaction rule, edited${where}`,
+      async () => {
+        await page.locator(`${DIALOG} label`, { hasText: 'Replace with' }).locator('input').fill('<GONE>');
+        await settled(page);
+      },
+    ],
+    [`Discard what you changed?${where}`, press(page, 'Escape', { shows: '.dlgask' }), true],
+    [`Discard what you changed? answered${where}`, press(page, 'Escape', { hides: '.dlgask' })],
+    [`a run${where}`, run(page, demoId('ticket'))],
+    ...menu(page, `Share${where}`, '.rhead .actions button', 'Share'),
+    ...menu(page, `the fork menu${where}`, '#forkBtn'),
+    [`More${where}`, click(page, '#moreBtn', undefined, { shows: MENU }), true],
+    [`Delete${where}`, click(page, `${MENU} [role="menuitem"]`, 'Delete run', { shows: DIALOG }), true],
+    [`Delete closed${where}`, escape(page)],
+    [`the shortcuts${where}`, press(page, '?', { shows: '.help' }), true],
+    [`the shortcuts closed${where}`, escape(page, '.help')],
+    [`the palette${where}`, press(page, 'Meta+k', { shows: '.palette' }), true],
+    [`the palette closed${where}`, escape(page, '.palette')],
+  ];
+}
+
+/** The hover cards, for the pointer and for the keyboard's focus, with what each points at: a run's cell, a fact, a menu's row. */
+export function cardStates(page: Page): State[] {
+  return [
+    ['a run', run(page, demoId('ticket'))],
+    [
+      'a cell’s hover card',
+      async () => {
+        await page.locator('.cells button').first().hover();
+        await settled(page, { shows: '#tip' });
+      },
+      true,
+    ],
+    [
+      'a fact’s hover card',
+      async () => {
+        await page.mouse.move(2, 2);
+        await page.locator('main#view .metric .st[data-tip] a').first().focus();
+        await settled(page);
+      },
+      true,
+    ],
+    [
+      'a menu row’s hover card',
+      async () => {
+        await page.locator('.rhead .actions button', { hasText: 'Share' }).click();
+        await page.locator(`${MENU} [role="menuitem"]`).nth(1).hover();
+        await settled(page, { shows: '#tip' });
+      },
+      true,
+    ],
+    ['a menu row’s hover card closed', escape(page, MENU)],
+  ];
+}
+
+/**
+ * The dialogs the demo can show, for both sweeps, each a group of steps: its page, the steps to it,
+ * the dialog itself, shown, and Escape. Opening one runs nothing, a write forced live included, as
+ * long as every billed press asks first (`asksFirst`). What the dialogs read is routed once, here: a
+ * changed prompt's read of the working tree, and the preview as if its verify had left a run open,
+ * which Run more attempts reads while it opens. What the demo can't hold (a repair that would end No
+ * fix to try, Show patch, Stop on a running repair, Run blame's check, Record run, Replace skills,
+ * Clean up) is drawn in test/ui-dialog-anatomy.test.ts instead.
+ */
+export async function dialogWalk(page: Page): Promise<() => State[][]> {
+  const p = await previewed(page);
+  await routeTreeRead(page);
+  const more = await moreAttempts(page, p.preview);
+  return () => dialogGroups(page, p, more);
+}
+
+/** The walks to each dialog: a row or a button that isn't there says so soon, as there is no waiting it out. */
+function dialogWalkers(page: Page) {
+  const id = demoId;
+  const button = (where: string, text: string, shows = DIALOG) => async () => {
+    apiRequests(page);
+    await page.locator(where, { hasText: text }).first().click({ timeout: 20_000 });
+    await settled(page, { shows });
+  };
+  // Its page again is the page as it was: what is ticked stays ticked.
+  const tick = async () => {
+    await page.locator('main#view table.runst tbody tr input[type="checkbox"]').first().check({ timeout: 20_000 });
+    await settled(page, { shows: '.bulkbar' });
+  };
+  const opened = (name: string, where: () => Promise<void>, ...open: Array<() => Promise<void>>): State[] => [
+    [`${name}: its page`, where],
+    ...open.map((o, i): State => (i === open.length - 1 ? [name, o, true] : [`${name}: step ${i + 1}`, o])),
+    [`${name}: closed`, escape(page)],
+  ];
+  const onRun = (name: string, of: string, text: string) => opened(name, run(page, id(of)), button('.rhead .actions button', text));
+  const fork = (name: string, of: string, row: string) => opened(name, run(page, id(of)), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  // The call a row belongs to picked first: a run opens on the call its outcome names or its first write, whose menu may
+  // have no model call's rows (the ticket's), nor a user reply's (the chat's, a `user_input` tool call).
+  const forkOn = (call: string) => (name: string, of: string, row: string) => opened(name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title${call}])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  // A write's own call picked first: Force live on it asks, with its red line.
+  const forceWrite = (name: string, of: string, tool: string) => forkOn(`="${tool}"`)(name, of, `Force ${tool} live`);
+  const share = (name: string, row: string) => opened(name, run(page, id('ticket')), click(page, '.rhead .actions button', 'Share', { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
+  // A golden's own buttons sit in its report, folded under its row: Tests' reports are opened first, as a person opens one.
+  const reportsOpen = async () => {
+    await page.locator('main#view button.grptog').first().waitFor({ timeout: 20_000 });
+    const folded = page.locator('main#view button.grptog[aria-expanded="false"]');
+    while (await folded.count()) await folded.first().click();
+  };
+  const inReport = (name: string, text: string) => opened(name, at(page, '/tests'), reportsOpen, button('main#view section.gpanel button', text));
+  const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
+  const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
+  // The builder from a call of the refund bug, a failed recording: shown once Suggested has drawn the rules the demo's
+  // good run gives, which it asks for after the builder settles, so the read can come after the dialog's own.
+  const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule, `${DIALOG} .cb-sug`));
+  return { id, button, tick, opened, onRun, fork, forkOn, forceWrite, share, onPage, inReport, bulk, onFix, check };
+}
+
+function dialogGroups(page: Page, p: Previewed, more: { preview: string; on: boolean }): State[][] {
+  const { id, button, tick, opened, onRun, fork, forkOn, forceWrite, share, onPage, inReport, bulk, onFix, check } = dialogWalkers(page);
+  const forkModel = forkOn('^="POST "');
+  const onPreview = (name: string, ...open: Array<() => Promise<void>>) => opened(name, at(page, p.preview, PREVIEW), ...open);
+  const way = (row: string) => button(`${MENU} [role="menuitem"]`, row);
+  return [
+    opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
+    onRun('The consent question', 'packed', 'Replay'),
+    onRun('Pack as golden', 'digest', 'Pack as golden'),
+    forkModel('Inject instruction', 'ticket', 'Inject instruction'),
+    forkModel('Switch model', 'ticket', 'Switch model'),
+    forkModel('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
+    fork('Override result', 'failTool', 'Override result'),
+    fork('Fail with tool error', 'failTool', 'Fail with tool error'),
+    fork('Plant instruction', 'failTool', 'Plant instruction'),
+    forkOn('="user_input"')('Override user reply', 'chat', 'Override user reply'),
+    fork('Repeat fork 5 times', 'override', 'Repeat 5 times'),
+    fork('Replay with your command', 'har', 'Replay with your command'),
+    forkModel('Find commit that changed it', 'ticket', 'Find commit that changed it'),
+    fork('Find breaking commit', 'planted', 'Find breaking commit'),
+    fork('Run error-path presets', 'ticket', 'Run error-path presets'),
+    forceWrite('Force send_email live', 'twice', 'send_email'),
+    opened('Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),
+    check('Add check', 'Never call issue_refund'),
+    check('Add check: When… then', 'When… then…'),
+    check('Add check: Ask a judge', 'Ask a judge…'),
+    share('Pack', 'Pack'),
+    share('Export eval dataset', 'Eval dataset'),
+    share('Export OpenTelemetry trace', 'OpenTelemetry trace'),
+    bulk('Add label', 'Label'),
+    bulk('Delete runs', 'Delete'),
+    bulk('Pack runs', 'Pack'),
+    bulk('Export the dataset of runs', 'Dataset'),
+    opened('Import capture…', at(page, '/runs', 'main#view table.runst tbody tr'), button('main#view button', 'Import capture…')),
+    opened('Preview change on runs', at(page, '/runs', 'main#view table.runst tbody tr'), tick, click(page, '.bulkbar button', 'Preview change', { shows: MENU }), way('Preview model switch')),
+    onPreview('Preview model switch', newPreviewMenu(page, 'main#view button'), way('Preview model switch')),
+    onPreview('Preview field change', newPreviewMenu(page, 'main#view button'), way('Preview field change')),
+    onPreview('Verify a preview’s runs', button('main#view .dverdict .actions button', 'Verify')),
+    onPreview('Preview changed prompt', newPreviewMenu(page, 'main#view button'), way('Preview changed prompt')),
+    opened(
+      'Run more attempts on a preview',
+      async () => {
+        more.on = true;
+        // From another page, so the preview mounts again and reads its session anew.
+        await at(page, '/runs', 'main#view table.runst tbody tr')();
+        await at(page, more.preview, PREVIEW)();
+      },
+      async () => {
+        await button('main#view .dverdict .actions button', 'Run more attempts')();
+        more.on = false;
+      },
+    ),
+    opened('New preview on a run', at(page, p.view, DVIEW), newPreviewMenu(page, 'main#view .dview .dvhead button')),
+    opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
+    inReport('Update golden', 'Update golden'),
+    inReport('Add normalizer and update', 'Add normalizer and update'),
+    onPage('Run tests’ question', '/tests', 'Run tests'),
+    opened('Pack with checks', at(page, '/tests', NOT_COVERED), button(`${NOT_COVERED} li:has(.cvst) .cvacts button`, 'Pack with checks')),
+    opened('Pack as golden, from Not covered', at(page, '/tests', NOT_COVERED), click(page, `${NOT_COVERED} li:has(.cvst) button.cvn`, undefined, { shows: `${NOT_COVERED} .cvx` }), button(`${NOT_COVERED} .cvx .cvq button`, 'Pack as golden')),
+    onPage('Export pairs', '/training', 'Export pairs'),
+    onPage('Score model', '/training/tasks', 'Score model'),
+    onPage('A task’s Update golden', '/training/tasks', 'Update golden'),
+    onPage('Add normalizer', '/settings/matching', 'Add normalizer'),
+    onPage('Add redaction rule', '/settings/redaction', 'Add redaction rule'),
+    onPage('Add MCP server', '/settings/tools', 'Add MCP server'),
+    onPage('Remove project', '/settings/project', 'Remove project'),
+    onPage('Write file', '/settings/ci', 'Write file'),
+    onFix('Run repair', 'emailFix', 'Run repair'),
+    onFix('Mark fix applied', 'refundFix', 'Mark applied'),
+    opened('Rename fix', at(page, `/fixes/${id('emailFix')}`, 'fix'), button('main#view button.fxrename', 'Rename')),
+  ];
+}

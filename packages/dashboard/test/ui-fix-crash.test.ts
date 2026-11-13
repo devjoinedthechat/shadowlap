@@ -122,6 +122,15 @@ describe('a crash’s Blame step', () => {
     expect(r!.all('.rperrw')).toEqual([]);
   });
 
+  it('glues each check line under The check and As recorded as copy is, a count kept with its noun', async () => {
+    const failure = 'issue_refund with {"amount":240} called 0 times, but called 1 time';
+    await fixPage(crashFix({ named: true, report: { oracle: ['issue_refund with {"amount":240} called 0 times'], recordedFailures: [failure] } }), 'blame');
+    const lines = r!.all('.fxlist li').map((li) => li.textContent);
+    expect(lines.map((l) => l.replace(/\u00a0/g, ' '))).toEqual(['issue_refund with {"amount":240} called 0 times', failure]);
+    expect(lines.every((l) => l.includes('0\u00a0times'))).toBe(true);
+    expect(lines[1]).toContain('1\u00a0time');
+  });
+
   it('says to look at the code first, the search offline and free only where its golden replays so, and the stronger model only where the head offers it', async () => {
     await fixPage(crashFix({ rerun: true }), 'blame');
     expect(r!.all('.bisect.fxbis')).toEqual([]);

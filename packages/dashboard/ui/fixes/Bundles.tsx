@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Glyph } from '../components/RunIcon.js';
+import { Words } from '../components/Copy.js';
 import { DotLine, RuleText } from '../components/Verdict.js';
 import { approx, shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -43,11 +44,13 @@ export function FixBundleNode({ bundle: b, current, rule = null }: { bundle: Fix
       <Glyph kind={g.kind} label={g.label} className={g.plain ? 'plain' : ''} />
       <span>
         <span className="f1">
-          <code>{b.title}</code>
+          <code>
+            <Words>{b.title}</Words>
+          </code>
           {b.blamed ? <span className="chip">blamed</span> : null}
         </span>
         <span className="f2 block">
-          {b.verdictLine ? <DotLine text={bundleLine(b, approx)} /> : bundleLine(b, approx)}
+          <DotLine text={bundleLine(b, approx)} />
           {rule ? (
             <span className="frule">
               <RuleText rule={rule} />

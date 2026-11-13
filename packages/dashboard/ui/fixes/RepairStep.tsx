@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { EmptyState } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { Words } from '../components/Copy.js';
+import { Copy, Words } from '../components/Copy.js';
 import { DotParts } from '../components/DotParts.js';
 import { Id } from '../components/Id.js';
 import { Section } from '../components/Section.js';
@@ -194,7 +194,7 @@ function Why({ r }: { r: RepairStep }) {
             <p className="fxdiag">{r.diagnosis}</p>
           </>
         ) : null}
-        {!r.lost.length && !r.diagnosis ? <p className="fxdiag">The repair kept no diagnosis.</p> : null}
+        {!r.lost.length && !r.diagnosis ? <Copy className="fxdiag">The repair kept no diagnosis.</Copy> : null}
       </div>
     </Section>
   );

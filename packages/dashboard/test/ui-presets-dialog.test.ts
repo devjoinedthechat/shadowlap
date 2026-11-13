@@ -86,7 +86,7 @@ async function dialog(first: PresetsPlan, client: Record<string, unknown> = {}) 
 
 const ok = () => r!.one('.dialog .dlg-ok');
 const cmd = () => r!.one('.dialog .cmdline').textContent ?? '';
-const rows = () => r!.all('.dialog .dfacts > div').map((d) => [d.querySelector('dt')?.textContent, d.querySelector('dd')?.textContent]);
+const rows = () => r!.all('.dialog .dfacts > div').map((d) => [d.querySelector('dt')?.textContent.replace(/\u00a0/g, ' '), d.querySelector('dd')?.textContent.replace(/\u00a0/g, ' ')]);
 const pressed = () => r!.all('.dialog .togchips button').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
 
 describe('Run error-path presets…’s words', () => {
@@ -134,7 +134,7 @@ describe('Run error-path presets…’s dialog', () => {
 
   it('draws a run’s plan: every preset on, the tool it hits and where, the checks its own failed check prefills, the command and its price', async () => {
     await dialog(PLAN);
-    expect(r!.one('.dialog h3').textContent).toBe('Run error-path presets on 01K5CQ4N7G');
+    expect(r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Run error-path presets on 01K5CQ4N7G');
     expect(pressed()).toEqual(['tool timeout', 'empty result', 'malformed JSON', 'oversized result', 'provider 429', 'provider 500']);
     expect(r!.one('.dialog .togchips').getAttribute('role')).toBe('group');
     expect(rows().map(([k]) => k)).toEqual(['Presets', 'At', 'Judged by', 'Decided by']);
@@ -166,7 +166,7 @@ describe('Run error-path presets…’s dialog', () => {
     expect(asked).toEqual([{ presets: ['timeout', 'empty', 'oversized', '429', '500'], tool: 'get_policy' }]);
     // Nothing picked: the confirm waits, and says why where the price was.
     for (const p of ['tool timeout', 'empty result', 'oversized result', 'provider 429', 'provider 500']) await r!.click(r!.byText('.dialog .togchips button', p));
-    expect([ok().getAttribute('aria-disabled'), r!.one('.dialog .dcost').textContent]).toEqual(['true', 'Pick at least one preset']);
+    expect([ok().getAttribute('aria-disabled'), r!.one('.dialog .dcost').textContent.replace(/\u00a0/g, ' ')]).toEqual(['true', 'Pick at least one preset']);
     await r!.click(r!.byText('.dialog .togchips button', 'provider 429'));
     await r!.until('the price of the picks', () => asked.length === 2);
     await r!.until('the dialog is ready', () => ok().getAttribute('aria-disabled') !== 'true');
@@ -186,7 +186,7 @@ describe('Run error-path presets…’s dialog', () => {
     expect(r!.all('.dialog .dfacts > div')[0].getAttribute('class')).toBe('amber');
     expect(cmd()).toBe('$shadowlap replay 01K5CQ4N7G --chaos --yes');
     await r!.click(ok());
-    await r!.until('the consent dialog', () => r!.one('.dialog h3').textContent === 'Run command from team store');
+    await r!.until('the consent dialog', () => r!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ') === 'Run command from team store');
     await r!.click(ok());
     expect(started.map(([, b]) => b)).toEqual([
       { runId: RUN, estimate: { usd: 0.054, ceiling: true } },
@@ -199,7 +199,7 @@ describe('Run error-path presets…’s dialog', () => {
     expect(pressed()).toEqual(['tool timeout', 'provider 429']);
     expect(r!.all('.dialog label.cxj')).toHaveLength(0);
     expect(rows().slice(2)).toEqual([
-      ['Judged by', 'issue_refund called at most 1 timethe write limits of refund’s expect'],
+      ['Judged by', 'issue_refund called at most 1 timethe write limits of refund’s expect'],
       ['Decided by', '2 of 3 attempts must pass, as its golden repeats'],
     ]);
     expect(cmd()).toBe('$shadowlap test goldens/refund --chaos');
@@ -223,7 +223,7 @@ describe('Run error-path presets…’s opener', () => {
     r = await render(page(ROW));
     await r.click(r.one('button.go'));
     await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 6);
-    expect(r.one('.dialog h3').textContent).toBe('Run error-path presets on 01K5CQ4N7G');
+    expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Run error-path presets on 01K5CQ4N7G');
     await r.unmount();
     r = await render(page({ ...ROW, disabled: 'A preset’s attempt: run the presets on its recording' }));
     await r.click(r.one('button.go'));
@@ -252,7 +252,10 @@ describe('Run error-path presets…’ drawer at its end', () => {
   const g = globalThis as Record<string, unknown>;
   const job = (o: Partial<JobView> = {}): JobView => ({ id: 'j1', kind: 'chaos', title: 'Running error-path presets', runId: RUN, done: true, code: 1, endedAt: 1000, lines: [], links: [], ...o }) as unknown as JobView;
   const ran = (attempts: number, runId: string | null = RUN) => ({ results: [{ golden: null, runId, outcomes: [{ preset: 'timeout', attempts }] }] });
-  afterEach(() => {
+  // The footer gone first, so an effect its last job's end left to run runs while the address it reads is still there.
+  afterEach(async () => {
+    await r?.unmount();
+    r = null;
     delete g.location;
     resetPanel();
   });

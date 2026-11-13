@@ -287,7 +287,7 @@ describe('the head', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}) }, createElement(ChangesHead, { tab: 'verdicts' })));
     expect(page.one('.ph .eyebrow').textContent).toBe('support-agent · diffs');
     expect(page.one('.ph h1').textContent).toBe('Changes');
-    expect(page.one('.ph p').textContent).toBe('What a change does to your agent, on its own recorded runs.');
+    expect(page.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe('What a change does to your agent, on its own recorded runs.');
     expect(page.one('nav.stabs').getAttribute('aria-label')).toBe('Changes');
     const tabs = page.all('nav.stabs a');
     expect(tabs.map((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('aria-current')])).toEqual([
@@ -456,7 +456,7 @@ describe('Verdicts', () => {
     await page!.unmount();
     await open(() => Promise.resolve(view([])));
     await page!.until('the empty state', () => page!.all('.stepempty h2').length === 1);
-    expect(page!.one('.stepempty h2').textContent).toBe('No change checked yet');
+    expect(page!.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('No change checked yet');
     expect(page!.one('.stepempty .cmdline').textContent).toContain('shadowlap test goldens/*');
     expect(page!.all('.chips')).toHaveLength(0);
   });
@@ -497,7 +497,7 @@ describe('Verdicts', () => {
     }
     expect(asked.map(([, limit]) => limit)).toEqual([50, 100, 150, 200]);
     expect(page!.all('button.attn-more')).toHaveLength(0);
-    expect(page!.byText('p.vdlocal', 'Older changes than these aren’t listed.')).toBeTruthy();
+    expect(page!.all('p.vdlocal').filter((p) => p.textContent.replace(/\u00a0/g, ' ').trim() === 'Older changes than these aren’t listed.')).toHaveLength(1);
     // Back from a row, the list reads as far as it was left; another chip reads from the top.
     await page!.unmount();
     const back = await open((kind, limit) => Promise.resolve(view(many.slice(0, limit), { counts: all, more: true })));
@@ -682,6 +682,8 @@ describe('a revision’s page', () => {
     await page!.until('the page', () => page!.all('.verdict').length === 1);
     expect(shown(page!.one('.verdict p'))).toBe(`d2e8a1f · Tighten refund wording · PR #127 merged · ${minuteStamp(AT)} · merged while failing`);
     expect(page!.one('.verdict p .vdflag').textContent).toBe('merged while failing');
+    // Each fact's dot kept with the fact before it, so no line starts with one.
+    expect(page!.one('.verdict p').textContent).not.toMatch(/ ·/);
     // Its comment kept the decisions: the mock's steps in place of the previews asked, goldens by name, then the note.
     const [, decisions, more] = page!.all('section.panel.sec');
     expect(shown(decisions.querySelector('header .sub'))).toBe('what its prompt and tools decide differently');
@@ -696,8 +698,11 @@ describe('a revision’s page', () => {
     const [cost, injection] = more.querySelectorAll('dl dd');
     expect([shown(cost), shown(cost.querySelector('small'))]).toEqual(['≈$0.041 → ≈$0.043 +5%', '+5%']);
     expect([injection.querySelector('.st')!.className, shown(injection.querySelector('.st')), shown(injection.querySelector('code')), shown(injection.querySelector('.rsub'))]).toEqual(['st ok', 'passed', 'refund-in-limit', '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored']);
-    // Its tally breaks only after a dot, each part kept whole.
-    expect(injection.querySelector('.rsub')!.querySelectorAll('span.nw').map((x) => shown(x))).toEqual(['6 attempts ·', '0 obeyed (at most 0 allowed) ·', '0 influenced ·', '6 ignored']);
+    // Its tally breaks only after a dot, each short part kept whole, and a limit's part whole but on a phone, where its
+    // column is narrower than it; the golden's name kept whole as code.
+    expect(injection.querySelector('.rsub')!.querySelectorAll('span.nw').map((x) => shown(x))).toEqual(['6 attempts ·', '0 influenced ·', '6 ignored']);
+    expect(injection.querySelector('.rsub')!.querySelectorAll('span.kc').map((x) => shown(x))).toEqual(['0 obeyed (at most 0 allowed) ·']);
+    expect(injection.querySelector('code')!.className).toBe('ts-code');
   });
 
   it('says a kept preview that flagged nothing in the engine’s words, and leaves On the pull request out for a session that ran for none', async () => {
@@ -789,7 +794,7 @@ describe('Compare under Changes', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}, { runs: [] }) }, createElement(ComparePage, { a: null, b: null })));
     expect(page.one('.ph h1').textContent).toBe('Changes');
     expect(page.one('nav.stabs a[aria-current="page"]').textContent).toBe('Compare');
-    expect(page.one('.stepempty h2').textContent).toBe('Compare needs two runs');
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Compare needs two runs');
     expect(changesHref()).toBe('#/compare');
   });
 
@@ -810,7 +815,7 @@ describe('Compare under Changes', () => {
     page = await render(createElement(AppContext.Provider, { value: app(gone as unknown as Partial<Client>, { runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the pair forgotten', () => changesHref() === '#/compare');
     await page.until('the not-found', () => page!.all('.stepempty h2').length === 1);
-    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Not in this store');
   });
 
   it('keeps a head of its own in an exported copy, with no tabs, and notes nothing', async () => {
@@ -819,7 +824,7 @@ describe('Compare under Changes', () => {
     const client = { run: (id: string) => Promise.resolve(detail(id)), compare: () => new Promise(() => undefined) };
     page = await render(createElement(AppContext.Provider, { value: app(client as Partial<Client>, { exported: true, meta: null, runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the pickers', () => page!.all('.pickers').length === 1);
-    expect([page.one('.ph .eyebrow').textContent, page.one('.ph h1').textContent, page.one('.ph p').textContent]).toEqual(['exported copy', 'Compare', 'Two runs of this copy, call by call.']);
+    expect([page.one('.ph .eyebrow').textContent.replace(/\u00a0/g, ' '), page.one('.ph h1').textContent.replace(/\u00a0/g, ' '), page.one('.ph p').textContent.replace(/\u00a0/g, ' ')]).toEqual(['exported copy', 'Compare', 'Two runs of this copy, call by call.']);
     expect(page.all('nav.stabs')).toHaveLength(0);
     await page.wait(10);
     expect(changesHref()).toBe('#/changes');

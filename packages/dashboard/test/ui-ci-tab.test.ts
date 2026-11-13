@@ -188,9 +188,9 @@ describe('Settings → CI', () => {
     ]) {
       expect(r!.all(`#${id} header .switch[aria-label="${label}"]`)).toHaveLength(1);
     }
-    expect(r!.one('#workflow header .sub').textContent).toBe('built from the switches below');
+    expect(r!.one('#workflow header .sub').textContent.replace(/\u00a0/g, ' ')).toBe('built from the switches below');
     // The repository's file is the one the switches build: nothing to write.
-    expect(r!.one('#workflow .wfstate').textContent).toBe(`The same as your repository’s ${FILE}.`);
+    expect(plain(r!.one('#workflow .wfstate'))).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#workflow header .btn')).toHaveLength(0);
     // The file folds behind Show workflow, with Copy workflow beside it, its one copy icon CopyButton's own.
     const show = r!.one('#workflow .wftog button[aria-controls="wfBox"]');
@@ -232,7 +232,7 @@ describe('Settings → CI', () => {
     await r!.click(r!.one('#fix-on-failure header .switch'));
     await r!.until('the toast for the file as it was', () => toast.mock.calls.length > 1);
     expect(toast).toHaveBeenLastCalledWith('Fix on failure is off · Your workflow is your repository’s again');
-    expect(r!.one('#workflow .wfstate').textContent).toBe(`The same as your repository’s ${FILE}.`);
+    expect(plain(r!.one('#workflow .wfstate'))).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#wfBox pre.wfcode span.add')).toHaveLength(0);
   });
 
@@ -241,15 +241,15 @@ describe('Settings → CI', () => {
     const toast = vi.fn();
     await open(s, toast);
     expect(plain(r!.one('#workflow .wfstate'))).toBe('Not in your repository yet. Write it, then commit it.');
-    expect(r!.all('#workflow p.muted').map((p) => p.textContent)).toContain(sessionLine(SESSION));
+    expect(r!.all('#workflow p.muted').map((p) => plain(p))).toContain(sessionLine(SESSION));
     const view = served({}, null);
     await r!.click(r!.byText('#workflow header .btn', 'Write file'));
     expect(r!.one('[role="dialog"] header h3').textContent).toBe(`Write ${FILE}?`);
     expect(r!.all('[role="dialog"] header p span')[0].textContent).toBe('Adds the workflow the switches build to your repository.');
-    expect(r!.one('[role="dialog"] .db').textContent).toContain('your working tree');
+    expect(r!.one('[role="dialog"] .db').textContent.replace(/\u00a0/g, ' ')).toContain('your working tree');
     expect(r!.all('[role="dialog"] pre.wfcode span.add')).toHaveLength(view.workflow.added);
     await r!.click(r!.one('[role="dialog"] .dlg-ok'));
-    await r!.until('the file written', () => r!.one('#workflow .wfstate').textContent.startsWith('The same'));
+    await r!.until('the file written', () => plain(r!.one('#workflow .wfstate')).startsWith('The same'));
     expect(s.writeWorkflow).toHaveBeenCalledWith(expect.any(Object), 'absent', view.workflow.shown);
     expect(s.text).toBe(view.workflow.text);
     const wrote = toast.mock.calls.find((c) => c[0] === `Wrote ${FILE} · commit and push it to turn it on`);
@@ -313,7 +313,7 @@ describe('Settings → CI', () => {
     await open(s, toast);
     const row = () => r!.all('#gates .setrow').find((x) => x.querySelector('b')?.textContent === 'An inconclusive golden')!;
     // Fails writes no input, as shadowlap test does by default: a gate against a short history only warns, and the row says so.
-    expect(row().querySelector('span')!.textContent).toBe('Fails the step, as a failed one does, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them. Run more attempts can settle it.');
+    expect(plain(row().querySelector('span')!)).toBe('Fails the step, as a failed one does, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them. Run more attempts can settle it.');
     expect(RECORD_WINDOWS * BASELINE_DEFAULTS.window).toBe(30);
     expect(shownFile()).not.toContain('inconclusive:');
     const seg = r!.one('#gates .seg[aria-labelledby="inconclusive-name"]');
@@ -326,7 +326,7 @@ describe('Settings → CI', () => {
     expect(s.ciWorkflows).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'warn' }));
     expect(toast).toHaveBeenCalledWith('An inconclusive golden warns · Your workflow says inconclusive: warn');
     expect(shownFile()).toMatch(/^ +inconclusive: warn$/m);
-    expect(row().querySelector('span')!.textContent).toBe('Lets the step pass with a warning: inconclusive: warn. Every report still says inconclusive.');
+    expect(plain(row().querySelector('span')!)).toBe('Lets the step pass with a warning: inconclusive: warn. Every report still says inconclusive.');
     expect(row().querySelector('span code')!.textContent).toBe('inconclusive: warn');
     // Back to Fails: the input goes, and the toast says what the default does with a short history.
     await r!.click(r!.byText('#gates .seg[aria-labelledby="inconclusive-name"] button', 'Fails'));
@@ -358,7 +358,7 @@ describe('Settings → CI', () => {
     const unread = r!.all('.settab .cilist li').find((li) => li.textContent.startsWith('which goldens run live'))!;
     expect(unread.querySelector('i')!.getAttribute('class')).toBe('warn');
     expect(shownFile()).toContain("#   shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
-    expect(r!.one('#workflow .cistore span').textContent).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
+    expect(plain(r!.one('#workflow .cistore span'))).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
     const problem = served({}, DEFAULTS_FILE, { goldens: [], configError }).problem;
     expect(problem).toBeTruthy();
     expect(r!.one('#workflow .fieldnote').textContent).toBe(problem);
@@ -386,15 +386,17 @@ describe('Settings → CI: the pull request comment', () => {
     await r!.until('the dialog', () => r!.all('[role="dialog"] .prc').length === 1);
     const dialog = r!.one('[role="dialog"]');
     expect(dialog.className).toBe('dialog prdlg');
-    expect(dialog.querySelector('header h3')!.textContent).toBe('Preview pull request comment');
-    expect(plain(dialog.querySelector('header p')!)).toBe('The one comment the Action keeps on each pull request, edited on every push. Pull request comments in the docs →');
-    expect(dialog.querySelectorAll('.dfacts > div').map((row) => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent, row.querySelector('dd small')?.textContent ?? null])).toEqual([
+    expect(plain(dialog.querySelector('header h3')!)).toBe('Preview pull request comment');
+    expect(plain(dialog.querySelector('header p > span:not([hidden])')!)).toBe('The one comment the Action keeps on each pull request, edited on every push. Pull request comments in the docs →');
+    expect(dialog.querySelectorAll('.dfacts > div').map((row) => [row.querySelector('dt')!.textContent, plain(row.querySelector('dd')!), row.querySelector('dd small') ? plain(row.querySelector('dd small')!) : null])).toEqual([
       ['Session', `${previewSub(PREVIEW.session).replace('From the last test session, ', '')}the last test session`, 'the last test session'],
       ['Posted by', 'github-actions', null],
     ]);
     // The comment as GitHub shows it: the heading's tally, each golden worst first with its mark, the decisions, the cost, the injection gate and the job summary's line.
     const prc = dialog.querySelector('.prc')!;
-    expect(prc.querySelector('h4')!.textContent).toBe('Shadowlap: 1 of 2 goldens passed · 1 failed');
+    // Its tally glued as the mock's is, a count with its noun.
+    expect(plain(prc.querySelector('h4')!)).toBe('Shadowlap: 1 of 2 goldens passed · 1 failed');
+    expect(prc.querySelector('h4')!.textContent).toContain('2\u00a0goldens');
     expect(prc.querySelectorAll('.prc-g li').map((li) => [li.getAttribute('class'), li.querySelector('i')!.textContent, li.querySelector('code')!.textContent, plain(li.querySelector('span')!)])).toEqual([
       ['fail', '✗', 'goldens/refund-over-limit', 'failed · diverged at call 3 · $.messages[2].content'],
       ['pass', '✓', 'goldens/refund-flow-budget', 'passed · replayed clean'],
@@ -473,7 +475,7 @@ describe('Settings → CI: the pull request comment', () => {
     const toast = vi.fn();
     await open(s, toast);
     const row = () => r!.all('#pr-comment .setrow').find((x) => x.querySelector('b')?.textContent === 'The decisions the branch changes')!;
-    expect(row().querySelector('span')!.textContent).toBe('Asks the goldens’ models on every push, so the step needs their keys.');
+    expect(plain(row().querySelector('span')!)).toBe('Asks the goldens’ models on every push, so the step needs their keys.');
     const decisions = () => r!.one('#pr-comment .setrow .switch[aria-labelledby="cidecisions-name"]');
     expect([decisions().getAttribute('aria-checked'), decisions().getAttribute('aria-describedby')]).toEqual(['false', 'cidecisions-help']);
     expect(needs()).toEqual([['permission to keep the action’s comment on a pull request', 'pull-requests: write']]);
@@ -496,11 +498,11 @@ describe('Settings → CI: Gates', () => {
   it('previews a gate as its figures change, asking only for those that differ from the defaults, with Reset and the golden’s entry', async () => {
     const s = fakeServer(DEFAULTS_FILE);
     await open(s);
-    expect(r!.one('#gates header .sub').textContent).toBe('try figures, then copy the golden’s entry');
+    expect(r!.one('#gates header .sub').textContent.replace(/\u00a0/g, ' ')).toBe('try figures, then copy the golden’s entry');
     expect(s.gate).toHaveBeenLastCalledWith('suiteRisk=0.05', expect.anything());
     expect(r!.all('#gates select').map((x) => x.getAttribute('aria-label'))).toEqual(['Good', 'Bad', 'Risk', 'Max']);
     expect(plain(r!.one('#gates .gdef'))).toBe('The defaults: what "gate": {} stands for, as refund-flow-budget uses it.');
-    expect(r!.one('#gates .gsays').textContent).toBe(gatePreview(new URLSearchParams('suiteRisk=0.05')).sentence);
+    expect(plain(r!.one('#gates .gsays'))).toBe(gatePreview(new URLSearchParams('suiteRisk=0.05')).sentence);
     expect(r!.one('#gates .cicode .codebox').textContent).toContain('"gate": {}');
     // A figure changed: asked again with it alone, the note says what the defaults stand for, and the entry names it.
     await r!.type(r!.one('#gates select[aria-label="Max"]'), '20');
@@ -528,7 +530,7 @@ describe('Settings → CI: Gates', () => {
     expect(r!.all('#gates select').map((x) => x.getAttribute('aria-label'))).toEqual(['Drop', 'Risk', 'Window', 'Min', 'Max']);
     expect(r!.byText('#gates header .seg button', 'fork · history').getAttribute('aria-pressed')).toBe('true');
     const history = gatePreview(new URLSearchParams('baseline=history&suiteRisk=0.05'));
-    await r!.until('its sentence', () => r!.one('#gates .gsays').textContent === history.sentence);
+    await r!.until('its sentence', () => plain(r!.one('#gates .gsays')) === history.sentence);
     expect(r!.one('#gates .cicode .codebox').textContent).toContain('"gate": { "baseline": "history" }');
     // Back to fork · gate by its switch, which asks for the SPRT gate's defaults.
     await r!.click(r!.byText('#gates header .seg button', 'fork · gate'));
@@ -551,7 +553,7 @@ describe('Settings → CI: Gates', () => {
 
   it('waits while the dashboard server is away, saying the preview is the last it worked out', async () => {
     await open(fakeServer(DEFAULTS_FILE), () => undefined, 'offline');
-    expect(r!.one('#gates .gdef').textContent).toBe('Paused until the dashboard server is back: the preview is the last it worked out.');
+    expect(plain(r!.one('#gates .gdef'))).toBe('Paused until the dashboard server is back: the preview is the last it worked out.');
     expect(r!.all('#gates select').every((x) => x.props.disabled === true)).toBe(true);
   });
 });
@@ -584,7 +586,7 @@ describe('Settings → CI over projects', () => {
     await r!.until('south-agent’s workflow', () => r!.all('#workflow .wfstate').length === 1);
     expect(servers['south-agent'].ciWorkflows.mock.calls.map(([o]) => o)).toEqual([{}]);
     expect([on('pr-comment'), on('fix-on-failure')]).toEqual(['false', 'false']);
-    expect(r!.one('#workflow .wfstate').textContent).toBe(`The same as your repository’s ${FILE}.`);
+    expect(plain(r!.one('#workflow .wfstate'))).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#workflow header .btn')).toHaveLength(0);
     // Back in north-agent, its change is there still, to write or to turn back.
     await moveTo('north-agent');

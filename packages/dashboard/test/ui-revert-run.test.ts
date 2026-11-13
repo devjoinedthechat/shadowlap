@@ -133,7 +133,7 @@ describe('Revert', () => {
     await page.click(b);
     // Free, and still it asks: it changes your working tree.
     expect(started).toEqual([]);
-    expect(page.one('.dialog h3').textContent).toBe('Revert ccccccc?');
+    expect(page.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Revert ccccccc?');
   });
 
   it('waits while a Tests job runs and while any job uses the working tree, saying for what', async () => {
@@ -152,9 +152,9 @@ describe('Revert', () => {
   it('asks what it does, about which commit, then the test, the change undone, and what the test bills, and starts the revert of that commit', async () => {
     const { a, started } = app();
     page = await render(dialog(a));
-    expect(page.one('.dialog header p').textContent).toBe('Undoes the commit in your working tree, uncommitted, for you to review.');
-    expect(page.one('.dwarn').textContent).toBe('1 of the commit’s files is outside this project, and git reverts it too');
-    const facts = page.all('.dfacts > div').map((d) => ({ label: d.querySelector('dt')!.textContent, value: d.querySelector('dd')!.textContent, tone: d.getAttribute('class') }));
+    expect(page.one('.dialog header p > span:not([hidden])').textContent.replace(/\u00a0/g, ' ')).toBe('Undoes the commit in your working tree, uncommitted, for you to review.');
+    expect(page.one('.dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('1 of the commit’s files is outside this project, and git reverts it too');
+    const facts = page.all('.dfacts > div').map((d) => ({ label: d.querySelector('dt')!.textContent, value: d.querySelector('dd')!.textContent.replace(/\u00a0/g, ' '), tone: d.getAttribute('class') }));
     expect(facts.map((f) => f.label)).toEqual(['Commit', 'Untested', 'Then']);
     expect(facts[0].value).toContain('Log the total');
     expect(facts[0].value).toContain(shortDate(FOUND.date));
@@ -169,7 +169,7 @@ describe('Revert', () => {
     expect(page.all('.dialog .boxwrap .fxpatch')).toHaveLength(0);
     expect(page.one('.db').textContent).toContain(`git revert --no-commit ccccccc && shadowlap test ${GOLDEN}`);
     expect(page.one('.dcost').textContent).toContain('Free');
-    expect(page.one('.dcost').textContent).toContain('replays offline');
+    expect(page.one('.dcost').textContent.replace(/\u00a0/g, ' ')).toContain('replays offline');
     expect(page.all('.dlgdoc')).toHaveLength(0);
     await page.click(page.byText('.dialog button', 'Revert'));
     expect(started).toEqual([['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, estimate: { usd: 0, ceiling: false } }]]);
@@ -184,14 +184,14 @@ describe('Revert', () => {
     const live = [{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }, { kind: 'injection' }];
     page = await render(dialog(app({}, { startJob: startJob as never }).a, { ...STEP, live } as typeof STEP, { kind: 'tests', usd: null, ceiling: false, parts: ['live from there, writes blocked'] }));
     // The rows Run tests asks with, under the test: what runs live, its judges' model, and what it plants.
-    const facts = page.all('.dfacts > div').map((d) => [d.querySelector('dt')!.textContent, d.querySelector('dd')!.textContent]);
+    const facts = page.all('.dfacts > div').map((d) => [d.querySelector('dt')!.textContent, d.querySelector('dd')!.textContent.replace(/\u00a0/g, ' ')]);
     expect(facts.slice(2)).toEqual([
       ['Then', 'refund is tested'],
       ['Runs live', '1 golden marked forkfrom where it forks, writes blocked'],
       ['Asks', 'its judges liveclaude-haiku-4-5'],
       ['Plants', 'the payloads of 1 injection gate'],
     ]);
-    expect(page.one('.dcost').textContent).toContain('Billed by your provider');
+    expect(page.one('.dcost').textContent.replace(/\u00a0/g, ' ')).toContain('Billed by your provider');
     await page.click(page.byText('.dialog button', 'Revert'));
     await page.until('the yes', () => started.length === 2);
     expect(started[1]).toEqual(['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, yes: 'yes-1' }]);
@@ -206,8 +206,8 @@ describe('Revert', () => {
       const a = app({}, { startJob: startJob as never }).a;
       page = await render(within(a, createElement(RevertDialog, { step: STEP, found: FOUND, estimate: FREE, runId: REC, onClose: () => void (closed += 1) })));
       await page.click(page.byText('.dialog button', 'Revert'));
-      await page.until('the question', () => page!.one('.dialog h3').textContent === 'Run command from imported pack');
-      expect(page.one('.dwarn').textContent).toBe(why);
+      await page.until('the question', () => page!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ') === 'Run command from imported pack');
+      expect(page.one('.dwarn').textContent.replace(/\u00a0/g, ' ')).toBe(why);
       expect(page.focused()).toBe(page.one('.dlg-cancel'));
       expect([started.length, closed]).toEqual([1, 0]);
       await page.click(page.byText('.dialog button', press));

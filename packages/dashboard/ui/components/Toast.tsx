@@ -6,8 +6,21 @@ import { useSingleKeys } from '../single-keys.js';
 import { useApp } from '../state.js';
 import { placeToast, retoast } from '../toast-place.js';
 import { ACTION_TOAST_MS, actionSaid, announce, setAnnouncer, TOAST_MS, toastKey, UNDO_CHORDS, UNDO_SHORTCUTS, type ToastAction } from '../toast.js';
+import { Words } from './Copy.js';
+import { DotBlocks } from './DotParts.js';
 
 type Shown = NonNullable<ReturnType<typeof useApp>['toastText']>;
+
+/**
+ * A toast's words, each part between its dots kept whole where the line holds it, so it breaks after
+ * a dot first ("Removed support-agent ·" / "nothing on disk changed"); an error's words as the server
+ * wrote them, only its dots set. All in the one span the toast's button is placed by.
+ */
+export function ToastWords({ text, glued }: { text: string; glued: boolean }) {
+  const parts = text.split(' · ');
+  if (parts.length < 2) return <Words glued={glued}>{text}</Words>;
+  return <DotBlocks className="tp" parts={parts.map((p) => <Words glued={glued}>{p}</Words>)} />;
+}
 
 /**
  * ⌘Z, or Ctrl Z, and the undo key do what an Undo on the screen offers, from anywhere but a field
@@ -160,7 +173,9 @@ export function ToastHost() {
   const body = shown ? (
     <div className={`toast${shown.kind === 'error' ? ' err' : ''}${out ? ' out' : ''}`} key={shown.id} ref={box}>
       <i />
-      <span>{shown.text}</span>
+      <span>
+        <ToastWords text={shown.text} glued={shown.kind !== 'error'} />
+      </span>
       {shown.action ? (
         <button
           type="button"

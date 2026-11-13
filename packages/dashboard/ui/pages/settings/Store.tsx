@@ -16,6 +16,8 @@ import { storeLime } from './store-logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Section } from '../../components/Section.js';
 import { Switch } from '../../components/Switch.js';
+import { Code, Copy, Words } from '../../components/Copy.js';
+import { DotParts } from '../../components/DotParts.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
@@ -57,17 +59,17 @@ export function StoreTab() {
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
       <Section className="set" title="Store" sub="your team’s runs, in a bucket you own" actions={<StoreActions status={s} lime={lime === 'push'} />}>
         <div className="pbody lead">
-          <p className="muted">
+          <Copy className="muted">
             Each machine keeps its runs in <code>.shadowlap/</code>. Push copies yours to the store, so teammates and CI can open them; pull brings theirs to you. Nothing passes through Shadowlap.
-          </p>
+          </Copy>
         </div>
         {underWay ? (
           <div className="setrow setupnext">
             <div>
               <b>Setup</b>
-              <span>
+              <Copy as="span">
                 Step {underWay.step} of 4: {stepWords(underWay.title)}. The store works already; the rest brings CI and the team in.
-              </span>
+              </Copy>
             </div>
             <a className={lime === 'setup' ? 'btn sm lime' : 'btn sm'} href={href.storeSetup()}>
               Continue setup
@@ -79,14 +81,14 @@ export function StoreTab() {
         <div className="setrow">
           <div>
             <b>Share links</b>
-            <span>{share.text}</span>
+            <Copy as="span">{share.text}</Copy>
             {share.warn ? (
-              <span className="fieldnote warn">
+              <Copy as="span" className="fieldnote warn">
                 {share.warn}{' '}
                 <a className="more" href={href.settings('redaction')}>
                   Redaction
                 </a>
-              </span>
+              </Copy>
             ) : null}
           </div>
         </div>
@@ -130,11 +132,14 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
     <dl className="kvs">
       <dt>Bucket</dt>
       <dd>
-        <code>{s.url}</code> {s.region ? <small>{s.region}</small> : null} <small>{s.providerName}</small>
+        <Code>{s.url}</Code> {s.region ? <small>{s.region}</small> : null} <small>{s.providerName}</small>
       </dd>
       <dt>Who has access</dt>
       <dd>
-        Whoever your cloud admin gives access to this bucket <small>people and CI, through your cloud’s own permissions; Shadowlap has no accounts</small>{' '}
+        <Words>Whoever your cloud admin gives access to this bucket</Words>{' '}
+        <small>
+          <Words>people and CI, through your cloud’s own permissions; Shadowlap has no accounts</Words>
+        </small>{' '}
         {policy ? (
           <CopyButton text={policy.text} label="the access policy" name="Copy access policy" sub="The access to ask your cloud admin for: list, read, write and delete in this bucket">
             Copy access policy
@@ -143,7 +148,10 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
       </dd>
       <dt>Your access</dt>
       <dd>
-        <AccessWords access={s.access} /> <small>your own credentials, used on this machine</small>{' '}
+        <AccessWords access={s.access} />{' '}
+        <small>
+          <Words>your own credentials, used on this machine</Words>
+        </small>{' '}
         <ActionButton
           className="btn sm"
           why={jobButton(app, JOB_KINDS.storeCheck, 'shadowlap store check')}
@@ -159,14 +167,16 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
       <dd>
         {syncText(s.syncedAt)}{' '}
         <small>
-          {num(s.inStore)} {s.inStore === 1 ? 'run' : 'runs'} in the store · {num(s.onlyLocal)} only on this machine{s.queued ? ` · ${num(s.queued)} pushed when ${s.queued === 1 ? 'it ends' : 'they end'}` : ''}
+          <DotParts parts={[`${num(s.inStore)} ${s.inStore === 1 ? 'run' : 'runs'} in the store`, `${num(s.onlyLocal)} only on this machine`, ...(s.queued ? [`${num(s.queued)} pushed when ${s.queued === 1 ? 'it ends' : 'they end'}`] : [])]} />
         </small>
       </dd>
       {s.check ? (
         <>
           <dt>Last check</dt>
           <dd>
-            {s.check.ok ? 'access works' : 'access failed'} <small>{checkWords(s.check)}</small>
+            {s.check.ok ? 'access works' : 'access failed'} <small>
+              <DotParts parts={checkWords(s.check)} />
+            </small>
           </dd>
         </>
       ) : null}
@@ -213,7 +223,9 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
     <div className="setrow">
       <div>
         <b id="ciPush-name">Push from CI</b>
-        <span id="ciPush-help">CI pushes every test run, its report and each fix it opens, so history covers every pull request.</span>
+        <Copy as="span" id="ciPush-help">
+          CI pushes every test run, its report and each fix it opens, so history covers every pull request.
+        </Copy>
       </div>
       {ci ? (
         <CopyButton className="linkbtn wflink" text={ci.text} label={`the ${ci.name} step`} name="Copy CI step" sub={`${ci.name}, ${ci.file}${ci.oidc ? ' · short-lived credentials, no stored keys' : ''}`}>
@@ -268,10 +280,10 @@ function jobButton(app: ReturnType<typeof useApp>, kind: string, command: string
   return null;
 }
 
-/** The last `store check`, in words: when, encryption, versioning and object lock. */
-function checkWords(c: NonNullable<NonNullable<StoreSettings['status']>['check']>): string {
+/** The last `store check`, in words: when, encryption, versioning and object lock, each a part of its line. */
+function checkWords(c: NonNullable<NonNullable<StoreSettings['status']>['check']>): string[] {
   const when = new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return [when, c.encryption ? `encrypted (${c.encryption})` : 'encryption unknown', `versioning ${c.versioning}`, `object lock ${c.objectLock}`].join(' · ');
+  return [when, c.encryption ? `encrypted (${c.encryption})` : 'encryption unknown', `versioning ${c.versioning}`, `object lock ${c.objectLock}`];
 }
 
 interface CopiedStep {

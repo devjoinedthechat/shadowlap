@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { issueKey } from '../../src/issue-keys.js';
 import { CopyButton } from '../components/CodeBox.js';
+import { Copy } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { failedRunsWords } from '../failed-runs.js';
@@ -124,7 +125,7 @@ function ReportPanel({ report, row, open, asked, onOpen, view, press }: { report
       </VerdictLine>
       <ReportParts report={report} row={row} open={open} />
       {press ? <ReportSteps report={report} view={view} press={press} onPress={onOpen} /> : null}
-      {hint ? <p className="hintx">{hint}</p> : null}
+      {hint ? <Copy className="hintx">{hint}</Copy> : null}
       <Printed name={report.name} lines={report.printed} />
     </section>
   );

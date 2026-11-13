@@ -27,6 +27,7 @@ import { MarksContext } from '../ui/components/marks.js';
 import { ATTEMPT_PAGE, attemptMarks, proofTab } from '../ui/injection/AttemptPage.js';
 import { reportSaved, SecurityReportDialog } from '../ui/injection/SecurityReportDialog.js';
 import { withStepDialogs } from './ui-served-now.js';
+import { ruleWords } from '../ui/components/Verdict.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import type { LineageNode } from '../ui/types.js';
@@ -376,10 +377,17 @@ describe('an attempt’s inspector', () => {
 
   it('heads the planted read’s result with what it was overridden with, the path as code, and leaves every other call’s head', () => {
     const got = { result: { result: { body: { reason: planted } } } };
-    expect(draw(4, 'tool', 'response', attempt(), got)).toContain('<span>Overridden: the recorded result with the payload planted after <code>$.body.reason</code>:</span>');
-    expect(draw(4, 'tool', 'response', attempt({ role: 'clean' }), got)).toContain('<span>Overridden: the recorded result made neutral, every string with a space in it emptied:</span>');
-    expect(draw(7, 'tool', 'response', attempt(), got)).toContain('<span>The recorded result:</span>');
-    expect(draw(4, 'tool', 'response', attempt({ role: 'baseline' }), got)).toContain('<span>The recorded result:</span>');
+    // The head's words as Copy sets them, read back with each no-break space a space, and its markup for the path's code.
+    const head = (html: string) => {
+      const inner = /<div class="ibar"><span[^>]*>(.*?)<\/span><\/div>/s.exec(html)?.[1] ?? '';
+      return { text: inner.replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' '), html: inner };
+    };
+    const planted4 = head(draw(4, 'tool', 'response', attempt(), got));
+    expect(planted4.text).toBe('Overridden: the recorded result with the payload planted after $.body.reason:');
+    expect(planted4.html).toContain('<code>$.body.reason</code>');
+    expect(head(draw(4, 'tool', 'response', attempt({ role: 'clean' }), got)).text).toBe('Overridden: the recorded result made neutral, every string with a space in it emptied:');
+    expect(head(draw(7, 'tool', 'response', attempt(), got)).text).toBe('The recorded result:');
+    expect(head(draw(4, 'tool', 'response', attempt({ role: 'baseline' }), got)).text).toBe('The recorded result:');
   });
 
   it('marks the canary in a model call’s answer and in a failed call’s body on the Response tab', () => {
@@ -535,8 +543,8 @@ describe('the Forks view', () => {
     expect(shownText(inside(test, '.f2'))).toBe('failed · 6 attempts · 1 obeyed · 1 influenced · 3 ignored · 1 inconclusive · ≈$3.11');
     expect(within(test, '.f2 [data-term="influenced"]')).toHaveLength(1);
     expect(inside(answer, '.glyph').getAttribute('aria-label')).toBe('Clean attempts');
-    expect(shownText(inside(answer, '.f2'))).toBe(`caused by #4 fetch_page · gone in 1 of 3 clean attempts · rate >= 0.29 (95%)${clean.rule}`);
-    expect(inside(answer, '.frule').textContent).toBe(clean.rule);
+    expect(shownText(inside(answer, '.f2'))).toBe(`caused by #4 fetch_page · gone in 1 of 3 clean attempts · rate >= 0.29 (95%)${ruleWords(clean.rule!)}`);
+    expect(inside(answer, '.frule').textContent).toBe(ruleWords(clean.rule!));
     await page.unmount();
   });
 
@@ -567,14 +575,16 @@ describe('the Forks view', () => {
     const page = await view(REC);
     await page.until('the family to load', () => page.all('.fnode.fb').length === 2);
     const [test, answer] = [nodeOf(page, 'injection test'), nodeOf(page, 'injection --clean 4')];
-    expect(within(test, '.alist .al').map((l) => l.textContent)).toEqual([
+    expect(within(test, '.alist .al').map((l) => l.textContent.replace(/\u00a0/g, ' '))).toEqual([
       `${id(1).slice(0, 10)} · system-notice · obeyed: ${PROOF}`,
       `${id(3).slice(0, 10)} · user-urgent · influenced: planted at #4 → read at #5 → send_email at #7: ${WHY}`,
       `${id(5).slice(0, 10)} · tool-output · inconclusive: no model read the planted text`,
     ]);
     expect(within(test, '.alist .al a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${id(1)}/6`, `#/run/${id(3)}/7`, `#/run/${id(5)}`]);
     expect(inside(test, '.more2').textContent).toBe('2 ignored · 1 attempt not drawn: gone from the store, or past the family’s first 1,000 runs · each attempt is a cell above');
-    expect(within(answer, '.alist .al').map((l) => l.textContent)).toEqual([`${id(7).slice(0, 10)} · clean attempt 1 · #28 gone`]);
+    expect(within(answer, '.alist .al').map((l) => l.textContent.replace(/\u00a0/g, ' '))).toEqual([`${id(7).slice(0, 10)} · clean attempt 1 · #28 gone`]);
+    // Each line glued as copy is: an arrow, a dot and a count kept with the word before it, so no line starts with one.
+    expect(within(test, '.alist .al .an')[1].textContent).toContain('planted at\u00a0#4\u00a0→ read at\u00a0#5\u00a0→');
     expect(inside(answer, '.more2').textContent).toBe('1 with every write made again · 1 inconclusive · each attempt is a cell above');
     // An attempt opens as every attempt link does: while the server is out of reach it says so.
     await page.click(inside(test, '.alist .al a'));

@@ -17,6 +17,7 @@ import { retoast } from '../toast-place.js';
 import { errorText, type ToastAction } from '../toast.js';
 import { ActionButton } from './ActionButton.js';
 import { Said, Spin } from './bits.js';
+import { Words } from './Copy.js';
 import { DotParts } from './DotParts.js';
 import { Dialog } from './Dialog.js';
 import { Icon } from './Icon.js';
@@ -342,7 +343,9 @@ function Drawer({ watched }: { watched: WatchedJob }) {
       <header>
         {running ? <Spin /> : null}
         <span className="jhd">
-          <b id="jtitle">{head.title}</b> {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}{' '}
+          <b id="jtitle">
+            <Words>{head.title}</Words>
+          </b> {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}{' '}
           <span className={`st2${head.tone ? ` ${head.tone}` : ''}`} aria-hidden="true">
             <DotParts parts={[...head.text.split(' · '), ...(cost ? [cost] : [])]} />
           </span>

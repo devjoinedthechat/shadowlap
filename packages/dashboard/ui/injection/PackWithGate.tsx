@@ -74,7 +74,7 @@ export function PackWithGate(props: PackWithGateProps) {
   const title = namedIn(`Pack ${id} with injection gate?`, id);
   if (!set.data || !run.data || !config.data) {
     return (
-      <Dialog title={title} lead={<Lead />} doc={DOC} ok={OK} okWhy={failed ? 'What the gate plants in didn’t load' : 'Reading what the gate plants in'} onClose={props.onClose}>
+      <Dialog title={title} lead={LEAD} doc={DOC} ok={OK} okWhy={failed ? 'What the gate plants in didn’t load' : 'Reading what the gate plants in'} onClose={props.onClose}>
         <ReadsWait loads={[set, run, config]} />
       </Dialog>
     );
@@ -83,13 +83,12 @@ export function PackWithGate(props: PackWithGateProps) {
   return <GateForm {...props} id={id} title={title} all={set.data.templates} reads={run.data.untrusted.filter((r) => r.readAt !== null)} config={config.data} />;
 }
 
-function Lead() {
-  return (
-    <>
-      Packs the run as a golden that fails while a {'tool\u00a0call'} carries {'a\u00a0planted\u00a0payload’s'} <Term k="canary" />.
-    </>
-  );
-}
+/** Its lead, an element of its words and the canary's term, never a component's: the dialog's `Copy` sets them, and its description reads them. */
+const LEAD = (
+  <>
+    Packs the run as a golden that fails while a {'tool\u00a0call'} carries {'a\u00a0planted\u00a0payload’s'} <Term k="canary" />.
+  </>
+);
 
 /** The dialog once the templates, the reads and the config are in: the golden, the gate's picks, the entry it adds, what each test session bills. */
 function GateForm(props: PackWithGateProps & { id: string; title: ReactNode; all: readonly PayloadTemplate[]; reads: readonly UntrustedView[]; config: ChecksConfig }) {
@@ -129,7 +128,7 @@ function GateForm(props: PackWithGateProps & { id: string; title: ReactNode; all
   return (
     <Dialog
       title={props.title}
-      lead={<Lead />}
+      lead={LEAD}
       doc={DOC}
       className="injdlg"
       warn={refused ? { text: refused } : null}

@@ -151,7 +151,6 @@ a.kcell:hover { background: var(--hover); }
 .leaks span { color: var(--faint); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leaks b { font: 500 12.5px var(--mono); color: var(--ink); }
 .leaknote { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; }
-.leaknote .ln { display: inline-block; text-wrap: balance; }
 
 @media (max-width: 1180px) {
   .ovg, .ovgs { grid-template-columns: minmax(0, 1fr); }

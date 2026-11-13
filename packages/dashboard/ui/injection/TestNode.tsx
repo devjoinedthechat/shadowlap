@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { useOfflineLink } from '../components/ActionButton.js';
 import { Glyph } from '../components/RunIcon.js';
 import { glossed } from '../components/Term.js';
+import { RuleText } from '../components/Verdict.js';
 import { shortId, stamp } from '../format.js';
 import { href } from '../route.js';
 import { openResults } from '../run/panel-state.js';
@@ -31,7 +32,11 @@ export function TestNode({ row, runs, current, rule }: { row: InjectionRow; runs
         </span>
         <span className="f2 block">
           <GlossedParts parts={v.parts} />
-          {rule ? <span className="frule">{rule}</span> : null}
+          {rule ? (
+            <span className="frule">
+              <RuleText rule={rule} />
+            </span>
+          ) : null}
         </span>
         {v.cells.length || v.replays.length ? (
           // a picture of the replays in the order they ran, each one's card on hover, its words said once for a screen reader
@@ -49,7 +54,8 @@ export function TestNode({ row, runs, current, rule }: { row: InjectionRow; runs
                 <a className="more rlink" href={href.run(l.runId, l.callNo)} onClick={attemptLink}>
                   <code className="rnm">{shortId(l.runId)}</code>
                 </a>
-                <span className="an"> · {glossed(l.words)}</span>
+                {/* its proof's arrows each kept with the word before it */}
+                <span className="an"> · {glossed(l.words, true)}</span>
               </span>
             ))}
             {v.more ? <span className="more2">{v.more}</span> : null}

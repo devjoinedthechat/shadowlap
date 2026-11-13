@@ -10,6 +10,7 @@ import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
+import { Code, Copy, LongWord, Words } from '../components/Copy.js';
 import { MarksContext, NO_MARKS } from '../components/marks.js';
 import { useAttemptPage } from '../injection/attempt-load.js';
 import type { CauseView } from '../injection/model.js';
@@ -97,7 +98,11 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
           {kindName}
         </span>
         <Org origin={originOf(call)} />
-        {agentOf(call) ? <span className="scopetag">{agentOf(call)}</span> : null}
+        {agentOf(call) ? (
+          <span className="scopetag" title={agentOf(call)!}>
+            {agentOf(call)}
+          </span>
+        ) : null}
         <span className="nav">
           <button className="ibtn" type="button" aria-label="Previous call" data-tip={tipText(shortcutCard('prevCall')!)} onClick={() => onStep(-1)} {...shortcut('prevCall')}>
             <Icon name="up" />
@@ -148,7 +153,9 @@ function ConversationTab({ detail, calls, change, flag, played, onSelect }: { de
     const args = (detail.request as { args?: unknown } | null)?.args ?? detail.request;
     return (
       <>
-        <div className="ibar">Its arguments, then its result:</div>
+        <div className="ibar">
+          <Copy as="span">Its arguments, then its result:</Copy>
+        </div>
         <div className="jbox">{mark(jsonText(args ?? {}, format))}</div>
         <div className="jbox">{result ? mark(jsonText(result.error ?? result.result ?? null, format)) : c.outcome === null ? 'no result yet' : 'no result'}</div>
         <ConversationLink detail={detail} calls={calls} onSelect={onSelect} />
@@ -184,7 +191,7 @@ export function CallNote({ c, flag, played = null }: { c: CallDetail['call']; fl
   const note = failureNote(c, by, flag, played);
   return (
     <div className={`inote ${by === 'injected' ? 'inj' : 'err'}`}>
-      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))} {SHOWN[by]}
+      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Words key={i}>{p}</Words> : <Code key={i}>{p.code}</Code>))} <Words>{SHOWN[by]}</Words>
     </div>
   );
 }
@@ -202,7 +209,7 @@ function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; cal
   if (!link) return null;
   return (
     <div className="ibar convlink">
-      <span>{link.text}</span>
+      <Copy as="span">{link.text}</Copy>
       {onSelect ? (
         <button className="linkbtn" type="button" onClick={() => onSelect(link.callNo)}>
           Show its conversation
@@ -236,7 +243,7 @@ function ResponseTab({ detail, played }: { detail: CallDetail; played: string | 
     return (
       <>
         <div className="ibar">
-          <span>{head}</span>
+          <Copy as="span">{head}</Copy>
         </div>
         <div className="jbox">{result ? marks.mark(jsonText(result.error ?? result.result ?? null)) : c.outcome === null ? 'no result yet' : 'no result'}</div>
       </>
@@ -258,7 +265,7 @@ function ResponseTab({ detail, played }: { detail: CallDetail; played: string | 
       <span>{raw && r ? (r.kind === 'sse' ? `the stream as recorded · ${num(r.events)} events` : 'the response as written') : ''}</span>
     </div>
   );
-  if (!r || r.kind === 'empty') return <>{mode}<div className="ibar">{c.outcome === null ? 'No response yet: the call has not finished.' : 'The response body was empty.'}</div></>;
+  if (!r || r.kind === 'empty') return <>{mode}<div className="ibar"><Copy as="span">{c.outcome === null ? 'No response yet: the call has not finished.' : 'The response body was empty.'}</Copy></div></>;
   if (c.outcome === 'error')
     return (
       <>
@@ -383,7 +390,7 @@ function RequestTab({ detail }: { detail: CallDetail }) {
   return (
     <>
       <div className="ibar">
-        <span>{api ? 'The request as stored · credentials are never stored' : 'The tool’s arguments'}</span>
+        <Copy as="span">{api ? 'The request as stored · credentials are never stored' : 'The tool’s arguments'}</Copy>
         <span className="sp" />
         <button className="linkbtn" type="button" onClick={() => void copyText(jsonText(value)).then((ok) => toast(ok ? 'Copied the request' : 'Copying was refused by the browser'))}>
           <Icon name="copy" />
@@ -403,7 +410,24 @@ function originRows(c: CallDetail['call'], flag: string | null, played: string |
   const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
   // The preset a call was played in by, said once for its Origin and its Outcome.
   const pre = played && `by the ${played} preset`;
-  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>{pre || 'answered by Shadowlap with --fail-at'}</small></> : over || (origin === 'over' && pre) ? <>{c.origin} <small>{pre || over}</small></> : c.origin;
+  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? (
+      <>
+        injected{' '}
+        <small>
+          {pre || (
+            <>
+              answered by Shadowlap with <Code>--fail-at</Code>
+            </>
+          )}
+        </small>
+      </>
+    ) : over || (origin === 'over' && pre) ? (
+      <>
+        {c.origin} <small>{pre || (over ? <Code>{over}</Code> : null)}</small>
+      </>
+    ) : (
+      c.origin
+    );
   const http = c.status ? ` · HTTP ${c.status}` : '';
   const by = answeredBy(c);
   const said = pre ? `${pre}${c.kind === 'api' ? ', never sent' : '; the tool didn’t run'}` : by && OUTCOME_BY[by];
@@ -459,11 +483,15 @@ function DetailsTab({ runId, detail, models, flag, played }: { runId: string; de
   rows.push([
     'Fingerprint',
     <>
-      <span title={c.fingerprint}>{shortFingerprint(c.fingerprint)}</span> <small>occurrence {c.occurrence}</small>
+      <span title={c.fingerprint}>
+        <LongWord>{shortFingerprint(c.fingerprint)}</LongWord>
+      </span>{' '}
+      <small>occurrence {c.occurrence}</small>
     </>,
   ]);
-  rows.push(['Run', runId]);
-  if (c.implHash) rows.push(['Implementation', c.implHash]);
+  // An id or a hash whole where its line holds it, and broken only where it doesn't: a digest is wider than a phone's column.
+  rows.push(['Run', <LongWord>{runId}</LongWord>]);
+  if (c.implHash) rows.push(['Implementation', <LongWord>{c.implHash}</LongWord>]);
   rows.push(['Started', stamp(c.startedAt)]);
   const headers = Object.entries(c.headers);
   return (

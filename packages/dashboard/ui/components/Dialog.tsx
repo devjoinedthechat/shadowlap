@@ -10,6 +10,7 @@ import { InSlot } from '../overlays/slots.js';
 import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
 import type { PromptChoice } from '../types.js';
 import { CommandRow, type CommandRowProps } from './CommandRow.js';
+import { Copy, textOf, titled } from './Copy.js';
 import { CostLine, useCostStick, type CostLineProps } from './CostLine.js';
 import { DialogFacts, factId, inCode, shownFacts, type DialogFactRows } from './DialogFacts.js';
 import { ActionButton } from './ActionButton.js';
@@ -88,6 +89,8 @@ export interface DialogWarning {
   text: ReactNode;
   /** Red acts for real, and is answered as a delete is: the confirm red, the focus on Cancel. */
   tone?: 'amber' | 'red' | undefined;
+  /** An error's message as the server wrote it (a failed save's): drawn as written, since a no-break space would spoil a path or a command in it. */
+  written?: boolean;
 }
 
 export interface DialogProps {
@@ -156,13 +159,62 @@ export function pressWayOn(from: EventTarget): void {
   if (ok && !ok.disabled) ok.click();
 }
 
-/** The docs page a lead ends on, in a new tab; its arrow is drawn only, so a screen reader says the page's name alone. */
-function DocLink({ doc }: { doc: DocKey }) {
+/**
+ * The docs page a lead ends on, in a new tab; its arrow is drawn only, so a screen reader says the
+ * page's name alone. An element whose children are its words, so the lead's `Copy` reads them and
+ * keeps it with the sentence before it where the two fit a line.
+ */
+function docLink(doc: DocKey) {
   const link = DOCS[doc];
   return (
     <a className="more dlgdoc" href={docsHref(link)} target="_blank" rel="noopener">
       {link.what} in the docs<span aria-hidden="true">{'\u00a0→'}</span>
     </a>
+  );
+}
+
+/**
+ * A dialog's title: a string's words glued (`titled`), and a node with a name in it (`namedIn`) set as
+ * copy, the name kept whole, so neither ends a line on a small word.
+ */
+function DialogTitle({ id, title }: { id: string; title: ReactNode }) {
+  if (typeof title !== 'string') {
+    return (
+      <Copy as="h3" id={id}>
+        {title}
+      </Copy>
+    );
+  }
+  const head = titled(title);
+  return (
+    <h3 id={id} aria-label={head['aria-label']}>
+      {head.children}
+    </h3>
+  );
+}
+
+/**
+ * A dialog's title and lead: the title's words set (`DialogTitle`), the lead set as copy with its docs
+ * link inside it, and the lead as written in a hidden span first, which the description reads, so a
+ * screen reader hears it once and never the breaks the setting adds.
+ */
+function DialogHead({ id, title, lead, doc }: Pick<DialogProps, 'title' | 'lead' | 'doc'> & { id: string }) {
+  return (
+    <header>
+      <DialogTitle id={id} title={title} />
+      {lead || doc ? (
+        <p>
+          <span id={`${id}lead`} hidden>
+            {textOf(lead)}
+          </span>
+          <Copy as="span" phrases>
+            {lead}
+            {doc ? ' ' : null}
+            {doc ? docLink(doc) : null}
+          </Copy>
+        </p>
+      ) : null}
+    </header>
   );
 }
 
@@ -173,16 +225,26 @@ function describedBy(id: string, { warn, facts, factsUnder, lead }: Pick<DialogP
   return ids.length ? ids.join(' ') : undefined;
 }
 
+/** The amber or red line: words set as a lead is (`Copy` with phrases); an error's message as written, and a node, as they are. */
+function WarnLine({ id, warn }: { id: string; warn: DialogWarning }) {
+  const className = `dwarn${warn.tone === 'red' ? ' red' : ''}`;
+  return typeof warn.text === 'string' && !warn.written ? (
+    <Copy id={`${id}warn`} className={className} phrases>
+      {inCode(warn.text)}
+    </Copy>
+  ) : (
+    <p id={`${id}warn`} className={className}>
+      {inCode(warn.text)}
+    </p>
+  );
+}
+
 /** The body's slots, in order, after the header. */
 function DialogBody({ id, warn, facts, children, factsUnder, runs, command, cost, body }: Pick<DialogProps, 'warn' | 'facts' | 'children' | 'factsUnder' | 'runs' | 'command' | 'cost'> & { id: string; body: RefObject<HTMLDivElement | null> }) {
   const row = typeof command === 'string' || Array.isArray(command) ? { command: command as string | readonly string[] } : (command as CommandRowProps | null | undefined);
   return (
     <div className="db" ref={body}>
-      {warn ? (
-        <p id={`${id}warn`} className={`dwarn${warn.tone === 'red' ? ' red' : ''}`}>
-          {inCode(warn.text)}
-        </p>
-      ) : null}
+      {warn ? <WarnLine id={id} warn={warn} /> : null}
       <DialogFacts rows={facts ?? []} id={`${id}a`} />
       {children}
       <DialogFacts rows={factsUnder ?? []} id={`${id}b`} />
@@ -343,16 +405,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
           if (asking && !t.closest('.dlg-keep, .dlg-discard')) keepEditing(false);
         }}
       >
-        <header>
-          <h3 id={id}>{title}</h3>
-          {lead || doc ? (
-            <p>
-              <span id={`${id}lead`}>{lead}</span>
-              {doc ? ' ' : null}
-              {doc ? <DocLink doc={doc} /> : null}
-            </p>
-          ) : null}
-        </header>
+        <DialogHead {...{ id, title, lead, doc }} />
         {hasBody ? <DialogBody {...{ id, warn, facts, factsUnder, runs, command, cost, body, children }} /> : null}
         <footer>
           {asking ? null : footNote}
@@ -528,7 +581,7 @@ export function PromptDialog({
             </label>
           </div>
           {field}
-          <p className="muted fieldhint">{startFrom.note}</p>
+          <Copy className="muted fieldhint">{startFrom.note}</Copy>
         </>
       ) : label || select ? (
         <div className="form one">

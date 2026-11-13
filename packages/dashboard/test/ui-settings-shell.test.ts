@@ -116,7 +116,7 @@ describe('Settings’ shell', () => {
     await r.until('Matching', () => r!.all('.settab section').length > 0);
     expect(r.one('.ph .eyebrow').textContent).toBe('research-agent · project settings');
     expect(r.one('.ph h1').textContent).toBe('Settings');
-    expect(r.one('.ph p').textContent).toBe('How this project records, replays and shares.');
+    expect(r.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe('How this project records, replays and shares.');
     // Links, as an address each, never the tabs pattern: seven, the one shown marked as the page.
     expect(r.all('nav.stabs a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Matching', '#/settings/matching'],
@@ -183,9 +183,9 @@ describe('Settings → Project', () => {
     const dl = r.one('.settab dl.kvs');
     expect(dl.querySelectorAll('dt').map((d) => d.textContent)).toEqual(['Shadowlap', 'Name', 'Store', 'Runs', 'Size', 'Dashboard']);
     const dd = dl.querySelectorAll('dd');
-    expect(dd[0].textContent).toBe('0.1.0 · open source, Apache-2.0 · no account, no limits on runs');
+    expect(dd[0].textContent.replace(/\u00a0/g, ' ')).toBe('0.1.0 · open source, Apache-2.0 · no account, no limits on runs');
     expect(dd.slice(1, 3).map((d) => d.querySelector('code')?.textContent)).toEqual(['research-agent', '~/research-agent/.shadowlap/shadowlap.db']);
-    expect(dd[3].textContent).toBe('12 and 0 attempts');
+    expect(dd[3].textContent.replace(/\u00a0/g, ' ')).toBe('12 and 0 attempts');
     expect(dd[5].querySelector('code')?.textContent).toBe('127.0.0.1:4777');
     // Clean up old runs says what it does on its card: what it would free first, then it asks.
     const clean = r.byText('.settab .setfoot .btn', 'Clean up old runs');
@@ -196,6 +196,6 @@ describe('Settings → Project', () => {
     addressBar('#/settings/project');
     r = await page('project', app({ version: null }));
     await r.until('Project', () => r!.all('.settab dl.kvs dd').length > 0);
-    expect(r.all('.settab dl.kvs dd')[0].textContent).toBe('open source, Apache-2.0 · no account, no limits on runs');
+    expect(r.all('.settab dl.kvs dd')[0].textContent.replace(/\u00a0/g, ' ')).toBe('open source, Apache-2.0 · no account, no limits on runs');
   });
 });

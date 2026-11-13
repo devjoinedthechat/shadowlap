@@ -109,8 +109,11 @@ test('defines a term where it first shows: never in a closed fold, there once th
 
 test('leaves a command’s prompt out of what a selection copies', async ({ page }) => {
   await open(page, 900);
+  // a hover card's quiet command, its card shown by the focus
+  await page.focus('#opens');
+  await expect(page.locator('#tip code')).toBeVisible();
   const selected = await page.evaluate(() =>
-    ['#s3 .cmdline', '#empty .cli code', '#steps .cli code'].map((s) => {
+    ['#s3 .cmdline', '#empty .cli code', '#steps .cli code', '#tip code'].map((s) => {
       const sel = getSelection()!;
       sel.removeAllRanges();
       const r = document.createRange();
@@ -119,7 +122,7 @@ test('leaves a command’s prompt out of what a selection copies', async ({ page
       return sel.toString();
     }),
   );
-  expect(selected).toEqual(['shadowlap store push --to s3://northwind-agent-runs/support-agent/runs .', 'shadowlap run -- node agent.mjs', 'shadowlap run -- node agent.mjs']);
+  expect(selected).toEqual(['shadowlap store push --to s3://northwind-agent-runs/support-agent/runs .', 'shadowlap run -- node agent.mjs', 'shadowlap run -- node agent.mjs', 'code --goto refund.py:12']);
 });
 
 test('breaks a command only between its arguments, a long one whole where its line holds it, and never past its box on a phone', async ({ page }) => {

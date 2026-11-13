@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { asWords, titled } from './Copy.js';
 
 /**
  * A section, in place of a card (every page): a hairline above, its heading in the UI face (14px,
@@ -26,11 +27,12 @@ export function Section({
   className?: string | undefined;
   id?: string | undefined;
 }) {
+  const head = titled(title);
   return (
     <section className={`panel sec${className ? ` ${className}` : ''}`} id={id}>
       <header>
-        <h2>{title}</h2>
-        {sub ? <span className="sub">{sub}</span> : null}
+        <h2 aria-label={head['aria-label']}>{head.children}</h2>
+        {sub ? <span className="sub">{asWords(sub)}</span> : null}
         {actions ? (
           <>
             <span className="sp" />

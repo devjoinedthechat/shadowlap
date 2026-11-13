@@ -16,6 +16,7 @@ import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DecisionCell, DecisionSessionView, RunDecisionsView } from '../ui/types.js';
 import { FakeElement, render, type Rendered } from './ui-render.js';
+import { withMigrateDialogs } from './ui-served-now.js';
 
 /**
  * Changes › Preview: how a cell is drawn and the call a range stands for, the verdict's state, the
@@ -176,7 +177,7 @@ describe('the Preview page', () => {
   const app = (client: Partial<Client>): AppState =>
     ({ client: { jobs: () => Promise.resolve([]), estimates: { decisionEstimates: () => Promise.resolve({ verify: null }), previewEstimates: () => Promise.resolve({ ways: null }) }, ...client } as unknown as Client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined }) as unknown as AppState;
   const open = async (client: Partial<Client>, id: string | null = null) => {
-    page = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(PreviewTab, { id, run: null, call: null })));
+    page = await render(createElement(AppContext.Provider, { value: app(client) }, withMigrateDialogs(createElement(PreviewTab, { id, run: null, call: null }))));
     return page;
   };
   const shown = (el: { textContent: string } | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -372,7 +373,7 @@ describe('the Preview page', () => {
     await p.until('the verdict', () => !!p.one('.dverdict .actions button'));
     await p.click(p.byText('.dverdict .actions button', 'Migrate to claude-haiku-4-5'));
     await p.until('the ask', () => p.all('.dialog').length === 1);
-    expect([shown(p.one('.dialog h3')), shown(p.one('.dialog header p')), shown(p.one('.dialog .dcost'))]).toEqual([
+    expect([shown(p.one('.dialog h3')), shown(p.one('.dialog header p > span:not([hidden])')), shown(p.one('.dialog .dcost'))]).toEqual([
       'Migrate claude-sonnet-4-5-20250929 to claude-haiku-4-5',
       'Asks claude-sonnet-4-5-20250929’s calls again under claude-haiku-4-5, then verifies end to end the runs the preview can’t clear. Migrate in the docs →',
       'Billed by your provider',

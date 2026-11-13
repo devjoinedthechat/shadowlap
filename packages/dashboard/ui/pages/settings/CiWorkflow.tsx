@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActionButton } from '../../components/ActionButton.js';
 import { CodeBox, CopyButton } from '../../components/CodeBox.js';
+import { Copy } from '../../components/Copy.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import { Section } from '../../components/Section.js';
@@ -30,22 +31,22 @@ function WorkflowState({ view }: { view: CiWorkflowsView }) {
   const w = view.workflow;
   if (!view.exists) {
     return (
-      <p className="wfstate">
+      <Copy className="wfstate">
         <b>Not in your repository yet.</b> Write it, then commit it.
-      </p>
+      </Copy>
     );
   }
   if (w.same) {
     return (
-      <p className="wfstate">
+      <Copy className="wfstate">
         The same as your repository’s <code>{view.file}</code>.
-      </p>
+      </Copy>
     );
   }
   return (
-    <p className="wfstate">
+    <Copy className="wfstate">
       <b>{counts(w.added, w.removed)}</b> against your repository’s file. Write it, then commit it.
-    </p>
+    </Copy>
   );
 }
 
@@ -79,7 +80,7 @@ export function YourWorkflow({ view, changed, onWritten, reload }: { view: CiWor
     >
       <div className="pbody">
         <WorkflowState view={view} />
-        {w.session ? <p className="muted">{sessionLine(w.session)}</p> : null}
+        {w.session ? <Copy className="muted">{sessionLine(w.session)}</Copy> : null}
         {/* Why Write file waits, said where the file is: Copy workflow still has the whole file. */}
         {view.problem && !w.same ? <p className="fieldnote">{view.problem}</p> : null}
         <p className="wftog">

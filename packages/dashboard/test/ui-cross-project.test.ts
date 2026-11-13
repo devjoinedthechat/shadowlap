@@ -143,9 +143,10 @@ describe('a link another project holds', () => {
     await page!.until('the In page', () => page!.all('h1').length > 0);
     expect(w.holding).toEqual([['run', [RUN]]]);
     expect(page!.one('h1').textContent).toBe(`In ${THERE}`);
-    expect(page!.one('.ph p').textContent).toBe(`The run ${RUN} is in ${THERE}’s store, not ${HERE}’s.`);
-    // The id whole in mono, each name whole.
+    expect(page!.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe(`The run ${RUN} is in ${THERE}’s store, not ${HERE}’s.`);
+    // The id whole in mono, each name whole: the lead's own words set by its Copy, each part an element it keeps whole.
     expect(page!.one('.ph p code.rnm').textContent).toBe(RUN);
+    expect(page!.all('.ph p ts-w.ts-a').map((e) => e.textContent)).toEqual([RUN, `${THERE}’s`, `${HERE}’s`]);
     expect(page!.all('.ph .nw').map((e) => e.textContent)).toEqual([THERE, `${THERE}’s`, `${HERE}’s`]);
     expect(page!.one('.ph .actions button').className).toBe('btn lime');
     expect(page!.one('.ph .actions button').textContent).toBe(`Switch to ${THERE}`);
@@ -370,7 +371,7 @@ async function openPage(hash: string, draw: () => ReactElement, o: Stores & { co
 /** The In page for what `id` names: its title, its line, Switch in lime, and the tab's title naming the project that holds it. */
 async function inPage(id: string, what = 'run'): Promise<void> {
   await page!.until('the In page', () => page!.all('h1').some((h) => h.textContent === `In ${THERE}`));
-  expect(page!.one('.ph p').textContent).toBe(`The ${what} ${id} is in ${THERE}’s store, not ${HERE}’s.`);
+  expect(page!.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe(`The ${what} ${id} is in ${THERE}’s store, not ${HERE}’s.`);
   const button = page!.one('.ph .actions button');
   expect([button.className, button.textContent]).toEqual(['btn lime', `Switch to ${THERE}`]);
   expect(page!.one('.tabtitle').textContent).toBe(`In ${THERE} — shadowlap`);
@@ -412,7 +413,7 @@ describe('a run’s page and a fix’s', () => {
     for (const [hash, draw, words] of pages)
       for (const o of [{ copy: true }, { oneStore: true }]) {
         const said = await openPage(hash, draw, { ...o, here: ELSE });
-        await page!.until(`${hash}’s not-found`, () => page!.document.body.textContent.includes(words));
+        await page!.until(`${hash}’s not-found`, () => page!.document.body.textContent.replace(/\u00a0/g, ' ').includes(words));
         await page!.wait(20);
         expect(said.filter((l) => l.startsWith('holding')), hash).toEqual([]);
         expect(page!.one('.tabtitle').textContent, hash).not.toMatch(/^In /);
@@ -446,7 +447,7 @@ describe('Compare', () => {
     expect(said).toEqual([`run ${A}`, `holding run ${A}`]);
     await page!.click(page!.one('.ph .actions button'));
     await page!.until('the run drawn there', () => page!.all('.stepempty h2').length === 1);
-    expect(page!.one('.stepempty h2').textContent).toBe('Nothing to compare yet');
+    expect(page!.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Nothing to compare yet');
     expect(said.slice(2)).toEqual([`select ${THERE}`, 'reload', `run ${A}`]);
   });
 

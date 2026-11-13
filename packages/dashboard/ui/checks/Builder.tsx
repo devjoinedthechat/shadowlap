@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { ApiError } from '../api.js';
 import type { CheckContext, CheckPreview, ChecksConfig, ChecksOf, GoldenEntry, SuggestionsAsk } from '../checks-api.js';
+import { Copy } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
@@ -97,7 +98,7 @@ export function Builder(props: BuilderProps) {
     const what = ownFix(props) ? 'the fix’s run' : 'the golden’s checks';
     return (
       <Dialog title={head.title} lead={head.lead} doc="checks" className="ckb" scrim="ignore" ok="Save check" okWhy={cfg.error ? `${what} didn’t load` : `Loading ${what}…`} onClose={props.onClose}>
-        {cfg.error ? <ErrorState retry={cfg.reload}>{messageOf(cfg.error)}</ErrorState> : <p className="cb-note">Loading {what}…</p>}
+        {cfg.error ? <ErrorState retry={cfg.reload}>{messageOf(cfg.error)}</ErrorState> : <Copy className="cb-note">{`Loading ${what}…`}</Copy>}
       </Dialog>
     );
   }
@@ -313,7 +314,7 @@ function Body(props: BuilderProps & BodyProps) {
   const runId = fromCall ? props.run.run.runId : null;
   const editor = editorRun(props);
   return (
-    <Dialog title={head.title} lead={head.lead} doc="checks" className="ckb" scrim="ignore" dirty={snapOf(s.picked ? s.golden : null, s) !== opened} warn={warn ? { text: warn } : null} {...ways} onOk={own ? saveFix : save} onClose={props.onClose}>
+    <Dialog title={head.title} lead={head.lead} doc="checks" className="ckb" scrim="ignore" dirty={snapOf(s.picked ? s.golden : null, s) !== opened} warn={warn ? { text: warn, written: true } : null} {...ways} onOk={own ? saveFix : save} onClose={props.onClose}>
       <RulePicker
         settled={d.settled}
         units={s.units}

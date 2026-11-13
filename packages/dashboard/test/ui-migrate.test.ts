@@ -6,13 +6,14 @@ import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { migrateStart } from '../src/migrate-start.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { MigrateTab } from '../ui/changes/Migrate.js';
-import { inlineParts, parseMarkdown } from '../ui/components/Markdown.js';
+import { inlineParts, Markdown, parseMarkdown } from '../ui/components/Markdown.js';
 import { NO_GOLDENS } from '../ui/components/NewPreviewMenu.js';
 import { migratePaletteRows } from '../ui/migrate-command.js';
 import { MIGRATE_ASK } from '../ui/page-ask.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DecisionSessionView, MigrateStartView, MigrateUse } from '../ui/types.js';
 import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
+import { withMigrateDialogs } from './ui-served-now.js';
 
 /**
  * Changes › Migrate: the bare tab on a retiring model, on Switch from and To, with no golden and on
@@ -69,7 +70,7 @@ describe('Changes › Migrate', () => {
   const body = `## Switch ${FROM} to ${TO}\n\nChecked with \`shadowlap migrate --to ${TO}\`.\n\n> ${notice.text} ([source](${notice.source}))\n\n### What changes\n\n- refund #2: issue_refund is no longer called`;
 
   /** A migration from FROM to TO as `migrate --json` keeps it: one run flagged and verified, one the preview cleared, `temperature` taken out, a golden left behind. */
-  const migration = (id: string, runs: DecisionRun[], o: { verify?: Record<string, unknown>; warnings?: string[] } = {}) => {
+  const migration = (id: string, runs: DecisionRun[], o: { verify?: Record<string, unknown>; warnings?: string[]; notes?: string[] } = {}) => {
     const [x, y] = runs;
     const decisions = { decisionsId: null, kind: 'decisions', at: AT, change: { model: TO, fields: {}, from: [FROM], fromCode: null, text: `the model ${TO}` }, command: `shadowlap migrate --to ${TO}`, samples: 2, counts: { ...emptyCounts(), 1: 1, same: 3 }, flagged: [x.runId], toVerify: [x.runId], remedies: [REMEDY], runs, cost: { before: 0.04, after: 0.03, spent: 0.01, upstreamRequests: 4, unknownModels: [] }, stopReason: null, judge: null, notes: [], warnings: [], verify: { verdict: 'accepted', rule: 'rate >= 0.6 (95%)', reasons: [], warnings: [], runs: [{ runId: x.runId, golden: 'goldens/refund', role: 'target', outcome: 'kept', verdict: 'passed', passes: 4, attempts: 4, bound: 'rate >= 0.6 (95%)', rule: 'rate >= 0.6 (95%)' }] } };
     if (o.verify) Object.assign(decisions, { verify: o.verify });
@@ -96,7 +97,7 @@ describe('Changes › Migrate', () => {
       files: { dir: `.shadowlap/migrations/${id}`, pullRequest: `.shadowlap/migrations/${id}/pull-request.md`, patch: `.shadowlap/migrations/${id}/config.patch` },
       retirements: [notice],
       stopReason: null,
-      notes: [],
+      notes: o.notes ?? [],
       warnings: o.warnings ?? ['1 step got no answer: rate limited'],
     };
     store.putDecisionSession({ sessionId: id, kind: 'migrate', at: AT, change: `the model ${TO}`, actor: 'dev', revision: null, data, runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.rank, changed: r.rank === null ? 0 : 1, data: r as unknown as Record<string, unknown> })) });
@@ -164,7 +165,7 @@ describe('Changes › Migrate', () => {
   const open = async (view: MigrateStartView, listing: string[], o: { id?: string; run?: string; call?: number; client?: Partial<Client>; app?: Partial<AppState> } = {}) => {
     started.length = 0;
     const client = { migrateStart: () => Promise.resolve(view), decisionSessions: () => Promise.resolve({ sessions: listing.map(listed), goldens: view.goldens }), decisionSession: sessionOf, ...o.client } as unknown as Partial<Client>;
-    page = await render(createElement(AppContext.Provider, { value: app(client, o.app) }, createElement(MigrateTab, { id: o.id ?? null, run: o.run ?? null, call: o.call ?? null })));
+    page = await render(createElement(AppContext.Provider, { value: app(client, o.app) }, withMigrateDialogs(createElement(MigrateTab, { id: o.id ?? null, run: o.run ?? null, call: o.call ?? null }))));
     return page;
   };
   const report = async (id: string, o: Parameters<typeof open>[2] = {}) => {
@@ -217,7 +218,7 @@ describe('Changes › Migrate', () => {
       await p.click(p.byText('.mgstart .actions button', `Migrate to ${TO}`));
       await p.until('the dialog', () => p.all('.dialog').length === 1 && facts(p).length === 2);
       expect(shown(p.one('.dialog h3'))).toBe(`Migrate ${FROM} to ${TO}`);
-      expect(shown(p.one('.dialog header p'))).toBe(`Asks ${FROM}’s calls again under ${TO}, then verifies end to end the runs the preview can’t clear. Migrate in the docs →`);
+      expect(seen(p.one('.dialog header p'))).toBe(`Asks ${FROM}’s calls again under ${TO}, then verifies end to end the runs the preview can’t clear. Migrate in the docs →`);
       expect(facts(p)).toEqual(['Writesa config change and a pull request body, beside the storeyour files stay as they are', 'Previewdc-01M5000000 asked these alreadymigrate asks and verifies again, its answers not reused']);
       expect(shown(p.one('.dialog .cmdline'))).toContain(`shadowlap migrate --to ${TO} goldens/refund goldens/lookup --from ${FROM}`);
       await p.click(p.one('.dialog .dlg-ok'));
@@ -243,6 +244,19 @@ describe('Changes › Migrate', () => {
       await p.type(p.one('.mgstart select'), 'gpt-4.1');
       expect([p.one('.mgform input').props.value, shown(p.one('.mgstart .actions button'))]).toEqual(['gpt-4o', 'Migrate to gpt-4o']);
       expect(shown(p.one('.mgstart .mgcmd'))).toContain('shadowlap migrate --to gpt-4o --from gpt-4.1');
+    });
+
+    it('sets the start page’s words as copy: a retiring model’s facts and where its date comes from, and what Migrate does, each sentence set', async () => {
+      const p = await open(unchecked, []);
+      await p.until('the start page', () => !!p.one('.mgstart .mgsrc'));
+      expect(p.all('.mgstart > p').map((x) => [x.className, x.querySelectorAll('ts-s').length > 0])).toEqual([
+        ['', true],
+        ['muted mgsrc', true],
+      ]);
+      await page?.unmount();
+      const q = await open({ goldens: 2, retiring: [], use: [{ model: 'gpt-4o', provider: 'openai', calls: 6, goldens: 2, family: 'openai' }] }, []);
+      await q.until('the start page', () => !!q.one('.mgstart select'));
+      expect(q.one('.mgstart > p').querySelectorAll('ts-s').length).toBe(2);
     });
 
     it('says what to pack first where the project has no golden', async () => {
@@ -394,6 +408,26 @@ describe('Changes › Migrate', () => {
       expect(await step(UPDATED)).toEqual([[['Copy pull request body', true]], []]);
     });
 
+    it('sets its lines as the line rules do: a cost part whole with its dot, a model’s name whole, a step’s change as code shown as text, a note as copy and a warning as written', async () => {
+      const NOTED = 'mg-01M50000000000000000000007';
+      const note = 'Each step was asked once, and a model varies from one answer to the next: --samples 3 asks each step as recorded as often too.';
+      migration(NOTED, [runOf(a, 'goldens/refund', [step(1, null), step(2, 1)]), runOf(b, 'goldens/lookup', [step(1, null), step(2, null)])], { notes: [note] });
+      sessions.set(NOTED, previewSession(store, NOTED)!);
+      const p = await open(start, [NOTED], { id: NOTED });
+      await p.until('the report', () => p.all('.mgend .dnotes li').length === 2);
+      // Each part of a cost line whole on its line, its dot kept with it, so no line starts with one.
+      expect(p.all('.mgcost p')[0].querySelectorAll('span')[1].querySelectorAll('span.nw').map((x) => x.textContent.replace(/\u00a0/g, ' '))).toEqual(['≈$0.040 → ≈$0.030 (−25%) ·', '1,200 → 900 tokens']);
+      // A model's name in the verdict's lines kept whole, where a browser would break it at a hyphen.
+      expect(p.all('.mgverdict .pline')[0].querySelectorAll('ts-w').map((w) => w.textContent)).toEqual([FROM, `${TO},`]);
+      // A step's change as code shown as text: it breaks after a comma or a brace, never inside a call, an arrow kept with the word before it.
+      expect(p.one('.mgsteps .mgarg').className).toBe('ts-ct mgarg');
+      // The warning as the server wrote it; the note set as copy, its flag kept whole where a browser would break it at a hyphen.
+      expect(p.all('.mgend .dnotes li').map((li) => [shown(li), li.querySelectorAll('ts-w').map((w) => w.textContent)])).toEqual([
+        ['1 step got no answer: rate limited', []],
+        [note, ['--samples']],
+      ]);
+    });
+
     it('says applied once applied, with the golden left waiting where What still passes names it', async () => {
       const p = await report(WAITS);
       expect(shown(p.one('.mgverdict .vw'))).toBe('applied');
@@ -406,7 +440,7 @@ describe('Changes › Migrate', () => {
       await p.click(p.byText('.mgverdict .actions button', 'Apply config change'));
       await p.until('the dialog', () => p.all('.dialog').length === 1);
       expect(shown(p.one('.dialog h3'))).toBe('Apply config change?');
-      expect(shown(p.one('.dialog header p'))).toBe('Applies the migration’s config change to your working tree, for you to review before you commit. Migrate in the docs →');
+      expect(seen(p.one('.dialog header p'))).toBe('Applies the migration’s config change to your working tree, for you to review before you commit. Migrate in the docs →');
       expect(p.all('.dialog .steps li').map(shown)).toEqual(['1Patch appliedagent.py, with git apply', '2Goldens replayedoffline, any that diverge are named', `3Update goldens nextto re-record it under ${TO}`]);
       // The golden left behind is listed under the patch, so no Diverges row names it.
       expect(facts(p)).toEqual(['Leaves outtemperatureas What to set says']);
@@ -496,6 +530,13 @@ describe('Changes › Migrate', () => {
     expect(asked).toEqual([FROM]);
     const held = 'A repair holds the working tree';
     expect(migratePaletteRows([n], held, () => undefined).map((r) => [r.hint, r.wait])).toEqual([[held, held]]);
+  });
+
+  it('draws a pull request body’s code by what it holds: a tool call’s arguments as code shown as text, a command or a name as inline code, an arrow kept with the code before it', async () => {
+    page = await render(createElement(Markdown, { text: 'Checked with `shadowlap migrate --to claude-sonnet-5-5`.\n\n- refund #2: issue_refund is no longer called (`issue_refund({"amount":240})` → `end_turn`)' }));
+    expect(page.one('p code').className).toBe('ts-cb');
+    expect(page.all('li code').map((c) => c.className)).toEqual(['ts-ct', 'ts-code']);
+    expect(page.one('li').textContent).toContain('})\u00a0→ end_turn');
   });
 
   it('reads a pull request body’s quote, and links only to an http(s) address', () => {

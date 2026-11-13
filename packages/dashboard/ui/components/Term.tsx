@@ -1,5 +1,6 @@
 import { Fragment, useId, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { GLOSSARY, glossPieces, termCard, type GlossaryTerm } from '../glossary.js';
+import { Words } from './Copy.js';
 
 /**
  * A word the glossary defines (ui/glossary.ts), defined where it first shows on a page: a dotted
@@ -176,7 +177,11 @@ export function Term({ k, children }: { k: GlossaryTerm; children?: string }) {
   );
 }
 
-/** A status word, a legend or a figure's words with the glossary's terms in it marked: `glossed('lost at #5')`. */
-export function glossed(text: string): ReactNode {
-  return glossPieces(text).map((p, i) => <Fragment key={i}>{typeof p === 'string' ? p : <Term k={p.term}>{p.text}</Term>}</Fragment>);
+/**
+ * A status word, a legend or a figure's words with the glossary's terms in it marked: `glossed('lost
+ * at #5')`. A line of them (`words`) has its words between the terms glued as `Words` glues them, a
+ * count with its noun and a dot or an arrow with the word before it.
+ */
+export function glossed(text: string, words = false): ReactNode {
+  return glossPieces(text).map((p, i) => <Fragment key={i}>{typeof p !== 'string' ? <Term k={p.term}>{p.text}</Term> : words ? <Words>{p}</Words> : p}</Fragment>);
 }

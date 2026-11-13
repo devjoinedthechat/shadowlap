@@ -91,9 +91,9 @@ describe('a fork made with a long flag value, as every attempt of injection --cl
     expect(banner).toMatchObject({ kind: 'fork', flag, why: `tool #7 overridden with ${flag} · writes stubbed · 8 calls replayed before it` });
   });
 
-  it('breaks the flag and a path anywhere where the banner wraps, so a phone never scrolls sideways', () => {
+  it('breaks a path anywhere and a flag between its arguments where the banner wraps, so a phone never scrolls sideways', () => {
     expect(topRule('.banner')).toMatch(/flex-wrap: wrap/);
-    expect(topRule('.banner .why code')).toMatch(/overflow-wrap: anywhere/);
+    expect(topRule('code.ts-cb')).toMatch(/white-space: normal/);
     expect(topRule('.banner .path')).toMatch(/overflow-wrap: anywhere/);
   });
 });

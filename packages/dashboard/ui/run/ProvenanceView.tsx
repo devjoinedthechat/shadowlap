@@ -20,6 +20,7 @@ import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes,
 import { viaWords } from './notes.js';
 import { preloadsOf, preloadWords } from './preloads.js';
 import { useWindow } from './window-hook.js';
+import { Code, Command, Copy, Words } from '../components/Copy.js';
 
 /**
  * The providers a run's model calls went to, with how many calls each: the server's count when it
@@ -148,20 +149,20 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   // What the run was about, whole, and on a line of its own where that comes from (decision 10).
   const about = run.about ?? null;
   const rows: Array<[string, React.ReactNode]> = [
-    ['Run', <code key="r">{r.runId}</code>],
+    ['Run', <Code key="r">{r.runId}</Code>],
     ...(about?.text
       ? ([
           [
             'About',
             <span key="a">
-              {about.text}
+              <Words glued={false}>{about.text}</Words>
               <small className="from">{ABOUT_FROM[about.from] ?? about.from}</small>
             </span>,
           ],
         ] as Array<[string, React.ReactNode]>)
       : []),
-    ['What it is', what],
-    ['Command', run.source ? <span className="muted">none: imported from {run.source}</span> : <code key="c">{r.command.argv.join(' ')}</code>],
+    ['What it is', <Words key="w">{what}</Words>],
+    ['Command', run.source ? <span className="muted">none: imported from <Words glued={false}>{run.source}</Words></span> : <Command key="c" cmd={r.command.argv.join(' ')} inline />],
     ['Code version', r.codeVersion ? <code key="v">{r.codeVersion}</code> : '—'],
     // Local time, as every other page says it; the instant in UTC on hover, for a record read elsewhere.
     ['Started', <When key="s" ms={r.startedAt} />],
@@ -202,12 +203,12 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
         '—'
       ),
     ],
-    ['Calls', `${num(s.byKind.api)} model · ${num(s.byKind.tool)} tool${s.byKind.clock + s.byKind.random ? ` · ${num(s.byKind.clock + s.byKind.random)} clock and random` : ''}${scopes.length ? ` · ${scopes.length} scopes` : ''}`],
+    ['Calls', <Words key="n">{`${num(s.byKind.api)} model · ${num(s.byKind.tool)} tool${s.byKind.clock + s.byKind.random ? ` · ${num(s.byKind.clock + s.byKind.random)} clock and random` : ''}${scopes.length ? ` · ${scopes.length} scopes` : ''}`}</Words>],
     // The network guard and in-process capture the agent's processes loaded, when the CLI started it with them.
     // A preload that never loaded, or a process it couldn't watch (the Claude Code CLI): amber, red where --guard block failed the run, why on hover.
     ...(preloads ? ([['Guard', <span key="g" className={preloads.missing || preloads.unguarded ? (preloads.guard === 'block' ? 'err' : 'warn') : undefined} title={[preloads.missing, preloads.unguarded].filter(Boolean).join(' ') || undefined}>{preloadWords(preloads)}</span>]] as Array<[string, React.ReactNode]>) : []),
     ['Upstream', <UpstreamValue key="u" {...upstreamParts(s.upstreamRequests, s.cost.spent, pulledSpender(r))} />],
-    ['Origins', presentOrigins(origins).map((o) => `${num(origins[o])} ${ORIGIN_NAME[o]}`).join(' · ') || '—'],
+    ['Origins', <Words key="o">{presentOrigins(origins).map((o) => `${num(origins[o])} ${ORIGIN_NAME[o]}`).join(' · ') || '—'}</Words>],
   ];
   return (
     <div className="prov" ref={box}>
@@ -251,18 +252,18 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           <h2>Leaving this machine</h2>
           {exported ? (
             // An exported copy says how it was made itself: it has no Settings, and no copy is made from it.
-            <p className="muted">{exportedLine({ exportedAt: meta?.exportedAt ?? null, rules: meta?.redactedRules ?? null, redacted: meta?.redacted ?? null })}</p>
+            <Copy className="muted">{exportedLine({ exportedAt: meta?.exportedAt ?? null, rules: meta?.redactedRules ?? null, redacted: meta?.redacted ?? null })}</Copy>
           ) : (
-            <p className="muted">
+            <Copy className="muted" title={uncounted ?? undefined}>
               A copy made now (pack, export html, export dataset or export pairs) applies{' '}
-              <span title={uncounted ?? undefined}>{copyRules(rules, prov?.mask)}</span>
+              {copyRules(rules, prov?.mask)}
               .{' '}
               <a className="more" href={href.settings('redaction')}>
                 {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}
               </a>
-            </p>
+            </Copy>
           )}
-          <p className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</p>
+          <Copy className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</Copy>
           {labels.length || notes.length ? (
             <>
               <h2>Labels and notes</h2>
@@ -338,10 +339,10 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
               </tbody>
             </table>
           </div>
-          <p className="muted">The fingerprint is what a replay matches a request on. The response blob is the stored answer, kept once and shared by every run that recorded it.</p>
+          <Copy className="muted">The fingerprint is what a replay matches a request on. The response blob is the stored answer, kept once and shared by every run that recorded it.</Copy>
         </section>
       ) : (
-        <p className="muted">Each call’s fingerprint is in its Details tab, and every hash is in the run’s JSON record.</p>
+        <Copy className="muted">Each call’s fingerprint is in its Details tab, and every hash is in the run’s JSON record.</Copy>
       )}
       <div className="actions">
         {show.data !== null && show.data !== undefined ? (

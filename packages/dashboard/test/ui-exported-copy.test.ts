@@ -151,9 +151,9 @@ describe('an exported copy', () => {
     await open([forkId], `#/run/${runId}`);
     // The page's header, as any page has it: not found, Nothing here, what was missing and the way back.
     await r!.until('what the copy says', () => r!.all('.ph h1').length > 0);
-    expect(r!.one('.ph h1').textContent).toBe('Nothing here');
+    expect(r!.one('.ph h1').textContent.replace(/\u00a0/g, ' ')).toBe('Nothing here');
     expect(r!.one('.ph .eyebrow').textContent).toBe('not found');
-    expect(r!.one('.ph').textContent).toContain(`No run ${runId} in this copy. Open Runs`);
+    expect(r!.one('.ph').textContent.replace(/\u00a0/g, ' ')).toContain(`No run ${runId} in this copy. Open Runs`);
     expect(r!.one('.ph a.more').getAttribute('href')).toBe('#/runs');
   });
 
@@ -273,7 +273,7 @@ describe('an exported copy', () => {
     // A run's Decisions view, where the served dashboard offers New preview of the run.
     await open([forkId, runId], `#/run/${forkId}/1/decisions`);
     await r!.until('the Decisions view', () => r!.all('.dview').length === 1);
-    expect(r!.one('.dview').textContent).toBe('An exported copy holds no previews.');
+    expect(r!.one('.dview').textContent.replace(/\u00a0/g, ' ')).toBe('An exported copy holds no previews.');
     expect(r!.all('.dview button')).toHaveLength(0);
     // A copy's Runs picks nothing, so it draws no bulk bar, whose Preview change shows only where the
     // dashboard previews (test/ui-runs-bulk.test.ts).

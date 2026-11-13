@@ -152,11 +152,11 @@ async function tests(state: AppState): Promise<Rendered> {
 /** The dialog the shell shows, when one shows. */
 const dialog = (page: Rendered): FakeElement | null => page.all('.scrim .dialog')[0] ?? null;
 /** Whether the dialog showing is the one titled so: a job's own dialog comes first, then its question. */
-const titled = (page: Rendered, title: string) => () => dialog(page)?.querySelectorAll('h3')[0]?.textContent === title;
+const titled = (page: Rendered, title: string) => () => dialog(page)?.querySelectorAll('h3')[0]?.textContent.replace(/\u00a0/g, ' ') === title;
 const MORE_LEAD = 'Carries its gate on from attempt 21, for this session only.';
 
 const said = (d: FakeElement) => ({
-  title: d.querySelectorAll('h3')[0].textContent,
+  title: d.querySelectorAll('h3')[0].textContent.replace(/\u00a0/g, ' '),
   lead: d.querySelectorAll('header p span')[0].textContent,
   commands: d.querySelectorAll('.cmdline .cstep').length ? d.querySelectorAll('.cmdline .cstep').map((c) => c.textContent) : d.querySelectorAll('.cmdline').map((c) => c.textContent),
   ok: d.querySelectorAll('.dlg-ok')[0].textContent,
@@ -447,8 +447,8 @@ describe('a live session’s question, answered by Spending', () => {
   it('asks on every setting with no estimate, and where the page said Free as the server says it runs live', async () => {
     for (const estimate of [null, undefined, FREE]) {
       const { page, sent } = await rerun(null, estimate);
-      expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Re-run flaky');
-      expect(dialog(page)?.querySelectorAll('.dcost')[0].textContent).toContain('Billed by your provider');
+      expect(dialog(page)?.querySelectorAll('h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Re-run flaky');
+      expect(dialog(page)?.querySelectorAll('.dcost')[0].textContent.replace(/\u00a0/g, ' ')).toContain('Billed by your provider');
       expect(page.all('.dialog .dlgcost')).toHaveLength(0);
       expect(yeses(sent)).toEqual([]);
       await page.click(page.one('.dialog .dlg-cancel'));
@@ -483,7 +483,7 @@ describe('a live session’s question, answered by Spending', () => {
     const setup: Array<Promise<JobView>> = [];
     startTestsJob({ client: state.client, guard: state.guard, watchJob: (p) => void setup.push(p) }, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as golden', 'goldens/first-run', true));
     await page.until('the question asked', () => !!dialog(page));
-    expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as golden');
+    expect(dialog(page)?.querySelectorAll('h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Pack as golden');
     expect(dialog(page)?.textContent).toContain('Packs the run as goldens/first-run, then runs its test.');
     expect(dialog(page)?.textContent).toContain('shadowlap test goldens/first-run');
     expect(yeses(sent)).toEqual([]);

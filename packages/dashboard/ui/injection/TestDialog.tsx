@@ -110,7 +110,7 @@ export function TestDialog(props: TestDialogProps) {
   const title = namedIn(`${confirmWords(ACTIONS.runInjectionTest.label)} on ${named}`, named);
   if (!set.data || !reads) {
     return (
-      <Dialog title={title} lead={<Lead />} doc={LEAD_DOC} ok={confirmWords(ACTIONS.runInjectionTest.label)} okWhy={failed ? 'What the test plants in didn’t load' : 'Reading what the test plants in'} onClose={props.onClose}>
+      <Dialog title={title} lead={LEAD} doc={LEAD_DOC} ok={confirmWords(ACTIONS.runInjectionTest.label)} okWhy={failed ? 'What the test plants in didn’t load' : 'Reading what the test plants in'} onClose={props.onClose}>
         <ReadsWait loads={[set, asked]} />
       </Dialog>
     );
@@ -119,13 +119,12 @@ export function TestDialog(props: TestDialogProps) {
   return <TestForm {...props} id={id} title={title} all={set.data.templates} reads={reads.filter((r) => r.readAt !== null)} />;
 }
 
-function Lead() {
-  return (
-    <>
-      Plants each payload, with its own <Term k="canary" />, in the run’s untrusted reads and runs the agent from the call that reads it.
-    </>
-  );
-}
+/** Its lead, an element of its words and the canary's term, never a component's: the dialog's `Copy` sets them, and its description reads them. */
+const LEAD = (
+  <>
+    Plants each payload, with its own <Term k="canary" />, in the run’s untrusted reads and runs the agent from the call that reads it.
+  </>
+);
 
 /** The dialog once the templates and the reads are in: the picks, what they bill, and the consent a command from elsewhere asks. */
 function TestForm(props: TestDialogProps & { id: string; title: ReturnType<typeof namedIn>; all: readonly PayloadTemplate[]; reads: readonly UntrustedView[] }) {
@@ -166,7 +165,7 @@ function TestForm(props: TestDialogProps & { id: string; title: ReturnType<typeo
   return (
     <Dialog
       title={props.title}
-      lead={<Lead />}
+      lead={LEAD}
       doc={LEAD_DOC}
       className="injdlg"
       warn={warn ? { text: warn } : null}

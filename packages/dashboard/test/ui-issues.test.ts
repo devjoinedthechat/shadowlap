@@ -463,6 +463,6 @@ describe('Failed’s issues, as they are used', () => {
     await r.click(step);
     await r.until('its dialog', () => r!.all('[role="dialog"]').length === 1);
     expect(offers).toBe(1);
-    expect(r.one('[role="dialog"] h3').textContent).toBe('Revert ccccccc?');
+    expect(r.one('[role="dialog"] h3').textContent.replace(/\u00a0/g, ' ')).toBe('Revert ccccccc?');
   });
 });

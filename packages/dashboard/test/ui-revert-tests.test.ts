@@ -101,7 +101,7 @@ describe('Tests, once a crash’s commit is named', () => {
     expect(box.textContent).toContain('agent/refund.py');
     expect(box.querySelectorAll('.cdacts button').map((b) => b.textContent)).toEqual(['Open in editor', 'Copy git revert']);
     expect(report.querySelectorAll('.actions button').map((b) => [b.textContent, b.className])).toEqual([['Revert', 'btn']]);
-    expect(report.querySelector('.hintx')!.textContent).toBe(NAMED_HINT);
+    expect(report.querySelector('.hintx')!.textContent.replace(/\u00a0/g, ' ')).toBe(NAMED_HINT);
   });
 
   it('hands the focus from the report’s Find breaking commit to its Revert once the search’s answer is read', async () => {
@@ -112,7 +112,7 @@ describe('Tests, once a crash’s commit is named', () => {
     await r.until('the report', () => r!.all('#report-refund .actions button').length === 1);
     const find = r.one('#report-refund .actions button');
     expect(find.textContent).toBe('Find breaking commit…');
-    expect(r.one('#report-refund .hintx').textContent).not.toBe(NAMED_HINT);
+    expect(r.one('#report-refund .hintx').textContent.replace(/\u00a0/g, ' ')).not.toBe(NAMED_HINT);
     // Its report open, as it is when its button is pressed.
     await r.click(r.one('button.grptog'));
     await r.focus(find);
@@ -152,7 +152,7 @@ describe('Find breaking commit’s drawer', () => {
     expect([way.textContent, way.className]).toEqual(['Revert', 'btn']);
     expect(wayOnControl(r.document as unknown as ParentNode)).toBe(way);
     await r.click(way);
-    expect(r.one('.dialog h3').textContent).toBe('Revert ccccccc?');
+    expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Revert ccccccc?');
   });
 
   it('leaves the CLI’s link the way on where the search named no commit, is still running, searched a run, or the page leads with nothing', async () => {

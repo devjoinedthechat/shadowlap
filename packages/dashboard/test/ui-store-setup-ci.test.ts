@@ -35,7 +35,7 @@ describe('the store’s setup, step 3', () => {
   it('asks two things on GitHub, each written to the config as Push from CI', async () => {
     const save = vi.fn();
     r = await show(viewOf(null), 'cur', 'github', save);
-    expect(r.one('p').textContent).toBe('CI pushes every test run, its report and each fix it opens, so the store covers every pull request. Your workflow on Settings → CI adds the push step, and CI needs its own access to the bucket, with short-lived credentials where your CI allows it.');
+    expect(r.one('p').textContent.replace(/\u00a0/g, ' ')).toBe('CI pushes every test run, its report and each fix it opens, so the store covers every pull request. Your workflow on Settings → CI adds the push step, and CI needs its own access to the bucket, with short-lived credentials where your CI allows it.');
     expect(r.all('.actions button').map((b) => [b.textContent, b.getAttribute('class')])).toEqual([
       ['Turn on Push from CI', 'btn lime'],
       ['Skip for now', 'btn quiet'],
@@ -49,11 +49,11 @@ describe('the store’s setup, step 3', () => {
 
   it('says where the workflow is written once on, and where the switch is once skipped', async () => {
     r = await show(viewOf('added', 'github'), 'done', 'github');
-    expect(r.one('p').textContent).toBe('Push from CI is on: Your workflow on Settings → CI pushes every test run, its report and each fix it opens, so the store covers every pull request. Write the workflow →');
+    expect(r.one('p').textContent.replace(/\u00a0/g, ' ')).toBe('Push from CI is on: Your workflow on Settings → CI pushes every test run, its report and each fix it opens, so the store covers every pull request. Write the workflow →');
     expect(r.one('p a.more').getAttribute('href')).toBe('#/settings/ci');
     await r.unmount();
     r = await show(viewOf('skipped', 'github'), 'done', 'github');
-    expect(r.one('p').textContent).toBe('Skipped. Turn on Push from CI any time on Settings → Store.');
+    expect(r.one('p').textContent.replace(/\u00a0/g, ' ')).toBe('Skipped. Turn on Push from CI any time on Settings → Store.');
   });
 
   it('keeps GitLab CI’s step to paste, with Copy, I added it and Skip for now, each written to the config as Push from CI', async () => {
@@ -67,6 +67,6 @@ describe('the store’s setup, step 3', () => {
     expect(save).toHaveBeenLastCalledWith({ ci: 'skipped', ciProvider: 'gitlab', ciPush: false }, 'Skipped for now · Push from CI is off');
     await r.unmount();
     r = await show(viewOf('skipped', 'gitlab'), 'done', 'gitlab');
-    expect(r.one('p').textContent).toBe('Skipped. Turn on Push from CI any time on Settings → Store, where its step is too.');
+    expect(r.one('p').textContent.replace(/\u00a0/g, ' ')).toBe('Skipped. Turn on Push from CI any time on Settings → Store, where its step is too.');
   });
 });

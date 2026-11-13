@@ -2,8 +2,8 @@ import { useRef, useState, type ReactNode } from 'react';
 import type { FixAttemptGroups } from '../../src/attempt-groups.js';
 import { type Attempt, AttemptList, AttemptsCell } from '../components/AttemptsCell.js';
 import { EmptyState, SrSpace } from '../components/bits.js';
+import { Copy, CodeText, Words } from '../components/Copy.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { CodeText } from '../components/Copy.js';
 import { DotParts } from '../components/DotParts.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
@@ -155,7 +155,7 @@ const CELL_TONE: Record<NonNullable<CallCell['verdict']>, string> = { blamed: ' 
 const DENSE = 12;
 
 function CallRow({ b }: { b: BlameStep }) {
-  if (!b.callRow.length) return <p className="fxnote">The run is no longer in the store.</p>;
+  if (!b.callRow.length) return <Copy className="fxnote">The run is no longer in the store.</Copy>;
   const { cells, toolsLeftOut } = callRowCells(b.callRow);
   const probes = new Map(b.probes.map((p) => [p.callNo, p]));
   return (
@@ -294,7 +294,7 @@ function Answers({ b }: { b: BlameStep }) {
         <div className="ans one">
           <div>
             <span className="lbl">The recording</span>
-            <code>{a.recorded || '(no answer)'}</code>
+            <CodeText>{a.recorded || '(no answer)'}</CodeText>
           </div>
           <div className="good">
             <span className="lbl">A rescued fork</span>
@@ -304,16 +304,16 @@ function Answers({ b }: { b: BlameStep }) {
                 <Id id={shortId(b.rescuedRunId)} href={href.run(b.rescuedRunId)} className="rfid" />
               </>
             ) : null}
-            <code>{a.rescued || '(no answer)'}</code>
+            <CodeText>{a.rescued || '(no answer)'}</CodeText>
           </div>
         </div>
         {b.pairs ? (
-          <p className="pairnote">
+          <Copy className="pairnote">
             Both answers saw the same conversation, so they make a training pair.{' '}
             <a className="more nw" href={href.training()}>
               {plural(b.pairs, 'pair')} in Training →
             </a>
-          </p>
+          </Copy>
         ) : null}
       </div>
     </Section>
@@ -404,6 +404,7 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
   return (
     <Section title="The check" sub="what a passing run must do">
       <div className="pbody">
+        {/* each check in its labels' words, a count kept with its noun */}
         <ul className="fxlist">
           {b.oracle.map((o) => {
             // A judge's line carries its card: what it asks and reads, the model, and when it is asked.
@@ -412,10 +413,10 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
               <li key={o}>
                 {judge ? (
                   <span tabIndex={0} data-tip={judgeTip(judge)}>
-                    {o}
+                    <Words>{o}</Words>
                   </span>
                 ) : (
-                  o
+                  <Words>{o}</Words>
                 )}
               </li>
             );
@@ -427,14 +428,16 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
             {b.recordedFailures.length ? (
               <ul className="fxlist bad">
                 {b.recordedFailures.map((f) => (
-                  <li key={f}>{f}</li>
+                  <li key={f}>
+                    <Words>{f}</Words>
+                  </li>
                 ))}
               </ul>
             ) : null}
             {error ? <ErrorPart part={error} id={`bte-${b.blameId}`} /> : null}
           </>
         ) : null}
-        {note ? <p className="fxnote">{note}</p> : null}
+        {note ? <Copy className="fxnote">{note}</Copy> : null}
       </div>
     </Section>
   );
@@ -454,8 +457,8 @@ function Receipts({ fix, b }: { fix: FixDetail; b: BlameStep }) {
       <p className="fxreceipt">
         <DotParts parts={[plural(c.attempts, 'attempt'), plural(c.upstreamRequests, 'upstream request'), `${approx(c.spent)} spent`, judge, 'every call before a probe replayed from the recording'].filter(Boolean)} />
       </p>
-      {c.unknownModels.length ? <p className="fxreceipt">No price for {c.unknownModels.join(', ')}, so its calls count as $0.</p> : null}
-      {b.pulled ? <p className="fxreceipt">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
+      {c.unknownModels.length ? <Copy className="fxreceipt">No price for {c.unknownModels.join(', ')}, so its calls count as $0.</Copy> : null}
+      {b.pulled ? <Copy className="fxreceipt">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</Copy> : null}
       {others.map((o) => (
         <p key={o.blameId} className="fxreceipt">
           {o.runId !== b.runId ? (

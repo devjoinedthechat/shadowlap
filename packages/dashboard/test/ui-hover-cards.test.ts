@@ -121,7 +121,7 @@ describe('a hover card', () => {
     await tap(r.one('#status'));
     expect(card().hasAttribute('hidden')).toBe(true);
     await tap(r.one('#word'));
-    expect(card().textContent).toContain('A rate');
+    expect(card().textContent.replace(/\u00a0/g, ' ')).toContain('A rate');
     expect(opened).toHaveBeenCalledTimes(2);
     await tap(r.one('#word'));
     expect(card().hasAttribute('hidden')).toBe(true);

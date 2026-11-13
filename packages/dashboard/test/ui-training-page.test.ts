@@ -90,7 +90,7 @@ function page(tab: 'pairs' | 'tasks', started: Array<{ kind: string; fields: Rec
   return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TrainingPage, { tab }));
 }
 
-const text = (r: Rendered, selector: string) => r.all(selector).map((el) => el.textContent.trim());
+const text = (r: Rendered, selector: string) => r.all(selector).map((el) => el.textContent.replace(/\u00a0/g, ' ').trim());
 
 let r: Rendered | null = null;
 afterEach(async () => {
@@ -102,13 +102,13 @@ describe('the Training page', () => {
   it('says where pairs and tasks come from, and what the last export wrote', async () => {
     r = await render(page('pairs'));
     await r.until('the page to load', () => r!.all('.pfacts').length > 0);
-    expect(r.one('.ph p').textContent).toBe('Answers to prefer, from attempts already in the store, and your goldens as tasks to score.');
-    // In two clauses, so with less room than the line needs it breaks between them, not before its last words.
-    expect(text(r, '.ph p .ln')).toEqual(['Answers to prefer, from attempts already in the store,', 'and your goldens as tasks to score.']);
+    // One sentence set by Copy, which breaks it after its clause where the line can't hold it (browser/line-breaks.spec.ts reads it at 320 to 430).
+    expect(text(r, '.ph p')).toEqual(['Answers to prefer, from attempts already in the store, and your goldens as tasks to score.']);
+    expect(r.one('.ph p').textContent).toContain('in\u00a0the\u00a0store,');
     expect(r.document.body.textContent).not.toContain('from failures you fixed');
     // The facts under the header, the last export last and quieter, its card saying what it wrote: main's words, Exported.
     const facts = r.all('.pfacts .metric');
-    expect(facts.map((f) => f.textContent)).toEqual(['0pairs', '2of 4 tasks ready', '0exported']);
+    expect(facts.map((f) => f.textContent.replace(/\u00a0/g, ' '))).toEqual(['0pairs', '2of 4 tasks ready', '0exported']);
     expect(facts[2].querySelector('b')!.className).toBe('q');
     expect(JSON.parse(facts[2].getAttribute('data-tip')!)).toMatchObject({ t: 'Exported', s: 'nothing exported yet' });
     expect(r.document.body.textContent).not.toContain('Left this machine');
@@ -121,13 +121,13 @@ describe('the Training page', () => {
     const weak = r.byText('b', 'A model learns what the checks reward.').parentNode!.textContent;
     expect(weak).toContain('That’s why refund-flow-budget isn’t a task.');
     expect(weak).not.toContain('list-inbox');
-    expect(r.document.body.textContent).toContain('For example, one attempt and the score it answers with:');
+    expect(r.document.body.textContent.replace(/\u00a0/g, ' ')).toContain('For example, one attempt and the score it answers with:');
     const sample = r.one('pre.trserve').textContent;
     expect(sample).toContain('"run": "<run id>"');
     expect(sample).not.toContain('"from"');
     expect(sample).toContain('{ "score": 0.67,');
     // A golden that is no task has no call to take over.
-    const rows = r.all('table.tasks tbody tr').map((tr) => tr.textContent);
+    const rows = r.all('table.tasks tbody tr').map((tr) => tr.textContent.replace(/\u00a0/g, ' '));
     expect(rows.find((t) => t.includes('refund-flow-budget'))).toContain('no call to take over');
   });
 
@@ -138,14 +138,14 @@ describe('the Training page', () => {
     // Its card, as Score model…'s: the action's name without the ellipsis, and what it runs.
     expect(JSON.parse(r.byText('button', 'Export pairs…').getAttribute('data-tip')!)).toEqual({ t: 'Export pairs', s: 'Asks the format and the confidence first', rows: [], cmd: '$ shadowlap export pairs' });
     await r.click(r.byText('button', 'Export pairs…'));
-    expect(r.one('.dialog .dfacts').textContent).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
+    expect(r.one('.dialog .dfacts').textContent.replace(/\u00a0/g, ' ')).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
     expect(r.all('.dialog select')[0].children.map((o) => o.textContent)).toEqual(['OpenAI preference fine-tuning', 'prompt, chosen, rejected (TRL)']);
     await r.type(r.all('.dialog select')[0], 'trl');
     await r.type(r.all('.dialog select')[1], 'medium');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence medium --format trl --out .shadowlap/exports/pairs.jsonl');
     // Titled and confirmed with its button's name, without the ellipsis.
-    expect(r.one('.dialog h3').textContent).toBe('Export pairs');
+    expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Export pairs');
     await r.click(r.byText('.dialog button', 'Export pairs'));
     expect(started).toEqual([{ kind: 'pairs', fields: { format: 'trl', minConfidence: 'medium' } }]);
   });

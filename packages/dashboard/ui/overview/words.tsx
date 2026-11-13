@@ -1,4 +1,5 @@
 import { Fragment, useMemo } from 'react';
+import { Words } from '../components/Copy.js';
 import { Id } from '../components/Id.js';
 import { dotParts } from '../components/Verdict.js';
 import { shortId } from '../format.js';
@@ -33,7 +34,9 @@ export function Pieces({ parts, aboutOf }: { parts: readonly KeptPart[]; aboutOf
             {p.text}
           </span>
         ) : (
-          <Fragment key={i}>{p.text}</Fragment>
+          <Words key={i} glued={false}>
+            {p.text}
+          </Words>
         ),
       )}
     </>
@@ -56,7 +59,7 @@ export function DotPieces({ text, max, cut, aboutOf }: { text: string; max: numb
               <Pieces parts={cut(p.text)} aboutOf={aboutOf} />
             </span>
           ) : (
-            <Pieces parts={cut(p.text.replace(/ ·$/, '\u00a0·'))} aboutOf={aboutOf} />
+            <Pieces parts={cut(p.text)} aboutOf={aboutOf} />
           )}
         </Fragment>
       ))}

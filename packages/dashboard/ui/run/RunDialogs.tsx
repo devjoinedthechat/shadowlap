@@ -8,6 +8,7 @@ import { bisectQuery, useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { deleteFacts, deleteLead } from '../runspage/bulk.js';
 import { sentEstimate } from '../spending.js';
 import { bisectCopy } from './dialog-copy.js';
+import { Copy } from '../components/Copy.js';
 
 /**
  * The run page's dialog that starts another slice's job: Find breaking commit. It says what will run;
@@ -42,7 +43,7 @@ export function BisectDialog({ runId, offer, onRun, onClose }: { runId: string; 
       onClose={onClose}
     >
       <GoodCommitField id={id} label={copy.label} choices={copy.choices} picked={picked} typed={typed} onPick={setPicked} onType={setTyped} />
-      {copy.note && !estimate?.card ? <p className="dlgnote fieldhint">{copy.note}</p> : null}
+      {copy.note && !estimate?.card ? <Copy className="dlgnote fieldhint">{copy.note}</Copy> : null}
     </Dialog>
   );
 }

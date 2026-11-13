@@ -3,6 +3,7 @@ import { JOB_KINDS } from '../api.js';
 import { type Attempt, AttemptList, AttemptsCell } from '../components/AttemptsCell.js';
 import { EmptyState } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { Copy } from '../components/Copy.js';
 import { DotParts } from '../components/DotParts.js';
 import { Id } from '../components/Id.js';
 import { Status } from '../components/Status.js';
@@ -284,14 +285,14 @@ function Receipts({ v }: { v: VerifyStep }) {
         </ul>
       ) : null}
       {/* What answered the tool calls after the fork, in the CLI report's words; none when no attempt made one. */}
-      {v.afterFork ? <p className="fxreceipt fxafter">{v.afterFork}</p> : null}
+      {v.afterFork ? <Copy className="fxreceipt fxafter">{v.afterFork}</Copy> : null}
       <Deltas v={v} />
       <p className="fxreceipt">
         <DotParts parts={parts} />. A run whose replay doesn’t fork settles in one free attempt.
         {v.unknownModels.length ? ` No price for ${v.unknownModels.join(', ')}.` : ''}
       </p>
       {/* A teammate's verdict: its command line stays theirs; the one here is made from its report. */}
-      {v.pulled ? <p className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
+      {v.pulled ? <Copy className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</Copy> : null}
       <CodeBox command={v.command} />
     </>
   );

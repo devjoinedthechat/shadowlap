@@ -91,7 +91,7 @@ button.cprow.open { background: var(--sel); box-shadow: -12px 0 0 var(--sel), 12
 .pside .pnm { display: flex; align-items: baseline; gap: 0 6px; min-width: 0; }
 .pside .pnm .eff { margin-left: 0; flex: none; }
 .pside .pdec { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pside .pdec.wrap { white-space: normal; overflow: visible; text-wrap: balance; overflow-wrap: anywhere; }
+.pside .pdec.wrap { white-space: normal; overflow: visible; text-wrap: pretty; overflow-wrap: anywhere; }
 /* an argument's piece ("to":"customer@example.com",) is kept whole where it fits its column, and breaks inside where not */
 .pside .jdv { display: inline-block; max-width: 100%; }
 .pside .nw { white-space: nowrap; }

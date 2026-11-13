@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Code } from '../components/Copy.js';
 import type { CallRow } from '../api.js';
 import { Org } from '../components/bits.js';
 import { ktok, num } from '../format.js';
@@ -59,16 +60,16 @@ export function TurnsView({ calls, selected, scoped, onSelect, untrusted = NO_RE
         if (l.kind === 'head')
           return (
             <div key={`s:${l.scope}`} data-wi={at} className="tgroup">
-              <code>{l.scope}</code>
+              <Code>{l.scope}</Code>
               <span>
-                {num(l.calls)} {l.calls === 1 ? 'model call' : 'model calls'} · {ktok(l.tokens)} input tokens
+                {num(l.calls)}&nbsp;{l.calls === 1 ? 'model call' : 'model calls'}&nbsp;· {ktok(l.tokens)}&nbsp;input tokens
               </span>
             </div>
           );
         const t = l.turn;
         const m = t.model;
         const sel = m.callNo === selected || t.tools.some((c) => c.callNo === selected);
-        const ts = m.outcome === 'error' ? `HTTP ${m.status ?? 'error'}${m.attempts ? ` · ${m.attempts + 1} attempts` : ''}` : [tokensText(m), m.stopReason].filter(Boolean).join(' · ');
+        const ts = m.outcome === 'error' ? `HTTP ${m.status ?? 'error'}${m.attempts ? ` · ${m.attempts + 1} attempts` : ''}` : [tokensText(m), m.stopReason].filter(Boolean).join('\u00a0· ');
         return (
           <div key={m.callNo} data-wi={at} data-acts="" className={`turn${sel ? ' sel' : ''}`} onClick={() => onSelect(m.callNo)}>
             <div className="t1">

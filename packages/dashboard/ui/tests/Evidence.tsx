@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { GoldenRow, InconclusiveView } from '../api.js';
 import { AttemptList } from '../components/AttemptsCell.js';
+import { Copy } from '../components/Copy.js';
+import { DotNodes } from '../components/DotParts.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JobButton } from '../components/JobButton.js';
@@ -220,14 +222,17 @@ function Attempts({ golden, at }: { golden: string; at: number | null }) {
   if (loaded.error) return <ErrorState retry={loaded.reload}>Its attempts couldn’t be read: {loaded.error.message}</ErrorState>;
   if (!loaded.data) return <Skeleton what="the attempts" lines={2} />;
   const { attempts, gone } = loaded.data;
-  if (!attempts.length) return <p className="muted">The attempts aren’t in the store any more.</p>;
+  if (!attempts.length) return <Copy className="muted">The attempts aren’t in the store any more.</Copy>;
   return (
     <>
       <AttemptList attempts={attempts} />
-      {gone ? <p className="muted">{gone === 1 ? 'One of its attempts isn’t' : `${gone} of its attempts aren’t`} in the store any more.</p> : null}
+      {gone ? <Copy className="muted">{gone === 1 ? 'One of its attempts isn’t' : `${gone} of its attempts aren’t`} in the store any more.</Copy> : null}
     </>
   );
 }
+
+/** The evidence's receipt as its dot parts: the step, pass^5, where it forked, what the provider cut short. */
+const receiptParts = (w: EvidenceWords): string[] => [w.step, w.passK ? `pass^5 ${w.passK}` : '', w.forked, w.provider].filter(Boolean).join(' · ').split(' · ');
 
 /**
  * The row under a gated golden: why its gate stopped where it did, the line between its bounds, its
@@ -246,14 +251,18 @@ export function EvidenceRow({ row, g, span, press, inc, step }: { row: GoldenRow
       <td colSpan={span}>
         <section className="gevx" id={evidenceId(row.name)} aria-label={`Why ${row.name} stopped where it did`}>
           {w ? (
-            <p className="lead">
+            <Copy className="lead">
               {w.why}
               {w.carriedNote}
-            </p>
+            </Copy>
           ) : null}
           {w && plot ? <EvidenceLine p={plot} w={w} tone={toneOf(g.decision)} /> : null}
           <Attempts golden={row.path} at={row.last.at} />
-          {w ? <p className="receipt">{glossed([w.step, w.passK ? `pass^5 ${w.passK}` : '', w.forked, w.provider].filter(Boolean).join(' · '))}</p> : null}
+          {w ? (
+            <p className="receipt">
+              <DotNodes parts={receiptParts(w).map((t) => ({ text: t, node: glossed(t) }))} />
+            </p>
+          ) : null}
           {stale && press?.runTests ? (
             <div className="actions gevact">
               <JobButton className="btn" why={press.wait('run the tests')} {...press.runTests} sub={stale.sub}>

@@ -1,12 +1,14 @@
 import { Fragment, useRef, type ReactNode } from 'react';
 import type { TaskUpdate, TrainingView } from '../../api.js';
-import { CmdLine, Org } from '../../components/bits.js';
+import { Org } from '../../components/bits.js';
+import { CodeBox } from '../../components/CodeBox.js';
 import { tipCard } from '../../components/HoverCard.js';
 import { Section } from '../../components/Section.js';
 import { Status } from '../../components/Status.js';
 import { rowOpen } from '../../components/Table.js';
 import { Term } from '../../components/Term.js';
 import { VerdictLine } from '../../components/VerdictLine.js';
+import { asWords, Copy } from '../../components/Copy.js';
 import { plural } from '../../format.js';
 import { useListKeys } from '../../list-keys.js';
 import { ORIGIN_NAME } from '../../origins.js';
@@ -120,7 +122,7 @@ export function TaskTable({ rows, update }: { rows: Tasks['rows']; update: Updat
                   ) : (
                     <code>{r.name}</code>
                   )}
-                  <span className="rsub">{r.sub}</span>
+                  <span className="rsub">{asWords(r.sub)}</span>
                 </td>
                 <td className="chk hide-sm">
                   {r.checks.map((c) => (
@@ -156,16 +158,16 @@ export function TaskNotes({ view }: { view: TrainingView }) {
     <div className="grid2 secs">
       <Section title="From a training loop" sub="one HTTP call per attempt">
         <div className="pbody">
-          <p className="muted">Serve the model you’re training on an OpenAI-compatible endpoint. Each attempt returns its score, to use as the reward.</p>
-          <CmdLine>{view.serve?.command ?? 'shadowlap tasks serve goldens/ --port 4779'}</CmdLine>
+          <Copy className="muted">Serve the model you’re training on an OpenAI-compatible endpoint. Each attempt returns its score, to use as the reward.</Copy>
+          <CodeBox command={view.serve?.command ?? 'shadowlap tasks serve goldens/ --port 4779'} />
           {view.serve ? (
             <>
               {/* Nothing was asked: an example, with a placeholder run and one check missed, so a score reads as the share passed. */}
-              <p className="muted trafter">For example, one attempt and the score it answers with:</p>
+              <Copy className="muted trafter">For example, one attempt and the score it answers with:</Copy>
               <pre tabIndex={0} className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre>
             </>
           ) : (
-            <p className="muted trafter">Once a task is ready, each request scores one attempt at it.</p>
+            <Copy className="muted trafter">Once a task is ready, each request scores one attempt at it.</Copy>
           )}
         </div>
       </Section>

@@ -214,7 +214,7 @@ describe('the run page’s next step', () => {
     await page.click(page.one('.dialog .dlg-ok'));
     // Its check is asked in a dialog of its own, a part that loads the first time it opens.
     await page.until('its check to be asked', () => page!.all('.dialog textarea').length === 1);
-    expect(page.one('.dialog').textContent).toContain('What a passing run must do, as an outcome check’s expect object');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('What a passing run must do, as an outcome check’s expect object');
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '<check>' -- python agent.py`);
   });
 
@@ -345,7 +345,7 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([]);
     // A diverged test's dialogs are a part of their own: it comes as its script does.
     await page.until('its dialog', () => page!.all('.dialog h3').length > 0);
-    expect(page.one('.dialog h3').textContent).toContain('Update refund-in-limit?');
+    expect(page.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toContain('Update refund-in-limit?');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['test-update', { golden: GOLDEN, estimate: { usd: 0.03, ceiling: false } }]]);
   });
@@ -357,9 +357,9 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Update golden'));
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
-    expect(dialog.querySelector('h3')?.textContent).toBe('Update refund-in-limit?');
+    expect(dialog.querySelector('h3')?.textContent.replace(/\u00a0/g, ' ')).toBe('Update refund-in-limit?');
     expect(dialog.textContent).toContain('Asks the judge once');
-    expect(dialog.textContent).toContain('its judge’s one call');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('its judge’s one call');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['test-update', { golden: GOLDEN }]]);
   });
@@ -426,9 +426,9 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
     // Why the last test leads to it, in its one amber line, then what it bills, price first.
-    expect(dialog.querySelector('.dwarn')?.textContent).toBe('It showed too little to say: no model read it');
-    expect(dialog.querySelector('.dcost')?.textContent).toContain('≈$3.11, as the last test’s 6 attempts');
-    expect(dialog.querySelector('.dcost')?.textContent).toContain('live from each read, writes stubbed');
+    expect(dialog.querySelector('.dwarn')?.textContent?.replace(/\u00a0/g, ' ')).toBe('It showed too little to say: no model read it');
+    expect(dialog.querySelector('.dcost')?.textContent?.replace(/\u00a0/g, ' ')).toContain('≈$3.11, as the last test’s 6 attempts');
+    expect(dialog.querySelector('.dcost')?.textContent?.replace(/\u00a0/g, ' ')).toContain('live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
     // The job keeps the estimate the card and the Cost line said, for its drawer; `again` titles it a re-run.
@@ -442,7 +442,7 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Run injection test…'));
     // Its dialog (TestDialog.tsx), why the step leads its amber line, every template picked for one read.
     await page.until('the dialog reads the run', () => page!.all('.dialog .togchips button').length === 2);
-    expect(page.one('.dialog .dwarn').textContent).toBe('It stopped early');
+    expect(page.one('.dialog .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('It stopped early');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(j.started).toEqual([['injection', { runId: REC }]]);
     await page.unmount();
@@ -462,7 +462,7 @@ describe('the run page’s next step', () => {
     // Replay stays beside it.
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
-    expect(page.one('.dialog h3').textContent).toBe(`Pack ${REC.slice(0, 10)} as golden?`);
+    expect(page.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe(`Pack ${REC.slice(0, 10)} as golden?`);
     expect(page.one('.dialog').textContent).toContain('Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit.');
     expect(page.one('.dialog label').textContent).toContain('Golden');
     // The pack, then its test, a line each.
@@ -522,11 +522,11 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
     await page.click(page.one('.dialog .dlg-ok'));
     // Refused: the dialog stays, with what was typed and why.
-    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('already holds a golden. Give this one another name');
     await page.type(page.one('.dialog input'), 'goldens/other');
     await page.click(page.one('.dialog .dlg-ok'));
     // A recording from elsewhere: the question, then the job again with its yes.
-    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('came from the team store');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: 'goldens/other' }, { runId: REC, golden: 'goldens/other', yes: 'c'.repeat(32) }]);
   });
@@ -549,10 +549,10 @@ describe('the run page’s next step', () => {
     page = await render(both(detail({ state: passedState, next }), null, a));
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('came from the team store');
     await page.click(page.one('.dialog .dlg-ok'));
     // The folder was taken in the meantime: the Pack dialog again, saying so, the folder still the one tried.
-    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('already holds a golden. Give this one another name');
     expect(page.one('.dialog input').value).toBe(folder);
     expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: folder, yes: 'c'.repeat(32) }]);
   });
@@ -567,8 +567,8 @@ describe('the run page’s next step', () => {
     await page.until('its dialog', () => page!.all('.dialog .dlg-ok').some((b) => b.props['aria-disabled'] !== 'true'));
     // The entry it adds, folded behind Show entry, for the folder as you name it; the pack and the test, a line each.
     expect(page.one('.dialog .injconf').textContent).toContain(`"${folder}": {`);
-    expect(page.one('.dialog .dcost').textContent).toContain('≈$1.95 every test session, in CI too');
-    expect(page.one('.dialog').textContent).not.toContain('you add the entry below');
+    expect(page.one('.dialog .dcost').textContent.replace(/\u00a0/g, ' ')).toContain('≈$1.95 every test session, in CI too');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).not.toContain('you add the entry below');
     await page.type(page.one('.dialog input[type="text"]'), 'goldens/refund');
     expect(page.one('.dialog .injconf').textContent).toContain('"goldens/refund": {');
     expect(page.all('.dialog .cmdline .cstep').map((c) => c.textContent)).toEqual([`$shadowlap pack ${PARENT.slice(0, 10)} goldens/refund`, '$shadowlap test goldens/refund']);

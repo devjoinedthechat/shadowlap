@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { ForkChange, ForkDifferences as Differences, ForkEnd, ForkWrite } from '../../src/fork-differences.js';
+import { Copy } from '../components/Copy.js';
 import { shortId } from '../format.js';
 import { href } from '../route.js';
 
@@ -68,7 +69,9 @@ export function DifferencesPanel({ d, fx = false, more = null }: { d: Difference
       </header>
       <div className="fbody">
         {same ? (
-          <p className="fdsame">The same tool calls as its parent from #{d.from}, and it ended as its parent did: {d.ended.fork.words}.</p>
+          <Copy className="fdsame">
+            The same tool calls as its parent from #{d.from}, and it ended as its parent did: {d.ended.fork.words}.
+          </Copy>
         ) : (
           <ol className="fdl">
             {shown.map((c, i) => (

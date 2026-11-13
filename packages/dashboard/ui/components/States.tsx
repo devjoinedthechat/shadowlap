@@ -3,7 +3,7 @@ import { ApiError } from '../api.js';
 import { useApp } from '../state.js';
 import { Said } from './Said.js';
 import { CodeBox } from './CodeBox.js';
-import { Copy } from './Copy.js';
+import { Command, Copy, titled } from './Copy.js';
 
 /**
  * A page's three states besides what it shows, one way each everywhere: nothing here yet
@@ -16,23 +16,22 @@ import { Copy } from './Copy.js';
  * hold, and the one step that gets there (`step`, the page's lime button), with the command for a
  * terminal quiet under it ("or in a terminal"); with no step, the command is the way, in its box.
  * A command that needs a run is never offered where there is none. Its sentence is drawn as it is
- * given, and set as `Copy` sets UI copy where the page asks (`copy`): never a message the server
- * wrote, which can hold a command or a path a no-break space or a kept word would spoil.
+ * set as `Copy` sets UI copy (`copy`, the default), so copy written later breaks well without anyone
+ * thinking about it; `copy={false}` keeps a message the server wrote as written, since it can hold a
+ * command or a path a no-break space or a kept word would spoil.
  */
-export function EmptyState({ title, text, copy = false, step, command, children }: { title: string; text?: ReactNode; copy?: boolean; step?: ReactNode; command?: string | undefined; children?: ReactNode }) {
+export function EmptyState({ title, text, copy = true, step, command, children }: { title: string; text?: ReactNode; copy?: boolean; step?: ReactNode; command?: string | undefined; children?: ReactNode }) {
+  const head = titled(title);
   return (
     <section className="panel stepempty">
-      <h2>{title}</h2>
-      {copy && typeof text === 'string' ? <Copy>{text}</Copy> : text ? <p>{text}</p> : null}
+      <h2 aria-label={head['aria-label']}>{head.children}</h2>
+      {text ? copy ? <Copy>{text}</Copy> : <p>{text}</p> : null}
       {step ? <div className="actions">{step}</div> : null}
       {step && command ? (
         <div className="cli">
           <span>or in a terminal</span>
           {/* the prompt is never copied with the command */}
-          <code>
-            <b aria-hidden="true">$ </b>
-            {command}
-          </code>
+          <Command cmd={command} inline prompt />
         </div>
       ) : command ? (
         <CodeBox command={command} />

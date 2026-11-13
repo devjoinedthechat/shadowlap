@@ -254,7 +254,7 @@ describe('Search or jump to', () => {
     // Said with its count left out, which moves as the index catches up; the line drawn holds it.
     expect([none.textContent, note.textContent]).toEqual(['Nothing matches yet.', 'Still reading what some runs recorded: more matches may follow.']);
     const drawn = r.one('.pallist > .palnote');
-    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual(['Still reading what 3 of 200 runs recorded: more matches may follow.', 'true', false]);
+    expect([drawn.textContent.replace(/\u00a0/g, ' '), drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual(['Still reading what 3 of 200 runs recorded: more matches may follow.', 'true', false]);
   });
 
   it('says the index is still being read once while its count moves, and again only as that changes: it catches up, or the search fails', async () => {
@@ -279,7 +279,7 @@ describe('Search or jump to', () => {
     await r.click(r.one('#opener'));
     const [none, note] = r.all('.pallist .said > [role="status"]');
     const said = () => [none.textContent, note.textContent];
-    const drawn = () => r!.all('.pallist > .palnote[aria-hidden="true"]').map((d) => d.textContent).join('');
+    const drawn = () => r!.all('.pallist > .palnote[aria-hidden="true"]').map((d) => d.textContent.replace(/\u00a0/g, ' ')).join('');
     const INDEX = 'Still reading what some runs recorded: more matches may follow.';
     await r.type(r.one('.palin input'), 'zzzz');
     await r.wait(220);

@@ -4,7 +4,7 @@ import { shownMenu } from '../overlays/menu-store.js';
 import { overlayOpen } from '../overlays/modal-store.js';
 import { placeTip } from '../place.js';
 import { heldTo, spendingNow } from '../spending.js';
-import { Command, Copy } from './Copy.js';
+import { Command, Copy, Words } from './Copy.js';
 
 /**
  * Hover cards: one style everywhere, a title, a line or two, coloured rows and a command. An element
@@ -128,7 +128,12 @@ function Line({ text, term }: { text: string; term: boolean }) {
         ))}
       </span>
     );
-  if (term) return <span className="ts">{text}</span>;
+  if (term)
+    return (
+      <span className="ts">
+        <Words>{text}</Words>
+      </span>
+    );
   return (
     <Copy as="span" className="ts" phrases>
       {text}
@@ -149,7 +154,7 @@ function Body({ d, term, shortcutKey }: { d: Tip; term: boolean; shortcutKey: st
   return (
     <>
       <b>
-        {d.t}
+        <Words>{d.t}</Words>
         {shortcutKey ? <span className="kbd">{shortcutKey}</span> : null}
       </b>
       {lines.map((line, i) => (

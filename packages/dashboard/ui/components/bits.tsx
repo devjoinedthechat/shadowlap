@@ -1,10 +1,8 @@
-import { Fragment, type ReactNode } from 'react';
-import { cmdParts } from '../cmdline.js';
+import type { ReactNode } from 'react';
 import { headingRef } from '../focus-manager.js';
-import { shellWords } from '../format.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { CopyButton } from './CodeBox.js';
-import { CommandPieces } from './Copy.js';
+import { Command, Copy, titled } from './Copy.js';
 import { Facts, type Fact } from './Facts.js';
 import { ErrorState } from './States.js';
 
@@ -43,22 +41,28 @@ export function PageHeader({
   className,
   facts,
   factsLabel,
+  copy = true,
 }: {
   eyebrow?: ReactNode;
   title: ReactNode;
   text?: ReactNode;
+  /** Whether the lead is UI copy, set by `Copy`; never a message the server wrote, kept as written. */
+  copy?: boolean;
   actions?: ReactNode;
   className?: string | undefined;
   facts?: readonly Fact[] | undefined;
   factsLabel?: string | undefined;
 }) {
+  const head = titled(title);
   return (
     <>
       <div className={`ph${className ? ` ${className}` : ''}`}>
         <div className="phl">
           {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-          <h1 ref={headingRef}>{title}</h1>
-          {text ? <p>{text}</p> : null}
+          <h1 ref={headingRef} aria-label={head['aria-label']}>
+            {head.children}
+          </h1>
+          {text ? copy ? <Copy>{text}</Copy> : <p>{text}</p> : null}
         </div>
         {actions ? <div className="actions">{actions}</div> : null}
       </div>
@@ -163,39 +167,6 @@ export function Kpi({ k, value, pill, note, tone, href }: { k: string; value: Re
   );
 }
 
-/**
- * A shell command as the CLI would take it, wrapping as the mock's commands do (`cmdParts`): between
- * its words, never between a flag and its value or inside a flag, an id or a short value. Copied, it
- * reads as the command.
- */
-export function CmdLine({ children }: { children: string }) {
-  return (
-    <div className="cmdline">
-      <b aria-hidden="true">$</b>
-      <CommandPieces pieces={cmdParts(children)} room={null} />
-    </div>
-  );
-}
-
-/**
- * A shell command as the page shows it (`.cmdline`), wrapping only between its words: a flag, a
- * quoted value or a token breaks inside itself only when it is wider than the box. Copied, it
- * reads as the command.
- */
-export function CommandLine({ command }: { command: string }) {
-  return (
-    <div className="cmdline words">
-      <b aria-hidden="true">$</b>
-      {shellWords(command).map((w, i) => (
-        <Fragment key={i}>
-          {i ? ' ' : null}
-          <span>{w}</span>
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
 /** A file or snippet with Copy in its header. */
 export function CodeBlock({ file, code, copyLabel = 'the code' }: { file: string; code: string; copyLabel?: string }) {
   return (
@@ -244,16 +215,13 @@ export function StepList({ steps }: { steps: Step[] }) {
           <span className="sn">{s.state === 'done' ? '✓' : i + 1}</span>
           <div className="sb">
             <h2>{s.title}</h2>
-            {s.text ? <p>{s.text}</p> : null}
+            {s.text ? <Copy phrases>{s.text}</Copy> : null}
             {s.children}
             {s.command ? (
               <div className="cli">
                 <span>in a terminal</span>
                 {/* the prompt is never copied with the command */}
-                <code>
-                  <b aria-hidden="true">$ </b>
-                  {s.command}
-                </code>
+                <Command cmd={s.command} inline prompt />
               </div>
             ) : null}
           </div>

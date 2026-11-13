@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Words } from '../components/Copy.js';
 import type { DivergenceView, FailureView, InconclusiveView, TestsSessionView, TestsView } from '../api.js';
 import { ActionButton, useOfflineLink } from '../components/ActionButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
@@ -137,16 +138,18 @@ export function Verdict({ view, running, lead, press }: { view: TestsView; runni
   const [word, tone] = WORDS[v.state];
   const facts = (
     <>
-      <SessionCommand text={line.command} /> · {line.rest}
+      <SessionCommand text={line.command} />
+      {'\u00a0· '}
+      <Words>{line.rest}</Words>
       {view.older && !line.live ? (
         <>
-          {' · '}
+          {'\u00a0· '}
           <span className="tstale">older than your working tree</span>
         </>
       ) : null}
       {line.since ? (
         <>
-          {' · '}
+          {'\u00a0· '}
           <span className="tsince" data-tip={line.sinceTip ? tipCard('run again on its own since', [], line.sinceTip) : undefined}>
             {line.since}
           </span>
@@ -166,7 +169,9 @@ function RunningVerdict({ s, reached, total }: { s: TestsSessionView; reached: n
   const line = sessionLine({ verdict: { session: s, since: [] } }, true)!;
   const facts = (
     <>
-      <SessionCommand text={line.command} /> · {line.rest}
+      <SessionCommand text={line.command} />
+      {'\u00a0· '}
+      <Words>{line.rest}</Words>
     </>
   );
   return (

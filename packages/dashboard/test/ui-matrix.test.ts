@@ -400,7 +400,7 @@ describe('the receipt and the panel', () => {
   it('draws the receipt’s first line louder than the rest, each a line of dotted parts, a line with a card a stop of its own', () => {
     const html = renderToStaticMarkup(createElement(Receipt, { lines: [{ parts: ['this test spent ≈$3.11', 'every call before a read replayed free'], tip: '{"t":"Cost"}' }, { parts: ['819 upstream requests', '6 clean replays to compare with'] }, { parts: [] }] }));
     expect(html).toBe(
-      '<div class="mxfoot"><p class="mxr" data-tip="{&quot;t&quot;:&quot;Cost&quot;}" tabindex="0"><span class="nw">this test spent ≈$3.11 ·</span> <span class="nw">every call before a read replayed free</span></p><p class="mxr q"><span class="nw">819 upstream requests ·</span> <span class="nw">6 clean replays to compare with</span></p></div>',
+      '<div class="mxfoot"><p class="mxr" data-tip="{&quot;t&quot;:&quot;Cost&quot;}" tabindex="0"><span class="nw">this test spent ≈$3.11\u00a0·</span> <span class="nw">every call before a read replayed free</span></p><p class="mxr q"><span class="nw">819 upstream requests\u00a0·</span> <span class="nw">6 clean replays to compare with</span></p></div>',
     );
   });
 
@@ -422,7 +422,7 @@ describe('the receipt and the panel', () => {
 
   it('heads the panel with the matrix’s name, what was tried, where and when, and the command with no prompt and no card', () => {
     const html = panel();
-    expect(html).toMatch(/^<section class="rmxp" data-kind="presets" aria-label="Error-path preset results"><div class="rmxp-h"><span class="rmxp-t">Run × presets<\/span><span class="rmxp-meta"><span class="nw">6 presets ·<\/span> <span class="nw">at get_ticket \(#4\) and model call #5 ·<\/span> <span class="nw">just now<\/span><\/span><span class="rmxp-cmd"><code class="ts-cmd">/);
+    expect(html).toMatch(/^<section class="rmxp" data-kind="presets" aria-label="Error-path preset results"><div class="rmxp-h"><span class="rmxp-t">Run × presets<\/span><span class="rmxp-meta"><span class="nw">6 presets\u00a0·<\/span> <span class="nw">at get_ticket \(#4\) and model call #5\u00a0·<\/span> <span class="nw">just now<\/span><\/span><span class="rmxp-cmd"><code class="ts-cmd">/);
     expect(html.match(/<code/g)).toHaveLength(1);
     expect(html).not.toMatch(/rmxp-cmd[^>]*title=/);
     expect(html).not.toMatch(/<b[^>]*>\$\s*<\/b>/);
