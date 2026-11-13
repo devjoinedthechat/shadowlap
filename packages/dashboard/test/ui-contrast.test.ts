@@ -253,6 +253,7 @@ const FADES: Record<string, string> = {
   '[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button, .adis)': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
   '.pop .px': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
   '.arow .adis': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
+  'table.gt .chk .cka': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
   '.cal.has-sel button.cd:not(.on)': 'a calendar day outside the days picked: a mark with no text',
   '.cal.hist.has-sel button.cd.hb:not(.on)': 'a calendar day outside the days picked: a mark with no text',
   '.cells button.dim': 'a strip cell the filter leaves out: a mark with no text',
