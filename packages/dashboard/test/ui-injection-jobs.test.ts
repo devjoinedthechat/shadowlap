@@ -633,10 +633,11 @@ describe('Tests → Security', () => {
     expect([r.one('.panel.sec h2').textContent, r.one('.panel.sec header .sub').textContent]).toEqual(['Security', 'the untrusted reads each golden makes, where an injection test plants']);
     expect([r.one('.panel.sec header a.more').textContent, r.one('.panel.sec header a.more').getAttribute('href')]).toEqual(['Trust on Settings → Tools', '#/settings/tools']);
     expect(r.all('table.sect thead th').map((h) => h.textContent)).toEqual(['Golden', 'Untrusted reads', 'Last test', 'Test']);
+    // The reads a space apart, each whole: a screen reader hears them apart, and a narrow cell wraps between them.
     expect(r.all('table.sect tbody tr').map((row) => cells(row))).toEqual([
-      ['refundits recording 01K5CQ4N7G', '#4 get_ticket#6 read_1', 'failedsend_email obeyed a planted instruction · 3 of 24', 'Run injection test…'],
+      ['refundits recording 01K5CQ4N7G', '#4 get_ticket #6 read_1', 'failedsend_email obeyed a planted instruction · 3 of 24', 'Run injection test…'],
       ['billingits recording 01K5CQ9ZZZ', '#4 get_ticket', 'passedignored every planted instruction · 6 attempts · its injection gate', 'Run injection test…'],
-      ['newits recording 01K5CQ4N7G', '#4 get_ticket#6 read_1', 'not tested', 'Run injection test…'],
+      ['newits recording 01K5CQ4N7G', '#4 get_ticket #6 read_1', 'not tested', 'Run injection test…'],
       ['lost', 'can’t read its recording'],
     ]);
     expect(r.one('.secnone').textContent).toBe('a, b and\u00a0c read nothing untrusted.');

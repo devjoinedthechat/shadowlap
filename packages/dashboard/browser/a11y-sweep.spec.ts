@@ -355,6 +355,17 @@ test.describe('an injection test’s pages', () => {
     expect((await names(page, 'main#view .vbody', 'button')).filter((n) => /^↳ #\d+ fetch_page read untrusted live$/.test(n))).toHaveLength(5);
   });
 
+  test('say each untrusted read on Tests’ Security apart, its cell wrapping between them on a phone, and a tool apart from its effect on Settings → Tools', async ({ page }) => {
+    const at = served!;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openPage(page, '/tests', 'main#view table.sect tbody tr', at);
+    // The golden's five reads, a space apart: never “fetch_page#8”.
+    expect((await names(page, 'main#view table.sect tbody', 'cell')).filter((c) => c.startsWith('#'))).toEqual([expect.stringMatching(/^#\d+ fetch_page( #\d+ fetch_page){4}$/)]);
+    // Each read kept whole and the line broken between them, so the table's box scrolls nothing sideways.
+    expect(await page.locator('main#view .tscroll:has(table.sect)').evaluate((box) => box.scrollWidth - box.clientWidth)).toBeLessThanOrEqual(0);
+    await openPage(page, '/settings/tools', 'main#view table.trusttab tbody tr', at);
+    expect((await names(page, 'main#view table.trusttab tbody', 'cell')).filter((c) => /^\w+ (read|pure|write)$/.test(c))).toEqual(['fetch_page read', 'search_web read', 'read_file pure', 'send_email write']);
+  });
 });
 
 test('the cards that stand for a page, signed out and with a refused link, each have one h1, their title', async ({ page }) => {
