@@ -1,7 +1,7 @@
 import { Fragment, isValidElement, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { commandParts, pieceText, type CmdPiece } from '../cmdline.js';
 import { planCopy, type CopyMeasure, type CopyPlan, type CopyUnit } from '../typeset-lines.js';
-import { codePieces, inlineCodeCuts, longPieces, pathPieces, type CopyPart, type Piece } from '../typeset.js';
+import { codeCuts, codePieces, inlineCodeCuts, longPieces, pathPieces, type CopyPart, type Piece } from '../typeset.js';
 import { Id } from './Id.js';
 import { Link } from './Link.js';
 
@@ -212,12 +212,12 @@ function partsOf(children: ReactNode): { parts: CopyPart[]; nodes: ReactNode[] }
  * after a dot or a hyphen (`.ts-long`: each piece nowrap, a <wbr> after it, not laid out while the
  * name is whole). `whole` where the copy around it measured it; else it measures itself.
  */
-export function LongWord({ children, whole }: { children: string; whole?: boolean | null | undefined }) {
+export function LongWord({ children, whole, pieces = longPieces(children) }: { children: string; whole?: boolean | null | undefined; pieces?: readonly string[] }) {
   const ref = useRef<HTMLElement | null>(null);
   const own = useFitsWhole(ref, children, whole === undefined || whole === null, 0.96);
   return (
     <ts-w ref={(el: HTMLElement | null) => void (ref.current = el)} className={`ts-long${(whole ?? own) ? ' whole' : ''}`}>
-      {longPieces(children).map((p, i) => (
+      {pieces.map((p, i) => (
         <Fragment key={i}>
           {i ? <wbr /> : null}
           <ts-p className="ts-seg">{p}</ts-p>
@@ -414,9 +414,18 @@ export function titled(title: ReactNode): { children: ReactNode; 'aria-label'?: 
 
 // ---------------------------------------------------------------------------------------------- code
 
-/** Pieces as elements: whole ones nowrap, a place to break a <wbr>, the rest as text. */
+/** Past this many characters a piece of code kept whole may be wider than the narrowest line code sits on: a run's inspector at 320px holds 29. */
+const PIECE_ROOM = 24;
+
+/** A piece kept whole: nowrap, or, too long for a narrow line with a place to break in it, whole where its line holds it and else broken there (`LongWord`). */
+function WholePiece({ text }: { text: string }) {
+  const cuts = text.length > PIECE_ROOM ? codeCuts(text) : null;
+  return cuts && cuts.length > 1 ? <LongWord pieces={cuts}>{text}</LongWord> : <span className="nw">{text}</span>;
+}
+
+/** Pieces as elements: whole ones kept whole (`WholePiece`), a place to break a <wbr>, the rest as text. */
 function drawn(pieces: readonly Piece[]): ReactNode[] {
-  return pieces.map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <span key={i} className="nw">{p.text}</span> : p.text));
+  return pieces.map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <WholePiece key={i} text={p.text} /> : p.text));
 }
 
 /** Whether `text` fits whole on a line of the block `ref`'s element sits in (`share` of it), measured again as the block's width changes or the fonts load. */

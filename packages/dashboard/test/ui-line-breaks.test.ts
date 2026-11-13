@@ -188,6 +188,18 @@ describe('copy set by its parts', () => {
     expect(html).toMatch(/<span class="nw">&quot;reason&quot;:&quot;above the refund limit&quot;,<\/span>/);
   });
 
+  it('draws a key with a URL in a tool call’s arguments whole where its line holds it, and else broken after a dot or a slash, so it never runs past a run’s inspector at 320', () => {
+    const markup = (code: string) => renderToStaticMarkup(createElement(CodeText, { children: code }));
+    // 30 characters with its brace, 216px in the inspector's 12px code, where a line at 320 holds 210
+    const html = markup('{"url":"https://example.com/a"}');
+    expect(html).toMatch(/^<code class="ts-ct"><span class="nw">\{<\/span><wbr\/><ts-w class="ts-long">/);
+    expect([...html.matchAll(/<ts-p class="ts-seg">([^<]*)<\/ts-p>/g)].map((m) => m[1].replace(/&quot;/g, '"'))).toEqual(['"url":"https://example.', 'com/', 'a"}']);
+    expect(html).not.toContain('class="nw">&quot;url');
+    // one that a line holds, or with nowhere to break, stays one nowrap piece
+    expect(markup('{"query":"shadowlap replay"}')).toBe('<code class="ts-ct"><span class="nw">{&quot;query&quot;:&quot;shadowlap replay&quot;}</span></code>');
+    expect(markup('{"path":"notes.md"}')).toBe('<code class="ts-ct"><span class="nw">{&quot;path&quot;:&quot;notes.md&quot;}</span></code>');
+  });
+
   it('draws a tool call’s arguments past a few lines as written, one text a browser breaks where it must, never thousands of pieces', () => {
     const say = { path: 'notes/refund.md', content: 'The refund went out above the limit, so it waits for a manager. '.repeat(40) };
     const json = JSON.stringify(say);

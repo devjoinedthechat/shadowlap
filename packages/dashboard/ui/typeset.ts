@@ -393,6 +393,12 @@ export function keptWords(f: Flat, fits: ((word: string) => boolean) | null): Ke
 export const longPieces = (w: string): string[] => w.split(/(?<=\w[.-])(?=\w)/);
 /** A path's pieces, each ending on a slash after which it may break: never inside `//`, nor right after `:/`. */
 export const pathPieces = (w: string): string[] => w.split(/(?<=[^/:]\/)(?!\/)/);
+/**
+ * A piece of code kept whole that a narrow line may not hold (a key with a URL in a tool call's
+ * arguments), cut where a name or a path may break: after a dot or a hyphen between words, or after a
+ * path's slash, never inside `//`. Joined, the pieces are the code.
+ */
+export const codeCuts = (s: string): string[] => s.split(/(?<=\w[.-])(?=\w)|(?<=[^/:]\/)(?!\/)/);
 
 // ---------------------------------------------------------------------------------------------- code
 
