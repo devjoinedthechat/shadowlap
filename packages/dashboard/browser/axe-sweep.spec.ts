@@ -13,6 +13,9 @@ import { openReport, routeTestsFixture } from './tests-fixture.js';
  * Any serious or critical violation fails, named with the state it was found in.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 /** The demo's runs by name, each by its id: every run the demo names. */
 function runs(): Array<[string, string]> {
   return Object.entries(dash().runs).flatMap(([name, v]) => (typeof v === 'string' && /^01[0-9A-Z]{24}$/.test(v) ? [[name, v] as [string, string]] : []));

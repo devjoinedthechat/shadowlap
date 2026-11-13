@@ -11,6 +11,9 @@ import { routePrCommentFixture } from './pr-comment-fixture.js';
  * each of them a sheet from the foot of the screen.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 const MENU = '.pop[role="menu"]';
 const DIALOG = '[role="dialog"][aria-modal="true"]';
 const shareButton = (page: Page) => page.locator('.rhead .actions button', { hasText: 'Share' });
