@@ -500,8 +500,7 @@ const Row = memo(function Row({
         <small>{kindShort(c.kind)}</small>
         <SrSpace />
         {callName(c.kind, c.name)}
-        {c.input || c.effect ? <SrSpace /> : null}
-        {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
+        <EffectTag c={c} />
         <UntrustedTag read={untrusted} />
         {c.extraRead ? (
           <>
@@ -546,6 +545,18 @@ const Row = memo(function Row({
     </tr>
   );
 });
+
+/** A call's effect after its name, or `input` for a reply the user typed, a space a screen reader says before it. */
+function EffectTag({ c }: { c: CallRow }) {
+  const tag = c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null;
+  if (!tag) return null;
+  return (
+    <>
+      <SrSpace />
+      {tag}
+    </>
+  );
+}
 
 /** The fork's and the lost call's mark before the number, a space a screen reader says after it: "fork 17", not "fork17". */
 function Mark({ mark }: { mark: 'fork' | 'lost' }) {
