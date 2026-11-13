@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gateResult, injectionTemplates, Store, type AttemptReport, type InjectionGateData, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { gateResult, injectionTemplates, JUDGE_ASKED_IN_NONE, Store, type AttemptReport, type InjectionGateData, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import { failedRunsHref, goldenReports, printedLines, withFailedRuns, withStepHints, type GoldenReport } from '../src/golden-report.js';
 import { issueKey } from '../src/issue-keys.js';
 import type { IssuesPage } from '../src/issues.js';
@@ -284,6 +284,15 @@ describe('a judge asked live', () => {
     const c = judged({});
     const r = { data: { checks: [c], attempts: { total: 5, passed: 5, required: null, runs: [] }, judge: { calls: 5, replayed: 0, live: 5, spent: 0.01, unknownModels: [], notAsked: 0, upstreamRequests: 5 } } } as unknown as TestResult;
     expect(judgeAsked(r, c)).toEqual({ cost: 0.01, asked: 5 });
+  });
+
+  it('counts only the attempts that asked it, as a golden that may fork asks none where another check failed', () => {
+    // Eight attempts, four of which failed another check first: their judge wasn't asked.
+    const c = judged({});
+    const r = { data: { checks: [c], attempts: { total: 8, passed: 4, required: 8, runs: [] }, judge: { calls: 4, replayed: 0, live: 4, spent: 0.008, unknownModels: [], notAsked: 0, upstreamRequests: 4 } } } as unknown as TestResult;
+    expect(judgeAsked(r, c)).toEqual({ cost: 0.008, asked: 4 });
+    // Nor does a check no attempt asked count any: it has no source.
+    expect(judgeAsked(r, { ...check(c.label, 'not-applicable', JUDGE_ASKED_IN_NONE, { judge: c.judge! }), ok: true })).toBeNull();
   });
 
   it('counts one ask of a result of one attempt, and none of a verdict from the recording', () => {

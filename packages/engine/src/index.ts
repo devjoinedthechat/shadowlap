@@ -58,6 +58,8 @@ export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry
 // A recording judged from what it holds, a judge check by the verdict it recorded: `shadowlap check`'s, and the dashboard's for a run judged by its family's checks.
 export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
+// A judge check a golden that may fork didn't ask, another check having failed in that attempt: its words, and its golden's when no attempt asked it.
+export { JUDGE_ASKED_IN_NONE, JUDGE_NOT_ASKED, JUDGE_SKIP_UNDONE, askedInNone, judgeOverAttempts, notAskedWords } from './checks/labels.js';
 // The oracle a check gives a fix, in words, which a verdict must cover to count for it.
 export { EXIT_LABEL, oracleLabels } from './checks/oracle.js';
 // Characters a check can't keep through the team store: a push writes them as U+FFFD.
