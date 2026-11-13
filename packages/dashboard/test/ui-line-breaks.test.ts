@@ -123,6 +123,14 @@ describe('the parts kept whole', () => {
     expect(drawn()).toContain('4\u00a0tools');
   });
 
+  it('keeps a small word with the name in code after it in a dialog’s quiet part, so the name never ends its row alone', async () => {
+    await draw(createElement(DialogFacts, { rows: [{ label: 'Config', value: 'unchanged', quiet: 'the fix keeps its check in the store, not in `shadowlap.config.json`' }] }));
+    const quiet = r!.one('small');
+    expect(quiet.textContent.replace(/\u00a0/g, ' ')).toBe('the fix keeps its check in the store, not in shadowlap.config.json');
+    expect(quiet.textContent).toContain('in\u00a0shadowlap.config.json');
+    expect(r!.one('small code').className).toBe('ts-code');
+  });
+
   it('sets a dialog’s quiet clause after a dot by its measure, never one run glued past its row', async () => {
     await draw(createElement(DialogFacts, { rows: [{ label: 'As', value: 'part of the last user turn', quiet: '`claude-sonnet-5` · no system message mid-session' }] }));
     const clause = r!.one('.dph');

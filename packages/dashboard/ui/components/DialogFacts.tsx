@@ -1,4 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { SMALL } from '../typeset.js';
 import { asWords, Code, Copy, Words } from './Copy.js';
 import { tipCard } from './HoverCard.js';
 
@@ -35,7 +36,20 @@ export function inCode(words: ReactNode): ReactNode {
 /** Short words no `Copy` sets (a cost line's part, a quiet clause) glued by `Words`, a name between backticks drawn by `Code`. */
 export function codeWords(words: ReactNode): ReactNode {
   if (typeof words !== 'string') return words;
-  return words.split('`').map((part, i) => (i % 2 ? <Code key={i}>{part}</Code> : part ? <Words key={i}>{part}</Words> : null));
+  const parts = words.split('`');
+  return parts.map((part, i) => (i % 2 ? <Code key={i}>{part}</Code> : part ? <Fragment key={i}>{beforeCode(part, i < parts.length - 1)}</Fragment> : null));
+}
+
+/** Words, and before a name in code a small word that ends them kept with it, so the name never ends a fixed row alone: "not in `shadowlap.config.json`". */
+function beforeCode(part: string, code: boolean): ReactNode {
+  const m = code ? /^(.*?)(\S+) $/s.exec(part) : null;
+  if (!m || !SMALL.has(m[2]!.toLowerCase())) return <Words>{part}</Words>;
+  return (
+    <>
+      {m[1] ? <Words>{m[1]}</Words> : null}
+      {`${m[2]!}\u00a0`}
+    </>
+  );
 }
 
 /**
