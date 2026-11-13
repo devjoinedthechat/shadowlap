@@ -2,7 +2,7 @@ import { rmSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { dash, demoId, openPage, patched, RESET_RETRY, seriousViolations, serveDashboard, sideways, startJob, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
-import { DIALOG, injectionRoutes, previewed, ROUTES, show, type RouteState } from './routes.js';
+import { DIALOG, injectionRoutes, migrated, MIGRATED, previewed, ROUTES, show, type RouteState } from './routes.js';
 
 /**
  * Every route of browser/routes.ts, swept: axe's WCAG 2.2 A and AA rules and no sideways scroll on a
@@ -736,6 +736,15 @@ test.describe('on a touch screen', () => {
       // A finding's buttons, wrapped under each other below 400px.
       [`/run/${demoId('override')}`, 'run', [{ name: 'a finding’s button', sel: 'main#view .findings :is(.banner .linkbtn, .fmore)', size: [0, 24], reach: [4, 0, 4, 0] }]],
       [(await previewed(page)).preview, 'main#view .dmx button.dc', [{ name: 'a decision cell', sel: 'main#view .dmx .dmc:not(.dense) .dc:is(:first-child, :last-child)', size: [24, 24], reach: [4, 3, 4, 3] }]],
+      // A migration's compact matrix takes Preview's cells, and its pull request body's Show a link-style button's reach.
+      [
+        (await migrated(page)).report,
+        MIGRATED,
+        [
+          { name: 'a decision cell in a migration’s matrix', sel: 'main#view .dmx.compact .dmc:not(.dense) .dc:is(:first-child, :last-child)', size: [24, 24], reach: [4, 3, 4, 3] },
+          { name: 'a link-style button', sel: 'main#view .mgpr button.linkbtn[aria-expanded]', reach: [4, 0, 4, 0] },
+        ],
+      ],
       [
         `/run/${good}`,
         'run',
