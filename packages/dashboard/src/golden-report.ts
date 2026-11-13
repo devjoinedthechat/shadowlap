@@ -8,6 +8,9 @@ import { entriesBodies } from './request-diff.js';
 import { matchingRuns } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
 import type { ChangedCheck } from './tests-checks.js';
+import { issueKey } from './issue-keys.js';
+import { issueKeyOf } from './issues.js';
+import { loadRunIndex } from './run-index.js';
 import { forkedWords } from './tests-evidence.js';
 import { causeOf, divergenceOf } from './tests-normalize.js';
 import type { DivergenceView, FailureView, GoldenRow, GoldenSource, InconclusiveView, TestsView } from './tests.js';
@@ -576,16 +579,19 @@ export type GoldenRunsJob = { kind: 'tests-failed-runs'; goldens: string[]; outc
  * The pooled read: each golden's own failed replays, the test replays Runs lists under Failed (the
  * same filter and judge as runs-list.ts) whose test is that golden (`meta.test.golden`), as the
  * golden's issue there holds them. Never Runs' word search, which matches a run's command too, so a
- * golden named as the agent's file would count every replay. Every run's index row is read once:
- * never on the server's thread. A golden with none is left out.
+ * golden named as the agent's file would count every replay. A replay a fix's failing runs list,
+ * open or closed, is under that fix's issue (issues.ts), so it isn't counted. Every run's index row
+ * is read once: never on the server's thread. A golden with none is left out.
  */
 export const GOLDEN_REPORT_READS: ReadTable<GoldenRunsJob> = {
   'tests-failed-runs': (store, job, { whole }) => {
     const asked = new Set(job.goldens);
     const found = new Map<string, { count: number; ids: string[] }>();
-    for (const r of matchingRuns(store, { q: FAILED_REPLAYS, types: ['failed'], known: !whole, judge: judgeFor(store, job.outcome ?? null) })) {
+    const failed = matchingRuns(store, { q: FAILED_REPLAYS, types: ['failed'], known: !whole, judge: judgeFor(store, job.outcome ?? null) });
+    const index = loadRunIndex(store);
+    for (const r of failed) {
       const golden = r.meta.test?.golden;
-      if (golden === undefined || !asked.has(golden)) continue;
+      if (golden === undefined || !asked.has(golden) || issueKeyOf(store, index, r.runId) !== issueKey.golden(golden)) continue;
       const runs = found.get(golden) ?? { count: 0, ids: [] };
       runs.count += 1;
       if (runs.ids.length < 5) runs.ids.push(r.runId);
