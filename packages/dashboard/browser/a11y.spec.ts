@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { links as built } from '../src/links.js';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
-import { contrast, dash, demoId, focusedLabel, openPage, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
+import { contrast, dash, demoId, focusedLabel, openPage, RESET_RETRY, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
 /**
@@ -308,7 +308,7 @@ test('every link the server writes opens a page the dashboard has', async ({ req
 
 test('a preview’s link opens Preview and a migration’s Changes on Verdicts, and neither Preview, Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
   const { origin, token } = dash();
-  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
+  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json();
   const { sessions } = (await get('decisions')) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
   const preview = sessions.find((s) => s.kind === 'decisions')?.href;
   expect(preview, 'the demo’s preview').toMatch(/^#\/changes\/decisions\//);
@@ -344,12 +344,12 @@ test.describe('a preview on a touch screen', () => {
 
   test('keeps a long row’s cells 18 px with room to tap each, the row scrolling in its own box, with no serious axe violation', async ({ page, request }) => {
     const { origin, token } = dash();
-    const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; sessionId: string; href: string }> };
+    const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { sessions: Array<{ kind: string; sessionId: string; href: string }> };
     const s = sessions.find((x) => x.kind === 'decisions');
     expect(s, 'the demo’s preview').toBeTruthy();
     // A run of 30 model calls, its first row's cells over again: more than a phone's row holds at 18 px.
     await page.route(`**/api/decisions/${s!.sessionId}`, async (route) => {
-      const body = (await (await route.fetch()).json()) as { matrix: Array<{ cells: Array<Record<string, unknown>> }> };
+      const body = (await (await route.fetch(RESET_RETRY)).json()) as { matrix: Array<{ cells: Array<Record<string, unknown>> }> };
       const row = body.matrix[0]!;
       row.cells = Array.from({ length: 30 }, (_, i) => ({ ...row.cells[i % row.cells.length], callNo: i + 1, step: i + 1 }));
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });

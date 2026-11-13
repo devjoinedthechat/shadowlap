@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request, type Route } from '@playwright/test';
-import { dash, openPage, seriousViolations } from './dashboard.js';
+import { dash, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
@@ -116,7 +116,7 @@ const VERDICTS = 'main#view table.vdt tbody tr';
  */
 const revision = (page: Page) => async () => {
   const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token } })).json()) as { lead: { key: string } | null };
+  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { lead: { key: string } | null };
   if (!view.lead) throw new Error('the demo store has no test session that ran every golden');
   await at(page, '/changes', VERDICTS)();
   await page.evaluate((key) => {
@@ -131,7 +131,7 @@ const DVIEW = 'main#view .dview .dvhead';
 /** The demo's preview, a cell of it opened and its run's Decisions view, by the addresses the API gives. */
 async function previewed(page: Page): Promise<{ preview: string; cell: string; view: string }> {
   const { origin, token } = dash();
-  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json()) as T;
+  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as T;
   const { sessions } = await get<{ sessions: Array<{ kind: string; sessionId: string }> }>('decisions');
   const s = sessions.find((x) => x.kind === 'decisions');
   if (!s) throw new Error('the demo store has no preview');
