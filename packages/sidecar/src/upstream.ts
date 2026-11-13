@@ -39,6 +39,13 @@ export function asResponse(status: number, headers: Headers, body: Readable | nu
 }
 
 /**
+ * How soon after a request goes out a reset still says the connection kept for it was closed as it
+ * went: a round trip, and the time a busy machine takes to hear of it. A later reset came after the
+ * upstream took the request up, a slow call's perhaps, and sending it again could run it twice.
+ */
+const KEPT_CLOSED_WITHIN_MS = 5_000;
+
+/**
  * A request to an upstream over HTTP/1.1, with no time limit of its own. fetch() gives up on a
  * response whose headers take more than five minutes, and so does its body between two chunks: a
  * non-streaming request to a slow model does both, a local model writing a long answer or a
@@ -49,16 +56,17 @@ export function asResponse(status: number, headers: Headers, body: Readable | nu
  * (Sidecar.close).
  *
  * A connection kept from an earlier call may be one the upstream closes just as this request goes
- * out on it: the request meets a reset before any answer, though the upstream never took it up. It
- * goes once more on a new connection, as a browser sends it again, so the agent never sees a failure
- * of Shadowlap's own connection. A reset on a new connection, or after the answer began, is the
- * upstream's, and is passed on.
+ * out on it: the request meets a reset at once, before any answer, though the upstream never took it
+ * up. It goes once more on a new connection, as a browser sends it again, so the agent never sees a
+ * failure of Shadowlap's own connection. A reset on a new connection, after the answer began, or
+ * longer after the request went out than KEPT_CLOSED_WITHIN_MS, is the upstream's, and is passed on.
  */
 export function requestUpstream(url: string, method: string, headers: Record<string, string>, body: Buffer | null, inFlight?: Set<ClientRequest>, signal?: AbortSignal): Promise<Response> {
   const target = new URL(url);
   const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
   const attempt = (fresh: boolean): Promise<Response> =>
     new Promise((resolve, reject) => {
+      const sent = Date.now();
       let answered = false;
       const req = send(target, { method, headers: { ...headers, ...(body ? { 'content-length': String(body.length) } : {}) }, ...(fresh ? { agent: false } : {}), ...(signal ? { signal } : {}) }, (res) => {
         answered = true;
@@ -80,7 +88,8 @@ export function requestUpstream(url: string, method: string, headers: Record<str
       req.on('error', (err: NodeJS.ErrnoException) => {
         // Never one this end ended (`destroyed`: its agent gone, or the sidecar closing), whose error says socket hang up too.
         // Sent again on a connection of its own (`agent: false`), which is never a kept one, it goes no more than once.
-        if (!answered && !req.destroyed && req.reusedSocket && (err.code === 'ECONNRESET' || err.code === 'EPIPE')) resolve(attempt(true));
+        const kept = !answered && !req.destroyed && req.reusedSocket && (err.code === 'ECONNRESET' || err.code === 'EPIPE');
+        if (kept && Date.now() - sent < KEPT_CLOSED_WITHIN_MS) resolve(attempt(true));
         else reject(err);
       });
       if (inFlight) {

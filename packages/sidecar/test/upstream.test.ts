@@ -138,6 +138,25 @@ describe('requestUpstream', () => {
     await expect(ended).rejects.toThrow(/socket hang up/);
     expect(requests).toBe(6);
   });
+
+  it('passes on a reset of a kept connection that came well after the request went out, as a slow call the upstream took up', async () => {
+    // Only the clock is faked: the requests go over the network as ever.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let requests = 0;
+      const url = await serve((req, res) => {
+        if (++requests === 1) return res.end('answered');
+        // The upstream had the call six seconds, then lost it before any answer.
+        vi.setSystemTime(Date.now() + 6_000);
+        req.socket.resetAndDestroy();
+      });
+      expect(await (await requestUpstream(url, 'POST', {}, Buffer.from('{"n":1}'))).text()).toBe('answered');
+      await expect(requestUpstream(url, 'POST', {}, Buffer.from('{"n":2}'))).rejects.toMatchObject({ code: 'ECONNRESET' });
+      expect(requests).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('a call upstream when the sidecar closes', () => {
