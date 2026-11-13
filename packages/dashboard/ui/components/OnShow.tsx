@@ -26,7 +26,9 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * Edit and fork's dialog (run/EditDialog.tsx), Run blame's dialogs and their check
  * (fixes/RunBlameAsks.tsx), the fork menu (run/ForkMenu.tsx), the header's … with Delete run's
  * helper (run/MoreMenu.tsx), and Find breaking commit's and Delete run's dialogs
- * (run/RunDialogs.tsx). So must the structural diff
+ * (run/RunDialogs.tsx); and Preview pull request comment's dialog, which Settings → CI and a
+ * revision's page under Changes both open, declared once in a module they share
+ * (ci/comment-parts.tsx) so the build makes one script for both. So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and
  * each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in

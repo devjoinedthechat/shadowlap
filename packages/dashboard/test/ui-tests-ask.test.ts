@@ -3,13 +3,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { Spending } from '../../engine/src/estimates/spending.js';
+import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
 import { testsView, type DivergenceView, type GoldenSource } from '../src/tests.js';
-import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.js';
+import { ApiError, type Client, type JobView } from '../ui/api.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { Banner } from '../ui/run/FindingsBar.js';
 import { bannerJobsShown } from '../ui/run/diverged.js';
-import { estimatesKey, useTestsEstimates } from '../ui/tests-estimates.js';
+import { useTestsEstimates } from '../ui/tests-estimates.js';
+import { estimatesKey } from '../ui/tests-prices.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { resetSpending, sentEstimate } from '../ui/spending.js';
@@ -41,29 +43,39 @@ const GOLDENS: GoldenSource[] = [
   { path: 'goldens/flaky', runId: null, packedAt: T0, mode: 'fork', repeat: 1, passes: 1, gate: sprt, checks: ['issue_refund called 0 times'] },
 ];
 
-/** The goldens after a session: one that only replays, passed; one marked fork whose gate ran out of attempts between its bounds. */
-function view(): TestsView {
+/**
+ * The goldens after a session: one that only replays, passed, or diverged with `over` as Tests' view of
+ * it; one marked fork whose gate ran out of attempts between its bounds. As GET /api/tests answers:
+ * each golden that didn't pass with its report, built from the same store, where its buttons are.
+ */
+function view(over?: Partial<DivergenceView>): TestsAnswer {
   const s = Store.open(':memory:');
   const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f', startedAt: T0 });
   // Four passes and a failure, four times: the gate ends at its limit between its bounds.
   const g = gateResult(sprt, Array.from({ length: 4 }, () => [true, true, true, true, false]).flat(), { history: null });
   const flaky: TestResultData = { mode: 'fork', attempts: { total: 20, passed: g.passes, required: null, runs: [] }, verdict: 'inconclusive', gate: g, spent: 0.4 };
-  s.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-in-limit', ok: true, reason: null, runId: null, revision: 'd2e8a1f', at: T0 + 1, data: { mode: 'replay', calls: { total: 8, replayed: 8, live: 0, blocked: 0, stubbed: 0 } } });
+  const refund = over ? { ok: false, failure: 'diverged' as const, reason: 'diverged at call 1' } : { ok: true, reason: null };
+  s.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-in-limit', ...refund, runId: null, revision: 'd2e8a1f', at: T0 + 1, data: { mode: 'replay', calls: { total: 8, replayed: 8, live: 0, blocked: 0, stubbed: 0 } } });
   s.addTestResult({ sessionId: session.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive', runId: null, revision: 'd2e8a1f', at: T0 + 2, data: flaky });
-  s.finishTestSession(session.sessionId, { passed: 1, failed: 1, upstreamRequests: 0, endedAt: T0 + 100 });
-  const v = testsView(s, GOLDENS);
+  s.finishTestSession(session.sessionId, { passed: over ? 0 : 1, failed: over ? 2 : 1, upstreamRequests: 0, endedAt: T0 + 100 });
+  const shaped = testsView(s, GOLDENS);
+  const d = over ? divergence(over) : null;
+  const v = d ? { ...shaped, divergences: [d], failures: shaped.failures.filter((f) => f.golden !== d.golden) } : shaped;
+  const reports = goldenReports(v, { store: s, goldens: GOLDENS, normalizers: [], project: null });
   s.close();
-  return v;
+  return { ...v, reports };
 }
 
-/** The same goldens, refund-in-limit having diverged on a value made anew on every run: Tests' buttons for it, as `over` has them. */
-function diverged(over: Partial<DivergenceView> = {}): TestsView {
+/** refund-in-limit's divergence on a value made anew on every run: Tests' buttons for it, as `over` has them. */
+function divergence(over: Partial<DivergenceView>): DivergenceView {
   const golden = 'goldens/refund-in-limit';
   const normalizer = { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
   const volatile = { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed' as const, certain: true, normalizer, args: STEPS[0], command: NORMALIZE.slice(1) };
-  const d: DivergenceView = { golden, name: 'refund-in-limit', runId: null, callNo: 1, kind: 'api', callName: 'POST /v1/messages', text: '✗ Diverged at call 1 (api POST /v1/messages)', volatile, normalizerFixes: true, maybeReal: false, rerun: ['test', golden], update: ['test', golden, '--update'], normalizeAndTest: STEPS, rulesAdded: false, bisect: null, found: null, missed: null, revisions: [], unreadable: null, ...over };
-  return { ...view(), divergences: [d] };
+  return { golden, name: 'refund-in-limit', runId: null, callNo: 1, kind: 'api', callName: 'POST /v1/messages', volatile, normalizerFixes: true, maybeReal: false, rerun: ['test', golden], update: ['test', golden, '--update'], normalizeAndTest: STEPS, rulesAdded: false, bisect: null, found: null, missed: null, revisions: [], unreadable: null, ...over };
 }
+
+/** The same goldens, refund-in-limit having diverged on a value made anew on every run. */
+const diverged = (over: Partial<DivergenceView> = {}): TestsAnswer => view(over);
 
 interface Sent {
   kind: string;
@@ -75,7 +87,7 @@ interface Sent {
  * says yes with the confirm, or, `again`, whatever it says: a session that changed since the question.
  * `serverJobs` are the jobs it lists, every tab's.
  */
-function app(sent: Sent[], watched: Array<Promise<JobView>>, o: { live: boolean; again?: boolean; tests?: TestsView; serverJobs?: unknown[] } = { live: true }): AppState {
+function app(sent: Sent[], watched: Array<Promise<JobView>>, o: { live: boolean; again?: boolean; tests?: TestsAnswer; serverJobs?: unknown[] } = { live: true }): AppState {
   const client = {
     tests: () => Promise.resolve(o.tests ?? view()),
     jobs: () => Promise.resolve(o.serverJobs ?? []),
@@ -131,7 +143,8 @@ async function shown(state: AppState, page: ReactElement): Promise<Rendered> {
 
 async function tests(state: AppState): Promise<Rendered> {
   const page = await shown(state, createElement(TestsPage));
-  await page.until('the goldens to load', () => page.all('table.gt tbody tr').length === 2);
+  // A golden's row each, the rows of their reports apart.
+  await page.until('the goldens to load', () => page.all('table.gt tbody tr[data-rowkey]').length === 2);
   return page;
 }
 
@@ -488,7 +501,7 @@ describe('Tests’ buttons, priced from the page’s estimates', () => {
   afterEach(() => resetSpending());
 
   /** Tests at the threshold `v`, its server pricing Run tests and refund-in-limit's jobs as above. */
-  async function priced(v: Spending, tests?: TestsView) {
+  async function priced(v: Spending, tests?: TestsAnswer) {
     resetSpending(v);
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];

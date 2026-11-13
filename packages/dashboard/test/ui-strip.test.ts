@@ -8,7 +8,7 @@ import type { CallRow } from '../ui/types.js';
 import { keyCounts, keyItems, pendingMatches, shownFilter } from '../ui/run/call-filter.js';
 import { callKind, KIND_RANK, kindLabel, kindValue, ownKind, parseKinds, type Kind } from '../ui/run/kinds.js';
 import { RunStrip, type RunStripCall } from '../ui/run/RunStrip.js';
-import { MiniStrip } from '../ui/components/Strip.js';
+import { MiniStrip } from '../ui/components/MiniStrip.js';
 
 /**
  * The run page's strip: by kind on a recording, by origin elsewhere; ranges by the room it has, each

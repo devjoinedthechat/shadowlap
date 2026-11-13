@@ -13,7 +13,8 @@ import { NotCovered } from '../ui/not-covered/NotCovered.js';
 import { LookStepButton } from '../ui/overview/steps.js';
 import { SERVED_PARTS } from '../ui/pages/served.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
-import type { CoverageGroupView, CoverageView, NeedsLookRow } from '../ui/types.js';
+import { keepTests } from '../ui/tests-palette.js';
+import type { CoverageGroupView, CoverageView, NeedsLookRow, TestsSessionView, TestsView } from '../ui/types.js';
 
 /**
  * Tests › Not covered and what scans and packs from elsewhere: what production did that no golden
@@ -69,6 +70,19 @@ describe('Rescan coverage in the palette', () => {
       await r.unmount();
     }
     r = null;
+  });
+
+  it('lists just before Preview pull request comment, as the design orders the actions', async () => {
+    const session = { id: 'ts-01M5000000000000000000000A', command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: 1, endedAt: 2, passed: 1, failed: 0, inconclusive: 0 } as TestsSessionView;
+    const tested = { rows: [], diverged: [], verdict: { state: 'passing', failing: 0, inconclusive: 0, passing: 1, untested: 0, title: 'every golden passed', first: null, session, since: [] } } as unknown as TestsView;
+    // The goldens as last listed have a session, so the palette previews its pull request comment.
+    keepTests(tested);
+    const client = { search: async () => ({ hits: [] }), runsPage: async () => ({ runs: [], total: 0, next: null, chipCounts: {} }), jobs: async () => [], startJob: () => Promise.resolve({ id: 'j1' }), tests: async () => tested };
+    r = await render(createElement(AppContext.Provider, { value: app({ client } as unknown as Partial<AppState>) }, createElement(Palette, { route: OVERVIEW })));
+    const labels = r.all('.palit').map((el) => el.querySelector('.pl')!.textContent);
+    expect(labels.indexOf('Rescan coverage')).toBeGreaterThan(-1);
+    expect(labels.indexOf('Rescan coverage')).toBe(labels.indexOf('Preview pull request comment') - 1);
+    keepTests({ ...tested, verdict: null } as unknown as TestsView);
   });
 });
 

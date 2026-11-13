@@ -3,14 +3,12 @@ import { isObject } from '../../../engine/src/is-object.js';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import type { CallDetail, CallRow, RunDetail } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
-import { LoadFailed } from '../components/bits.js';
-import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { useMenu } from '../components/Popover.js';
 import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import type { NextStep } from '../types.js';
-import { BuilderFailed, builderTitle, type CheckKind } from './check-part.js';
+import { BuilderFailed, builderTitle, NoBuilder, type CheckKind } from './check-part.js';
 
 /**
  * Add check… on a run's page: first in a tool call's row menu, on the inspector's summary line and in
@@ -50,15 +48,6 @@ export function AddCheckLink({ check }: { check: CheckEntry }) {
       <Icon name="plus" />
       Add check…
     </ActionButton>
-  );
-}
-
-/** In the builder's place when its script didn't come: a small dialog, titled as the builder would be, with LoadFailed's line and Retry. */
-function NoBuilder({ title = 'Add check', onClose }: { title?: string; onClose: () => void }) {
-  return (
-    <Dialog title={title} cancel="Close" onClose={onClose}>
-      <LoadFailed what="check builder" />
-    </Dialog>
   );
 }
 
@@ -119,7 +108,7 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
         />
       ) : null}
       {start && Builder ? (
-        <BuilderFailed.Provider value={<NoBuilder onClose={close} />}>
+        <BuilderFailed.Provider value={<NoBuilder title="Add check" onClose={close} />}>
           <Builder run={o.run} call={start.call} kind={start.kind} onClose={close} />
         </BuilderFailed.Provider>
       ) : null}

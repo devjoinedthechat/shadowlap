@@ -19,6 +19,7 @@ import {
   resultShape,
   sessionUnavailableReason,
   safeLine,
+  parseTraceback,
   presetBound,
   presetRule,
   presetsGate,
@@ -175,15 +176,14 @@ function applied(preset: ChaosPreset, target: number, calls: readonly CallRecord
 }
 
 /**
- * What the agent said as it failed, for a crash: the error it died of (`SyntaxError: Unexpected end
- * of JSON input`, `TypeError [ERR_X]: …`, a Python `ValueError: …`), else its last line that says
- * something. The runtime's own lines (Node's version, a stack frame, a caret) say nothing.
+ * What the agent said as it failed, for a crash: the exception its traceback ends in (`SyntaxError:
+ * Unexpected end of JSON input`, `TypeError [ERR_X]: …`, a Python `ValueError: …`), else its last
+ * line that says something, as the engine's parseTraceback reads it for the dashboard too. The
+ * runtime's own lines (Node's version, a stack frame, a caret) say nothing.
  */
 export function lastLine(output: string): string | null {
-  const lines = output.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('[shadowlap]') && !/^at\s/.test(l) && !/^\^+$/.test(l) && !/^Node\.js v\d/.test(l) && !/^File ".*", line \d+/.test(l));
-  const error = [...lines].reverse().find((l) => /^[\w$.]*(Error|Exception|Failure)\w*(?: \[[\w$.]+\])?: \S/.test(l));
-  const line = error ?? lines.at(-1) ?? null;
-  return line ? safeLine(line).slice(0, 200) : null;
+  const said = parseTraceback(output)?.exception;
+  return said ? safeLine(said).slice(0, 200) : null;
 }
 
 function notApplicable(preset: ChaosPreset, why: string, gate: PresetOutcome['gate'], hit: { callNo: number; name: string } | null = null): PresetOutcome {

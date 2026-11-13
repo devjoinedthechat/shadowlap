@@ -6,7 +6,7 @@ import { goldenName, shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import type { NextStep } from '../types.js';
 import { stepCostLine } from './next-step.js';
-import { PACK_HOLDS, packTestCommands, redactsFact } from './share-steps.js';
+import { PACK_HOLDS, packTestCommands, redactsFact } from './share-facts.js';
 import '../injection/job-footer.js';
 
 /*

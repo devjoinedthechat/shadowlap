@@ -5,6 +5,7 @@ import { Popover } from '../components/Popover.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
+import { savedWords } from '../saved-words.js';
 import { useApp } from '../state.js';
 import { useServedParts } from '../served-parts.js';
 import { errorText } from '../toast.js';
@@ -13,7 +14,8 @@ import { namedIn } from '../components/Id.js';
 import { onShow } from '../components/OnShow.js';
 import { redactRuleCount } from './provenance.js';
 import { defaultPackFolder, htmlCopyVia, REDACTION_SETTINGS, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
-import { PACK_HOLDS, packRunCommand, redactsFact } from './share-steps.js';
+import { PACK_HOLDS, redactsFact } from './share-facts.js';
+import { packRunCommand } from './share-steps.js';
 import { ActionButton } from '../components/ActionButton.js';
 
 /** Export dataset…'s and Export OpenTelemetry trace…'s dialogs: rarely opened from a run's page, so each a part of its own, which loads as it first shows. */
@@ -48,7 +50,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
   const kindOf: Record<Exclude<ShareKey, 'security'>, string> = { link: JOB_KINDS.share, html: JOB_KINDS.exportHtml, pack: JOB_KINDS.pack, dataset: JOB_KINDS.dataset, otel: JOB_KINDS.otel, har: JOB_KINDS.har };
   const items = shareItems({ can: (key) => hasKind(kindOf[key]) || (key === 'pack' && !!packAction), team: offers?.team, security: offers?.security });
   // A download, as the HTML file's is: the file, then whether the project's rules masked it.
-  const saved = (r: { filename: string; redacted: boolean }, also = '') => toast(`Saved ${r.filename}${also} · ${r.redacted ? 'redaction rules applied' : 'no redaction rules to apply'}`);
+  const saved = (r: { filename: string; redacted: boolean }, also = '') => toast(savedWords(r, also));
   const pick = (key: ShareKey) => {
     if (shareItemOff(key, { actionsOff, live })) return;
     switch (key) {

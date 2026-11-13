@@ -157,6 +157,22 @@ function packGateStatus(job: EndedJob, all: string, code: number): JobWords | nu
 }
 
 /**
+ * Save check on a fix (`shadowlap fix check`): changed, with the verdicts that stopped counting for
+ * it; the check it had already (`unchanged`); or one it refused (exit 2). Never the words of a check
+ * tried on recordings, which its lines would read as.
+ */
+function fixCheckStatus(job: EndedJob, code: number): JobWords | null {
+  if (job.kind !== 'fix-check') return null;
+  const exit = `exit ${code}`;
+  if (code === 2) return { text: `refused · ${exit}`, tone: 'warn' };
+  const r = asRecord(job.result);
+  if (code !== 0 || !r) return null;
+  if (r.status === 'unchanged') return { text: `unchanged · ${exit}`, tone: 'warn' };
+  const n = Array.isArray(r.uncounted) ? r.uncounted.length : 0;
+  return { text: `changed${n ? ` · ${n} verdict${n === 1 ? ' no longer counts' : 's no longer count'}` : ''} · ${exit}`, tone: 'ok' };
+}
+
+/**
  * Rescan coverage read the imported runs (`read · exit 0`). Pack as golden and Pack with checks…
  * say whether they wrote the golden (`packed · exit 0`, `not packed · exit 1`), from the job's
  * result; a pack of several that wrote some, how many.
@@ -172,5 +188,5 @@ function coverageStatus(job: EndedJob, code: number): JobWords | null {
 
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return revertStatus(job, all, code) ?? verdictStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? verdictStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
 }

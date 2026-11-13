@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { GoldenEstimates, TestsEstimates } from './estimates-api.js';
 import { useApp, type AppState } from './state.js';
-import type { TestsView } from './types.js';
 
 /**
  * What Tests' jobs would bill (`GET /api/tests/estimates`): Run tests' and each golden's, read again
@@ -34,15 +33,6 @@ export function useTestsEstimates(key: string | null | undefined, update?: reado
   return off || !got ? undefined : got.e;
 }
 
-/**
- * What Tests' estimates are worked out from, as the page's view shows it: each golden, its recording,
- * how its tests entry runs it, its checks and its newest result. The view loads again whenever runs or
- * calls move; this changes only when one of these does.
- */
-export function estimatesKey(view: Pick<TestsView, 'rows'>): string {
-  return view.rows.map((r) => [r.path, r.source.kind === 'run' ? r.source.runId : r.source.packedAt, r.mode, r.injection, r.checks.join(','), r.runId, r.last.at].join(' ')).join('\n');
-}
-
 /** One golden's price for a job, as the hook holds them: undefined while it is read, null where there is none. */
 export function goldenPrice(e: TestsEstimates | null | undefined, golden: string, job: keyof GoldenEstimates): Estimate | null | undefined {
   return e === undefined ? undefined : (e?.goldens[golden]?.[job] ?? null);
@@ -50,14 +40,3 @@ export function goldenPrice(e: TestsEstimates | null | undefined, golden: string
 
 /** An estimate as the hook holds it: undefined while it is read, null for none. */
 export type Price = Estimate | null | undefined;
-
-/** Run tests': what each golden it runs live spent the last time, Free where every golden replays offline. */
-export function runPrice(e: TestsEstimates | null | undefined): Price {
-  return e === undefined ? undefined : (e?.run ?? null);
-}
-
-/** Update golden's for the goldens it updates: one golden's own, or several's together as the read named them. It asks either way, since it replaces goldens. */
-export function updatesPrice(e: TestsEstimates | null | undefined, paths: readonly string[]): Price {
-  if (paths.length === 1) return goldenPrice(e, paths[0]!, 'update');
-  return e === undefined ? undefined : (e?.update ?? null);
-}

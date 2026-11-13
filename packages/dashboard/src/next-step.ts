@@ -44,6 +44,7 @@ import { GOLDEN_HISTORY } from './bisect-start.js';
 import { gatePrice, injectionPrice } from './injection-plan.js';
 import { HEX } from './commits-here.js';
 import { commandLine } from './fix-shared.js';
+import { withFixByCheck } from './fix-by-check.js';
 import { fixForRun, type FixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
 import { againCommand, testedAs } from './injection-view.js';
@@ -219,6 +220,8 @@ export interface StepReads {
   passes: (golden: GoldenSource) => readonly TestResult[];
   /** What Find breaking commit said of the failure it shows now. */
   standing: (golden: string) => BisectAnswer | null;
+  /** A failed test replay no fix holds joins one by its check (fix-by-check.ts): a run's page and Tests' steps, which read every open fix for it. */
+  byCheck?: boolean;
 }
 
 function once<T>(read: () => T): () => T {
@@ -234,7 +237,7 @@ function perKey<T>(read: (key: string) => T): (key: string) => T {
   };
 }
 
-export function stepReads(store: Store, index: RunIndex = loadRunIndex(store)): StepReads {
+export function stepReads(store: Store, index: RunIndex = loadRunIndex(store), o: { byCheck?: boolean } = {}): StepReads {
   const tested = once(() => new Set(store.query('SELECT DISTINCT run_id AS id FROM injection_results').map((r) => String(r.id))));
   const matrices = once(() => {
     const byRun = new Map<string, ChaosMatrix>();
@@ -262,6 +265,7 @@ export function stepReads(store: Store, index: RunIndex = loadRunIndex(store)): 
       return known;
     },
     standing,
+    byCheck: !!o.byCheck,
   };
 }
 
@@ -807,7 +811,10 @@ function decided(store: Store, runId: string, work: NextStepWork | null, o: { ju
     work,
     reads,
     tested,
-    fix: once(() => fixForRun(store, runId, reads.index)),
+    fix: once(() => {
+      const found = fixForRun(store, runId, reads.index);
+      return reads.byCheck ? withFixByCheck(store, record, work?.tests, found) : found;
+    }),
     offer: once(() => testOffer(store, record, work?.normalize, work?.goldens ?? [])),
     choices: once(() => {
       const t = tested();
@@ -850,7 +857,7 @@ function aboutLine(store: Store, index: RunIndex, runId: string): string | null 
  * is always worked out.
  */
 export async function pricedNextStep(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; kept: (runId: string) => boolean }): Promise<NextStep | null> {
-  const reads = stepReads(store);
+  const reads = stepReads(store, undefined, { byCheck: true });
   const step = decided(store, runId, work, { judged: o.judged, reads });
   if (!step) return null;
   const plain = plainStep(step);
@@ -933,7 +940,7 @@ function gateStep(store: Store, golden: string, result: TestResult): NextStep | 
 
 /** Tests' steps (`GET /api/tests`): of the goldens named, each that leads with one, by its path. */
 export function goldenSteps(store: Store, goldens: readonly string[], work: NextStepWork | null): Record<string, NextStep> {
-  const reads = stepReads(store);
+  const reads = stepReads(store, undefined, { byCheck: true });
   const steps: Record<string, NextStep> = {};
   for (const golden of goldens) {
     const step = goldenStep(store, golden, work, reads);

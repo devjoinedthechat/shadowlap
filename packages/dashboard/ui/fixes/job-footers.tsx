@@ -10,7 +10,8 @@ import { testsJob } from '../pages/tests-cards.js';
 import { href } from '../route.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
-import { updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
+import { useTestsEstimates, type Price } from '../tests-estimates.js';
+import { updatesPrice } from '../tests-prices.js';
 import { maskFirst } from '../update-plan.js';
 import { updateOutdatedAsk } from './dialog-words.js';
 import { leadWait } from './list.js';
@@ -122,4 +123,5 @@ function ApplyFooter({ job, plain, done }: { job: JobView; plain?: boolean; done
 addJobFooter(JOB_KINDS.blame, NextStepFooter);
 addJobFooter(JOB_KINDS.repair, NextStepFooter);
 addJobFooter(JOB_KINDS.verify, NextStepFooter);
+addJobFooter(JOB_KINDS.fixCheck, NextStepFooter);
 addJobFooter(JOB_KINDS.applyFix, ApplyFooter);

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordBlame, Store, type StoredFix } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
 import { execFileSync } from 'node:child_process';
-import { ghEnv, isGithubPr, parsePrState, prHost, PrStates, readableHosts, remoteHost, startDashboard, type Dashboard, type FixesView, type PrRead } from '../src/index.js';
+import { ghEnv, isGithubPr, parsePrState, prHost, PrStates, readableHosts, remoteHost, sessionPullRequest, startDashboard, storeSessionPrStates, type Dashboard, type FixesView, type PrRead } from '../src/index.js';
 
 /**
  * A fix's pull request moves past "open" once the forge says so: read with gh in the background as
@@ -120,6 +120,41 @@ describe('reading a pull request’s state', () => {
     now += 1_000;
     prs.refresh([onCom]);
     expect(asked).toHaveLength(4);
+    store.close();
+  });
+
+  it("tells every test session of a pull request where it stands, open included, by its page and its number", async () => {
+    const store = Store.open(':memory:');
+    const page = 'https://github.com/acme/support-agent/pull/142';
+    const ran = (pullRequest: Parameters<Store['startTestSession']>[0]['pullRequest']) => store.startTestSession({ command: ['shadowlap', 'test'], revision: 'abc1234', ...(pullRequest ? { pullRequest } : {}) }).sessionId;
+    const onPage = ran({ number: 142, url: page, source: 'GitHub Actions (pull_request)' });
+    // A job that named the number alone (SHADOWLAP_PR) is told by it.
+    const byNumber = ran({ number: 142, url: null, source: 'SHADOWLAP_PR' });
+    const gitlab = ran({ number: 7, url: 'https://gitlab.com/acme/agent/-/merge_requests/7', source: 'GitLab CI' });
+    const none = ran(null);
+    const sessions = () => store.listTestSessions({ limit: 10 });
+    const stateOf = (id: string) => sessions().find((s) => s.sessionId === id)?.pullRequest?.state ?? null;
+    // Only a GitHub page that is open or not yet told is asked about.
+    expect(sessions().map(sessionPullRequest).filter(Boolean)).toEqual([{ key: page, url: page, number: 142 }]);
+    let answer: PrRead = { state: 'open' };
+    const asked: string[] = [];
+    const prs = storeSessionPrStates(() => store, { read: (url, done) => (asked.push(url), done(answer)) });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+    prs.refresh(sessions());
+    await settle();
+    expect(asked).toEqual([page]);
+    // Open is written once, as a session's pull request stands nowhere until told; the one that named only its number with it.
+    expect([stateOf(onPage), stateOf(byNumber), stateOf(gitlab), stateOf(none)]).toEqual(['open', 'open', null, null]);
+
+    // Merged: each is told, and a merged one is never asked about again.
+    answer = { state: 'merged' };
+    const again = storeSessionPrStates(() => store, { read: (url, done) => (asked.push(url), done(answer)) });
+    again.refresh(sessions());
+    await settle();
+    expect([stateOf(onPage), stateOf(byNumber)]).toEqual(['merged', 'merged']);
+    again.refresh(sessions());
+    await settle();
+    expect(asked).toEqual([page, page]);
     store.close();
   });
 

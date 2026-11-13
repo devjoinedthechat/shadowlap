@@ -1,7 +1,8 @@
 import { useId, useState } from 'react';
 import { dialogCopy, withExpect, type DialogCopy } from './fork-dialog.js';
 import type { PendingAction } from './actions.js';
-import { useDialogEstimate, type RowPrice } from './estimates.js';
+import { useDialogEstimate } from './dialog-estimates.js';
+import type { RowPrice } from './estimates.js';
 import { AskNote } from '../components/AskNote.js';
 import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';

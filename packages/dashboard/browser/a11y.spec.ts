@@ -3,7 +3,7 @@ import { links as built } from '../src/links.js';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
 import { contrast, dash, demoId, focusedLabel, openPage, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
-import { routeTestsFixture } from './tests-fixture.js';
+import { openReport, routeTestsFixture } from './tests-fixture.js';
 
 /**
  * The dashboard in Chromium over the demo store, as a person with a keyboard or a screen reader
@@ -12,6 +12,9 @@ import { routeTestsFixture } from './tests-fixture.js';
  * whole in scrolling panes, the palette as a combobox, and every overlay keeping and returning the
  * focus. And every link the server writes opens a page the dashboard has.
  */
+
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 const PAGES: Array<{ name: string; path: () => string; drawn: string }> = [
   { name: 'the Overview', path: () => '/', drawn: 'main#view .ovg' },
@@ -290,13 +293,20 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   for (const link of links) {
     const route = parseRoute(link);
     expect(route.page, link).not.toBe('notfound');
+    // A link to a golden's report opens Tests, which opens the report it names and sets the address back to
+    // #/tests (ui/tests/report-open.ts): it reads as links.tests writes that name.
+    const report = /^#\/tests\?report=([^&#]+)$/.exec(link)?.[1];
+    if (report) {
+      expect([route.page, built.tests({ report: decodeURIComponent(report) })], link).toEqual(['tests', link]);
+      continue;
+    }
     // A link to Not covered opens Tests, which brings the section into view and sets the address back to
     // #/tests (ui/not-covered/NotCovered.tsx): it reads as links.tests writes it.
     if (/^#\/tests\?at=/.test(link)) {
       expect([route.page, built.tests({ at: 'notcovered' })], link).toEqual(['tests', link]);
       continue;
     }
-    // A link to Runs with a filter opens that filter, and every link reads back as it was written.
+    // A link to Runs with a filter opens that filter, and every other link reads back as it was written.
     if (link.includes('?')) expect(runsLinkQuery(link), link).not.toBeNull();
     expect(routeHref(route), link).toBe(link);
   }
@@ -557,14 +567,38 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
   for (const h of heights) expect(h).toBeGreaterThanOrEqual(24);
 });
 
+test('a golden’s report on Tests folds under its row until found, and opens to its row’s width, its lines as printed scrolling in their box on a phone', async ({ page }) => {
+  const { crash, gate, diverged } = await routeTestsFixture(page);
+  for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+    await page.setViewportSize({ width, height });
+    await openPage(page, '/tests', 'main#view table.gt');
+    // Folded, find in page still reaches it: the browser opens what it matches.
+    for (const name of [crash, gate, diverged]) if ((await page.locator(`main#view button.grptog[aria-controls="grp-${name}"]`).getAttribute('aria-expanded')) === 'false') expect(await page.locator(`main#view div.grpw[id="grp-${name}"]`).getAttribute('hidden')).toBe('until-found');
+    for (const name of [crash, gate, diverged]) await openReport(page, name);
+    // The divergence's request, asked for once its report opened, diffed within the report.
+    await expect(page.locator(`main#view section[id="report-${diverged}"] .rpdiff .jl`).first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+    const [table, report] = await Promise.all([page.locator('main#view table.gt'), page.locator(`main#view section[id="report-${crash}"]`)].map((l) => l.evaluate((el) => el.getBoundingClientRect())));
+    expect(report!.width).toBeGreaterThan(table!.width - 40);
+    const box = page.locator(`main#view section[id="report-${crash}"] .rbox > pre.report`);
+    const scrolls = await box.evaluate((el) => el.scrollWidth > el.clientWidth);
+    // Wide, the lines wrap in the box; on a phone they keep their columns and scroll in it, never the page.
+    expect(scrolls).toBe(width < 640);
+  }
+});
+
 test('on a phone no label is under 11px, an avatar’s initials aside, and the floor that raises them lowers nothing', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const small: string[] = [];
-  // Tests with a gated golden (tests-fixture.ts), its evidence opened under its row: its line's values and axis.
-  await routeTestsFixture(page);
+  // Tests with a gated golden (tests-fixture.ts), its evidence opened under its row: its line's values and
+  // axis; and a crash's, a failed gate's and a divergence's reports open, with their tracebacks, request diff and
+  // lines as printed, at 11px.
+  const { crash, gate, diverged } = await routeTestsFixture(page);
   const evidence = async () => {
-    await page.locator('main#view button.gev').first().click();
+    await page.locator('main#view button.gev:not(.grptog)').first().click();
     await page.waitForSelector('main#view tr.gevrow .alist', { state: 'visible' });
+    for (const name of [crash, gate, diverged]) await openReport(page, name);
+    await page.locator(`main#view section[id="report-${diverged}"] .rpdiff .jl`).first().waitFor();
   };
   const pages: Array<[string, string, (() => Promise<void>)?]> = [
     ['/', 'main#view .ovg'],

@@ -293,7 +293,10 @@ export function writeTestsEntry(dir: string, golden: string, edit: EntryEdit, o:
   return { ...result, version: file.version, changed, event: entryEvent(golden, result, changed, gate) };
 }
 
-/** A write of a golden's checks in the activity feed, as `checks.changed` with the labels it added and removed, and any gate it wrote; none for a write that changed nothing. */
+/**
+ * A write of a golden's checks in the activity feed, as `checks.changed` with the labels it added and
+ * removed, and the gate it wrote (`gate`); none for a write that changed nothing.
+ */
 const entryEvent = (golden: string, r: { key: string; added: string[]; removed: string[] }, changed: boolean, gate: { gate?: unknown } = {}): ConfigEvent | null =>
   changed ? { kind: 'checks.changed', ref: golden, data: { key: r.key, added: r.added, removed: r.removed, ...gate } } : null;
 

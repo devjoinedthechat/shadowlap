@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, isObject, keptCaptureVerdict, kindLabel, lostRange, runOutcome, type AttemptKind, type CaptureVerdict, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type StoreOf } from '@shadowlap/engine';
+import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, isObject, keptCaptureVerdict, kindLabel, leftFixLinkSql, lostRange, runOutcome, type AttemptKind, type CaptureVerdict, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type StoreOf } from '@shadowlap/engine';
 import { num, str } from './fields.js';
 
 /**
@@ -152,7 +152,7 @@ function runColumns(bounded: boolean): string {
            AND (x.meta ->> '$.offline' = 1 OR x.meta ->> '$.error.name' = 'ShadowlapOffline')${upTo('x')}
        ) ELSE 0 END AS offline,
        (SELECT f.check_text FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id
-         WHERE l.ref = r.run_id AND l.kind = 'failing'
+         WHERE l.ref = r.run_id AND l.kind = 'failing' AND NOT ${leftFixLinkSql('l')}
          ORDER BY f.status = 'applied', f.opened_at DESC LIMIT 1) AS fix_check`;
 }
 
@@ -177,9 +177,9 @@ const PATCH_SQL = `SELECT ${runColumns(true)} FROM runs r WHERE r.run_id IN (SEL
 /** The runs written after the log entry numbered `?`, up to the one numbered `?`, in the order written. */
 const CHANGES_SQL = `SELECT seq, run_id AS id FROM run_changes WHERE seq > ? AND seq <= ? ORDER BY seq`;
 
-/** The check of each fix that lists a run among its failing runs: INDEX_SQL's `fix_check`, for every run at once. */
+/** The check of each fix that lists a run among its failing runs, but one it left: INDEX_SQL's `fix_check`, for every run at once. */
 const FIX_CHECKS_SQL = `SELECT l.ref AS id, f.check_text AS check_text, f.status = 'applied' AS applied, f.opened_at AS opened
-FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id WHERE l.kind = 'failing'`;
+FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id WHERE l.kind = 'failing' AND NOT ${leftFixLinkSql('l')}`;
 
 /** More runs written than this since the index last looked: reading them all is as quick. */
 const PATCH_MAX = 512;

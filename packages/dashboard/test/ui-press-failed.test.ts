@@ -11,9 +11,11 @@ import { FindingsBar, forgetOpenFindings } from '../ui/run/FindingsBar.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
+import { ReportSteps } from '../ui/tests/ReportSteps.js';
+import type { LeadPress } from '../ui/tests/Verdict.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction, ToastKind } from '../ui/toast.js';
-import type { ChaosMatrix, CheckView, CoverageGroupView, NextStep, RunDetail } from '../ui/types.js';
+import type { ChaosMatrix, CheckView, CoverageGroupView, GoldenReport, NextStep, RunDetail, TestsAnswer } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -122,6 +124,14 @@ const CAUSE: CauseView = {
 /** Error-path presets run on the recording, one failed: a finding of a failure's weight, and the matrix Show results opens. */
 const PRESETS = { runId: RUN, golden: null, at: 1, counts: { passed: 1, failed: 1, inconclusive: 0, notApplicable: 0 }, command: null, rule: null, judge: null, spent: 0, upstreamRequests: 0, toolCall: null, cells: [] } as unknown as ChaosMatrix;
 
+/** A gated golden's report on Tests, its kept result's Security report among its steps (tests/ReportSteps.tsx), which opens the same dialog as Share's. */
+function TestsReport() {
+  const report = { golden: 'goldens/research', name: 'research', verdict: 'failed', head: [], sub: [], parts: [{ kind: 'injection-attempts', totals: { obeyed: 1, influenced: 0, inconclusive: 0, ignored: 0 }, where: null, each: null, command: 'shadowlap injection goldens/research --html report.html', security: { resultId: 'inj_1', runId: RUN } }], open: null, failedRuns: null, hint: null, printed: [] } as unknown as GoldenReport;
+  const view = { divergences: [], failures: [], inconclusive: [], steps: {} } as unknown as TestsAnswer;
+  const press: LeadPress = { wait: () => null, prices: null, live: () => false, onNormalize: () => undefined, onUpdate: () => undefined, onFind: () => undefined, onMore: () => undefined, onRerun: () => undefined, runTests: null, edit: null };
+  return createElement('div', { id: 'testsReport' }, createElement(ReportSteps, { report, view, press, onPress: () => undefined }));
+}
+
 /** The injection test kept for the run, its gate failed: a finding of a failure's weight. */
 const INJECTION: InjectionFinding = { resultId: 'inj_1', gate: 'failed', label: 'injection test', line: 'send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)', golden: null };
 const PASSED: CheckView = { label: 'send_email called 0 times', ok: true, status: 'passed', detail: 'called 0 times' };
@@ -228,7 +238,7 @@ describe('a part that opens on a press, whose code didn’t come', () => {
     }
   });
 
-  it('says so of Run blame’s dialogs, a step’s, Run injection test…’s, Run error-path presets…’s, Not covered’s two pack dialogs, Pack with injection gate…’s, Revert’s and the Security report in the dialog’s words, the focus kept on the button, and again on the next press', async () => {
+  it('says so of Run blame’s dialogs, a step’s, Run injection test…’s, Run error-path presets…’s, Not covered’s two pack dialogs, Pack with injection gate…’s, Revert’s and the Security report, Share’s and Tests’, in the dialog’s words, the focus kept on the button, and again on the next press', async () => {
     const step: NextStep = { key: 'update-golden', label: 'Update golden', golden: 'goldens/refund-in-limit', test: null, sub: 'Asks the judge once, live, and keeps its verdict in the pack', command: 'shadowlap test goldens/refund-in-limit --update' };
     const revert = { key: 'revert', label: 'Revert', golden: 'goldens/refund-in-limit', rev: 'ccccccc', merge: false, live: [], blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then refund-in-limit replayed offline', command: 'git revert --no-commit ccccccc && shadowlap test goldens/refund-in-limit' } as unknown as Extract<NextStep, { key: 'revert' }>;
     const stepRun = { run: { runId: RUN, parentRunId: null, status: 'completed', meta: {} }, actions: [], children: [], calls: [] } as unknown as RunDetail;
@@ -247,6 +257,7 @@ describe('a part that opens on a press, whose code didn’t come', () => {
         createElement(PresetsRow),
         createElement(PackRow, { fork: false }),
         createElement(PackRow, { fork: true }),
+        createElement(TestsReport),
       ),
     );
     const buttons: Array<[string, () => ReturnType<Rendered['one']>]> = [
@@ -259,6 +270,7 @@ describe('a part that opens on a press, whose code didn’t come', () => {
       ['Run error-path presets…', () => r!.one('button.presetsrow')],
       ['Pack as golden', () => r!.one('button.packrow')],
       ['Pack with checks…', () => r!.one('button.packchecks')],
+      ['Tests’ Security report', () => r!.one('#testsReport button')],
     ];
     for (const [name, button] of buttons) {
       for (const time of [1, 2]) {

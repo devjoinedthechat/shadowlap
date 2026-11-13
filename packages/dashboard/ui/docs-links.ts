@@ -44,6 +44,7 @@ export const DOCS = {
   judgeChecks: { page: 'judges#recorded-once-judged-free-after', what: 'Judge checks' },
   ciMode: { page: 'ci#run-it', what: 'CI mode' },
   githubActions: { page: 'ci#github-actions', what: 'GitHub Actions' },
+  prComment: { page: 'ci#the-pull-request-comment', what: 'Pull request comments' },
   gating: { page: 'gating#settle-one-with-more-attempts', what: 'Gating' },
   goldensThatFork: { page: 'ci#recordings-that-fork-on-purpose', what: 'Goldens that fork' },
   blame: { page: 'blame', what: 'Blame' },

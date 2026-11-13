@@ -3,7 +3,7 @@ import { Store } from '@shadowlap/engine';
 import { crashOffer } from '../src/run-offers.js';
 
 describe('a test replay that crashed', () => {
-  it('offers the last line its agent printed and where it stopped, and nothing for a replay that failed otherwise', () => {
+  it('offers the exception its agent died of and where it stopped, and nothing for a replay that failed otherwise', () => {
     const store = Store.open(':memory:');
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
     const replay = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { test: { golden: 'goldens/x', session: s.sessionId } } });
@@ -14,6 +14,16 @@ describe('a test replay that crashed', () => {
     const other = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { test: { golden: 'goldens/y', session: s.sessionId } } });
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/y', ok: false, failure: 'diverged', runId: other.runId, data: { output } });
     expect(crashOffer(store, store.getRun(other.runId)!)).toBeNull();
+    store.close();
+  });
+
+  it('names a Node crash by its error, not by the version line Node prints last', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    const replay = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { test: { golden: 'goldens/x', session: s.sessionId } } });
+    const output = "file:///p/agent.mjs:141\n  const total = order.payment.amount;\n                              ^\n\nTypeError: Cannot read properties of undefined (reading 'amount')\n    at issueRefund (file:///p/agent.mjs:141:31)\n    at main (file:///p/agent.mjs:187:20)\n\nNode.js v22.11.0\n[shadowlap] replay ended\n";
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: replay.runId, data: { output } });
+    expect(crashOffer(store, store.getRun(replay.runId)!)).toEqual({ line: "TypeError: Cannot read properties of undefined (reading 'amount')", at: null, of: null });
     store.close();
   });
 });

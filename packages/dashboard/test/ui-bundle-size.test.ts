@@ -41,8 +41,9 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * A run's status loads its card (outcome-card) as the pointer or the focus first reaches it.
  * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
+ * Preview pull request comment's (PrCommentDialog) loads as Settings → CI or the newest revision's page under Changes first opens it; an exported copy has neither.
  */
-const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'ChangeBox', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FailedIssues', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'MoreMenu', 'OtelDialog', 'PackDialog', 'PackWithGate', 'Palette', 'PresetsDialog', 'PresetsFinding', 'PresetsResults', 'Preview', 'Proof', 'ProvenanceView', 'RemoveCheck', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevertDialog', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'RunNotes', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs', 'outcome-card'];
+const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'ChangeBox', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FailedIssues', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'MoreMenu', 'OtelDialog', 'PackDialog', 'PackWithGate', 'Palette', 'PrCommentDialog', 'PresetsDialog', 'PresetsFinding', 'PresetsResults', 'Preview', 'Proof', 'ProvenanceView', 'RemoveCheck', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevertDialog', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'RunNotes', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs', 'outcome-card'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, the words of a run's notes, the card its status shows on hover, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; the fork menu and the header's …; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check menu at a tool call with the check builder its pick opens; Runs › Failed as issues; Revert's dialog and the change box; the dialogs a run's steps ask in, Run injection test…'s and Pack with injection gate…'s among them; Run error-path presets…'s; Find cause… and the answers it finds; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks. */
@@ -175,6 +176,17 @@ describe('the dashboard’s scripts', () => {
     expect(runPage.upFront.has('ui/run/offers.ts')).toBe(true);
     for (const words of ['ui/run/dialog-copy.ts', 'ui/runspage/find-commit.ts', 'ui/update-words.ts']) expect(runPage.upFront.has(words), `${words} loads with the run page`).toBe(false);
     for (const part of ['ui/run/RunDialogs.tsx', 'ui/run/ForkMenu.tsx', 'ui/run/DivergedDialogs.tsx']) expect(inputsOf(loads(chunkOf(part))).has('ui/run/dialog-copy.ts'), `${part} loads its words`).toBe(true);
+    // What only the run's other views read (ui/run/view-model.ts: Turns' turns, Timeline's clock and
+    // a family's runs as the lists see them) loads with those views, on a press of the view switch.
+    expect(runPage.upFront.has('ui/run/view-model.ts'), 'the views’ helpers load with the run page').toBe(false);
+    for (const view of ['ui/run/TurnsView.tsx', 'ui/run/TimelineView.tsx', 'ui/run/ForksView.tsx', 'ui/run/ProvenanceView.tsx']) expect(inputsOf(loads(chunkOf(view))).has('ui/run/view-model.ts'), `${view} loads its helpers`).toBe(true);
+    // Code the run page would carry and never run waits beside its users: the verdict words' tones
+    // (Changes' revision page, the results matrix, Tests' Security), the small strips (Runs, the
+    // Overview), what the dialogs that pack or copy a run say, a fork dialog's estimate, Tests' prices
+    // and the runs an action took, in its toast (the header's Delete run's, from its menu).
+    const apart = ['ui/components/status-tone.ts', 'ui/components/MiniStrip.tsx', 'ui/run/share-facts.ts', 'ui/run/dialog-estimates.ts', 'ui/tests-prices.ts', 'ui/runspage/bulk-words.ts'];
+    for (const kept of apart) expect(runPage.upFront.has(kept), `${kept} loads with the run page`).toBe(false);
+    for (const [part, kept] of [['ui/run/StepDialogs.tsx', 'ui/run/share-facts.ts'], ['ui/run/ForkMenu.tsx', 'ui/run/dialog-estimates.ts'], ['ui/run/MoreMenu.tsx', 'ui/runspage/bulk-words.ts']] as const) expect(inputsOf(loads(chunkOf(part))).has(kept), `${part} loads ${kept}`).toBe(true);
     // Nothing of an exported copy's own entry is served.
     const all = inputsOf(Object.keys(outs));
     expect(all.has('ui/main-copy.tsx')).toBe(false);

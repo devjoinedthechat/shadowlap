@@ -458,4 +458,15 @@ describe('what an agent died of', () => {
     expect(lastLine('done, but exiting 2\n')).toBe('done, but exiting 2');
     expect(lastLine('[shadowlap] replaying run X\n')).toBeNull();
   });
+
+  it('is the exception the last traceback ends in, read by the engine\'s parser as the dashboard reads it', () => {
+    expect(lastLine('Traceback (most recent call last):\n  File "agent.py", line 7, in issue_refund\n    log.info("refund %s", order["total"])\n                          ~~~~~^^^^^^^^^\nKeyError: \'total\'\nrefund skipped\n[shadowlap] interrupted (SIGTERM)\n')).toBe("KeyError: 'total'");
+    // An exception whose type doesn't end in Error is the traceback's, where an earlier error-shaped line used to win.
+    expect(lastLine('ValueError: no refund yet\nTraceback (most recent call last):\n  File "agent.py", line 3, in <module>\nSystemExit: 2\n')).toBe('SystemExit: 2');
+    // A thrown value that is no error read as its value, where the line under it used to be read: Node's hint.
+    expect(lastLine("/p/agent.js:2\n  throw 'no order';\n  ^\nno order\n(Use `node --trace-uncaught ...` to show where the exception was thrown)\n\nNode.js v22.11.0\n")).toBe('no order');
+    // Colour codes are dropped before reading, where they used to be shown as escapes.
+    expect(lastLine('\x1b[31mTypeError: x is not a function\x1b[0m\n    at main (file:///p/agent.mjs:3:1)\n')).toBe('TypeError: x is not a function');
+    expect(lastLine(`SyntaxError: ${'x'.repeat(300)}\n`)).toHaveLength(200);
+  });
 });

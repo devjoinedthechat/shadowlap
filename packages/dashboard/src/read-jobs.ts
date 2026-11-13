@@ -20,8 +20,11 @@ import { loadRunIndex } from './run-index.js';
 import { DECISION_READS } from './decision-view.js';
 import { ESTIMATE_READS } from './estimates.js';
 import { TESTS_EVIDENCE_READS } from './tests-evidence.js';
+import { GOLDEN_REPORT_READS } from './golden-report.js';
 import { FIXES_READS } from './fixes-view.js';
 import { CHECK_READS } from './check-preview.js';
+import { SUGGEST_READS } from './suggested-checks.js';
+import { FIX_CHECK_READS } from './fix-check.js';
 import { CROSS_PROJECT_READS } from './cross-project.js';
 import { GATE_READS } from './tests-gate.js';
 import { INJECTION_READS } from './injection-security.js';
@@ -214,8 +217,9 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  // A crash no model rescued leads with its run's own step, its commit served as the route read how (fix-crash.ts).
-  const crash = (b: StoredBlame) => fixCrash(store, b, { work: job.next ?? null, reads: stepReads(store), serving: job.serving ?? null });
+  // A crash no model rescued leads with its run's own step, its commit served as the route read how,
+  // and the exception it died of (fix-crash.ts).
+  const crash = (b: StoredBlame) => fixCrash(store, b, { work: job.next ?? null, reads: stepReads(store), serving: job.serving ?? null, error: true });
   const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}), crash });
   return d ? answer({ ...withAbouts(store, d), failedCheck: failedChecks(store, loadRunIndex(store))(d.fixId) }, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
@@ -351,7 +355,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ISSUES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, CHECK_READS, DECISION_READS, INJECTION_READS, PRESETS_READS, COVERAGE_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ISSUES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, CHECK_READS, SUGGEST_READS, DECISION_READS, FIX_CHECK_READS, GOLDEN_REPORT_READS, INJECTION_READS, PRESETS_READS, COVERAGE_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

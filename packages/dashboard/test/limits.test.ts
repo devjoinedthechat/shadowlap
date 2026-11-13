@@ -1,11 +1,11 @@
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { KEEP_JOBS, MAX_RUNNING, MAX_UPLOADS, startDashboard, UploadStore, type Dashboard, type JobListItem, type JobView, type RouteModule, type SpawnCli } from '../src/index.js';
 
@@ -213,6 +213,55 @@ describe('uploads', () => {
       uploads.discard('job-1');
       expect(existsSync(join(dir, '.shadowlap', 'uploads', uploadId))).toBe(false);
     } finally {
+      uploads.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuse one past its limit once its file is gone, however long the file takes to open and close', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sl-limits-refused-')));
+    const uploads = new UploadStore({ project: { name: 'p', path: dir }, limit: 4096 });
+    const files = () => readdirSync(join(dir, '.shadowlap', 'uploads')).filter((n) => n.endsWith('big.har'));
+    const until = async (ok: () => boolean) => {
+      while (!ok()) await new Promise((r) => setTimeout(r, 5));
+    };
+    // A busy machine's thread pool: the upload's open and its close each wait until the test lets them go.
+    const { open, close } = fs;
+    const held: (() => void)[] = [];
+    let fd: number | null = null;
+    const opens = vi.spyOn(fs, 'open').mockImplementation(((path: string, flags: string, mode: number, cb: (err: Error | null, n: number) => void) => {
+      if (!String(path).endsWith('big.har')) return open(path, flags, mode, cb);
+      held.push(() =>
+        open(path, flags, mode, (err, n) => {
+          fd = n;
+          cb(err, n);
+        }),
+      );
+    }) as never);
+    const closes = vi.spyOn(fs, 'close').mockImplementation(((n: number, cb: (err: Error | null) => void) => {
+      if (n !== fd) return close(n, cb);
+      held.push(() => close(n, cb));
+    }) as never);
+    try {
+      const r = upload('big.har');
+      let refused = false;
+      const answer = uploads.receive(r as unknown as IncomingMessage).catch((err: unknown) => {
+        refused = true;
+        return err;
+      });
+      r.write(Buffer.alloc(5000, 1));
+      await until(() => held.length > 0);
+      held.shift()!();
+      // The file is made, and its refused stream asks to close it: no answer while the file is there.
+      await until(() => held.length > 0);
+      expect(files()).toHaveLength(1);
+      expect(refused).toBe(false);
+      held.shift()!();
+      expect(await answer).toMatchObject({ status: 413 });
+      expect(files()).toEqual([]);
+    } finally {
+      opens.mockRestore();
+      closes.mockRestore();
       uploads.close();
       rmSync(dir, { recursive: true, force: true });
     }

@@ -228,6 +228,12 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
 /** The row the action's comment on a pull request needs: the Pull request comment panel lists it. */
 export const COMMENT_NEED: NeedRow = ['permission to keep the action’s comment on a pull request', 'pull-requests: write'];
 
+/** The comment's decisions part asks every golden's recorded calls of their models again: their provider keys, as Fix on failure names them. */
+export const decisionsNeed = (keys: readonly string[]): NeedRow => ['a model key, for the decisions the branch changes', keys.length ? [...new Set(keys)].join(', ') : 'env'];
+
+/** Under the env, while the decisions part asks a golden's models whose keys can't be named. */
+const DECISIONS_KEYS_COMMENT = "# and your agent's own provider keys: the decisions part asks its models";
+
 /** The row every step that runs the action needs: the Node it runs on. */
 const NODE_NEED: [string, string] = ['Node 22.16 or later on the runner, not 23', 'node-version: 22'];
 
@@ -376,6 +382,8 @@ export interface WorkflowSettings {
   push?: BucketCredentials | null;
   /** The action's pull request comment: on unless false. */
   comment?: boolean;
+  /** The comment's decisions part (`decisions: true`): written only while the comment is on. */
+  decisions?: boolean;
   recordings?: string;
   inconclusive?: 'fail' | 'warn';
   /** Every golden's keys (for blame and verify), and whether one's can't be named. */
@@ -405,7 +413,7 @@ function actionLines(s: WorkflowSettings, fix: Fix | null, push: BucketCredentia
     '  with:',
     `    version: ${VERSION}`,
     `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
-    ...(comment ? [] : ['    comment: false']),
+    ...(!comment ? ['    comment: false'] : s.decisions ? ['    decisions: true'] : []),
     ...(s.alerts ? ['    fail-on-divergence: false'] : []),
     ...inconclusiveLine(s.inconclusive),
     ...(fix ? ['    fix-on-failure: true', `    fix-budget: ${dollars(fix.budget)}`, `    repairer: ${scalar(fix.repairer)}`] : []),
@@ -413,7 +421,11 @@ function actionLines(s: WorkflowSettings, fix: Fix | null, push: BucketCredentia
   ];
 }
 
-/** The action's env: with a fix, the repairer's key and every golden's; else those of the goldens that run live. R2's keys either way. */
+/**
+ * The action's env: with a fix, the repairer's key and every golden's; else those of the goldens
+ * that run live, and every golden's while the comment's decisions part asks their models. R2's keys
+ * either way.
+ */
 function actionEnv(s: WorkflowSettings, fix: Fix | null, push: BucketCredentials | null): string[] {
   const r2 = push === 'keys' ? R2_KEYS.map((k) => `    ${k}: \${{ ${NOT_A_PULL_REQUEST} && secrets.${k} || '' }}`) : [];
   if (fix) {
@@ -422,8 +434,9 @@ function actionEnv(s: WorkflowSettings, fix: Fix | null, push: BucketCredentials
     const agentKeys = (s.keys ?? []).filter((k, i, all) => k !== key && all.indexOf(k) === i);
     return ['  env:', keyLine(key), ...r2, ...agentKeys.map(keyLine), ...(known ? [] : [`    ${AGENT_KEYS_COMMENT}`]), ...(s.unreadable ? [`    ${FIX_UNREADABLE_COMMENT}`] : [])];
   }
-  const keys = [...new Set(s.liveKeys ?? [])];
-  const notes = [...(s.liveKeysUnknown ? [liveKeysComment(keys.length > 0)] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
+  const decisions = s.comment !== false && s.decisions === true;
+  const keys = [...new Set([...(s.liveKeys ?? []), ...(decisions ? (s.keys ?? []) : [])])];
+  const notes = [...(s.liveKeysUnknown ? [liveKeysComment(keys.length > 0)] : []), ...(decisions && s.keysUnknown ? [DECISIONS_KEYS_COMMENT] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
   return r2.length ? ['  env:', ...r2, ...keys.map(keyLine), ...notes.map((n) => `    ${n}`)] : envLines(keys, notes);
 }
 

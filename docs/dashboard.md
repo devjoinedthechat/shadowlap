@@ -130,7 +130,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 **Search or jump to** (⌘K or Ctrl K) is a palette over the whole dashboard. It offers:
 
 - **Every page**, and **This run's actions**, its next step first.
-- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Rescan coverage, Export pairs… and Score model… while there is something to export or score, the team store's setup, and Keyboard shortcuts.
+- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, Rescan coverage, Preview pull request comment once the goldens have a test session, the team store's setup, and Keyboard shortcuts.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens** opens its dialog on Tests.
@@ -207,6 +207,8 @@ The header says the week in four facts, the first three each a link: *4 failures
 | Housekeeping | A model the goldens use that retires | **Migrate to** what its provider recommends |
 
 One cause is one row. A golden an open fix holds is named on the fix's row (*refund-in-limit fails on Tests*), when its step is the fix's or a crash's **Find breaking commit** or **Revert**. When a row's **Find breaking commit** ends with the commit named, the focus goes on to the **Revert** in its place. A golden a normalizer or an update fixes keeps its own row, and so does one whose fix is verified.
+
+A golden's row, failed or inconclusive, opens Tests with the golden's [report](#a-goldens-report) open.
 
 What the rows mean:
 
@@ -346,7 +348,7 @@ The next step starts from the row, as on [Needs a look](#needs-a-look): **Run bl
 
 The days and the filter's words narrow the issues as they narrow the table: an issue counts only the runs they keep. While the verdicts Failed counts by are worked out, the line above says so, as it does for `status:`. On a phone, each issue is a block.
 
-j and k move between issues, Enter opens one, and ⌘K offers **Open**, **Show its runs** and the step where it starts a job. The failing-runs links on Fixes and on a fix's page open the fix's issue with its runs shown, and the title of Fixes' row of runs nobody has blamed opens its newest one's. An exported copy keeps Failed a filter over its runs.
+j and k move between issues, Enter opens one, and ⌘K offers **Open**, **Show its runs** and the step where it starts a job. The failing-runs links on Fixes and on a fix's page open the fix's issue with its runs shown, a golden's **Failed runs →** on Tests opens the golden's, and the title of Fixes' row of runs nobody has blamed opens its newest one's. An exported copy keeps Failed a filter over its runs.
 
 ### Twelve weeks and Find breaking commit
 
@@ -487,6 +489,7 @@ The header's one lime button is the run's next step: the first of these that app
 | A recording a read is proven to have caused a write in, no golden made from it | **Pack with injection gate…** |
 | Error-path presets that failed | **Open proof** |
 | A failure a fix holds | **Open fix** |
+| A test replay that failed a check an open fix is for, on its page and Tests | **Open fix** |
 | A capture its import judged failed | **Open fix** where a fix holds the same failure, else **Run blame** |
 | A failure never blamed | **Run blame** |
 | A replay that left its recording on a value made anew on every run | **Add normalizer** |
@@ -551,7 +554,7 @@ A finding never says what the header's first fact already does, but for the run 
 |---|---|---|
 | Failed a check | The check: *send_email called 0 times, but called 1 time* | *not blamed yet*, or how its fix stands |
 | A capture its import judged failed | The check that failed | *judged when it was imported*, then how its fix stands |
-| A test replay whose agent crashed | The last line the agent printed | *at call 19, 18 of 30 recorded calls replayed* |
+| A test replay whose agent crashed | The exception it died of, else the last line it printed that says something | *at call 19, 18 of 30 recorded calls replayed* |
 | A test that diverged | What the value looks like, or why it came | The request's name and the calls replayed before it |
 | A test left inconclusive | The check it couldn't judge, and why, in amber | *18 calls replayed* |
 | A test replay its golden passed since | What it failed, muted, with nothing to mend | *fixed by 01K5CQ7A3M*, as Runs' Status says it |
@@ -1058,7 +1061,9 @@ Verdicts lists every change checked, newest first, one row each. A change is one
 - **A preview or a migration**: what a change of model, prompt or tools decides differently. A preview's row opens it on [Preview](#preview).
 - **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
 
-Each row gives the change and how it was checked (*test session · d2e8a1f*), what it was checked on (*7 goldens*), what moved and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
+Each row gives the change and how it was checked (*test session · d2e8a1f · PR #142 open*), what it was checked on (*7 goldens*), what moved (*2 goldens failed*, and *1 write changed* where its comment kept the decisions) and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
+
+**A session's pull request**, where CI ran it for one, is read from GitHub with `gh pr view` in the background while the page is open, as [a fix's](#fixes) is: *PR #142 open*, *merged* or *closed*, and *PR #142* until `gh` says. One that merged though its session didn't pass is flagged in amber under its verdict, *merged while failing* or *merged while inconclusive*, and its card says what shipped: *PR #127 merged with 6 of 7 goldens passed at b7e40c2: the change shipped with this verdict*. A read-only dashboard asks no one.
 
 The newest revision a test session ran every golden at leads the page: its verdict, its tally and **Open the change**, in lime while it failed or couldn't decide. The chips (*All*, *Test sessions*, *Previews*, *Verifies*) each count their rows. **Show more** reads 50 more at a time, up to 200, and says when older changes aren't listed.
 
@@ -1066,11 +1071,14 @@ The page keeps its chip, and how far it read, for each project while it stays op
 
 ### A revision's page
 
-A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, who made it and when, with **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide. Under them:
+A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, its pull request, who made it and when, with the amber flag where it merged though it didn't pass, and **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide, and **Preview pull request comment** before it opens the comment's preview, as on [Settings → CI](#ci). Under them:
 
 - **Goldens**, worst first, as that session judged them, each with its note (*4/4 replayed*). A golden opens the replay that judged it while the store holds it, else Tests.
-- **Decisions**: the previews and migrations asked at that revision, a preview opening on [Preview](#preview).
+- **Decisions**: what its prompt and tools decide differently, as its pull request comment carried them: each golden's steps at rank 1 and 2, what changed, the call recorded and the call made, then that later steps are judged in the recorded run's state. With none flagged, it gives the decisions' sentence (*The same decisions at every step asked.*).
+- **On the pull request**, for a session that ran for one: what else its comment carried, a run's cost before and after (*≈$0.041 → ≈$0.043 +5%*) and each injection gate's verdict and tally.
 - **The command** that gave the verdict.
+
+A session that kept no decisions lists under Decisions the previews and migrations asked at that revision, a preview opening on [Preview](#preview), else says CI runs one on each pull request with the Action's `decisions: true`.
 
 A revision no session ran every golden at says *No change d2e8a1f.*, with **Open Verdicts**.
 
@@ -1254,11 +1262,13 @@ All, Open, Ready to apply and Applied filter them. A merged fix is under Applied
 
 ### A fix's page
 
-A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link that opens its issue on Runs › Failed, its good runs, and when it was opened, verified and applied. Under it: what failed and its check, as the list says them.
+A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link that opens its issue on Runs › Failed, its good runs, and when it was opened, verified and applied. Under it: what failed and its check, as the list says them. A check with a judge has the judge's card on the check, on the page and its Fixes row alike: what it asks, what it reads and the model, asked live in each attempt that exits 0.
+
+The check ends on the way to change it. On an open fix, **Edit check…** opens the [check builder](#making-a-check) on the fix's own check. A verified or applied fix keeps the check its verdict was given under, so it offers **Add check to *golden*…**, for the golden that guards it, or **Add check…** where none does. A verified fix no golden guards is usually one to apply first.
 
 Its buttons follow where it stands, with its next step the one lime button: the step its Fixes row leads with. Where they would crowd the title, they go under it, the lime one first. What each does is under [Actions on a fix](#actions-on-a-fix).
 
-A crash no model rescued leads with its run's step, **Find breaking commit**, after **Run repair** and, where blame offers it, **Run blame with stronger model**. Once the search named the commit, **Revert** leads, with **Open in editor** beside it at the line the commit added. **Find breaking commit** then leaves the fix's buttons: the run's page keeps it, to search again.
+A crash no model rescued leads with its run's step, **Find breaking commit**, after **Run repair** and, where blame offers it, **Run blame with stronger model**. Once the search named the commit, **Revert** leads, with **Open in editor** beside it at the line the commit added. **Find breaking commit** then leaves the fix's buttons: the run's page keeps it, to search again. A crashed run the fix's check no longer fails has left the fix, so its steps stay on the run's page.
 
 The page opens on its last finished step: Blame, Repair or Verify. While a job of the fix runs a step, the stepper says so, its dot pulsing: *Repairing…*, or *Verifying…* for every verify.
 
@@ -1266,10 +1276,12 @@ The page opens on its last finished step: Blame, Repair or Verify. While a job o
 
 The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *stopped* or *not rescued* in amber. Beside the word are the probes' tallies, as *2 of 4 rescued from #5, 0 of 4 from #7*. Under it are the call, the run and the confidence, with why on hover. **Open run** opens the run at the call blamed, where a stopped search got to, or at the first probe's call, and whole where its agent exited with an error. Then comes what blame found, in one sentence.
 
+A blame found under a check the fix had before its own says so above its verdict line, *Found under the fix’s old check*, naming that check. While its run still fails the fix's check, it gives what runs under that check, with its command: Run blame again, or Run blame with stronger model for a blame no call rescued. The stepper reads *old check*, in amber.
+
 Its sections:
 
 - **Where the run was lost**, on its row of calls. Each probe's tally sits over its call, and every model call says on hover what blame made of it, a tool call its tool's name. The key names only what the row shows.
-- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make. A blame that found no call shows the check instead.
+- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make. A blame that found no call shows the check instead, each judge's line with that judge's card.
 - **The probes**, each row opening the run at its call. One cell holds the tally, its bound and a bar of the interval against the gate's two marks. The verdict is a dot and a word.
 - **Every attempt** of a probe, under its row on request, grouped by what each did. A group shows the tool calls its attempts made from the probed call on and how they came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
 
@@ -1289,7 +1301,9 @@ Needs a look, the activity feed and the Fixes list say *lost gradually around #5
 
 A blame that rescued the run from no call shows the check and how the recording failed it, instead of the answers. It says why when it knows no answer of the model's lost the run: every attempt met the error a write got when it was recorded, or the attempts that passed answered as the recording did ([blame](./blame.md#the-rescue)).
 
-A test replay whose agent exited with an error is the code's to look at before the model's. Once **Find breaking commit** named the first bad commit, the step shows it under its lead as Tests does, then its change in its file's box, with **Open in editor** and **Copy git revert**. The check's note says to revert the commit or fix the code. Before the search, the note says where to look, then names **Find breaking commit**, *offline and free* where the golden replays offline:
+A test replay whose agent exited with an error is the code's to look at before the model's. Under **As recorded**, the check names the exception the agent died of, as a golden's [report](#a-goldens-report) does: where the agent's own code raised it, the line there, and **Show traceback**.
+
+Once **Find breaking commit** named the first bad commit, the step shows it under its lead, then its change in its file's box, with **Open in editor** and **Copy git revert**, as the report's **First bad commit** part does. The check's note says to revert the commit or fix the code. Before the search, the note says where to look, then names **Find breaking commit**, *offline and free* where the golden replays offline:
 
 - *look at the code first*, then **Run blame with stronger model** where the page offers it;
 - *Neither model rescues it*, once a stronger model was asked too;
@@ -1304,7 +1318,7 @@ The Repair step opens on its verdict line:
 - **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
 - **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
 
-A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the prompt yourself and verify it.
+A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the check, or change the prompt yourself and verify it.
 
 Its sections:
 
@@ -1334,6 +1348,8 @@ It opens on the newest verdict that counts for the fix. A verdict is headed by t
 - else what it did role by role (*Fixes 1 of 1 target run, keeps 1 of 1 good*).
 
 One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*). It is marked so in the switch.
+
+A verdict made under a check the fix had before counts only while its check asks everything the fix's does. One that doesn't is headed *Doesn't count for this fix: it was checked under the fix’s old check*. Under its verdict line it says it is kept and no longer counted, with the verify command under the fix's check.
 
 **A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. The fix's header leads with what settles it, as its lime button, rightmost, its other buttons plain:
 
@@ -1442,7 +1458,7 @@ Each revision's header gives its commit's subject on hover, and its author where
 
 **Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided. A rule opens **Gates** on [Settings → CI](#ci) at its gate's kind.
 
-**A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there, or **Run tests** where its checks changed since. **Esc** closes the row and puts the focus back on the bar.
+**A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there, or **Run tests** where its checks changed since. **Esc** closes the row and puts the focus back on the bar. A gated golden with a report draws its bar alone: its evidence opens with the report, above it.
 
 **A golden's [error-path presets](./error-paths.md)** draw under its checks as one picture: *error-path presets*, which opens its recording with their results, then a cell a preset in its verdict's colour, its tally and call on hover. Their counts after it (*1 failed · 1 inconclusive · 4 passed*) open the attempt that proves the verdict. A golden whose tests entry sets presets that never ran says *not run yet*, with **Run error-path presets…**.
 
@@ -1452,38 +1468,88 @@ A golden whose presets ran but whose replay didn't has their line as its last re
 
 The table fits its panel at every width. With less room the oldest revisions give way, then, at 840px or less, the checks move under the golden's name. On a phone the revisions become a strip there too, while the last result keeps its width.
 
+### A golden's report
+
+Each golden that failed or is inconclusive has a report, folded under its row at the table's full width. **Show report**, last under its last result, opens it, and **Hide report** folds it. With two reports or more, **Show every report** over the table opens or folds them all.
+
+- **Folded**, a report stays in the page, hidden until found: the browser's find in page opens the one it matches, its lines as printed too.
+- **A link to it**, `#/tests?report=<name>`, opens it and scrolls to it, then sets the address back to `#/tests`.
+- **It stays open** while the dashboard is, so Esc's way back from a link inside it finds that link. Esc folds no report.
+
+A report reads, top to bottom:
+
+1. **Its verdict**: the word in its colour, then what happened in one sentence, such as *Diverged at call 1: `$.metadata.user_id` changed, a UUID*, with a grey line under it.
+2. **Its parts**, each named in its margin, as listed below.
+3. **Its steps**: the golden's own step, plain, then what else it offers. **⌘K** on its row presses them while it is folded, and a press opens it.
+4. **Its hint**: one sentence of why. What each button does, and what it costs, is its hover.
+5. **Show as printed**, at its foot, as [below](#a-report-as-printed).
+
+Its header holds **Open run**, or **Open failing attempt** for a golden run more than once. Unless its step is a fix, **Failed runs →** comes before it where the golden has failed replays, how many and which on hover. It opens the golden's [issue](#failed-as-issues) on Runs › Failed, its runs shown.
+
+Its parts come in this order, each where it has something to say:
+
+| Part                 | Shows                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Checks changed       | A check it failed or couldn't decide that has left the config since its test                                                            |
+| Replay               | Its replay against the recording: a cell a call, the call it stopped at red, and its words                                              |
+| Request              | The request it diverged at, as **Show diff** draws it: both heads, the structural diff, and what masks or fixes each changed path       |
+| Error                | The exception the agent died of, where its own code raised it, and the line there                                                       |
+| Checks               | Its checks, marked as its row marks them                                                                                                |
+| Gate                 | The gate's tally and bound, against history its baseline, its interval, pass^5 while inconclusive, and its rule                         |
+| Attempts             | Each attempt's line, opening its run; past six, a picture with the failed ones listed. Then the check they failed and where they forked |
+| First bad commit     | The commit Find breaking commit named, with its change where the answer kept it                                                         |
+| Find breaking commit | Why the search named none                                                                                                               |
+
+- **Replay** is left out for a divergence at call 1, which the verdict says all of.
+- **Request** is asked for once its report opens, never while it is folded. Every normalizer's command is in one box, as on a run's [Show diff](#findings), and where the replay is gone it shows only the changes its result kept.
+- **What followed** the request closes its part in grey, such as *Not served from the recording: the agent exited on HTTP 503*, and **Show message** opens the body the agent got. Where the divergence changed no request, as with a call past the recording's end, it is all the part shows.
+- **Error** reads Python and Node tracebacks as their runtimes print them, anything else by its last line that says something. **Show traceback** opens the agent's last lines as the store kept them.
+- **Attempts** past 24 fold behind the caret that ends the Gate's line. Those a session carried over come first, with a hairline where this one took over.
+
+**An injection gate's report** draws its **Proof** as the attempt's finding draws it, each call it names opening the attempt there, on the tab that shows it. Its header opens that attempt as **Open proof**, or **Open attempt** where it showed too little to say. Its **Attempts** follow: how many obeyed, were influenced, were inconclusive or ignored the planted text, where it was planted, and the command that writes every attempt's proof. Its steps add **Security report**, which opens Share's [dialog](#actions-on-a-run) for the gate's kept result.
+
+**A golden its checks lead.** One whose checks changed since its last test offers **Run tests** alone, as more attempts or a search for a commit would judge checks the config no longer holds. Its hint says that Run tests judges them as the config holds them. One whose own recording fails a check added since leads with **Edit check…**, and its hint says to edit the check, or to update the golden if the agent should do what the check asks.
+
 ### Failures
 
-Each failure follows as the CLI prints it. A divergence offers:
+A divergence's report offers:
 
 - **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run test** once the rule is in the config.
-- **Update golden.**
-- **Find breaking commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
+- **Update golden**, beside that step only. A divergence another step leads offers that step and Find breaking commit.
+- **Find breaking commit**, whose answer then shows as the report's last part, above its steps, while the golden keeps failing as it did when the search started.
 
 Find breaking commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find breaking commit…** to search from an older one.
 
 - **An answer given while the golden passed**, or about an earlier failure, never shows over a later one.
 - **A golden passing at the commit it fails at**: when the search found that, the failure is in changes not committed there, or doesn't happen every time. It says so, and offers no other commit until it fails at another one.
 
-A failed check, a non-zero exit or a replay with no calls shows with its checks and the agent's last lines of output, as `test --markdown` prints them. It offers **Find breaking commit…** unless the pack can't be read.
+A failed check, a non-zero exit or a replay with no calls shows its checks, and an exit its **Error** too. It offers **Find breaking commit…** unless the pack can't be read. A crash offers **Run blame** beside its step, unless a fix holds its run. A test replay that failed a check an open fix is for leads with **Open fix**, as its run's page does.
 
-**A named commit's change** shows under its card wherever the answer kept it, in the box **Show change** opens on a run's page. A crash whose first bad commit stands offers **Revert** first, and its hint says what to do with the commit: *The agent stopped part way at the commit above: revert it or fix the code, then run the tests.*
+**A named commit's change** shows in the **First bad commit** part wherever the answer kept it, in the box **Show change** opens on a run's page. A crash whose first bad commit stands offers **Revert** first, and its hint says what to do with the commit: *The agent stopped part way at the commit above: revert it or fix the code, then run the tests.*
 
 ### Inconclusive goldens
 
-An inconclusive golden follows too:
+An inconclusive golden's report offers:
 
-- **A [gate](./gating.md) that ran out of attempts** offers **Run more attempts**.
-- **A [judge check](./judges.md#not-judged) with no verdict its replay could use** offers **Update golden**, as below.
-- **A golden marked `fork`**, whose judges are asked live, names the key the judge's provider lacked.
+- **A [gate](./gating.md) that ran out of attempts**: **Run more attempts**, which carries its attempts over.
+- **A [judge check](./judges.md#not-judged) with no verdict its replay could use**: **Update golden**, as below.
+- **A golden marked `fork`**, whose judges are asked live, names in its hint the key the judge's provider lacked.
 
 Such a judge check's pack holds no verdict its replay can use: none, one given to an older form of the judge's request, or one given on other material. A test that replays offline can't ask the judge. **Update golden** asks first, then runs `shadowlap test <golden> --update`: the judge is asked once, live, with the key in the dashboard's environment, and its verdict kept in the pack. Nothing is re-recorded.
 
 For a verdict given on other material, it says first that a value that changes every run needs a [normalizer](./normalizers-and-redaction.md#normalizers) before the update, or the next test reads not judged again.
 
+### A report as printed
+
+**Show as printed**, at a report's foot, opens the lines `shadowlap test` prints under the golden, in its order and words, as a CI log holds them. `test --markdown` writes the same checks, details and last lines into a job summary. Find in page searches them while they are folded, so a line copied from a CI log finds its report.
+
+- **Copy report**, in the box's corner, copies them whole.
+- **A long report**, such as a gate's every attempt, scrolls in its box past 25 lines. On a phone its lines stay whole and scroll sideways in the box.
+- **Left out**: the notes the CLI prints under a golden's line on how its gate decided, which the store doesn't keep, and what the agent printed past 400 characters on a line.
+
 ### The network guard in a test
 
-**A blocked connection.** A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay is named on the golden's row, in its history and in its report: the agent went to a host directly, past Shadowlap, which a test refuses. It is named also when the agent caught the refusal and the golden passed.
+**A blocked connection.** A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay is named on the golden's row, in its history and in its report: the agent went to a host directly, past Shadowlap, which a test refuses. It is named also when the agent caught the refusal and the golden passed. Its report's hint leads with it, whatever failed after it: wrap the call as a tool so it is recorded, or allow the host with `SHADOWLAP_GUARD_ALLOW`.
 
 **No preload.** A golden whose replay no Shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*. It shows what the command shows of why, and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`.
 
@@ -1546,7 +1612,7 @@ Security is read again as an injection test or a pack with its gate ends, and as
 - **A golden marked `fork`** runs live from where it forks, needing the providers' keys, as an [injection test](./injection.md) does from each payload it plants, when a golden has one.
 - **What fails a golden**: a divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can't decide. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
 
-It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, in its box with **Copy**, and how many goldens run live. When a golden has a gate against history, it says that CI has to keep the store between runs. On GitHub, **Settings → CI** builds the whole workflow.
+It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, in its box with **Copy**, and how many goldens run live. When a golden has a gate against history, it says that CI has to keep the store between runs. On GitHub, **Settings → CI** builds the whole workflow, with the pull request comment, Fix on failure and alerts.
 
 **Add a golden**, beside it, gives the pack command in its box. A golden whose checks say what the agent must do is also a task a model can be scored on, under **Training tasks**.
 
@@ -1657,12 +1723,16 @@ The workflow has the checkout, Node 22 and a line for the agent's dependencies b
 
 **Keys.** Each panel lists what it needs (*it needs*). The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
 
-- With Fix on failure on, every golden's keys, since blame and verify run the agent live.
+- With Fix on failure or the comment's decisions on, every golden's keys, since blame and verify run the agent live and decisions asks its models.
 - Otherwise, those of the goldens that run live: one marked `fork`, or with an injection gate, and a forking golden's judges.
 
 Where a golden's keys can't be named, a comment in the `env` says to add them. A list of keys breaks only after a comma.
 
-**Pull request comment** is the action's one comment on each pull request, kept current on every push: each golden's verdict by its gate, beside the base branch's last session. Off, the step says `comment: false`. It needs `pull-requests: write`.
+**Pull request comment** is the action's one comment on each pull request, kept current on every push: each golden's verdict by its gate, beside the base branch's last session, a run's cost before and after, and what planted instructions did. Off, the step says `comment: false`. It needs `pull-requests: write`.
+
+**The decisions the branch changes**, the comment's own switch, is off by default. On, the step says `decisions: true` after `comment`, and the action runs `shadowlap decisions --from-code` on each pull request: the comment gains what the branch's prompt and tools decide differently at rank 1 and 2. It asks the goldens' models on every push, so the panel lists *a model key, for the decisions the branch changes* with every golden's keys. Nothing is written while the comment is off.
+
+**Preview pull request comment** draws the comment as GitHub shows it, from the newest test session that ran every golden, ended and wasn't interrupted, at its revision as it was (*d2e8a1f+dirty*). It says who posts it: *github-actions*, unless the step gives the action a token of its own. **Copy Markdown** copies its Markdown, less what only the job knows: the base branch's column, the fixes it opened and its summary's link. Before such a session the button waits: *No test session yet: run the tests once*.
 
 **Fix on failure** sets the budget per failing golden and the repairer. The pull request is shown as CI opens it: its branch named after the golden, blame where the run was lost, and verify's line with its rule stated once. It is the newest fix verified here, else the docs' example.
 
@@ -2092,6 +2162,7 @@ The check builder makes a check from a tool call and writes it to the golden's e
 - **The golden's checks**: one row a check, labelled as reports label them. The rule being built reads `new`, or `changed` once it edits one of the file's, and a removed one `removed`, with **Keep**. A tool's count the rule takes the place of reads `replaced`.
 - **An injection gate** set in the golden's entry is a row of its own, read only.
 - **Against your recordings**: the counts, with *not applicable* apart, the notes in amber or grey, the recordings on request, and the `shadowlap check` command with **Copy whole command**.
+- **Suggested**, on a failed recording with good runs to compare with: at most three rules that fail it and none of its good runs, the fix's and the agent's recordings labelled `good`. **Use rule** puts one in place of the rule being built, **Add rule** adds it beside a check being edited, and nothing is saved until **Save check**.
 - **The change**: the golden's entry as the file will hold it, with the file's version. When saving would also lay out other lines of the file anew, it says so first.
 
 **Save check** turns lime once nothing needs a look, and stays off with its reason until the rule can be saved. For an edited check it reads **Save change**. While the dashboard server can't be reached, it waits.
@@ -2101,6 +2172,17 @@ The check builder makes a check from a tool call and writes it to the golden's e
 - **A save** closes the builder, says *Saved to shadowlap.config.json · goldens/…*, and leaves an entry in the [activity feed](#activity). The run's outcome is judged again by its checks.
 
 A press outside the dialog never closes it. Esc closes it while nothing changed, and asks first once a rule did.
+
+**On a fix.** Edit check… opens the builder on an open fix's check, its first rule in the editor, and saves the check to the fix, never to `shadowlap.config.json`:
+
+- **The check of this fix**: its rules, listed as a golden's are. A fix whose check is the exit code alone opens on one blank rule.
+- **Its runs under this check**: each failing and good run of the fix, judged by the whole check as built, judges in, from what it recorded. A failing run it passes would leave the fix, and a good run it fails would no longer be kept as good: those, and a run it can't settle, read in amber. Then the `shadowlap check` command.
+- **Suggested**, as on a failed recording: rules that fail the fix's first failing run and none of its good runs, the fix's own and the agent's recordings labelled `good`.
+- **What changes**: blame runs again first under the check, repair and verify use it, the verdicts that would stop counting, each named by the change it verified, and the config, unchanged. Then the [`shadowlap fix check`](./cli.md#fix-check) command.
+
+**Save check** runs that command as a job, and the drawer ends on the fix's next step. It stays off until the fix's runs are judged by the check as it stands, and while no failing run fails it, since the fix would no longer be this failure. It reads plain while a run needs a look. A refusal keeps the builder open, with the server's words in its amber line.
+
+**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. Suggested reads the fix's first failing run there too. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
 
 ### Run an injection test
 
@@ -2222,14 +2304,14 @@ It asks first on every setting of [Spending](#spending), since it runs your agen
 
 The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
-- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
+- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), that stopped part way (to the end, without its budget), or that was found under an earlier check, under the fix's check.
 - **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run. Its Cost line follows the model you type.
 
 Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, or, for a search that stopped, the furthest call it had rescued the run at.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 
-**After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
+**After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*, and its notice offers **Edit check…**, since what is left is to change the check or verify a change of your own. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
 
 **Verify this run**, on a verified fix whose change is in your working tree, merged with its pull request or not, verifies your working tree as it is on the failing runs no accepted verdict checked. It reads *Verify these runs* for several, and runs one verify under the fix's check, by the accepted verdict's gate. It leads until no such run is left, with Mark applied plain before it until the fix is merged, and goes by [Spending](#spending), asking with *Verify change on* the run.
 
@@ -2677,6 +2759,7 @@ The work done on those threads:
 
 - the Overview, and the totals the Runs table filters and sorts by;
 - a run's page and its calls, its Provenance, and what a run's untrusted reads are;
+- the check builder's reads: what a call offers, a draft judged on your recordings or on a fix's runs, and its suggested checks;
 - Compare, and what a fork did differently;
 - a fix's page and its attempt groups;
 - the activity feed, and a search;
@@ -2938,10 +3021,13 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 | `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
 | `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, Verify this run, and each Verify step's more attempts bill |
+| `POST /api/fixes/:id/check-preview` | A draft check judged on every run an open fix holds, from what each recorded, before Save check gives the fix it |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
 - **Its estimates**: `repair`, `blameAgain`, `blameStronger`, `verifyLeft` for Verify this run, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
+- **A check's preview**: `rows`, each run's `role`, `outcome`, `na` (no check applied) and `checks`, failing runs first, as [`fix check`](./cli.md#fix-check) judges them. Then `refused`, why Save check would be refused, and `uncounted`, the verdicts that would stop counting. A fix that isn't open is a 409, and a check the command can't take is a 400 in its words.
+- **A check's preview as context**: with `context: true`, the runs of a fix of any status, beside a check added to the golden that guards it. Nothing is refused or uncounted.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
@@ -2954,9 +3040,10 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 | `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens for the goldens `update` names |
 | `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
-| `GET /api/ci/workflows?comment=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
+| `GET /api/ci/workflows?comment=&decisions=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 | `PUT /api/ci/workflow { options, expect, shown }` | Write file: the workflow those options build, written over the version read |
 | `POST /api/ci/workflow/undo { was }` | Write file's Undo: the file put back as it was, or removed |
+| `GET /api/ci/comment` | Settings → CI: the pull request comment as the Action would post it, from the last session that ran every golden |
 
 **The Tests screen** (`/api/tests`) holds:
 
@@ -2967,12 +3054,13 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - each revision's commit as git has it (`revisionFacts`): its `subject`, and its author (`by`) only where names show;
 - `older` when the session the verdict names tested a clean commit and the working tree changed since;
 - each golden that didn't pass, by its path, with the step its replay's page leads with (`steps`): `run-tests` names the checks `gone`, and `edit-check` the `check` its recording fails;
+- each golden that didn't pass, by its path, with its report (`reports`, below);
 - whether a golden has an injection test, which runs live (`injection`);
 - each golden's checks as its last result came out on each (`checkResults`, below);
 - the checks a golden's last result failed or couldn't decide that the config no longer holds (`changed`: each a `label` and its `status`), null for none;
 - each golden's `gate`, and what it decided last (`last.gate`, below);
 - each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, and the attempt to open;
-- the divergences and other failures as the CLI printed them, each with Find breaking commit's range, and what it last said about this failure (`found`, or `missed` with why and its `outcome`);
+- the divergences and other failures, each with Find breaking commit's range, and what it last said about this failure (`found`, or `missed` with why and its `outcome`). The lines each printed are in its report (`printed`);
 - a `found` commit's `change`, or null for an answer that kept none: the `file` it opens, every file changed (`files`), the `hunk` against the first parent and whether it was `cut`. It also has the `line` to open, `merge`, the file's `path` in the project folder (null outside it) and how many files are `outside` it;
 - the commits Find breaking commit's dialog offers (`revisions`), each with its subject and its tally there (`rate`: `passes` of `attempts`), and for a golden that never passed, the commits before its failure that no session tested (`untested`, each a `rev` and `subject`);
 - for a divergence on values that change every run, the `normalize add` arguments of each rule the config lacks (`newRules`);
@@ -3006,6 +3094,20 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - what its pack `held`: `none`; `older`, a verdict given to an older form of the judge's request; or `material`, one given on other material, with where it `changed`;
 - what settles it: `update` for a golden that replays offline, or the `keys` its provider reads for one that forks.
 
+`reports` holds, for each golden that didn't pass:
+
+- its `verdict`, the sentence that says what happened (`head`, in pieces, a path or a check as `code`), and the grey line under it (`sub`);
+- its `parts`, in the order its report draws them: `checks-changed`, `replay`, `request`, `error` (the exception the agent died of, read from its last lines, and the file it was raised in), `checks`, `gate`, `attempts`, an injection gate's `proof` and `injection-attempts`, then `commit` or `missed`;
+- what its header opens (`open`), and its own failed replays, as its issue on Runs › Failed holds them (`failedRuns`: the `href` Failed runs → opens, their `count` and first five `ids`), null where its step is a fix;
+- the key of its `hint`;
+- its lines as `shadowlap test` prints them (`printed`, each with its `tone`).
+
+A divergence's `request` part names the call it diverged at (`callNo`), the replay to ask its diff of (`runId`), and the recording's call it is compared with (`against`, null where the golden's recording isn't known). Where the replay is gone, `bodies` holds the changes its result kept. `followed`, null where nothing followed, is what followed from it, such as the offline 503 the agent exited on: its `line`, and the body the agent got as `message`, null where none was kept. A divergence that changed no request sends only `followed`.
+
+An injection gate's `proof` part names its attempt (`runId`) and holds the proof in `parts`, as the attempt's page reads it: where the payload was planted (`plantedAt`) and read (`readAt`), and what carried the canary (`evidence`), with `why` for an attempt that showed nothing. Its `injection-attempts` part names the kept result Security report writes and the run that result tested (`security`), null once the store no longer has it.
+
+The store keeps the agent's last lines cut: each line at 400 characters, the whole at its last 6000. The CLI prints the last 20 lines whole. The notes the CLI prints under a golden's line aren't kept, so `printed` leaves them out. A report that can't be built is left out, and its row still shows.
+
 **A golden's evidence** (`/api/tests/evidence?golden=`): asked when the row under a gated golden opens, never with the page. It answers `attempts` (each with `runId`, `outcome` and a `note` from its failed check), `carried` (how many came from the sessions Run more attempts continued) and `gone` (runs no longer in the store, left out).
 
 An attempt the provider cut short is `inconclusive`, never the agent's failure; one it was unavailable for, retried and never counted, is left out. A golden not on disk is a 400, and one no gate decided a 404. Each gated result in `/api/tests` carries the evidence's words in `gate.words`.
@@ -3028,16 +3130,20 @@ A gate against history is figured at seven pass rates against the baseline `hist
 - `update`, given once for each golden, adds `update` to the answer: what Update goldens bills for those goldens together. A path that isn't a golden on disk is left out.
 - `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
 
-**Your workflow** (`/api/ci/workflows`) takes its options: `comment`, `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. An option left out is what the repository's workflow sets. It answers with:
+**Your workflow** (`/api/ci/workflows`) takes its options: `comment`, `decisions`, `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. An option left out is what the repository's workflow sets. It answers with:
 
 - the repository's workflow (`file`), whether it `exists`, the `version` read, and why Write file waits (`problem`);
-- one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the test `session` last seen, with `ci` when CI pushed it;
+- one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the test `session` its line names: CI's, with `ci`, once CI pushed one, else the one the comment's preview reads;
 - for each part, what it needs and a preview of what lands;
 - what Gates sends (`gates`): the config's `suiteRisk`, and the goldens on each kind's defaults (`uses`).
 
 Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
 
 **Write file** (`PUT /api/ci/workflow`) takes the `options` the page changed, the `version` it read as `expect`, and the workflow it showed as `shown`. It answers the `path`, the `version` written, whether it `changed`, and `was`, the id its Undo sends. A file changed since, or a workflow other than the one shown, is a 409. A file it can't write, or a view with a `problem`, is a 422.
+
+**The comment's preview** (`/api/ci/comment`) reads the newest session that ran every golden, ended and wasn't interrupted, as it left it: a golden replayed on its own since waits for the next one. Before such a session it answers `{ "session": null }`.
+
+It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+dirty`, and `at`), the `head`, each golden's `rows` worst first, the kept `decisions`, the `cost` per run and each `injection` gate. Then who the comment is `postedBy`, its last line as text (`foot`), and the `markdown` Copy Markdown copies. The job adds the rest: the base branch's column, the fixes it opened, and its summary's link.
 
 **Its Undo** (`/api/ci/workflow/undo`) puts the file back only while it is the version the write left, which the dashboard keeps with `was`. It is a 409 once the file changed since, even after the page read it again, or once the dashboard no longer holds it.
 
@@ -3070,10 +3176,12 @@ The check builder reads a golden's checks from `shadowlap.config.json`, judges a
 | `GET /api/checks/goldens?run=<id>\|golden=<path>` | The agent's goldens with their tests entries as written, the file's `version`, `read` and whether a write lays out other lines anew (`relaid`) |
 | `GET /api/checks/context?run=<id>&at=<n>` | What the run offers a check made from call `n`: each tool by its first call, the tools before it, the results' number fields |
 | `POST /api/checks/preview { expect, run \| golden }` | The draft judged on the agent's 200 newest recordings, its goldens' and the run's, as [`shadowlap check`](./cli.md#check) judges them |
+| `POST /api/checks/suggestions { run, at, have, fix }` | At most three rules that fail the recording `run` and none of its good runs, leaving out those labelled in `have` |
 | `PUT /api/checks/tests { golden, version, read, entry }` | The golden's checks: `entry.expect` set, or taken out with `null` |
 | `POST /api/checks/tests/undo { was }` | Puts back what the write that answered `was` changed |
 
-- **Reads beside the server.** The context and the preview are worked out beside the server, as they read the run's calls or every recording of the agent. The preview changes nothing. A golden whose recording is only in its pack is read from the pack there.
+- **Reads beside the server.** The context, the preview and the suggestions are worked out beside the server, as they read the run's calls or every recording of the agent; the preview and the suggestions change nothing. A golden whose recording is only in its pack is read from the pack there.
+- **Suggestions** compare `run` with the good runs of its fix, the one `fix` names in a fix's builder, then the agent's recordings labelled `good`. Each rule is judged by its own result, never the exit code, and one that doesn't apply to a good run doesn't fail it.
 - **A write** names the `version` it read and sends back `read`. A file changed since is a 409 that names what changed, such as `"prices" added`. A check `shadowlap test` would refuse is a 400 in its words. As the whole of `tests` is checked, that can name another golden's entry.
 - **A golden that follows a pattern**, such as `goldens/refund-*`, gets an entry of its own with the pattern's other keys. The pattern stays for its other goldens.
 - **The answer** is `{ key, version, added, removed, changed, was }`: the key written, the file's version after, and the labels of the checks added and removed. Only a write that changed the file has a `was`, and it lands in the activity feed.
@@ -3147,8 +3255,10 @@ The `matrix` has a row per run and a cell per model call. A row is named by its 
 
 - `/api/verdicts`: every change checked, newest first, `limit` rows (50 unless given, at most 200) of the chip `kind` names. A change is a revision a test session ran every golden at, a preview or a migration, or a verify a fix keeps.
 - Each row gives its verdict as the command that gave it says it (`word`, coloured by `tone`), the `line` under it, what it was `checked` on and what `moved`. It names who made the change (`by`: a commit's author, who ran a preview) only when the project's config names a team store.
+- A session's row gives the `pullRequest` it ran for, or null: its `number`, its `url` and its `state` as `gh` last said, each null when unknown. Its `flag` is `merged while failing` or `merged while inconclusive`, else null.
 - `counts` gives each chip's count, and `lead` the newest revision's verdict. The list reads the newest 200 test sessions, previews and verifies, and `more` says older changes exist.
 - `/api/verdicts/:rev` gives a revision's page (`no-revision` for a session that knew none): its goldens as that session judged them, worst first with their notes, and the previews and migrations asked at that revision. `latest` says whether it is the newest revision's, the one the list leads with.
+- A revision's `comment` is what the session's pull request comment carried beside the verdicts, or null: the kept `decisions` (their `sentence`, `headline`, `rows` and `note`), the `cost` per run and each `injection` gate that ran.
 
 **Injection tests:**
 
@@ -3203,7 +3313,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `apply { fixId, names? }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens named by their runs as `names` says, and tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
-| `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
+| `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again under its check (unsettled, stopped, or found under an earlier check), or with another model when nothing rescued its run |
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
 | `chaos { golden, presets?, tool?, confirmed? }` | `test <golden> --chaos` |
 | `chaos { runId, presets?, tool?, expect?, confirmed? }` | `replay <run> --chaos`, with `--expect` |
@@ -3213,6 +3323,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` | A decision diff |
 | `decisions-verify { sessionId, runId?, runIds?, yes? }` | `decisions --verify` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
+| `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
@@ -3299,7 +3410,7 @@ Settings is checked at a phone's width too: no tab scrolls sideways, each row's 
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
 - **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a heavy part it lists loads with a page, not through `onShow`: Compare, the structural diff (`ui/components/JsonDiff.tsx`), the results matrix (`ui/components/ResultsMatrix.tsx`), everything under `ui/changes/` but its head, `Head.tsx`, and the check builder (`ui/checks/`).
-- **Parts only the served dashboard draws**, Share's menu, Run blame's dialogs, the check menu and builder, and the dialogs of injection tests, error-path presets and Not covered's packs, are handed to the pages by its entry (`ui/served-parts.ts`, from `ui/pages/served.tsx`). An exported copy never offers Share, Run blame, Add check…, Run injection test…, Run error-path presets…, Find cause… or Pack with injection gate…, so its script holds none of them.
+- **Parts only the served dashboard draws**, Share's menu, Run blame's dialogs, the check menu and builder, and the dialogs of injection tests, error-path presets and Not covered's packs, are handed to the pages by its entry (`ui/served-parts.ts`, from `ui/pages/served.tsx`). An exported copy never offers Share, Run blame, Add check…, Run injection test…, Run error-path presets…, Find cause… or Pack with injection gate…, so its one script holds none of them.
 - **Share's words** load with its menu (`ui/run/share.ts`). A run's header, steps and keys read what they say of a copy from `ui/run/share-steps.ts`, so opening a run loads none of the menu's words.
 
 ## Troubleshooting

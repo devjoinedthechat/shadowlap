@@ -4,10 +4,10 @@ import { foundLine } from '../goldens.js';
 import type { FoundCommit } from '../types.js';
 
 /**
- * What Find breaking commit found, as Tests' report and a fix's Blame step draw it: `first bad
+ * What Find breaking commit found, as a fix's Blame step draws it under the step's lead: `first bad
  * commit`, its rev, its message, who made it (where names are shown), when and what the search cost
  * (`foundLine`), then the commits just before it that couldn't be tested; why it is the one, on
- * hover. `className` places it: Tests' card under the report, a fix's under the step's lead.
+ * hover. Tests' report draws the same facts in its First bad commit part (tests/ReportParts.tsx).
  */
 export function FoundCommitLine({ found, className = 'bisect' }: { found: FoundCommit; className?: string }) {
   const f = foundLine(found);
