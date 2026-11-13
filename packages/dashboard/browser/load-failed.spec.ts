@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { demoId, expectAccessible, glued, openPage } from './dashboard.js';
-import { allClear, migrated, MIGRATED } from './routes.js';
+import { allClear, MENU, migrated, MIGRATED } from './routes.js';
 
 /**
  * A page, a run's view, a Changes tab or the check builder whose code didn't come from the dashboard
@@ -187,5 +187,35 @@ test('Apply config change?, whose code didn’t come, says so in the error toast
   await page.locator(MIGRATED).waitFor();
   await apply.click();
   await expect(page.locator('[role="dialog"]', { hasText: 'Apply config change?' })).toBeVisible();
+  await expect(toast).toHaveCount(0);
+});
+
+test('Migrate to…’s dialog, whose code didn’t come, says so in the error toast and opens no dialog, and again on the next pick, until Retry loads it again', async ({ page }) => {
+  const part = /\/assets\/chunks\/MigrateToDialog-\w+\.js$/;
+  await page.route(part, (route) => route.abort());
+  await openPage(page, (await migrated(page)).report, MIGRATED);
+  const toast = page.locator('.toasts .toast.err');
+  // Migrate to's menu on the migration's page, and its first model, which asks in the dialog.
+  const to = page.locator('main#view .chbar button', { hasText: 'Migrate to' });
+  const pick = page.locator(`${MENU} [role="menuitemradio"]`).first();
+  for (const time of [1, 2]) {
+    await to.click();
+    await pick.click();
+    await expect(toast, `pick ${time}`).toContainText('This dialog’s code didn’t come from the dashboard server. Retry loads the page again.');
+    await expect(toast.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+    if (time === 1) {
+      await toast.getByRole('button', { name: 'Dismiss' }).click();
+      await expect(toast).toHaveCount(0);
+    }
+  }
+  await expectAccessible(page);
+  // The server sends it: Retry loads the page again, and the pick asks in the dialog.
+  await page.unroute(part);
+  await toast.getByRole('button', { name: 'Retry' }).click();
+  await page.locator(MIGRATED).waitFor();
+  await to.click();
+  await pick.click();
+  await expect(page.locator('[role="dialog"] h3', { hasText: 'Migrate' })).toBeVisible();
   await expect(toast).toHaveCount(0);
 });

@@ -2,6 +2,7 @@ import { createContext, useContext, type ComponentProps, type ComponentType } fr
 import type { ApplyConfigDialog } from './changes/ApplyConfigDialog.js';
 import type { NewPreviewProps } from './changes/NewPreview.js';
 import type { PrCommentDialog } from './ci/PrCommentDialog.js';
+import type { MigrateToDialog } from './components/MigrateToDialog.js';
 import type { OnShow } from './components/OnShow.js';
 import type { RunBlameAsks } from './fixes/RunBlameAsks.js';
 import type { AttemptPage } from './injection/AttemptPage.js';
@@ -67,6 +68,8 @@ export type EditDialogProps = ComponentProps<typeof EditDialog>;
 export type PrCommentDialogProps = ComponentProps<typeof PrCommentDialog>;
 /** What Apply config change?'s dialog takes (changes/ApplyConfigDialog.tsx), which the Migrate report's Apply config change opens. */
 export type ApplyConfigDialogProps = ComponentProps<typeof ApplyConfigDialog>;
+/** What Migrate to a model's dialog takes (components/MigrateToDialog.tsx), which every Migrate to… opens. */
+export type MigrateToDialogProps = ComponentProps<typeof MigrateToDialog>;
 /** The words of a job's kind (jobs.ts), which come with the job's drawer. */
 export type JobWords = typeof JobWordsModule;
 
@@ -97,7 +100,8 @@ export type JobWords = typeof JobWordsModule;
  * can't find what a link names says so itself, never asking another project; ⌘K, `/` and the
  * top bar open no palette; a copy sends Settings → CI and a revision's page under Changes to its
  * runs, so nothing opens Preview pull request comment; and test/ui-migrate.test.ts: a copy's
- * migration offers no Apply config change, so nothing opens its dialog.
+ * migration offers neither Migrate to nor Apply config change, so nothing opens their dialogs (a
+ * copy holds no Overview and no preview, the other places a Migrate to… is drawn).
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
@@ -168,6 +172,8 @@ export interface ServedParts {
   PrCommentDialog?: OnShow<PrCommentDialogProps>;
   /** Apply config change?'s dialog (changes/ApplyConfigDialog.tsx), which only the Migrate report's Apply config change opens: loaded the first time it does. */
   ApplyConfigDialog?: OnShow<ApplyConfigDialogProps>;
+  /** Migrate to a model's dialog (components/MigrateToDialog.tsx), which every Migrate to… opens: a retiring model's row, a preview's next step, Migrate's start and report, and the palette. Loaded the first time one asks. */
+  MigrateToDialog?: OnShow<MigrateToDialogProps>;
   /** The In page (pages/Elsewhere.tsx), in the place of a page's not-found while another project on this machine holds what a link names: the page's own loading look while its script comes, and its own not-found should it fail to come. */
   Elsewhere?: OnShow<ElsewhereProps>;
 }

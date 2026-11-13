@@ -14,6 +14,7 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { addRun, DAY } from './read-model-store.js';
 import { addressBar, app, watchThePage } from './ui-route-helpers.js';
 import { render, type Rendered } from './ui-render.js';
+import { withMigrateDialogs } from './ui-served-now.js';
 
 /**
  * The Overview as the shell draws it: Watch live naming the recording by what it is about, Recent
@@ -81,7 +82,7 @@ async function overview(first: Shown, more: Partial<Client> = {}): Promise<{ sho
     move = setTick;
     counters = setFeeds;
     const state = app({ client, runs: now.runs ?? [], live: now.live ?? [], tick, runsTick: 0, feeds, hasKind: () => true });
-    return createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, 'Overview'), createElement(OverviewPage)), createElement(Keyboard));
+    return withMigrateDialogs(createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, 'Overview'), createElement(OverviewPage)), createElement(Keyboard)));
   }
   r = await render(createElement(Host));
   await r.until('the Overview', () => r!.all('.ovg').length > 0);

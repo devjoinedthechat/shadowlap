@@ -5,17 +5,15 @@ import { DONE, LOOKUP, REFUND, recordRun } from '../../engine/test/training-fixt
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { migrateStart } from '../src/migrate-start.js';
 import { ApiError, type Client } from '../ui/api.js';
-import { ApplyConfigDialog } from '../ui/changes/ApplyConfigDialog.js';
 import { MigrateTab } from '../ui/changes/Migrate.js';
 import { inlineParts, Markdown, parseMarkdown } from '../ui/components/Markdown.js';
 import { NO_GOLDENS } from '../ui/components/NewPreviewMenu.js';
 import { migratePaletteRows } from '../ui/migrate-command.js';
 import { MIGRATE_ASK } from '../ui/page-ask.js';
-import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DecisionSessionView, MigrateStartView, MigrateUse } from '../ui/types.js';
 import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
-import { shownNow } from './ui-served-now.js';
+import { withMigrateDialogs } from './ui-served-now.js';
 
 /**
  * Changes › Migrate: the bare tab on a retiring model, on Switch from and To, with no golden and on
@@ -33,8 +31,6 @@ const MG = 'mg-01M5000000000000000000000A';
 const WAITS = 'mg-01M5000000000000000000000B';
 const UPDATED = 'mg-01M5000000000000000000000C';
 const PATCH = '--- a/agent.py\n+++ b/agent.py\n@@ -3 +3 @@\n-MODEL = "claude-sonnet-4-5"\n+MODEL = "claude-sonnet-5-5"\n';
-/** The parts the served dashboard hands the Migrate report, each drawn at once: Apply config change?'s dialog. */
-const MIGRATE_PARTS: ServedParts = { ApplyConfigDialog: shownNow(ApplyConfigDialog) };
 const REMEDY = { field: 'temperature', value: 1, leftOut: true, renamedTo: null, why: `${TO} refuses temperature with thinking on`, source: null, steps: 1 };
 const shown = (el: { textContent: string } | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 /** What a line shows, a defined term's hidden definition left out. */
@@ -169,7 +165,7 @@ describe('Changes › Migrate', () => {
   const open = async (view: MigrateStartView, listing: string[], o: { id?: string; run?: string; call?: number; client?: Partial<Client>; app?: Partial<AppState> } = {}) => {
     started.length = 0;
     const client = { migrateStart: () => Promise.resolve(view), decisionSessions: () => Promise.resolve({ sessions: listing.map(listed), goldens: view.goldens }), decisionSession: sessionOf, ...o.client } as unknown as Partial<Client>;
-    page = await render(createElement(AppContext.Provider, { value: app(client, o.app) }, createElement(ServedPartsContext.Provider, { value: MIGRATE_PARTS }, createElement(MigrateTab, { id: o.id ?? null, run: o.run ?? null, call: o.call ?? null }))));
+    page = await render(createElement(AppContext.Provider, { value: app(client, o.app) }, withMigrateDialogs(createElement(MigrateTab, { id: o.id ?? null, run: o.run ?? null, call: o.call ?? null }))));
     return page;
   };
   const report = async (id: string, o: Parameters<typeof open>[2] = {}) => {
