@@ -544,7 +544,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw', '.dc', 'i.dg'];
+    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.astrip .acsep', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw', '.dc', 'i.dg'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 
@@ -560,6 +560,8 @@ describe('forced colours', () => {
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
     // The structural diff's marked words, which say what changed by their ground alone.
     expect(forced.get('mark.jdw')?.get('text-decoration')).toBe('underline 2px');
+    // What the working tree adds to a prompt in Preview changed prompt, drawn on the added lines' ground.
+    expect(forced.get('.dprompt ins')?.get('text-decoration')).toBe('underline');
   });
 
   it('outlines every overlay in the user’s text colour, since its edge is a shadow the theme drops', () => {
