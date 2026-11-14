@@ -125,9 +125,8 @@ export function envLines(env: Record<string, string>, platform: NodeJS.Platform 
 }
 
 
-export function register(program: Command): void {
-  program.commandsGroup('Test:');
-
+/** `shadowlap test`, with its flags. */
+function testCommand(program: Command): void {
   program
     .command('test')
     .description('Replay packed recordings offline and fail on any divergence or failed check (CI). Each pack re-runs its recorded command; checks come from "tests" in shadowlap.config.json. Each session is kept in the project\'s store as test history.')
@@ -137,6 +136,7 @@ export function register(program: Command): void {
     .option('--markdown <file>', 'append a Markdown report to this file, e.g. $GITHUB_STEP_SUMMARY')
     .option('--annotations', 'print a GitHub Actions annotation for each pack that did not pass: an error, or a warning for an inconclusive one let through')
     .option('--update', 're-record each golden that diverged, live with writes stubbed, and replace it in the working tree when its checks pass; a golden that replayed clean gets the judge verdicts it lacks asked live and kept')
+    .option('--reason <why>', 'with --update: why the change is meant, kept beside each golden it replaces (accepted.jsonl) and shown when a later change takes out what this one put in')
     .option('--online', 'allow live calls after a divergence (default: offline, a live call fails the test)')
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
@@ -155,6 +155,12 @@ export function register(program: Command): void {
     .action(async function (this: Command, packArgs: string[], flags: TestFlags) {
       await testPacks(this, program.opts<GlobalOpts>(), packArgs, flags);
     });
+}
+
+export function register(program: Command): void {
+  program.commandsGroup('Test:');
+
+  testCommand(program);
 
   program
     .command('bisect')

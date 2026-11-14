@@ -9,6 +9,7 @@ import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport } from '../..
 import { CONFIG_REWRITES, RUNNERS } from '../../engine/test/runner-fixtures.js';
 import { ApplyError, applyFix } from '../src/fix-apply.js';
 import { formatFixDetail } from '../src/fix-format.js';
+import { ACCEPTED_FILE, readAcceptances } from '../src/golden-accepted.js';
 
 /** `fix apply` on a fix `repair --apply` applied: it finishes what was left, where it was left. */
 
@@ -73,6 +74,35 @@ describe('fix apply after repair --apply', () => {
       expect(result.goldens).toEqual([{ run: name, from: `${dir}/goldens/${name}`, to: 'goldens/refund-over-limit', copied: true }]);
       expect(lines).toContain(`  copied goldens/refund-over-limit from ${name}`);
       expect(lines).toContain('  shadowlap test goldens/refund-over-limit');
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('fix apply on the goldens it copies', () => {
+  it('keeps the fix beside each as the reason it is there, with who applied it', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const run = makeRun(store, { labels: ['refund-over-limit'] });
+      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 'Refunded $240 against policy', checkText: 'x' });
+      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+      const report = repairReport({ targets: [run], applied: true, dir });
+      const name = run.slice(0, 10);
+      // The recording the repair made with the fixed code, as a pack.
+      const fixed = makeRun(store, { status: 'completed' });
+      packRun(store, fixed, join(project, dir, 'goldens', name));
+      writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
+      writeFileSync(join(project, 'agent.mjs'), `${AFTER}\n`);
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
+      const lines: string[] = [];
+      await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: false, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
+      const accepted = readAcceptances(join(project, 'goldens', 'refund-over-limit'));
+      expect(accepted).toMatchObject([{ reason: fix.title, fix: fix.fixId, from: run, to: fixed, by: expect.any(String) }]);
+      expect(lines).toContain(`  it says why it is there, the fix, in its ${ACCEPTED_FILE}: a change that takes the fix out is told so`);
+      // Applied again, the golden is there already: nothing is added to what it says.
+      await applyFix(store, store.getFix(fix.fixId)!, { cwd: project, goldens: 'goldens', test: false, build: null, db: join(project, 'shadowlap.db'), log: () => {} });
+      expect(readAcceptances(join(project, 'goldens', 'refund-over-limit'))).toHaveLength(1);
     } finally {
       store.close();
     }

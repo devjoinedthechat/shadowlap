@@ -1498,7 +1498,8 @@ Hands a verified fix over. Run it in the folder the repair ran in, where its dir
 
 1. It runs `git apply` on the accepted repair's `fix.patch`.
 2. It copies the recordings the fixed code made into the goldens folder, each a golden named as
-   below.
+   below. Each copy says why it is there in its [`accepted.jsonl`](./ci.md#say-why): the fix, as its
+   reason.
 3. It runs [`shadowlap test`](#test) on them, and marks the fix applied.
 4. It replays the project's other goldens, and names each that diverges on what the patch changed
    (below).
@@ -2206,7 +2207,7 @@ A refusal prints `{ migrateId, status: "error", error: { message } }`, as `fix a
 
 ```sh
 shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations]
-               [--update] [--online] [--writes <policy>] [--cwd <dir>] [--guard <mode>] [--push]
+               [--update] [--reason <why>] [--online] [--writes <policy>] [--cwd <dir>] [--guard <mode>] [--push]
                [--inconclusive fail|warn] [--max-attempts <n>] [--suite-risk <r>] [--continue]
                [--allow-unrecorded <names>] [-y]
 shadowlap test <pack...> --chaos [--presets <list>] [--chaos-tool <name>] [--inconclusive fail|warn] [-y]
@@ -2243,6 +2244,7 @@ called whose credentials the environment lacks, so a job without secrets tests i
 | `--markdown <file>` | Append a Markdown report: a results table, and the diff and agent output for each failure. Point it at `$GITHUB_STEP_SUMMARY` for a GitHub job summary | — |
 | `--annotations` | Print a GitHub Actions annotation for each pack that didn't pass, attached to its `run.json` (below) | — |
 | `--update` | [Re-record each golden that diverged](./ci.md#update-a-golden-after-an-intended-change), live with writes stubbed, and replace its pack (below) | — |
+| `--reason <why>` | With `--update`: why the change is meant, [kept beside each golden](./ci.md#say-why) it replaces | — |
 | `--online` | Allow live calls after a divergence | Every provider offline: a live call fails the pack |
 | `-y, --yes` | Run the recorded command of a golden from someone else's pack, which the repository doesn't track, without asking | — |
 | `--writes block\|stub\|allow` | What `write` tools do after a divergence | `block` |
@@ -2266,8 +2268,11 @@ More on some of them:
   It replaces the pack (`run.json`, `calls.jsonl`, `blobs/`, and a `.gitattributes` when the folder has
   none; other files in its folder stay) in the working tree, when the agent exits 0 and its checks
   pass.
-- **What `--update` prints**: what the agent sends differently. When the divergence is a value that
-  changes every run and the config has no rule at its path, it warns, with the normalizer to add.
+- **What `--update` prints**: what the agent sends differently, and what the re-recording does
+  differently from the golden it replaces. When the divergence is a value that changes every run and
+  the config has no rule at its path, it warns, with the normalizer to add.
+- **`--reason`**: the golden's `accepted.jsonl` gains a line with who accepted the change, when and
+  why. A later test whose request takes out a sentence that change added says so, with the reason.
 - **`--update` and judges**: a golden that replayed clean but holds no verdict for a
   [judge check](./judges.md#recorded-once-judged-free-after) gets it asked live, and kept in its pack.
 - **`--allow-unrecorded`**: for tools that [write](./how-it-works.md#tools-shadowlap-did-not-record), or
@@ -2464,7 +2469,8 @@ One result per pack, in `results`, has these fields:
 | `attempts` | For a recording that repeats or has a gate (below) |
 | `gate` | For a golden with a gate (below); null otherwise |
 | `judge` | What its judge checks' calls did and cost over every attempt, apart from the agent's (below), or `null` |
-| `updated` | With `--update`, what it updated: `from`, `to`, `calls`, `changes` |
+| `updated` | With `--update`, what it updated: `from`, `to`, `calls`, `changes`, and `decides` and `reason` when it has them |
+| `takesOut` | For a golden that diverged: each sentence its request takes out that an [accepted change](./ci.md#say-why) added, with `at`, `by`, `reason` and `fix`. Absent with none |
 | `injection` | Its injection gate (below), or null |
 
 More on a result's fields:
