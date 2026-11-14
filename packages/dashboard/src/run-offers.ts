@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, parseTraceback, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
+import { abandonedRuns, agentCallsOf, checkStatus, hasRecordedCommand, isObject, loadApiRequest, parseTraceback, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex, type IndexedRun } from './run-index.js';
@@ -36,6 +36,17 @@ export interface BlameOffer {
   /** The check, as `--expect` takes it; null to blame on the exit status; absent when it must be asked. */
   expect?: unknown;
   failed: string[];
+  /**
+   * On a run's page (`runOffers`) alone, which reads its calls: the agents its model calls were made in
+   * (their scopes, `scope()` in the SDKs), where they name two or more, for Run blame's dialog to pick
+   * one (`--scope`); absent otherwise.
+   */
+  scopes?: string[];
+  /**
+   * On a run's page alone: its first model call was recorded at temperature 0, where a model asked
+   * again answers the same, so Run blame's dialog suggests `--set temperature=1`. Absent otherwise.
+   */
+  temperature0?: true;
 }
 
 /**
@@ -260,6 +271,31 @@ export function blameOffer(store: StoreOf<'recording' | 'readModels' | 'fixes'>,
   return failed.length ? { from: 'ask', failed } : { from: 'exit', expect: null, failed };
 }
 
+/** A model call's request as it was sent, or null where it can't be read. */
+function firstRequest(store: StoreOf<'recording'>, call: { requestRef: string | null } | undefined): unknown {
+  try {
+    return call?.requestRef ? loadApiRequest(store, call.requestRef) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run blame's offer on a run's page, with what its dialog sets beside the check (`BlameOffer`): the
+ * agents its model calls name, where several, and whether its first model call was recorded at
+ * temperature 0, as its request kept it (a Gemini request in `generationConfig`, a Bedrock Converse
+ * one in `inferenceConfig`). A request it can't read says nothing.
+ */
+function withBlameSettings(store: StoreOf<'recording'>, run: RunRecord, offer: BlameOffer | null): BlameOffer | null {
+  if (!offer) return null;
+  const calls = agentCallsOf(store.getCalls(run.runId)).filter((c) => c.kind === 'api');
+  const scopes = [...new Set(calls.flatMap((c) => (typeof c.meta.scope === 'string' && c.meta.scope ? [c.meta.scope] : [])))];
+  const body = firstRequest(store, calls[0]);
+  const config = isObject(body) ? [body, body.generationConfig, body.generation_config, body.inferenceConfig] : [];
+  const cold = config.some((c) => isObject(c) && c.temperature === 0);
+  return { ...offer, ...(scopes.length > 1 ? { scopes } : {}), ...(cold ? { temperature0: true as const } : {}) };
+}
+
 const RULE_FIELDS = ['kind', 'name', 'path', 'pattern', 'replace'] as const;
 
 /** Whether a rule as written in the config is the same rule as one Add normalizer adds. */
@@ -379,7 +415,7 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     runId: run.runId,
     copies: copyRules(input.redact),
     team: teamOf(store, run, input.config?.store),
-    blame: blameOffer(store, run, input.config?.tests),
+    blame: withBlameSettings(store, run, blameOffer(store, run, input.config?.tests)),
     bisect: passingBisect(blamedBisect(run, bisectChoices(asListed(store, run), run.runId, { goldens: input.goldens ?? [] })), input.head),
     test: testOffer(store, run, input.config?.normalize, input.goldens ?? []),
     keep: keepOffer(store, run, input),

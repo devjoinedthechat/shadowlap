@@ -1,4 +1,4 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, messageOf, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, parseExpect, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type Store, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, blameSteps, DEFAULT_REPAIRER, HIDDEN_IN_NAME, scopeArg, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, messageOf, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, parseExpect, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type Store, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
@@ -307,12 +307,49 @@ function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
     }
     expect = found.expect;
   }
-  const args = withBudget(['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])], req.budget);
+  const settings = blameSettings(req, store, run);
+  if ('error' in settings) return settings;
+  const args = withBudget(['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : []), ...settings.args], req.budget);
   if (!Array.isArray(args)) return args;
   if (capture) return { args: [...args, '--', ...own], runId: run.runId };
   const consent = importedCommand([run], req.yes, args);
   if ('ask' in consent) return consent.ask;
   return { args: [...args, ...consent.yes], runId: run.runId };
+}
+
+/** A request field as `blame --set` takes it (fix-flags.ts): a key, a dotted path, then `=` and the value. */
+const SET_FIELD = /^[A-Za-z_][\w.]*=[\s\S]*$/;
+
+/**
+ * Run blame's settings beside its check, as its dialog sends them, made into `blame` arguments and
+ * refused as the CLI refuses them, before anything runs: the agent to search (`scope`, one the run's
+ * model calls name), request fields set from each probed call on (`set`, each `key=value`), and
+ * another model to rescue with (`model`), never both that and a `model=` field.
+ */
+function blameSettings(req: JobRequest, store: StoreOf<'recording'>, run: RunRecord): { args: string[] } | { error: string } {
+  const args: string[] = [];
+  if (req.scope !== undefined && req.scope !== null) {
+    const scope = typeof req.scope === 'string' ? scopeArg(req.scope.trim()) : null;
+    if (!scope?.length) return { error: 'scope is the name of an agent the run’s calls were made in' };
+    const calls = store.getCalls(run.runId);
+    if (!blameSteps(calls, scope[1]).length) {
+      const scopes = [...new Set(calls.flatMap((c) => (c.kind === 'api' && typeof c.meta.scope === 'string' ? [c.meta.scope] : [])))];
+      return { error: `${run.runId.slice(0, 10)} made no model calls in scope ${scope[1]!} (${scopes.length ? `its scopes: ${scopes.join(', ')}` : 'it used no scopes'})` };
+    }
+    args.push(...scope);
+  }
+  const sets = req.set === undefined || req.set === null ? [] : Array.isArray(req.set) ? req.set : [req.set];
+  for (const s of sets) {
+    const spec = typeof s === 'string' ? s.trim() : '';
+    if (!SET_FIELD.test(spec) || HIDDEN_IN_NAME.test(spec) || spec.length > 2000) return { error: `--set expects <key>=<value>, such as temperature=1, got "${String(s).slice(0, 80)}"` };
+    args.push('--set', spec);
+  }
+  if (req.model !== undefined && req.model !== null) {
+    if (typeof req.model !== 'string' || !MODEL.test(req.model.trim())) return { error: 'name the model to blame with, such as claude-opus-5-5' };
+    if (args.some((a) => a.startsWith('model='))) return { error: '--model and --set model=… both set the model; use one' };
+    args.push('--model', req.model.trim());
+  }
+  return { args };
 }
 
 /** What a capture's import failed it on, as a check a blame takes (next-step.ts): the rules on calls it broke. */

@@ -61,11 +61,17 @@ export function RunBlameButton({
   on,
   when,
   fold,
+  scope,
   ...priced
 }: {
   runId: string;
-  /** Which checks the run failed, and whether the check must be asked for (`from: 'ask'`). */
-  offer: Pick<BlameOffer, 'failed' | 'from'>;
+  /**
+   * Which checks the run failed, and whether the check must be asked for (`from: 'ask'`); on a run's
+   * page also the check, its agents and whether it was recorded at temperature 0, which its ask shows.
+   */
+  offer: Pick<BlameOffer, 'failed' | 'from'> & Partial<Pick<BlameOffer, 'expect' | 'scopes' | 'temperature0'>>;
+  /** The agent to blame within, which the Agents bar picked: it asks first, to show what it runs. */
+  scope?: string;
   /** What it bills, as its card said it; left out, the run's estimates are asked for as it shows. */
   estimate?: Estimate | null | undefined;
   className?: string;
@@ -100,7 +106,9 @@ export function RunBlameButton({
   const own = useRunEstimates(runId, 'estimate' in priced ? undefined : null);
   const estimate: Estimate | null | undefined = 'estimate' in priced ? priced.estimate : own === undefined ? undefined : (own?.blame ?? null);
   const failed = offer.failed;
-  const form = capture || offer.from === 'ask';
+  // It asks first where it needs the check or a capture's command, where the Agents bar picked its agent, and
+  // where the run was recorded at temperature 0, whose blame asks the model again for nothing without temperature=1.
+  const form = capture || offer.from === 'ask' || !!offer.temperature0 || scope !== undefined;
   const press = useBilledPress();
   const blameLine = line ?? `shadowlap blame ${shortId(runId)}`;
   /**
@@ -132,7 +140,7 @@ export function RunBlameButton({
         return null;
       },
     );
-  const go = (e: Estimate | null | undefined) => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate: e, start: () => void start({}, e), ask: () => setAsking({ kind: 'ask' }) }));
+  const go = (e: Estimate | null | undefined) => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : offer.from === 'ask' ? { kind: 'check', command: null } : { kind: 'ask' })) : press({ estimate: e, start: () => void start({}, e), ask: () => setAsking({ kind: 'ask' }) }));
   return (
     <>
       <ActionButton
@@ -148,7 +156,7 @@ export function RunBlameButton({
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
       </ActionButton>
-      {asking && Asks ? <Asks runId={runId} asking={asking} estimate={estimate} form={form} line={line} failed={failed} start={start} onClose={() => setAsking(null)} /> : null}
+      {asking && Asks ? <Asks runId={runId} asking={asking} estimate={estimate} form={form} line={line} failed={failed} offer={offer} scope={scope} start={start} onClose={() => setAsking(null)} /> : null}
     </>
   );
 }

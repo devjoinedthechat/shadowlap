@@ -780,7 +780,7 @@ The dashboard names the agents itself, so a run needs no `scope()` to show them.
 
 A handoff (`transfer_to_billing`) keeps the conversation and changes its agent: the calls after it are `billing`'s. The names are for reading only: replay matches calls by scope, never by them.
 
-The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line.
+The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line. Where the run can be blamed, **Run blame** follows the command and asks first, that scope picked.
 
 A judged run with no scopes says there instead that no count, budget or cost of the agent's includes the judge's calls. Blame and Preview never offer the judge's scope.
 
@@ -2302,6 +2302,16 @@ When the run failed a check none of those give, or nothing says what a passing r
 
 A capture has no command to run again, so **Run blame** asks for yours, which runs as `shadowlap blame <run> -- <command>`. A capture its import judged failed is blamed on the rules on calls it broke.
 
+**Its settings.** Where **Run blame** asks first, its dialog holds [blame's settings](./blame.md#the-rescue) beside the check, each in its command as you type:
+
+- **Judged by**: the check, as JSON, to edit, or empty for the exit code alone (`--expect`).
+- **Agent**: where the run's model calls name several, the one to search (`--scope`).
+- **Request fields**: `key=value` pairs set from each probed call on (`--set`).
+- **Rescue with model**: another model (`--model`).
+- **Stop at $**, as a fix's jobs have it on its [Verify step](#verify-step).
+
+A run whose first model call was recorded at temperature 0 always asks, with `temperature=1` to start from: a model asked again at temperature 0 answers the same. A setting blame would refuse is refused before anything runs, in the CLI's words.
+
 ### Making a check
 
 The check builder makes a check from a tool call and writes it to the golden's entry under `tests` in `shadowlap.config.json`. [Checks](./checks.md#make-a-check-in-the-dashboard) describes the rules it builds; this is the dialog.
@@ -3579,6 +3589,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 What some of them do:
 
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
+- **`scope`**, **`set`** and **`model`**, on a run's `blame`: Run blame's settings, run as `--scope`, `--set` for each `key=value` and `--model`. One blame would refuse is a 400 in its words.
 - **`budget`**, on `blame`, `verify` and `repair`: Stop at $, an amount in dollars above 0, run as `--budget` in place of one the command kept, or null for none. Left out, the command runs as it was made. An amount that isn't one is a 400.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why, and lists them in `live`; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
