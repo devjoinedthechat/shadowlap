@@ -29,6 +29,7 @@ describe('a tab’s title', () => {
     expect(title('#/settings')).toBe('Matching · Settings — shadowlap');
     expect(title('#/settings/redaction')).toBe('Redaction · Settings — shadowlap');
     expect(title('#/settings/ci')).toBe('CI · Settings — shadowlap');
+    expect(title('#/settings/gates')).toBe('Gates · Settings — shadowlap');
     expect(title('#/settings/alerts')).toBe('CI · Settings — shadowlap');
     expect(title('#/settings/plan')).toBe('Project · Settings — shadowlap');
     expect(title('#/settings/agents')).toBe('Coding agents · Settings — shadowlap');

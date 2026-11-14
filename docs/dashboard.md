@@ -1541,7 +1541,7 @@ Each check reads as `shadowlap test` labels it, such as `escalate called 1 time`
 
 Each revision's header gives its commit's subject on hover, and its author where names show. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
 
-**Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided. A rule opens **Gates** on [Settings → CI](#ci) at its gate's kind.
+**Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided. A rule opens [Settings → Gates](#gates) at its gate's kind.
 
 **A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there, or **Run tests** where its checks changed since. **Esc** closes the row and puts the focus back on the bar. A gated golden with a report draws its bar alone: its evidence opens with the report, above it.
 
@@ -1733,6 +1733,7 @@ Settings (`#/settings/<tab>`) names the project in its header, as *support-agent
 | [Matching](#matching) | The normalizers, the clock, and **Calibrate** |
 | [Redaction](#redaction) | The redaction rules, where each copy applies them, and what they would mask in a run |
 | [CI](#ci) | Your CI workflow, built from its switches |
+| [Gates](#gates) | A gate's figures to try, how they decide, and the golden's entry to copy |
 | [Coding agents](#coding-agents) | Which instruction files mention Shadowlap, and the skills |
 | [Tools](#tools) | Every tool the recordings called, and the MCP servers |
 | [Project](#project) | The Shadowlap version, the project's store, runs, size and address, and Spending |
@@ -1775,11 +1776,10 @@ For values a pack leaves as they are, the lines then give:
 
 | Panel | What it holds |
 | --- | --- |
-| **Your workflow** | How your repository's workflow stands against the one the switches build, the file, and **Write file** |
+| **Your workflow** | How your repository's workflow stands against the one the switches build, the file, **Write file**, and what an inconclusive golden does |
 | **Pull request comment** | The action's comment on each pull request, and what it needs |
 | **Fix on failure** | Its budget and repairer, what it needs, and the pull request it opens |
 | **Alerts** | Its branch and webhook secret, what it needs, the Slack message, and what fails a golden |
-| **Gates** | A gate's figures to try, how they decide, and what an inconclusive golden does in CI |
 
 Each part has its switch in its panel's header: **Pull request comment**, **Fix on failure** and **Alerts**. A panel that is off says what happens without it (*Off: the verdict stays in the job summary.*), and only Fix on failure's pull request preview goes quiet. A switch's toast says whether your workflow changes with it, or is your repository's again. A switch changes only what **Write file** would write.
 
@@ -1790,8 +1790,9 @@ Each part has its switch in its panel's header: **Pull request comment**, **Fix 
 - how it stands: *The same as your repository's* file, *Not in your repository yet.*, or *8 lines added and 1 line taken out against your repository's file.*;
 - the test session last seen: the newest one CI pushed to the [team store](./team.md#push-from-ci), once a pull brings it, else the last one here that ran every golden;
 - that session's line, as *Last seen in CI, d2e8a1f at 10:02: 2 of 7 goldens passed · 3 failed, 2 inconclusive*, or for one here *The last test session, …*;
-- **Show workflow**, the whole file with each line it adds (`+`) or takes out (`−`) marked, and **Copy workflow**;
-- its Team store row, which says how Push from CI stands and leads to Settings → Store.
+- its Team store row, which says how Push from CI stands and leads to Settings → Store;
+- **An inconclusive golden**, which sets what one does to the step;
+- **Show workflow**, the whole file with each line it adds (`+`) or takes out (`−`) marked, and **Copy workflow**.
 
 The workflow has the checkout, Node 22 and a line for the agent's dependencies before the action. With Fix on failure on, the checkout is of the branch its pull request goes into.
 
@@ -1826,20 +1827,26 @@ Where a golden's keys can't be named, a comment in the `env` says to add them. A
 
 **Alerts** post the count of failed goldens to Slack, then fail the job, for the repository's default branch only unless you turn that off. **A golden fails when** lists the injection gate too, and, in amber, a gate, judge or injection test that can't decide.
 
-**Gates** previews a gate's figures for a golden marked fork, from `GET /api/tests/gate`. Its kind is **fork · gate** or **fork · history**, and `#/settings/ci?gate=baseline` opens it on the second. You pick each figure: good, bad, risk and max, or drop, risk, window, min and max. Figures that differ from the defaults say what the defaults stand for, with **Reset**.
-
-Its preview says what the gate tells apart, what it takes for a golden on its own, and the odds of each verdict at six pass rates (seven against history), behind **Show odds of each verdict**. It says how often 100 such goldens of an agent that passes 95% of the time turn a CI run red for nothing, as `shadowlap test` plans the session. Figures the config would refuse say so, as *the config refuses it*. Under it, the figures come as the golden's entry in `shadowlap.config.json`, to copy.
-
-**An inconclusive golden**, in Gates, sets what one does in CI:
+**An inconclusive golden**, in Your workflow, sets what one does in CI:
 
 - **Warns** writes `inconclusive: warn`.
 - **Fails** leaves the input out, so a gate against history with too few sessions still only warns.
+
+A gate's figures, and the odds of an inconclusive verdict, are on [Gates](#gates).
 
 **Push from CI.** The step follows the [team store](./team.md#push-from-ci)'s Push from CI, with no switch of its own on this tab. Its Team store row says how Push from CI stands, and leads to Settings → Store, where it is set. While it is on:
 
 - the step pushes the test runs and each fix;
 - what it needs names the bucket's credentials: for short-lived ones, the two sign-in steps `shadowlap store ci` prints, which Write file adds, and `id-token: write`; for R2, its keys as secrets, which only your branches' jobs get, and only those push;
 - what lands in the team store adds the test runs, the fix on teammates' Fixes page, and what a pull request's job writes ([Fixes in the team store](./ci.md#fixes-in-the-team-store)).
+
+### Gates
+
+*Gates* (`#/settings/gates`) previews a gate's figures for a golden marked fork, from `GET /api/tests/gate`. Its kind is **fork · gate** or **fork · history**, and `#/settings/gates?gate=baseline` opens it on the second, as a rule under Tests' table does. The address it had as CI's last panel, `#/settings/ci?gate=baseline`, leads there too. You pick each figure: good, bad, risk and max, or drop, risk, window, min and max. Figures that differ from the defaults say what the defaults stand for, with **Reset**.
+
+Its preview says what the gate tells apart, what it takes for a golden on its own, and the odds of each verdict at six pass rates (seven against history), behind **Show odds of each verdict**. It says how often 100 such goldens of an agent that passes 95% of the time turn a CI run red for nothing, as `shadowlap test` plans the session. Figures the config would refuse say so, as *the config refuses it*. Under it, the figures come as the golden's entry in `shadowlap.config.json`, to copy.
+
+Under **in CI**, it says what an inconclusive golden does to the step as your workflow has it, with what you changed on the CI tab and haven't written. It has no switch of its own: **Settings → CI** leads to [CI](#ci), where Your workflow sets it.
 
 ### Coding agents
 
@@ -2865,7 +2872,7 @@ The work done on those threads:
 - the activity feed, and a search;
 - Settings → Tools' list;
 - what the project switcher and a project's setup count of its store;
-- Settings → CI's gate preview, whose CI figure plans a session;
+- Settings → Gates' preview, whose CI figure plans a session;
 - Training's pairs, and Copy JSON.
 
 **Spare threads.** While every thread is busy, a spare thread answers what comes behind them. Each ends once it has had nothing to do for a while.

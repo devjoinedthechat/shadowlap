@@ -188,7 +188,8 @@ addPaletteSource(({ app, go }) => {
 const SETTINGS_FOUND: Record<SettingsTab, { hint: string; match: string }> = {
   matching: { hint: 'normalizers, dates and times, calibrate', match: 'settings' },
   redaction: { hint: 'what leaves your machine', match: 'settings' },
-  ci: { hint: 'gates, the pull request comment, fix on failure, alerts', match: 'settings alerts' },
+  ci: { hint: 'your workflow, the pull request comment, fix on failure, alerts', match: 'settings alerts' },
+  gates: { hint: 'a gate’s figures, its odds, the golden’s entry', match: 'settings gate fork history inconclusive' },
   agents: { hint: 'Claude Code, Cursor, Codex', match: 'settings' },
   tools: { hint: 'what a fork runs again, and what brings outside text in', match: 'settings trusted untrusted security prompt injection mcp' },
   project: { hint: 'spending, its store, its size, clean up old runs', match: 'settings spending ask before spending cost threshold budget' },

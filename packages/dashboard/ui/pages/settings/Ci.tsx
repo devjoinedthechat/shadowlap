@@ -6,7 +6,7 @@ import { Section } from '../../components/Section.js';
 import { Switch } from '../../components/Switch.js';
 import { shortFixId } from '../../fixes/model.js';
 import { clock } from '../../format.js';
-import { useLatest, useLoad } from '../../hooks.js';
+import { useLoad } from '../../hooks.js';
 import { ACTIONS } from '../../labels.js';
 import { PR_COMMENT_ASK } from '../../page-ask.js';
 import { href } from '../../route.js';
@@ -14,25 +14,24 @@ import { useServedParts } from '../../served-parts.js';
 import type { CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
 import { CiList, Select } from './CiList.js';
-import { Gates } from './CiGates.js';
 import { YourWorkflow } from './CiWorkflow.js';
 import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
+import { useCiWorkflows } from './ci-read.js';
 import { ConfigProblem, LoadProblem, Loading } from './common.js';
-import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 import { Copy, Words } from '../../components/Copy.js';
 import { ruleWords } from '../../components/Verdict.js';
 
 /**
  * CI (`#/settings/ci`; `#/settings/alerts`, as Alerts had it, opens it too): Your workflow first,
- * where the repository's workflow stands against the one the switches below build, with Write file;
- * then a panel for each part the one job runs after the action, each with its switch in its header:
- * Pull request comment, Fix on failure and Alerts, their settings on the left and what lands on the
- * right; then Gates, which previews a gate's figures and what an inconclusive golden does in CI. The
- * panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked again as you pick: the
- * switches start as the repository's workflow sets them, and the file is the repository's with only
- * what they own changed. While shadowlap.config.json can't be read, the tab says so as the others
- * do, and Write file waits. A switch changes only what Write file would write.
+ * where the repository's workflow stands against the one the switches below build, with Write file
+ * and what an inconclusive golden does in CI; then a panel for each part the one job runs after the
+ * action, each with its switch in its header: Pull request comment, Fix on failure and Alerts, their
+ * settings on the left and what lands on the right. A gate's figures to try are a tab of their own,
+ * Gates (Gates.tsx). The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked
+ * again as you pick: the switches start as the repository's workflow sets them, and the file is the
+ * repository's with only what they own changed. While shadowlap.config.json can't be read, the tab
+ * says so as the others do, and Write file waits. A switch changes only what Write file would write.
  */
 
 export function CiTab() {
@@ -66,7 +65,7 @@ function CiPanels({ project }: { project: string | null }) {
     if (error) return <LoadProblem error={error} retry={reload} />;
     return (
       <>
-        {['Your workflow', 'Pull request comment', 'Fix on failure', 'Alerts', 'Gates'].map((t) => (
+        {['Your workflow', 'Pull request comment', 'Fix on failure', 'Alerts'].map((t) => (
           <Loading key={t} title={t} />
         ))}
       </>
@@ -80,6 +79,8 @@ function CiPanels({ project }: { project: string | null }) {
       <YourWorkflow
         view={view}
         changed={changed}
+        inconclusive={o.inconclusive ?? 'fail'}
+        set={set}
         reload={reload}
         onWritten={() => {
           // Written: the switches follow the file again.
@@ -90,47 +91,9 @@ function CiPanels({ project }: { project: string | null }) {
       <PullRequestComment o={o} view={view} toggle={toggle} />
       <FixOnFailure o={o} view={view} set={set} onSwitch={(on) => toggle({ fix: on }, `Fix on failure is ${on ? 'on' : 'off'}`)} />
       <Alerts o={o} view={view} set={set} toggle={toggle} />
-      <Gates o={o} view={view} set={set} />
       {error ? <p className="fieldnote err">{error.message}</p> : null}
     </>
   );
-}
-
-/**
- * The panels for what was changed: the server's answer, kept while the next one is asked so nothing
- * empties as you type, with the options it answered for (`servedFor`). Asked again when the window
- * comes back (the file or Push from CI may have changed meanwhile), when Settings changed from
- * elsewhere, in another project, and on Retry (`reload`).
- */
-function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null; reload: () => void; servedFor: string | null } {
-  const { client, meta } = useApp();
-  const options = useLatest(o);
-  const [seen, setSeen] = useState(0);
-  const key = `${JSON.stringify(o)}:${meta?.project?.id ?? ''}:${seen}`;
-  const [served, setServed] = useState<{ view: CiWorkflowsView | null; error: Error | null; servedFor: string | null }>({ view: null, error: null, servedFor: null });
-  useEffect(() => {
-    const again = () => document.visibilityState === 'visible' && setSeen((n) => n + 1);
-    window.addEventListener('focus', again);
-    document.addEventListener('visibilitychange', again);
-    const off = onSettingsChanged(() => setSeen((n) => n + 1));
-    return () => {
-      window.removeEventListener('focus', again);
-      document.removeEventListener('visibilitychange', again);
-      off();
-    };
-  }, []);
-  useEffect(() => {
-    let alive = true;
-    const asked = options.current;
-    client.ciWorkflows(asked).then(
-      (view) => alive && setServed({ view, error: null, servedFor: JSON.stringify(asked) }),
-      (err: unknown) => alive && setServed((s) => ({ ...s, error: err instanceof Error ? err : new Error(String(err)) })),
-    );
-    return () => {
-      alive = false;
-    };
-  }, [client, key, options]);
-  return { ...served, reload: () => setSeen((n) => n + 1) };
 }
 
 /** What a CI feature that is off leaves undone, a line of its own under the panel's lead. */

@@ -15,7 +15,7 @@
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests[?report=<name>]              Tests, a golden's report open
  *   #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/setup/store
- *   #/settings/ci?gate=<kind>            Settings → CI with Gates on a kind (`sprt` or `baseline`), which it reads once
+ *   #/settings/gates?gate=<kind>         Settings → Gates on a kind (`sprt` or `baseline`), which it reads once
  */
 
 /** A run page's views; Calls is the default and leaves the link. */
@@ -236,9 +236,9 @@ export const links = {
    */
   tests: (o: { report?: string | null; at?: 'notcovered' } = {}): string => (o.report ? `#/tests?report=${enc(o.report)}` : o.at ? `#/tests?at=${o.at}` : '#/tests'),
   training: (tab?: 'pairs' | 'tasks'): string => (tab === 'tasks' ? '#/training/tasks' : '#/training'),
-  /** Settings, at a tab (`matching`, `redaction`, `alerts` for CI, `agents`, `tools`, `project`, `store`). */
-  /** A tab, and for CI the gate kind Gates opens on (a rule under Tests' table links there): the engine's `sprt` or `baseline`. */
-  settings: (tab?: string | null, o: { gate?: 'sprt' | 'baseline' } = {}): string => (tab ? `#/settings/${enc(tab)}${tab === 'ci' && o.gate ? `?gate=${o.gate}` : ''}` : '#/settings'),
+  /** Settings, at a tab (`matching`, `redaction`, `alerts` for CI, `gates`, `agents`, `tools`, `project`, `store`). */
+  /** A tab, and for Gates the gate kind it opens on (a rule under Tests' table links there): the engine's `sprt` or `baseline`. */
+  settings: (tab?: string | null, o: { gate?: 'sprt' | 'baseline' } = {}): string => (tab ? `#/settings/${enc(tab)}${tab === 'gates' && o.gate ? `?gate=${o.gate}` : ''}` : '#/settings'),
   newProject: (): string => '#/new',
   setup: (): string => '#/setup',
   storeSetup: (): string => '#/setup/store',

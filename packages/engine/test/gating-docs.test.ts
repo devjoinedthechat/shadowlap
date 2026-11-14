@@ -170,7 +170,7 @@ describe('docs/gating.md, figure by figure', () => {
     const split = gateOdds(plan.planned[0].gate, 0.95);
     expect(goldens * split.inconclusive).toBeLessThan(0.0001);
     const red = runsRed(split, goldens, 'fail');
-    // Under --inconclusive warn the session plans its own max (no half share kept for running out), as Settings → CI's Gates figures it.
+    // Under --inconclusive warn the session plans its own max (no half share kept for running out), as Settings → Gates figures it.
     const warnPlan = planSuite(Array.from({ length: goldens }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })), { inconclusive: 'warn' })!;
     const redWarn = runsRed(gateOdds(warnPlan.planned[0].gate, 0.95), goldens, 'warn');
     const suite = 'The default: 5% for the suite, split 100 ways';

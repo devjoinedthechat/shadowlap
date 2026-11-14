@@ -540,11 +540,14 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
     await expect(control).toHaveAccessibleName((await page.locator(`#${id}-name`).textContent())!.trim());
     await expect(control).toHaveAccessibleDescription((await page.locator(`#${id}-help`).textContent())!.trim());
   }
-  // The pull request comment's switch for the decisions, named and described by its row the same way.
-  const decisions = page.locator('[aria-labelledby="cidecisions-name"]');
-  await expect(decisions).toHaveCount(1);
-  await expect(decisions).toHaveAccessibleName((await page.locator('#cidecisions-name').textContent())!.trim());
-  await expect(decisions).toHaveAccessibleDescription((await page.locator('#cidecisions-help').textContent())!.trim());
+  // The pull request comment's switch for the decisions, named and described by its row the same way, and what an
+  // inconclusive golden does, in Your workflow.
+  for (const row of ['cidecisions', 'inconclusive']) {
+    const control = page.locator(`[aria-labelledby="${row}-name"]`);
+    await expect(control).toHaveCount(1);
+    await expect(control).toHaveAccessibleName((await page.locator(`#${row}-name`).textContent())!.trim());
+    await expect(control).toHaveAccessibleDescription((await page.locator(`#${row}-help`).textContent())!.trim());
+  }
 });
 
 test('a screen reader hears a judge no attempt of its fork golden asked by its mark’s word, its label and why, each apart, in its row on Tests and in its report', async ({ page }) => {

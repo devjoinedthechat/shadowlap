@@ -275,6 +275,8 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .wfpanel .pbody > p.muted { margin: 0; }
 .wfpanel > .pbody:not(.cicode) { padding-bottom: 14px; }
 .wfpanel .cicode { border-top: 0; padding-top: 0; }
+/* Show workflow is the panel's last line, right over the file it opens: its words start at the rows' edge. */
+.wfpanel .wftog { margin-left: -7px; }
 .wfcode .add { color: var(--add); }
 .wfcode .del { color: var(--del); }
 .prpanel .cimain { padding-bottom: 14px; }

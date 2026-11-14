@@ -104,10 +104,10 @@ describe('the link builder', () => {
   });
 
   it('keeps a value that would break the route inside its own segment', () => {
-    // Gates' kind rides on the CI tab's address, which the route reads as the tab alone.
-    expect(links.settings('ci', { gate: 'baseline' })).toBe('#/settings/ci?gate=baseline');
-    expect(parseRoute(links.settings('ci', { gate: 'sprt' }))).toEqual({ page: 'settings', tab: 'ci' });
-    expect(links.settings('store', { gate: 'sprt' })).toBe('#/settings/store');
+    // A gate's kind rides on Gates' address, which the route reads as the tab alone; no other tab takes one.
+    expect(links.settings('gates', { gate: 'baseline' })).toBe('#/settings/gates?gate=baseline');
+    expect(parseRoute(links.settings('gates', { gate: 'sprt' }))).toEqual({ page: 'settings', tab: 'gates' });
+    expect([links.settings('store', { gate: 'sprt' }), links.settings('ci', { gate: 'sprt' })]).toEqual(['#/settings/store', '#/settings/ci']);
     const odd = links.settings('a/b');
     expect(parseRoute(odd)).toEqual({ page: 'settings', tab: null });
     expect(parseRoute(links.fixes('fx-1', 'verify', 'vf 2'))).toMatchObject({ page: 'fixes', id: 'fx-1', step: 'verify' });

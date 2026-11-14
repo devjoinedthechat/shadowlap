@@ -258,7 +258,7 @@ const STEPS = ['', '/blame', '/repair', '/verify'];
 const RUN_VIEWS = ['', 'turns', 'context', 'timeline', 'forks', 'provenance', 'decisions'];
 /** The runs drawn in every view: a recording with writes, a fork of it, and a batch of sub-agents' calls. */
 const VIEWED = ['ticket', 'override', 'batch'];
-const SETTINGS = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
+const SETTINGS = ['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store'];
 /** A Settings tab, drawn past its loading shape. */
 const SETTAB = 'main#view .settab > :not(.skel)';
 
