@@ -174,7 +174,7 @@ export function TopBar({ route }: { route: Route }) {
       </nav>
       <div className="sp" />
       {chip ? (
-        <a className="livechip" href={href.run(chip.runId)} data-tip={tipCard(chip.title, [], chip.line)}>
+        <a className="livechip" href={chip.href} data-tip={tipCard(chip.title, chip.rows, chip.line)}>
           <span className="dotlive" />
           {chip.words}
         </a>

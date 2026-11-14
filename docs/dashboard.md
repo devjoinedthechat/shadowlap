@@ -71,7 +71,8 @@ A run's icon says what kind of run it is and how it came out, and a screen reade
 The top bar shows:
 
 - **Where you are**, as crumbs. A run's crumbs carry its lineage, each with its about line on hover. The run it came from shows its card on hover, and `p` opens it.
-- **A live chip** while a run records: *recording · 9 calls*, with the run and its about line on hover. It names the first recording that isn't the page you are on. While the server can't be reached it stays, saying when the recording was last heard of.
+- **A live chip** while a run records: *recording · 9 calls*, with the run and its about line on hover. It names the recording that isn't the page you are on. While the server can't be reached it stays, saying when the recording was last heard of.
+- **With several recording**, the chip counts them as the Overview does (*4 recording*, or *3 more recording* on one's own page). Its hover names each by its short id with its calls, and it opens Runs on every run that is recording.
 - **Search or jump to** (⌘K or Ctrl K), which opens [the palette](#search-or-jump-to). At 1000px and below it shows its icon alone.
 - **Help**: Keyboard shortcuts, Docs and Command line. A touch screen leaves out Keyboard shortcuts.
 
@@ -187,8 +188,8 @@ The header says the week in four facts, the first three each a link: *4 failures
 - **Spent live** counts what previews and migrations spent asking and judging, and what a repairer answered, on the day each was spent. With a [team store](./team.md), what teammates' pulled runs spent counts too, as the team's. A pack you unpacked and a capture don't count: that traffic was paid for where it ran.
 - **The fixes funnel**: how far every failure got, as Fixes counts them (*of 12 failures, 9 blamed, 5 verified, 3 applied*), then the fixes ready to apply and those applied that don't hold.
 - **Watch live** sits beside the facts for each run recording, up to three, newest first. Its hover names the recording by its id and what it is about. Past three, *2 more recording* opens Runs on every run that is recording.
-
 - **With several recording**, each button names its run by its short id in place of the words *Watch live*, its last four characters in ink as the sidebar draws them. They stay beside the title: where it has room for fewer, the newest stay and the link counts the rest.
+
 ### Needs a look
 
 **Needs a look** lists every item to act on, under quiet heads: Setup, Failing, Ready to ship, Tests, Security and Housekeeping, in that order. A group shows only with rows. A row says what it is about, and the whole row opens it. Its step sits at its end, small and plain, and runs or asks from the row as the same step does on the page the row opens. The first row's step is lime, as the page's first thing to do, and plain while it waits.

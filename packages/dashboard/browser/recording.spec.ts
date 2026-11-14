@@ -4,8 +4,9 @@ import { demoId, openPage, patched } from './dashboard.js';
 /**
  * Several runs recording at once: the Overview's Watch live names each run by its short id, as the
  * sidebar does, and keeps them beside the title at a laptop's widths, the rest counted in a link to
- * Runs; one recording keeps Watch live's words. The demo records nothing: the server's answers say
- * these four are recording.
+ * Runs; one recording keeps Watch live's words. The top bar's chip counts them, its card naming
+ * each, and leads to Runs on every run recording. The demo records nothing: the server's answers
+ * say these four are recording.
  */
 
 const NAMES = ['refundBug', 'good', 'ticket', 'clean'];
@@ -76,4 +77,21 @@ test('one recording keeps Watch live’s words, its calls beside them', async ({
   await expect(live.locator('.lt')).toHaveText('Watch live');
   await expect(live.locator('code')).toHaveCount(0);
   await expect(live).toHaveAttribute('href', `#/run/${one!}`);
+});
+
+test('the top bar’s chip counts the runs recording, names each on its card, and opens Runs on every run recording', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const runIds = ids();
+  // The run list says they are recording; no change feed says otherwise.
+  await page.route('**/api/runs', (route) => patched<{ runs: Array<{ runId: string; status: string }> }>(route, (b) => ({ ...b, runs: b.runs.map((r) => (runIds.includes(r.runId) ? { ...r, status: 'running' } : r)) })));
+  await openPage(page, '/tests', 'main#view .ph');
+  const chip = page.locator('header.top a.livechip');
+  await expect(chip).toHaveText('4 recording');
+  const card = JSON.parse((await chip.getAttribute('data-tip'))!) as { t: string; rows: Array<[string, string, string]> };
+  expect(card.t).toBe('4 runs recording');
+  expect(card.rows.map((r) => r[0]).sort()).toEqual(runIds.map(short).sort());
+  await chip.hover();
+  await expect(page.locator('.tip')).toContainText('4 runs recording');
+  await chip.click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs?q=status:live');
 });
