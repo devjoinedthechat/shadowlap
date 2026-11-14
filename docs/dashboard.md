@@ -3571,6 +3571,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }` | A decision diff |
 | `decisions-read { runs?, goldens?, scope?, yes? }` | `decisions --from-code --dry-run`: what your working tree sends each run, read offline with nothing sent |
 | `decisions-verify { sessionId, runId?, runIds?, max?, keptMax?, yes? }` | `decisions --verify`; for Run more attempts, a failing run's attempts raised to `max` and a good run's pairs to `keptMax` |
+| `doctor {}` | [`shadowlap doctor`](./cli.md#doctor), Settings → Project's Health: its result is the checks |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
 | `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
