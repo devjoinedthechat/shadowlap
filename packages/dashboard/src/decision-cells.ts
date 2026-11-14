@@ -1,4 +1,4 @@
-import { argsDelta, decisionLine, decisionStepState, INCONCLUSIVE_STEP, judgedOutcome, judgeOpen, judgeWords, JUDGED_IN_RECORDED_STATE, minorityChange, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, unchangedRunWords, unsettledWords, WITHIN_VARIATION, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
+import { argsDelta, decisionLine, decisionStepState, INCONCLUSIVE_STEP, judgedOutcome, judgeOpen, judgeWords, JUDGED_IN_RECORDED_STATE, minorityChange, RANK_LABELS, runOutcomeWord, samplesWords, stepDelta, STOP_WORDS, unchangedRunWords, unsettledWords, WITHIN_VARIATION, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
 
 /**
  * A preview's matrix as Changes and a run's Decisions view draw it: a row per run, a cell per model
@@ -198,6 +198,9 @@ export function decisionCell(s: DecisionStep, o: { refused: string | null; fromC
   };
 }
 
+/** How verify found a run, as every page says it (runOutcomeWord): a kept session's hyphenated `not-fixed` reads `not fixed`, `unsettled` inconclusive. */
+export const verifiedOutcome = (outcome: string): string => runOutcomeWord(outcome === 'not-fixed' ? 'not fixed' : outcome);
+
 /** The step a row's ending names: the one that flags it (its majority), else its most consequential change in any sample. */
 function topStep(run: DecisionRun, flagged: boolean): DecisionStep | null {
   const best = (of: (s: DecisionStep) => number | null) => {
@@ -219,6 +222,9 @@ export function rowEnding(run: DecisionRun): RowEnding {
   const flagged = run.majority !== null && run.majority <= 2;
   const waits = run.decisions.filter((s) => judgeOpen(s)).length;
   const top = topStep(run, flagged);
+  // Nothing else changed but a step its control couldn't settle: that step, inconclusive, never the same decisions.
+  const open = !top || sampledOf(top) === 5 ? run.decisions.find((s) => decisionStepState(s) === 'unsettled') : undefined;
+  if (open) return end(`#${open.callNo} ${detailOf(open) ?? ''}`, { then: `· ${INCONCLUSIVE_STEP}`, tone: 'y', callNo: open.callNo, waits, why: unsettledWords(open) });
   if (!top || sampledOf(top) === 5) {
     const words = run.decisions.filter((s) => s.rank === 5);
     const judged = words.some((s) => s.judge?.length && !judgeOpen(s));
@@ -243,9 +249,11 @@ export function decisionRow(run: DecisionRun, o: { fromCode?: boolean } = {}): D
  */
 export interface ViewStep {
   callNo: number;
-  /** Its rank, 1 to 5; null for a change within the model's own variation, which `within` then says in the engine's words. */
+  /** Its rank, 1 to 5; null for a change within the model's own variation, which `within` then says in the engine's words, or one its control couldn't settle (`unsettled`). */
   rank: number | null;
   within: string | null;
+  /** A change its control couldn't settle, in the engine's words: `inconclusive: in 2 of 3 samples; as recorded, no answer: too few to tell …`. */
+  unsettled: string | null;
   /** The change in a few words: `send_email is no longer called`. */
   detail: string;
   /** How often its samples changed, for a narrow column: `in 1 of 3, 0 of 3 as recorded, not flagged`; null asked once. */
@@ -274,15 +282,16 @@ export function quoteLine(d: DecisionView | null, width = 64): string {
   return decisionLine(m ? { ...d, text: `${m[0].replace(/[\s,;:·…–—-]+$/, '')} …` } : d, width);
 }
 
-/** The steps a run's Decisions view lists: its ranked ones, most consequential first, then those within the model's own variation, the most changed first. */
+/** The steps a run's Decisions view lists: its ranked ones, most consequential first, then those within the model's own variation or its control couldn't settle, the most changed first. */
 export function viewSteps(run: DecisionRun): ViewStep[] {
-  const listed = run.refused ? [] : run.decisions.filter((s) => s.rank !== null || decisionStepState(s) === 'noise');
+  const listed = run.refused ? [] : run.decisions.filter((s) => s.rank !== null || decisionStepState(s) === 'noise' || decisionStepState(s) === 'unsettled');
   return listed
     .sort((a, b) => (a.rank ?? 6) - (b.rank ?? 6) || b.samples.changed - a.samples.changed || a.callNo - b.callNo)
     .map((s) => ({
       callNo: s.callNo,
       rank: s.rank,
-      within: s.rank === null ? WITHIN_VARIATION : null,
+      within: decisionStepState(s) === 'noise' ? WITHIN_VARIATION : null,
+      unsettled: decisionStepState(s) === 'unsettled' ? `${INCONCLUSIVE_STEP}: ${unsettledWords(s)}` : null,
       detail: detailOf(s) ?? '',
       short: s.samples.asked > 1 ? samplesWords(s, { short: true }) : null,
       waits: judgeOpen(s),

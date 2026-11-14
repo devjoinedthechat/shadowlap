@@ -341,6 +341,9 @@ describe('against your recordings', () => {
     expect(headWords({ counts: counts(1, 2), judged })).toBe('Passes 1 recording · fails 2, both labelled bug');
     expect(headWords({ counts: counts(0, 2), judged: judged.slice(0, 2) })).toBe('Fails all 2 recordings');
     expect(headWords({ counts: counts(0, 1, 2), judged: [row('failed', { labels: ['bug'] }), row('inconclusive'), row('inconclusive')] })).toBe('Fails 1 recording, labelled bug · 2 inconclusive');
+    // None it fails, the rest inconclusive or not applicable (which the line after it says): never `Fails 0 recordings`.
+    expect(headWords({ counts: counts(0, 0, 2), judged: [row('inconclusive'), row('inconclusive')] })).toBe('Fails no recording · 2 inconclusive');
+    expect(headWords({ counts: counts(0, 0, 0, 3), judged: [] })).toBe('Fails no recording');
   });
 
   it('notes the run it is made from only where it failed its check, and the golden’s own recording', () => {

@@ -599,6 +599,8 @@ export function headWords(p: Pick<CheckPreview, 'counts' | 'judged'>): string {
     p.judged,
   );
   const inc = inconclusive ? ` · ${inconclusive} inconclusive` : '';
+  // None it could settle: no recording failed it, whatever the rest came to (inconclusive, or not applicable, which its own line says).
+  if (!passed && !failed) return `Fails no recording${inc}`;
   if (!passed && !inconclusive && !notApplicable) return `Fails all ${plural(failed, 'recording')}${lab}`;
   if (!passed) return `Fails ${plural(failed, 'recording')}${lab}${inc}`;
   return `Passes ${plural(passed, 'recording')} · fails ${failed}${lab}${inc}`;

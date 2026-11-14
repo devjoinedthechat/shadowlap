@@ -4,6 +4,7 @@ import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, t
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { runDecisions } from '../src/decisions.js';
+import { viewSteps } from '../src/decision-cells.js';
 import type { Client } from '../ui/api.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
 import { argParts, cellCost, cellLead, cellLook, cellWeight, chipWhen, drawnCells, nextStep, noneLine, outcomeTone, pricePair, receiptWords, sessionHint, toolMarks, verdictState, verifyLabel } from '../ui/decisions.js';
@@ -513,6 +514,16 @@ describe('the Preview page', () => {
       await p.click(p.one('button.ended'));
       await p.until('the second read', () => asked.length === 2);
       expect([asked, p.all('.dvstep').length]).toEqual([[a, a], 1]);
+    });
+
+    it('lists a step its control couldn’t settle, inconclusive in amber, so a run that changed nothing else never reads as decided as recorded', async () => {
+      const open = step(3, null, { majority: null, sampled: 1, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] }, control: { asked: 3, answered: 0, changed: 0, ranks: [], error: 'overloaded' } });
+      const one = runDecisions(store, a);
+      const answer: RunDecisionsView = { ...one, sessions: [{ ...one.sessions[0], steps: viewSteps(runOf(a, null, [step(1, null), open])) }] };
+      const { p } = await view(answer);
+      await p.until('the steps', () => p.all('.dvstep').length === 1);
+      expect(shown(p.one('.dvs1 .dsy'))).toContain("inconclusive: in 1 of 3 samples; as recorded, no answer (overloaded): too few to tell from the model's own variation");
+      expect(p.all('.dvnone').length).toBe(0);
     });
 
     it('says a run decided as recorded, a run nobody previewed with the command, and that an exported copy holds no previews', async () => {

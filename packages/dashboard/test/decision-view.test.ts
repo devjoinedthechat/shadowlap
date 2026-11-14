@@ -267,6 +267,25 @@ describe('an opened cell, worded on the server', () => {
     const id = keep('dc-01M5000000000000000000000Y', [runOf(a, null, [step(1, null), open])], { samples: 3, counts: counts({ same: 1, notAsked: 1 }) });
     expect(previewSession(store, id)!.matrix[0].cells[1]).toMatchObject({ state: 'unsettled', words: "issue_refund is no longer called · inconclusive: in 1 of 3 samples; as recorded, no answer (overloaded): too few to tell from the model's own variation" });
   });
+
+  it('ends a run whose only change its control couldn’t settle on that change, inconclusive, never the same decisions, and lists it in the run’s Decisions view', () => {
+    const open = step(3, null, { changes: [write], majority: null, sampled: 1, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] }, control: { asked: 3, answered: 0, changed: 0, ranks: [], error: 'overloaded' } });
+    const id = keep('dc-01M5000000000000000000000U', [runOf(b, null, [step(1, null), open])], { samples: 3, counts: counts({ same: 1, notAsked: 1 }) });
+    const why = "in 1 of 3 samples; as recorded, no answer (overloaded): too few to tell from the model's own variation";
+    expect(previewSession(store, id)!.matrix[0].ending).toMatchObject({ text: '#3 issue_refund is no longer called', then: '· inconclusive', tone: 'y', callNo: 3, why });
+    const shown = runDecisions(store, b).sessions.find((x) => x.sessionId === id)!;
+    expect(shown.steps.map((x) => [x.callNo, x.rank, x.within, x.unsettled])).toEqual([[3, null, null, `inconclusive: ${why}`]]);
+  });
+});
+
+describe('what verify found of a run', () => {
+  it('says a kept session’s not-fixed as every page says it, not fixed, and its unsettled inconclusive', () => {
+    // As a session keeps verify's outcome for a run: its words with a hyphen (entryOf).
+    const v = verified('rejected', [{ runId: a, role: 'target', outcome: 'not-fixed', passes: 0, attempts: 4, bound: null, rule: '4 of 4 attempts must pass' }, { runId: b, role: 'good', outcome: 'unsettled', passes: 1, attempts: 1, bound: null, rule: '4 of 4 attempts must pass' }]);
+    const id = keep('dc-01M5000000000000000000000V', [runOf(a, null, [step(2, 1)]), runOf(b, null, [step(2, 2)])], { flagged: [a, b], toVerify: [a, b], counts: counts({ 1: 1, 2: 1 }), verify: v });
+    expect(previewSession(store, id)!.matrix.map((r) => r.verified?.outcome)).toEqual(['not fixed', 'inconclusive']);
+    expect(runDecisions(store, a).sessions.find((x) => x.sessionId === id)!.verified?.outcome).toBe('not fixed');
+  });
 });
 
 describe('the within-variation line', () => {

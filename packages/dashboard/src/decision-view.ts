@@ -1,5 +1,5 @@
-import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyCount, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
-import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, stepsAsked, tallyCount, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { LATER_STEPS, verifiedOutcome, type DecisionCell, type DecisionRow } from './decision-cells.js';
 import { moreOf, type PreviewMore } from './decision-more.js';
 import { decisionSession, runDecisions, sessionGate, sessionKeptMax, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
@@ -283,7 +283,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     const run = store.getRun(row.runId);
     const entry = v?.runs.find((x) => x.runId === row.runId) ?? null;
     const forkAt = run?.mode === 'replay' ? (run.divergence?.callNo ?? null) : null;
-    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
+    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: verifiedOutcome(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
   });
   const headline = decisionsHeadline({ counts: report.counts, flagged: report.flagged, runs });
   const c = report.counts;

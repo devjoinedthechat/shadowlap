@@ -145,6 +145,7 @@ function Step({ st, sel, onSelect }: { st: ViewStep; sel: boolean; onSelect: (n:
         )}
         <Said detail={st.detail} />
         {st.within ? <span className="dlm">{`\u00a0· ${st.within}`}</span> : null}
+        {st.unsettled ? <span className="dsy">{`\u00a0· ${st.unsettled}`}</span> : null}
         {st.short ? <span className="dlm">{`\u00a0· ${st.short}`}</span> : null}
         {st.waits ? <span className="dsy">{'\u00a0· waits on a judge'}</span> : null}
       </p>

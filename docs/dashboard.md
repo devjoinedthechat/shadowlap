@@ -945,7 +945,7 @@ It shows:
 - `New preview`, after it, previews another change on this run alone. It waits while the run records: *Preview once the recording finishes*.
 - **The run's cells**, a cell per model call in the colours of [Preview's matrix](#the-matrix). A cell selects its call, so the inspector shows that call's conversation.
 - **What verify found** of the run, with the rule that decided it.
-- **Its steps**: the ranked ones, most consequential first, then those within the model's own variation. Each gives its rank and change, how often its samples changed, both decisions a line each, its cost either way and its arguments field by field. A step selects its call.
+- **Its steps**: the ranked ones, most consequential first, then those within the model's own variation, and those its control couldn't settle, in amber (*inconclusive*). Each gives its rank and change, how often its samples changed, both decisions a line each, its cost either way and its arguments field by field. A step selects its call.
 - **Later steps are judged in the recorded run's state.** Its card says what that means.
 - **Verify this run**, where the preview left the run to verify, or **Run more attempts** or **Verify again** where verify left it open. Each asks as [Preview's](#the-verdict-and-the-next-step) does.
 
@@ -1256,7 +1256,7 @@ The matrix has a row per run, named by its id and its about line, and a cell per
 | Dashed | Not asked, or waiting on its control |
 | Ringed in amber | Waits on a judge: a sample's words could not be judged |
 
-A cell whose samples decided differently is split, a band a sample, the most consequential first. Past 60 model calls a cell stands for a range, drawn as its most consequential call. Each row is one Tab stop: ← → Home End move along its cells. A row ends on what flags it, else its biggest change, and on what verify found. A run gone from the store keeps its row, its id unlinked, and says *not in the store*.
+A cell whose samples decided differently is split, a band a sample, the most consequential first. Past 60 model calls a cell stands for a range, drawn as its most consequential call. Each row is one Tab stop: ← → Home End move along its cells. A row ends on what flags it, else its biggest change, else a change its control couldn't settle (*inconclusive*), and on what verify found (*kept*, *fixed*, *broken*, *not fixed* or *inconclusive*). A run gone from the store keeps its row, its id unlinked, and says *not in the store*.
 
 Under the last row come the retirement notices of the models the runs use and the one switched to, in today's words, then what couldn't be asked or judged, once each. The receipt at the foot gives the cost per run before and after (*per run ≈$0.028 → ≈$0.014 (−50%)*), what the preview spent and its requests to the model. The command that made the preview is under it, to copy.
 
@@ -1316,11 +1316,13 @@ The verdict is in Verdicts' words, or *applied* once applied. Under it come the 
 | Section | What it shows |
 | --- | --- |
 | What changes | The compact matrix, then each write, stop or judged change, its call opening its cell |
-| What still passes | Each run's verdict, a golden the switch leaves behind, the rules, and the runs verified end to end |
+| What still passes | Each run's verdict and how it came to it, a golden the switch leaves behind, the rules, and the runs verified end to end |
 | What it costs | Per run, end to end where verify ran, and what checking it cost |
 | What to set | Each field the model refuses and what it takes instead, the fields given, or *Only the model* |
 | The config change | Its files and places, each file's diff behind **Show diff**, what it leaves out or to the hand, `git apply` and **Copy config change** |
 | The pull request body | Its title, `gh pr create`, **Copy pull request body**, and **Show body** to read it |
+
+A run of What still passes says how it came to its verdict. One verify took gives verify's outcome and tally (*not fixed, verified · 0 of 4 passed*). One left inconclusive without it says why: *not verified*, *a step not asked* or *a step waits on a judge*.
 
 A golden the switch leaves behind replays differently once applied, since its recording names the model it switches from: *diverges at #1 on `$.model` once applied*. A cell opens under What changes as it does on Preview, with no **Verify this run**. The foot gives the report's warnings and the command that made it. An id that is no migration's says *No migration* and its id, with **Open Migrate**.
 

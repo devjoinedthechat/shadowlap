@@ -1,4 +1,5 @@
 import { andList, besidesLine, byHandNote, givenField, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, quoteArgv, remedyText, retirementOf, shortSessionId, staysWords, verifiedCount, verifyFlagsLine, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice } from '@shadowlap/engine';
+import { verifiedOutcome } from './decision-cells.js';
 import { strings } from './fields.js';
 import { applyInputOf, type AppliedState } from './migrate-applied.js';
 import { goldenName } from './needs-look/row.js';
@@ -103,6 +104,12 @@ function notRunReasons(k: Kept): string[] {
   return verify?.verdict === 'not-run' ? strings(verify.reasons) : [];
 }
 
+/** What a run migrate didn't verify came to, in Preview's words: a step that got no answer, one left to verify, one that waits on a judge. */
+const UNVERIFIED: Readonly<Record<string, string>> = { 'not-asked': 'a step not asked', unsettled: 'not verified', 'not-judged': 'a step waits on a judge' };
+
+/** A run as What still passes words it (migratePassWords), its outcome as every page says it: `not fixed, verified`, never `not-fixed`. */
+const passWords = (x: PassRun): string => migratePassWords({ ...x, outcome: x.verified ? verifiedOutcome(x.outcome) : (UNVERIFIED[x.outcome] ?? x.outcome) });
+
 function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): MigrateView['passes'] {
   const verify = (k.decisions as { verify?: { verdict?: string; rule?: string | null; reasons?: string[]; warnings?: string[] } | null } | undefined)?.verify ?? null;
   const waiting = new Map((applied?.outdated ?? []).map((g) => [g.golden, g]));
@@ -112,7 +119,7 @@ function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): Migra
       const after = x.golden ? waiting.get(x.golden) : undefined;
       // Once applied, the field its replay diverged on, which migrate apply logged; before, the model, which migrate foresaw.
       const leftBehind = applied ? (after?.waits ? `diverges at #${after.callNo} on ${tick(after.path || '$.model')} until updated` : null) : x.diverges ? `diverges at #${x.diverges.callNo} on ${tick('$.model')} once applied` : null;
-      return { runId: x.runId, golden: x.golden, verdict: x.verdict, words: migratePassWords(x), leftBehind };
+      return { runId: x.runId, golden: x.golden, verdict: x.verdict, words: passWords(x), leftBehind };
     }),
     rules: migrateRules(runs.map((x) => ({ ...x, tally: x.tally as { rule?: string | null } | null })), verify?.rule ?? null).map((g) => ({ rule: g.rule, runs: g.runs.map(name) })),
     verified: verifiedCount(runs),

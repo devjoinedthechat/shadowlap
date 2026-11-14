@@ -1,5 +1,5 @@
-import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, MIGRATE_ID, migrateApplyProblem, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
-import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
+import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, MIGRATE_ID, migrateApplyProblem, type JobConsent, jobConsent, quoteArgv, retirementTable, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
+import { decisionRow, LATER_STEPS, verifiedOutcome, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import { sprtGate } from './fix-shared.js';
 import { moreFlags, moreOf, type PreviewMore } from './decision-more.js';
@@ -144,7 +144,7 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
         steps: viewSteps(run),
         run,
         toVerify: !!f?.toVerify.includes(runId),
-        verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry), rule: entry.rule ?? v?.rule ?? null } : null,
+        verified: entry ? { outcome: verifiedOutcome(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry), rule: entry.rule ?? v?.rule ?? null } : null,
         more: r.kind === 'decisions' && entry && v ? moreOf(v, verdictsGate(store, v.verifyIds), verdictsKeptMax(store, v.verifyIds) ?? keptMax, runId) : null,
       };
     }),
