@@ -105,16 +105,23 @@ function shown(): Array<{ where: string; line: string }> {
   return out;
 }
 
-/** The commands on a line: each `shadowlap` and the words after it, up to a pipe, `;`, `&&`, `$(`, `)` or a comment. */
-function invocations(line: string): string[][] {
+/** What may come before a command on its line: a prompt, environment settings, a runner, a YAML key or a list's dash. */
+const LEAD = /^(\$|>|-|npx|exec|env|time|[\w.-]+:|[A-Z_][A-Z0-9_]*=\S*)$/;
+
+/**
+ * The commands on a line: each `shadowlap` and the words after it, up to a pipe, `;`, `&&`, `$(`, `)` or a
+ * comment, and whether it starts its part of the line (`$ FOO=1 npx shadowlap …`, `run: shadowlap …`) or
+ * sits in a sentence, where it can be the name alone (`2 tools shadowlap did not record`).
+ */
+function invocations(line: string): Array<{ words: string[]; starts: boolean }> {
   const text = line.replace(/(^|\s)#(\s.*)?$/, '$1');
-  const found: string[][] = [];
+  const found: Array<{ words: string[]; starts: boolean }> = [];
   for (const segment of text.split(/\|\||&&|[|;`)]|\$\(/)) {
     const words = segment.trim().split(/\s+/).map((w) => w.replace(/^["'[(]+/, ''));
     words.forEach((w, i) => {
       if (w !== 'shadowlap') return;
       const end = words.indexOf('shadowlap', i + 1);
-      found.push(words.slice(i + 1, end < 0 ? undefined : end));
+      found.push({ words: words.slice(i + 1, end < 0 ? undefined : end), starts: words.slice(0, i).every((p) => LEAD.test(p)) });
     });
   }
   return found;
@@ -131,7 +138,7 @@ function problemsIn(program: Command, lines: Array<{ where: string; line: string
   const takesValue = (o: Option) => o.required || o.optional;
   const problems: string[] = [];
   for (const { where, line } of lines) {
-    for (const words of invocations(line)) {
+    for (const { words, starts } of invocations(line)) {
       let i = 0;
       // Global options come first: shadowlap --db replays.db test …
       while (i < words.length && words[i].startsWith('-')) {
@@ -150,7 +157,8 @@ function problemsIn(program: Command, lines: Array<{ where: string; line: string
         i++;
       }
       if (!path.length) {
-        problems.push(`${where}: shadowlap has no command "${words[i]}" (${line.trim()})`);
+        // In a sentence, a word no command has follows the name, not a command: "2 tools shadowlap did not record".
+        if (starts) problems.push(`${where}: shadowlap has no command "${words[i]}" (${line.trim()})`);
         continue;
       }
       // With no subcommand named, a command that has a default one runs it: `tasks --json` is `tasks ls --json`.
@@ -206,6 +214,14 @@ describe('the check on the commands the docs show', () => {
       'docs/x.md: shadowlap tasks score has no --json (shadowlap tasks score --json)',
       'docs/x.md: shadowlap tasks has no command "scroe" (shadowlap tasks scroe)',
       'docs/x.md: shadowlap has no command "repaly" (shadowlap repaly 01K5)',
+    ]);
+  });
+
+  it('reads the name in a sentence as the name, and still checks a command wherever it stands', () => {
+    expect(problemsIn(cli(), at('! The model called 2 tools shadowlap did not record', 'Next: shadowlap repaly 01K5', '$ FOO=1 npx shadowlap repaly 01K5', 'run it again with shadowlap replay 01K5 --nope'))).toEqual([
+      'docs/x.md: shadowlap has no command "repaly" (Next: shadowlap repaly 01K5)',
+      'docs/x.md: shadowlap has no command "repaly" ($ FOO=1 npx shadowlap repaly 01K5)',
+      'docs/x.md: shadowlap replay has no --nope (run it again with shadowlap replay 01K5 --nope)',
     ]);
   });
 });
