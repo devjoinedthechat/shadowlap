@@ -1,4 +1,4 @@
-/* The Overview (#/): this week at a glance, what needs a look, recent runs and activity, spending and the daily chart. */
+/* The Overview (#/): this week at a glance, what needs a look with the activity feed beside it, spending and the daily chart. */
 .kpi { padding: 16px 18px; }
 .kpi b { display: block; margin-top: 8px; font: 700 26px/1.05 var(--disp); letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
 /* a figure is ink: lime means only the primary action and passed */
@@ -56,6 +56,8 @@
 @media (hover: none) { .arow .adis[aria-disabled="true"] { opacity: .5; cursor: not-allowed; } }
 .arow.off .t { color: var(--dim); }
 .arow.off .glyph { color: var(--faint); }
+/* Restore is a quiet button, with no edge of its own: its word ends where the steps above it end */
+.arow.off .ast > .btn.quiet { margin-right: -10px; }
 .attn .aoff { padding: 7px 0; border-top: 1px solid var(--line); }
 .agrp + .aoff { border-top: 0; padding-top: 1px; }
 .attn .aoff .linkbtn { padding: 6px 7px; margin: -6px 0 -6px -7px; gap: 0; }
@@ -66,20 +68,27 @@
   .arow .ast { grid-column: 2; justify-content: flex-start; }
   .arow .adx { grid-column: 3; grid-row: 1; align-self: start; }
   .arow .ast:has(.go) { display: none; }
-  .arow.off .ast > .btn.quiet { margin-left: -10px; }
+  .arow.off .ast > .btn.quiet { margin-left: -10px; margin-right: 0; }
 }
 /* j and k: the row in focus keeps its bar in the bleed, as every list in a section does; the prompt cache's misses bleed by their own box, so .krow's bar is at its edge */
-.panel.sec .attn > .arow.krow, .panel.sec .rrows > a.krow, .panel.sec .feed > a.krow { background: var(--sel); box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink), var(--bleed) 0 0 var(--sel); }
-.feed a { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; text-decoration: none; border-top: 1px solid var(--line); }
+.panel.sec .attn > .arow.krow, .panel.sec .feed > a.krow { background: var(--sel); box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink), var(--bleed) 0 0 var(--sel); }
+/* Activity: an entry a row as a run's row reads, its glyph at the section's left edge, what happened, and when at its end,
+   the quiet line an aside is read in */
+.feed a { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 9px 18px; text-decoration: none; border-top: 1px solid var(--line); }
 .feed a:first-child { border-top: 0; }
 .feed a:hover { background: var(--hover); }
-.feed .at { font: 11px var(--mono); color: var(--faint); }
-.feed .ic { transform: translateY(3px); }
-.feed .w { color: var(--dim); overflow-wrap: anywhere; }
-/* an entry is read whole, never cut to a few lines; its run's id, or the fix, verdict or file it names, wraps as one piece
-   after its words, so it never drags the last word down with it. At 320px (a 1280px window zoomed to 400%) a part kept
-   whole may wrap, so nothing scrolls sideways; a piece too long for any line, as a project's path, breaks where it must */
-.feed .w code { font-size: 11px; color: var(--faint); margin-left: 2px; white-space: nowrap; }
+.feed .at { font: 11px var(--mono); color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.feed .ic { transform: translateY(2.5px); }
+.feed .w { color: var(--dim); font-size: var(--fs-quiet); overflow-wrap: anywhere; }
+/* an entry is read whole, never cut to a few lines; its run's id, or the fix, verdict or file it names, is one piece that
+   goes to the next line whole after its words, so it never drags the last word down with it, and starts that line where
+   the words start theirs. One longer than any line (a bucket's address with its endpoint) is inline code that breaks
+   (code.ts-cb): between its pieces, after a slash, each piece going to the next line whole; only a piece no line holds
+   breaks inside, so nothing runs past its column. At 320px (a 1280px window zoomed to 400%) a part kept whole may wrap,
+   so nothing scrolls sideways; a piece too long for any line breaks where it must (a folder's path is drawn as its last
+   folders, so it is none) */
+.feed .w code { display: inline-block; max-width: 100%; font-size: 11px; color: var(--faint); vertical-align: baseline; }
+.feed .w code.ts-cb:not(.whole) ts-p { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; vertical-align: baseline; }
 @media (max-width: 340px) { .feed .w .nw { white-space: normal; } }
 
 @media (max-width: 640px) {
@@ -102,11 +111,13 @@ a.kpi { display: block; text-decoration: none; color: inherit; }
 .kpi .kv { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; }
 .kpi .kv b { margin-top: 0; }
 .kv .vs { color: var(--faint); font-size: 12px; white-space: nowrap; }
-/* every overview row sits on the same three columns, so gutters line up from top to bottom */
-.ovg, .ovgs { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 36px 48px; align-items: start; }
-.ovg > .panel.sec, .ovgs > .panel.sec, .ovside > .panel.sec { margin-top: 0; }
-.panel.sec.ovuse { margin-top: 40px; }
-.panel.sec .feed a, .panel.sec .feed > .plain { padding-left: 0; padding-right: 0; }
+/* one list and its aside: Needs a look takes the width, with Usage under it, and the activity feed is a narrow column
+   beside them. One hairline closes the header's facts over both columns, so neither column's first section draws its
+   own, and nothing spans under the two: a short list leaves no hole between the columns and a section below */
+.ovg, .ovgs { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 30%, 380px); gap: var(--gap-section) 48px; align-items: start; border-top: 1px solid var(--line); }
+.ovmain { min-width: 0; }
+.ovg > .panel.sec, .ovgs > .panel.sec, .ovmain > .panel.sec:first-child { margin-top: 0; border-top: 0; }
+.panel.sec .feed a, .panel.sec .feed > .plain, .panel.sec .feed > .empty { padding-left: 0; padding-right: 0; }
 .panel.sec .feed a:hover { box-shadow: -12px 0 0 var(--hover), 12px 0 0 var(--hover); }
 .kstrip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
 .kcell { padding: 16px 18px; min-width: 0; }
@@ -132,7 +143,6 @@ a.kcell:hover { background: var(--hover); }
 .oleg i.fail { box-shadow: inset 0 0 0 1.5px var(--o-fail); }
 /* the prompt cache's reads are its quiet part, as the Context view draws them: never the replayed colour */
 .segbar i.cread { background: var(--c-read); }
-.ovside { display: flex; flex-direction: column; gap: 36px; min-width: 0; }
 .segbar i.pend { background: var(--line2); }
 .leakh { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; margin-top: 4px; font-size: 12.5px; color: var(--faint); }
 .leakh > * { white-space: nowrap; }
@@ -152,13 +162,13 @@ a.kcell:hover { background: var(--hover); }
 .leaks b { font: 500 12.5px var(--mono); color: var(--ink); }
 .leaknote { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; }
 
+/* no room for an aside: the feed goes under the list and Usage, a section under its own hairline as every section is */
 @media (max-width: 1180px) {
   .ovg, .ovgs { grid-template-columns: minmax(0, 1fr); }
-  .ovside { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 40px; }
+  .ovg > .panel.sec, .ovgs > .panel.sec { border-top: 1px solid var(--line); }
 }
 
 @media (max-width: 900px) { .kstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kcell:nth-child(3) { border-left: 0; } .kcell:nth-child(n+3) { border-top: 1px solid var(--line); } .kstrip > * { border-radius: 0 !important; } }
-@media (max-width: 760px) { .ovside { grid-template-columns: minmax(0, 1fr); } }
 
 .feed .w .actor { color: var(--ink); font-weight: 500; }
 
@@ -182,7 +192,7 @@ table.daytable tbody tr:hover td { background: none; }
 .attn .d.gv, .feed .w.gv { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 
 /* an activity entry with nowhere to go reads as a plain row: never a link back to the page it is on */
-.feed > .plain { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; border-top: 1px solid var(--line); cursor: default; }
+.feed > .plain { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 9px 18px; border-top: 1px solid var(--line); cursor: default; }
 .feed > .plain:first-child { border-top: 0; }
 
 /* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
@@ -195,34 +205,14 @@ table.daytable tbody tr:hover td { background: none; }
   .livebtn .pulse { background: LinkText; }
 }
 
-/* Recent runs: a row a run as the sidebar has it, the id, its calls by origin and when, then its about line and what needs
-   a look, each line one line */
-.rrow { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); color: var(--dim); text-decoration: none; }
-.rrow:first-child { border-top: 0; padding-top: 2px; }
-.rrow:hover { background: var(--hover); box-shadow: -12px 0 0 var(--hover), 12px 0 0 var(--hover); }
-.rrow .ri { align-self: start; margin-top: 1.5px; }
-.rrow .rr1 { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.rrow .rr1 code { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
-/* the row's hidden summary of its calls, for a screen reader, stays inside the strip, not at the foot of the page */
-.rrow .ms { position: relative; flex: 0 1 120px; width: 120px; height: 10px; margin-left: auto; }
-.rrow .rw { flex: none; min-width: 38px; text-align: right; font: 11px var(--mono); color: var(--faint); white-space: nowrap; }
-.rrow .rr2 { grid-column: 2; display: flex; align-items: baseline; margin-top: 3px; min-width: 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; }
-.rrow .rr2 .rab { flex: 0 1 auto; color: var(--faint); }
-.rrow .rr2 .r2s { flex: none; }
-/* the status's own dot, an inline-block read apart from the about line and the status; with no about line before it (or one
-   that gave up its place, shell.css) there is nothing to set apart */
-.rrow .rr2 .dot { display: inline-block; margin: 0 5px; }
-.rrow .rr2 > .r2s:first-child .dot { display: none; }
-.rrow .rr2 em { font-style: normal; color: var(--err); }
-.rrow .rr2 em.inc { color: var(--warn); }
-@media (max-width: 560px) { .rrow .ms { flex-basis: 72px; width: 72px; } }
-
-/* Usage, folded until asked for: its heading's line says it in figures; open, its three parts side by side */
+/* Usage, folded until asked for: its heading's line says it in figures; open, its calls and its cache side by side over
+   the spend chart, which takes the column's width */
 .ovuse > header .sub { flex: 1 1 auto; min-width: 0; }
 .ovuse > header .sp { flex: 0 0 0; }
 /* on a phone Show goes under the figures, at their left edge */
 @media (max-width: 640px) { .ovuse > header .sp { display: none; } .ovuse > header .linkbtn { margin-left: -7px; } }
-.ugrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr); gap: 32px 40px; padding: 8px 0 4px; }
+.ugrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 40px; padding: 8px 0 4px; }
+.ugrid .uspend { grid-column: 1 / -1; }
 .upart { display: flex; flex-direction: column; min-width: 0; }
 .uph { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 12px; }
 .uph h3 { margin: 0; font: 600 13.5px var(--body); color: var(--ink); }
@@ -235,5 +225,4 @@ table.daytable tbody tr:hover td { background: none; }
 .uspend .xlabels span { white-space: nowrap; }
 /* on a phone a day's label is its number, the month only where it starts */
 @media (max-width: 640px) { .xlabels .xm { display: none; } }
-@media (max-width: 1180px) { .ugrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ugrid .uspend { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .ugrid { grid-template-columns: minmax(0, 1fr); } }

@@ -1,13 +1,13 @@
 import type { Fact } from '../components/Facts.js';
-import { cents, durLong, num } from '../format.js';
-import { ORIGIN_CODE, ORIGIN_NAME, type Origin7 } from '../origins.js';
+import { cents, compactPath, durLong, num } from '../format.js';
+import { ORIGIN_CODE, type Origin7 } from '../origins.js';
 import { href } from '../route.js';
 import type { GlyphKind } from '../runs.js';
 import type { ActivityIcon, FixesFunnel, OverviewSummary, TestsTile } from '../types.js';
 
 /**
  * What the Overview says, worked out from the server's summary: the outcome strip's lines, the
- * origins in the mock's order, the chart's scale, and the words for a run's kind. No DOM here: the
+ * origins in the mock's order, the chart's scale, and an activity entry's words. No DOM here: the
  * tests import it.
  */
 
@@ -159,20 +159,13 @@ export function activityKeep(text: string): string {
 }
 
 /**
- * A run's kind as Recent runs' hover names it, a test's replay a test replay and the fork blame
- * rescued a run with a rescued fork: `clean replay`, `fork @17`, `rescued fork`, `test replay`,
- * `capture`, `recording`.
+ * An activity entry's words with each folder's path as a label has it (`compactPath`): `~` for the
+ * home folder, and past a name's length only its last folders (`…/demo/support-agent`), short enough
+ * to stay whole where the line wraps. A path is a word that starts at a slash, `~/` or a drive; a
+ * tally (`30/30`) and an address (`s3://…`) are none.
  */
-export function recentKind(kind: string, rescues?: string | null): string {
-  return rescues ? 'rescued fork' : kind === 'test' ? 'test replay' : kind;
-}
-
-/** What a run's mini strip says to a screen reader: `30 calls: 16 replayed, 13 live, 1 blocked`. */
-export function callsSaid(origins: readonly Origin7[]): string {
-  const counts = new Map<Origin7, number>();
-  for (const o of origins) counts.set(o, (counts.get(o) ?? 0) + 1);
-  const parts = SHOW_ORIGINS.filter((o) => counts.get(o)).map((o) => `${num(counts.get(o)!)} ${ORIGIN_NAME[o]}`);
-  return `${num(origins.length)} ${origins.length === 1 ? 'call' : 'calls'}${parts.length ? `: ${parts.join(', ')}` : ''}`;
+export function shortPaths(text: string): string {
+  return text.replace(/(^|\s)((?:~|[A-Za-z]:)?[\\/]\S+)/g, (_m, before: string, path: string) => `${before}${compactPath(path, NAME_MAX)}`);
 }
 
 /**

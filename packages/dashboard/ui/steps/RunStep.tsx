@@ -107,23 +107,24 @@ export function updateAsk(app: ReturnType<typeof useApp>, golden: string, estima
  * test, Run tests, Find breaking commit or Revert, each taking the step and the run's id, not the
  * run's page, priced from the run's own next step (`GET /api/runs/:id/next`). A crash's Find
  * breaking commit and Revert are revert/CrashStep.tsx's, as on a fix's row: Revert always opens its
- * dialog, with the commit its run's offers name.
+ * dialog, with the commit its run's offers name. Small and plain, or as its list draws its lead
+ * (`className`).
  */
-export function RunStep({ s, why }: { s: { runId: string; step: NextStep }; why: string | null }) {
+export function RunStep({ s, why, className = 'btn sm' }: { s: { runId: string; step: NextStep }; why: string | null; className?: string }) {
   const { runId, step } = s;
-  if (step.key === 'bisect' || step.key === 'revert') return <CrashStepButton runId={runId} step={step} why={why} />;
-  return <JobStep runId={runId} step={step} why={why} />;
+  if (step.key === 'bisect' || step.key === 'revert') return <CrashStepButton runId={runId} step={step} why={why} className={className} />;
+  return <JobStep runId={runId} step={step} why={why} className={className} />;
 }
 
 /** Any other run's step that starts a job from a list's row; `Open →` for one that opens its page instead. */
-function JobStep({ runId, step, why }: { runId: string; step: NextStep; why: string | null }) {
+function JobStep({ runId, step, why, className }: { runId: string; step: NextStep; why: string | null; className: string }) {
   const app = useApp();
   const priced = usePriced(() => app.client.nextStep(runId).then((r) => (r.next?.key === step.key ? (r.next.estimate ?? null) : null)));
   const [asking, show] = useAsking();
   const e = priced.estimate;
   const c = stepCard(e ? { ...step, estimate: e } : step);
   if (step.key === 'blame') {
-    return <RunBlameButton runId={runId} offer={step.offer} estimate={e} busy={why} on={priced.on} when={priced.when} title={blameTitle(step.offer)} tip={tipCard(c.title, c.rows, c.sub, c.cmd, c.est)} className="btn sm" {...(step.command ? { line: step.command } : {})} />;
+    return <RunBlameButton runId={runId} offer={step.offer} estimate={e} busy={why} on={priced.on} when={priced.when} title={blameTitle(step.offer)} tip={tipCard(c.title, c.rows, c.sub, c.cmd, c.est)} className={className} {...(step.command ? { line: step.command } : {})} />;
   }
   const card = { tip: c.title, sub: c.sub, command: c.cmd ?? undefined };
   let go: (p: Price) => void;
@@ -136,7 +137,7 @@ function JobStep({ runId, step, why }: { runId: string; step: NextStep; why: str
   else return <span className="go">Open →</span>;
   return (
     <>
-      <JobButton className="btn sm" why={why} {...card} estimate={e} {...priced.on} start={() => go(e)} ask={priced.when(go)}>
+      <JobButton className={className} why={why} {...card} estimate={e} {...priced.on} start={() => go(e)} ask={priced.when(go)}>
         {step.label}
       </JobButton>
       {asking}

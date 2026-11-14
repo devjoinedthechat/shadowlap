@@ -464,8 +464,6 @@ function wholeLines(rows: Awaited<ReturnType<typeof aboutRows>>, said: string[])
 test('on a 390px phone each run’s link says its whole about line, however short the line drawn, then its status heard apart', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openPage(page, '/', 'overview');
-  const recent = await aboutRows(page, 'main#view .rrows a.rrow');
-  expect(wholeLines(recent, await names(page, 'main#view .rrows', 'link'))).toEqual([]);
   await page.locator('button.menu-toggle').click();
   await expect(page.locator('aside#side.open')).toBeVisible();
   const side = await aboutRows(page, 'aside#side .runs a.run');
@@ -481,7 +479,6 @@ test('on a 390px phone each run’s link says its whole about line, however shor
 
 test('a screen reader hears apart the parts the margins draw apart, and each settings control by its row', async ({ page }) => {
   await openPage(page, '/', 'overview');
-  expect(wholeLines(await aboutRows(page, 'main#view .rrows a.rrow'), await names(page, 'main#view .rrows', 'link'))).toEqual([]);
   // The facts named once by what they sum up.
   expect(await names(page, 'main#view', 'region')).toContain('Overview in figures');
   // Runs: the calendar's busiest day and failed count, each with what it counts; a chip's word and its count.

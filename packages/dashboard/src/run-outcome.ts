@@ -32,8 +32,8 @@ import type { JudgeRun } from './runs-filter.js';
 
 /**
  * A run's outcome by checks, as its status says it everywhere (A13, E26): the run payload and every
- * list row carry it, so Runs, the sidebar, the Overview's Recent runs and the run's own page say the
- * same. It is, the first that holds:
+ * list row carry it, so Runs, the sidebar and the run's own page say the same. It is, the first that
+ * holds:
  *
  * - the run's own checks, as it was made (`shadowlap test`, `--expect`, an attempt's oracle);
  * - a capture's verdict by the project's rules on calls, kept as it was imported, or judged again

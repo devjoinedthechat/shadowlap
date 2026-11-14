@@ -1,6 +1,6 @@
 /**
  * A run's id, in mono, never broken (`code.rnm`): its about line on hover, a link where the place can
- * hold one. In a list of runs (the sidebar, Runs, Recent runs, the pickers, the fork tree, ⌘K's
+ * hold one. In a list of runs (the sidebar, Runs, the pickers, the fork tree, ⌘K's
  * runs: `list`), its first six characters, a ULID's leading time that runs made close together
  * share, are quieter, so the four that tell runs apart are what the eye finds. The quiet part is
  * drawn by the id's own ground (`.rl`), never by an element of its own: its text is the id as it

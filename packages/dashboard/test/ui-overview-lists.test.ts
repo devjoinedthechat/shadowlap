@@ -3,17 +3,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { OnShow } from '../ui/components/OnShow.js';
 import { resetLookMemory } from '../ui/overview/dismissed.js';
 import { NeedsLook } from '../ui/overview/NeedsLook.js';
+import { ActivityCard } from '../ui/overview/panels.js';
 import type { BuilderProps } from '../ui/run/check-part.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { Usage } from '../ui/overview/Usage.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { NeedsLookRow, NextStep, OverviewSummary } from '../ui/types.js';
+import type { ActivityItem, NeedsLookRow, NextStep, OverviewSummary } from '../ui/types.js';
+import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
  * The Overview's Usage folds until asked for, and Needs a look shows every item under its group's
- * head, each row ending on its step, which runs from the row, or Open where nothing runs.
+ * head, each row ending on its step, which runs from the row, or Open where nothing runs; the first
+ * row's step is the page's lime. The activity feed is their aside, an entry a row as a run's row
+ * reads.
  */
 
 const app = (actionsOff: string | null = null) => ({ actionsOff, exported: false, meta: null }) as unknown as AppState;
@@ -107,7 +111,7 @@ describe('Needs a look', () => {
     expect(r.all('.arow').map((x) => [x.getAttribute('data-rowkey'), x.getAttribute('data-agrp')])).toEqual(rows.map((x) => [x.key, x.group]));
     expect(r.all('.arow .adx').map(text)).toEqual(['', '', '']);
     expect(r.all('.arow a.at').map((a) => a.getAttribute('href'))).toEqual(rows.map((x) => x.href));
-    // A step is small and plain, never lime; a row with none opens what it is about.
+    // A step is small and plain; a row with none opens what it is about, and where the first row is one, no step is lime.
     expect(r.all('.arow .ast').map(text)).toEqual(['Open →', 'Run blame', 'Push local runs']);
     expect(r.all('.arow .ast .btn').map((b) => b.className)).toEqual(['btn sm', 'btn sm']);
     // The run a row names is its id, with its about line on hover.
@@ -120,6 +124,32 @@ describe('Needs a look', () => {
     await r.unmount();
     r = await render(inApp(createElement(NeedsLook, { items: [], total: 0 })));
     expect(r.all('.ovattn .emptyline').map(text)).toEqual(['Nothing needs a look.']);
+  });
+
+  it('draws the first row’s step as the page’s lime, whatever its kind, and no other: the first row left to look at, plain while it waits, never a dismissed row’s Restore', async () => {
+    const steps = () => r!.all('.arow .ast .btn').map((b) => [text(b), b.className]);
+    const link: NeedsLookRow = { ...rows[0], step: { of: 'link', label: 'Open proof', href: '#/run/01M5H2EWWY8P621C63CJPVEM4A/3' } };
+    // A step that is a link, a run's job and the store's: the first is lime, each after it plain.
+    r = await render(within(running({ jobs: async () => [] }), createElement(NeedsLook, { items: [link, rows[1], rows[2]], total: 3 })));
+    expect(steps()).toEqual([
+      ['Open proof', 'btn sm lime'],
+      ['Run blame', 'btn sm'],
+      ['Push local runs', 'btn sm'],
+    ]);
+    await r.unmount();
+    // A step that waits is plain, as every lime that waits is: here a job this dashboard doesn't run.
+    r = await render(within({ ...running({ jobs: async () => [] }), hasKind: () => false }, createElement(NeedsLook, { items: [rows[1]], total: 1 })));
+    expect(r.one('.arow .ast .btn').getAttribute('aria-disabled')).toBe('true');
+    expect(steps()).toEqual([['Run blame', 'btn sm']]);
+    await r.unmount();
+    // The first row put away: the next is the first left to look at, and Restore is never lime.
+    const away: NeedsLookRow = { ...rows[2], group: 'failing', key: 'attn:away', advice: { key: 'local', facts: ['01M5H2EWWY8P621C63CJPVEM4A'], until: 'Until another run is only on this machine', dismissed: true } };
+    r = await render(within(running({ jobs: async () => [] }), createElement(NeedsLook, { items: [away, rows[1]], total: 1 })));
+    await r.click(r.one('.aoff .linkbtn'));
+    expect(steps()).toEqual([
+      ['Run blame', 'btn sm lime'],
+      ['Restore', 'btn sm quiet'],
+    ]);
   });
 
   it('ends a group on what was dismissed from it, folded under Dismissed (n), each row muted with Restore once opened', async () => {
@@ -169,7 +199,7 @@ describe('Needs a look', () => {
     }
   });
 
-  it('runs Tests’ whole session from a golden whose checks changed since, and opens the builder at the check from one whose recording fails a check added since, each plain', async () => {
+  it('runs Tests’ whole session from a golden whose checks changed since, and opens the builder at the check from one whose recording fails a check added since, each small and only the first lime', async () => {
     resetSpending(null);
     try {
       const golden = 'goldens/refund-in-limit';
@@ -183,7 +213,7 @@ describe('Needs a look', () => {
       const look = createElement(NeedsLook, { items: [row(2, runTests), row(1, editCheck)], total: 2 });
       r = await render(within(running({ jobs: async () => [], startJob, nextStep }), createElement(ServedPartsContext.Provider, { value: { CheckBuilder: Builder } }, look)));
       expect(r.all('.arow .ast .btn').map((b) => [text(b), b.className])).toEqual([
-        ['Run tests', 'btn sm'],
+        ['Run tests', 'btn sm lime'],
         ['Edit check…', 'btn sm'],
       ]);
       await r.click(r.byText('.arow .ast .btn', 'Run tests'));
@@ -234,5 +264,90 @@ describe('Needs a look', () => {
     } finally {
       errors.mockRestore();
     }
+  });
+});
+
+describe('the Overview’s Activity', () => {
+  const NOW = new Date(2026, 9, 22, 12).getTime();
+  const folder = '/srv/checkouts/northwind/2026-10-22-b7f3a91c/agents/demo/support-agent';
+  const items: ActivityItem[] = [
+    { id: 'a', at: new Date(2026, 9, 22, 9, 5).getTime(), kind: 'project', text: `Project added · ${folder}`, actor: 'dana@northwind.example' },
+    { id: 'b', at: new Date(2026, 9, 20, 9, 5).getTime(), kind: 'rec', text: 'Recorded 9 calls', runId: '01M5GRZK3PG7SR16CB2T3CFE21' },
+  ];
+  const feed = (byPerson: boolean) => createElement(AppContext.Provider, { value: { actionsOff: null, runs: [] } as unknown as AppState }, createElement(ActivityCard, { items, now: NOW, byPerson, live: [] }));
+
+  it('draws an entry as a run’s row reads: its glyph, what happened, and when at its end, today’s by the clock', async () => {
+    r = await render(feed(true));
+    const rows = [r.one('.feed > .plain'), r.one('.feed > a')];
+    expect(rows.map((row) => row.children.map((c) => c.className.split(' ')[0]))).toEqual([
+      ['glyph', 'w', 'at'],
+      ['glyph', 'w', 'at'],
+    ]);
+    expect(rows.map((row) => text(row.querySelector('.at')!))).toEqual(['09:05', 'Oct 20']);
+    // Who did it leads its words, with a team store.
+    expect(text(rows[0].querySelector('.w .actor')!)).toBe('dana');
+  });
+
+  it('draws a folder’s path as its last folders, kept whole, with the whole path on its hover', async () => {
+    r = await render(feed(false));
+    const words = r.one('.feed > .plain .w');
+    expect(text(words).replace(/\u00a0/g, ' ')).toBe('Project added · …/agents/demo/support-agent');
+    expect(words.querySelectorAll('.nw').map(text)).toContain('…/agents/demo/support-agent');
+    expect(words.getAttribute('title')).toBe(`Project added · ${folder}`);
+    // Words with no path to shorten carry no hover of their own.
+    expect(r.one('.feed > a .w').getAttribute('title')).toBeNull();
+  });
+
+  it('sets what an entry names as inline code: a short name one piece, a bucket’s address with its endpoint in pieces a line may break between', async () => {
+    const address = 's3://northwind-agent-runs/support-agent?endpoint=https://objects.eu-central-1.example.com:9000';
+    const named: ActivityItem[] = [
+      { id: 'a', at: NOW - 1000, kind: 'setting', text: 'Push from CI on', ref: address },
+      { id: 'b', at: NOW - 2000, kind: 'project', text: 'Golden packed', ref: 'goldens/refund-flow' },
+    ];
+    r = await render(createElement(AppContext.Provider, { value: { actionsOff: null, runs: [] } as unknown as AppState }, createElement(ActivityCard, { items: named, now: NOW, byPerson: false, live: [] })));
+    const codes = r.all('.feed .w code');
+    // Each as written, so a copy of it is exact.
+    expect(codes.map((c) => c.textContent)).toEqual([address, 'goldens/refund-flow']);
+    expect(codes.map((c) => c.className)).toEqual(['ts-cb', 'ts-code']);
+    // The address's pieces: a line breaks after its bucket's slash, never inside `//`; the stylesheet lets the rest break inside.
+    expect(codes[0].querySelectorAll('ts-p').map((x) => x.textContent)).toEqual(['s3://northwind-agent-runs/', 'support-agent?endpoint=https://objects.eu-central-1.example.com:9000']);
+  });
+});
+
+describe('the Overview’s layout', () => {
+  const value = (selector: string, prop: string, conditions: string[] = []) => {
+    let found: string | null = null;
+    for (const rule of styleRules()) if (rule.conditions.join(' ') === conditions.join(' ') && rule.selectors.includes(selector)) for (const [p, v] of rule.decls) if (p === prop) found = v;
+    return found;
+  };
+  const NARROW = ['@media (max-width: 1180px)'];
+
+  it('is one list and its aside under one hairline, the aside going under the list where there is no room beside it', () => {
+    expect([value('.ovg', 'grid-template-columns'), value('.ovg', 'border-top'), value('.ovg', 'align-items')]).toEqual(['minmax(0, 1fr) clamp(300px, 30%, 380px)', '1px solid var(--line)', 'start']);
+    // The hairline is the grid's: neither column's first section draws one of its own.
+    expect([value('.ovg > .panel.sec', 'border-top'), value('.ovmain > .panel.sec:first-child', 'border-top')]).toEqual(['0', '0']);
+    expect(value('.ovg', 'grid-template-columns', NARROW)).toBe('minmax(0, 1fr)');
+    expect(value('.ovg > .panel.sec', 'border-top', NARROW)).toBe('1px solid var(--line)');
+    // The loading page takes the same grid, so nothing moves when the week lands.
+    expect(value('.ovgs', 'grid-template-columns')).toBe(value('.ovg', 'grid-template-columns'));
+  });
+
+  it('sets an activity entry on a run’s row’s columns, a link or not: its glyph, its words, and when', () => {
+    expect([value('.feed a', 'grid-template-columns'), value('.feed > .plain', 'grid-template-columns')]).toEqual(['14px minmax(0, 1fr) auto', '14px minmax(0, 1fr) auto']);
+    expect(value('.feed .at', 'white-space')).toBe('nowrap');
+  });
+
+  it('keeps what an entry names in one piece where a line holds it, and breaks it inside its column where none does', () => {
+    // One piece that goes to the next line whole, and no wider than its column, flush with the words: no margin of its own.
+    expect(['display', 'max-width', 'margin-left'].map((p) => value('.feed .w code', p))).toEqual(['inline-block', '100%', null]);
+    // Inline code no line holds breaks between its pieces, as everywhere: each piece is one box that goes to the next line
+    // whole, and breaks inside only where it is wider than the column.
+    expect(['display', 'max-width', 'white-space', 'overflow-wrap'].map((p) => value('.feed .w code.ts-cb:not(.whole) ts-p', p))).toEqual(['inline-block', '100%', 'normal', 'anywhere']);
+  });
+
+  it('opens Usage in the list’s column: its calls beside its cache, over the spend chart at the column’s width', () => {
+    expect(value('.ugrid', 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))');
+    expect(value('.ugrid .uspend', 'grid-column')).toBe('1 / -1');
+    expect(value('.ugrid', 'grid-template-columns', ['@media (max-width: 760px)'])).toBe('minmax(0, 1fr)');
   });
 });

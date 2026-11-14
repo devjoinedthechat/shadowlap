@@ -3,7 +3,7 @@ import type { Origin7 } from '../origins.js';
 import { binCalls, MINI_CELLS } from '../strip.js';
 
 /**
- * The small strips, the Runs table's and the Overview's, in the colour of each call's origin: apart
+ * The small strips, as the Runs table draws a run's calls, in the colour of each call's origin: apart
  * from the run page's own strip (ui/run/RunStrip.tsx), so that page loads none of them.
  */
 
@@ -27,18 +27,16 @@ export function miniCells(origins: readonly Origin7[], max = MINI_CELLS): MiniCe
   return bins ? bins.map((b) => ({ origin: b.major as Origin7, tick: b.tick as Origin7 | null, tickAt: b.tickAt })) : origins.map((origin) => ({ origin, tick: null, tickAt: 0 }));
 }
 
-/** The small strip in tables and lists: grouped past 60 cells. */
-export function MiniStrip({ origins, max = 60, className = 'ms', said }: { origins: readonly Origin7[]; max?: number; className?: string; said?: string | undefined }) {
+/** The small strip in tables and lists: grouped past 60 cells. A picture only: its row says the run in words. */
+export function MiniStrip({ origins, max = 60, className = 'ms' }: { origins: readonly Origin7[]; max?: number; className?: string }) {
   const cells = useMemo(() => miniCells(origins, max), [origins, max]);
-  // With `said`, a screen reader hears the calls by origin, held inside the strip; without, the strip is a picture only.
   return (
-    <span className={className} style={{ gridTemplateColumns: `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))` }} aria-hidden={said ? undefined : 'true'}>
+    <span className={className} style={{ gridTemplateColumns: `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))` }} aria-hidden="true">
       {cells.map((c, i) => (
         <i key={i} className={c.origin}>
           {c.tick ? <span className={`tk ${c.tick}`} style={{ left: `${c.tickAt * 100}%` }} /> : null}
         </i>
       ))}
-      {said ? <span className="sr">{said}</span> : null}
     </span>
   );
 }
