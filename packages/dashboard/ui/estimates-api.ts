@@ -61,8 +61,8 @@ export interface EstimatesApi {
   runEstimates(runId: string, at?: number | null, model?: string | null): Promise<RunEstimates>;
   /** Run repair's, Run blame again's and stronger's at `model`, and each Verify step's. */
   fixEstimates(fixId: string, model?: string | null): Promise<FixEstimates>;
-  /** Run tests' and each golden's, with Update goldens…' for `update` together where it names goldens. */
-  testsEstimates(update?: readonly string[]): Promise<TestsEstimates>;
+  /** Run tests' and each golden's, with Update goldens…' for `update` together where it names goldens, and Run tests on…' for `run` (`picked`). */
+  testsEstimates(update?: readonly string[], run?: readonly string[]): Promise<TestsEstimates>;
   /** What a kept preview's Verify bills: on every run it could not clear, or on those `runIds` name (the runs no verify took yet); at Run more attempts' limits where given. */
   decisionEstimates(sessionId: string, runIds?: readonly string[], limits?: MoreLimits): Promise<DecisionEstimates>;
   /** What a new preview asks and bills (`POST /api/decisions/estimates`, which changes nothing); each way's card while it names no change. */
@@ -85,7 +85,10 @@ export function estimatesApi(request: Request): EstimatesApi {
     setSpending: (v) => request('user/spending', { method: 'PUT', body: JSON.stringify({ askAbove: v }) }),
     runEstimates: (runId, at, model) => request(`runs/${q(runId)}/estimates${query({ at, model })}`),
     fixEstimates: (fixId, model) => request(`fixes/${q(fixId)}/estimates${query({ model })}`),
-    testsEstimates: (update) => request(`tests/estimates${update?.length ? `?${update.map((p) => `update=${q(p)}`).join('&')}` : ''}`),
+    testsEstimates: (update, run) => {
+      const parts = [...(update ?? []).map((p) => `update=${q(p)}`), ...(run ?? []).map((p) => `run=${q(p)}`)];
+      return request(`tests/estimates${parts.length ? `?${parts.join('&')}` : ''}`);
+    },
     decisionEstimates: (sessionId, runIds, limits) => {
       const parts = [...(runIds ?? []).map((id) => `runId=${q(id)}`), ...(limits?.max ? [`max=${limits.max}`] : []), ...(limits?.keptMax ? [`keptMax=${limits.keptMax}`] : [])];
       return request(`decisions/${q(sessionId)}/estimates${parts.length ? `?${parts.join('&')}` : ''}`);

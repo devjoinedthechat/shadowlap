@@ -2501,6 +2501,7 @@ Tests runs its goldens as jobs too:
 | Button                        | Runs                                                                                |
 | ----------------------------- | ----------------------------------------------------------------------------------- |
 | **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere               |
+| **Run tests on…**             | `shadowlap test <goldens>`, the goldens you pick                                    |
 | **Run more attempts**         | `shadowlap test <golden> --max-attempts <n> --continue`                             |
 | **Re-run test**               | `shadowlap test <golden>`                                                           |
 | **Update golden**             | `shadowlap test <golden> --update`, once you confirm                                |
@@ -2514,7 +2515,7 @@ Tests runs its goldens as jobs too:
 | **Pack as golden**            | `shadowlap coverage --pack <key>`, from a Not covered row                           |
 | **Pack with checks…**         | `shadowlap coverage --pack <key> --fork --expect <json>`, from a Not covered row    |
 
-These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Run more attempts**, **Re-run test**, **Update golden**, **Add normalizer and re-run**, **Find breaking commit** and **Revert** wait, saying what is running:
+These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Run tests on…**, **Run more attempts**, **Re-run test**, **Update golden**, **Add normalizer and re-run**, **Find breaking commit** and **Revert** wait, saying what is running:
 
 - another of these jobs, **Find breaking commit** on a golden among them, which reads its pack and answers the failure it started from;
 - a setup packing and testing its golden;
@@ -2523,6 +2524,8 @@ These jobs run one at a time in a project. While any of the following runs, **Ru
 A run page's **Pack with injection gate…** waits the same way, since it tests the golden it packs. So do Not covered's **Pack as golden** and **Pack with checks…**, and a golden's **Run error-path presets…**.
 
 The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
+
+**Run tests on…** sits beside **Run tests** wherever there are goldens to pick between. Its dialog offers each golden whose pack can be read as a chip, none picked at first. Under them come the goldens picked that run live, the command, and what the session bills, asked again a moment after each pick. It runs `shadowlap test` with the goldens picked, in the table's order, and asks first where one runs live, as **Run tests** does.
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, with the first three goldens that failed linked by name beside it, each opening its replay. Over Tests itself, it ends on the step the page leads with once the page has read what the job did. A run of one golden ends on its replay.
 
@@ -3239,7 +3242,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=&suiteRisk=`, `?baseline=history&drop=&window=&min=&max=&history=47/50&risk=&suiteRisk=` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
-| `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens for the goldens `update` names |
+| `GET /api/tests/estimates?update=&run=` | What Run tests and each golden's buttons bill, Update goldens for the goldens `update` names, and Run tests on… for those `run` names |
 | `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?comment=&decisions=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI and Gates: your workflow for those options |
@@ -3332,7 +3335,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 **Their estimates** are the engine's for each job as it runs, worked out beside the server:
 
-- `/api/tests/estimates` answers `run` for Run tests, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
+- `/api/tests/estimates` answers `run` for Run tests, `picked` for Run tests on… over the goldens `run` names, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
 - `update`, given once for each golden, adds `update` to the answer: what Update goldens bills for those goldens together. A path that isn't a golden on disk is left out.
 - `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
 
@@ -3561,6 +3564,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `store-set { url, provider }` | `store set --check` |
 | `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
+| `test { goldens, yes? }` | Run tests on…: a test session of the goldens `goldens` names, each once |
 | `test-update { goldens, normalize?, reason? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
 | `verify { fixId, left: true, yes? }` | Verify this run: the failing runs no accepted verdict checked |

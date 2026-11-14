@@ -242,6 +242,7 @@ describe('one job at a time on the goldens', () => {
       await refused([
         [{ kind: 'test' }, 'A test session is running: run the tests once it is done'],
         [{ kind: 'test', golden: 'goldens/refund-flow' }, 'A test session is running: run it again once it is done'],
+        [{ kind: 'test', goldens: ['goldens/refund-flow', 'goldens/refund-in-limit'] }, 'A test session is running: run them once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'A test session is running: update it once it is done'],
         [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'A test session is running: add the normalizer once it is done'],
         // A pass during the search would leave its answer about a failure that is over.
@@ -462,6 +463,19 @@ describe('the Tests jobs', () => {
       const res = await post({ kind: 'test', golden });
       expect(res.status, String(golden)).toBe(400);
     }
+  });
+
+  it('runs the goldens picked, each once, asking first only for those that run live, and only goldens on disk', async () => {
+    spawned.length = 0;
+    const view = await job({ kind: 'test', goldens: ['goldens/refund-in-limit', 'goldens/broken-flow', 'goldens/refund-in-limit'] });
+    expect(view).toMatchObject({ title: 'Running tests', args: ['test', 'goldens/refund-in-limit', 'goldens/broken-flow'], code: 1 });
+    expect(spawned).toEqual([['test', 'goldens/refund-in-limit', 'goldens/broken-flow']]);
+    // evals/kept-elsewhere is marked fork: the question names it alone, and nothing runs until it is answered.
+    const asked = await post({ kind: 'test', goldens: ['goldens/refund-flow', 'evals/kept-elsewhere'] });
+    expect(asked.status).toBe(409);
+    expect(((await asked.json()) as { live: unknown }).live).toEqual([{ path: 'evals/kept-elsewhere', why: [{ kind: 'fork' }] }]);
+    expect(spawned).toHaveLength(1);
+    for (const goldens of [['goldens/refund-flow', '--online'], [], ['goldens/nope'], 'goldens/refund-flow']) expect((await post({ kind: 'test', goldens })).status, JSON.stringify(goldens)).toBe(400);
   });
 
   it('updates the goldens named, each once, and only goldens on disk', async () => {

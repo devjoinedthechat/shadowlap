@@ -73,6 +73,7 @@ export const ACTIONS = {
   openMigrationReport: { label: 'Open migration report' },
   // Tests.
   runTests: { label: 'Run tests', doing: 'Running tests' },
+  runTestsOn: { label: 'Run tests on…', confirm: 'Run tests', doing: 'Running tests' },
   updateGolden: { label: 'Update golden', doing: 'Updating golden' },
   updateGoldens: { label: 'Update goldens', doing: 'Updating goldens' },
   // A normalizer a divergence or Calibrate proposes is added at once; with the golden's test after

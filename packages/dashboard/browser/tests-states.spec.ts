@@ -2,14 +2,16 @@ import { expect, test, type Page } from '@playwright/test';
 import { gateResult, Store, unavailableReason, type StoredCheck } from '@shadowlap/engine';
 import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
-import { expectAccessible, openPage } from './dashboard.js';
+import { dash, expectAccessible, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
+import { DIALOG } from './routes.js';
 
 /**
  * States of a golden Tests says that the demo store has none of, in a real browser: a golden the
  * provider left undecided, whose verdict names the provider, never a check that couldn't be judged;
  * and a golden whose pack can't be read since its last test, which says so over the result it had,
  * its report keeping Find breaking commit in its place, off, saying why. GET /api/tests is answered
- * by page.route with what the server builds from a store of the test's own.
+ * by page.route with what the server builds from a store of the test's own. Run tests on… over the
+ * demo's goldens starts a test of those picked, the job answered by page.route so nothing runs.
  */
 
 // A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
@@ -73,4 +75,33 @@ test('a golden whose pack can’t be read says so over its last result, and its 
   await expect(page.locator('.toast').filter({ hasText: 'The golden’s pack can’t be read: no run.json: not a pack' })).toBeVisible();
   await expect(find).toBeFocused();
   await expectAccessible(page);
+});
+
+test('Run tests on… picks goldens, its command and price following the picks, and starts a test of those alone, with no serious axe violation', async ({ page }) => {
+  // The job the dialog starts is answered here, ended, so nothing runs.
+  const sent: Array<Record<string, unknown>> = [];
+  const job = { id: 'feedfacefeedfac1', kind: 'test', title: 'Running tests', args: [], worktree: null, runId: null, opensRun: false, startedAt: Date.now(), done: true, stopped: false, code: 0, newRunId: null, lines: [], total: 0 };
+  await page.route(/\/api\/jobs$/, (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    sent.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ status: 202, json: job });
+  });
+  await page.route(new RegExp(`/api/jobs/${job.id}(\\?.*)?$`), (route) => route.fulfill({ json: job }));
+  const { origin, token } = dash();
+  const rows = ((await (await page.request.get(`${origin}/api/tests`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as TestsAnswer).rows.filter((r) => !r.error);
+  await openPage(page, '/tests', 'main#view table.gt');
+  await page.locator('main#view .ph .btn', { hasText: 'Run tests on…' }).click();
+  const dialog = page.locator(DIALOG);
+  await expect(dialog.locator('.togchips button')).toHaveText(rows.map((r) => r.name));
+  for (const b of await dialog.locator('.togchips button').all()) await expect(b).toHaveAttribute('aria-pressed', 'false');
+  // Picked out of order, they run in the goldens' order.
+  const [first, second] = [rows[0]!, rows[1]!];
+  await dialog.locator('.togchips button', { hasText: new RegExp(`^${second.name}$`) }).click();
+  await dialog.locator('.togchips button', { hasText: new RegExp(`^${first.name}$`) }).click();
+  await expect(dialog.locator('.cmdline')).toHaveText(`$shadowlap test ${first.path} ${second.path}`);
+  await expect(dialog.locator('.dlg-ok')).not.toHaveAttribute('data-why', /./);
+  expect(await seriousViolations(page)).toEqual([]);
+  await dialog.locator('.dlg-ok').click();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ kind: 'test', goldens: [first.path, second.path] });
 });

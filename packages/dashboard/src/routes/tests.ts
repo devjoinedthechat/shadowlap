@@ -312,13 +312,14 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // What Run tests and each golden's buttons would bill, worked out beside the server: they read the
   // goldens' recordings, and the attempts of their last sessions. `update`, given once for each golden,
-  // prices Update goldens… for those together.
+  // prices Update goldens… for those together, and `run` Run tests on… for those it names.
   router.get('/tests/estimates', async (r) => {
     const list = goldens();
-    const update = r.query.getAll('update').filter((path) => list.some((g) => g.path === path));
+    const named = (key: string) => r.query.getAll(key).filter((path) => list.some((g) => g.path === path));
+    const [update, run] = [named('update'), named('run')];
     const { byId } = loadRunIndex(ctx.store);
     const calls = list.reduce((n, g) => n + (g.runId ? (byId.get(g.runId)?.calls ?? 0) : 0), 0) + attemptCalls(ctx.store, byId, list);
-    sendAnswer(r, await ctx.reads.run({ kind: 'tests-estimates', goldens: list, folder: FOLDER, ...(update.length ? { update } : {}), ...prices() }, { calls }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'tests-estimates', goldens: list, folder: FOLDER, ...(update.length ? { update } : {}), ...(run.length ? { run } : {}), ...prices() }, { calls }));
   });
 
   // Find breaking commit's, as its dialog's revisions are typed: the job its build would start, the
@@ -367,7 +368,7 @@ export function register(router: Router, ctx: RouteContext): void {
     build: (req, { store, projectId }) => {
       const list = goldens();
       const job = runTestsJob(list, req, { folder: FOLDER });
-      return testsBuild(job, busy(store, projectId, req.golden === undefined ? 'run the tests' : 'run it again'), liveAsk(list, job, req.yes));
+      return testsBuild(job, busy(store, projectId, req.golden !== undefined ? 'run it again' : req.goldens !== undefined ? 'run them' : 'run the tests'), liveAsk(list, job, req.yes));
     },
   });
   // Several at once with their rules first (`normalize`) are a job of their own.

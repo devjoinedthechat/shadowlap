@@ -84,7 +84,7 @@ export type RunEstimatesJob = { kind: 'run-estimates'; runId: string; at: number
  * the Tests screen offers them. `goldens` are the packs on disk and `folder` their folder, as the
  * server lists them; `update`, the goldens Update goldens… would re-record together, by path.
  */
-export type TestsEstimatesJob = { kind: 'tests-estimates'; goldens: GoldenSource[]; folder: string; update?: string[]; prices?: Record<string, Price> };
+export type TestsEstimatesJob = { kind: 'tests-estimates'; goldens: GoldenSource[]; folder: string; update?: string[]; run?: string[]; prices?: Record<string, Price> };
 
 /**
  * Find breaking commit's (`GET /api/estimates/bisect`), `commits` apart as git counted them on the
@@ -321,11 +321,12 @@ export interface GoldenEstimates {
   normalize?: Estimate;
 }
 
-/** Tests' answer: Run tests', each golden's by its path, and Update goldens…' for the goldens the read named. */
+/** Tests' answer: Run tests', each golden's by its path, Update goldens…' for the goldens the read named to update, and Run tests on…' for those it named to run (`picked`). */
 export interface TestsEstimates {
   run: Estimate | null;
   goldens: Record<string, GoldenEstimates>;
   update?: Estimate | null;
+  picked?: Estimate | null;
 }
 
 /** Update golden(s) for these goldens, one update: each recorded again, or a golden that only lacks a judge's verdict asking that judge once. */
@@ -355,7 +356,10 @@ async function testsEstimates(store: Store, job: TestsEstimatesJob): Promise<Rea
   for (const source of job.goldens) if (!unreadable(source)) goldens[source.path] = await goldenEstimates(store, index, source, pricing, job);
   const updating = job.goldens.filter((g) => job.update?.includes(g.path) && !unreadable(g));
   const update = updating.length ? { update: await estimateOf(updateOf(store, updating), pricing) } : {};
-  const body: TestsEstimates = { run: await estimateOf(() => runTestsEstimate(store, job.goldens, job.folder), pricing), goldens, ...update };
+  // Run tests on…: a session of the goldens picked, priced as Run tests is, over them alone.
+  const running = job.goldens.filter((g) => job.run?.includes(g.path));
+  const picked = running.length ? { picked: await estimateOf(() => runTestsEstimate(store, running, job.folder), pricing) } : {};
+  const body: TestsEstimates = { run: await estimateOf(() => runTestsEstimate(store, job.goldens, job.folder), pricing), goldens, ...update, ...picked };
   return answer(body, { tagged: true });
 }
 

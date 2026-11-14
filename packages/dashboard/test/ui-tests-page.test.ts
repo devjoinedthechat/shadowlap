@@ -252,11 +252,15 @@ describe('the Tests page', () => {
   it('heads the page with Open CI settings and Run tests, Update goldens joining them only when more than one golden diverged', async () => {
     const header = (p: Rendered) => p.all('.ph .btn').map((b) => [b.textContent.trim(), b.getAttribute('href'), all(b, 'svg').length]);
     const one = await open([], GOLDENS, (v) => ({ ...v, diverged: ['goldens/refunds'] }));
-    // Open CI settings opens Settings' CI tab, its gear before its words; the rest are jobs.
-    expect(header(one)).toEqual([['Open CI settings', '#/settings/ci', 1], ['Run tests', null, 0]]);
+    // Open CI settings opens Settings' CI tab, its gear before its words; the rest are jobs, Run tests on… asking which goldens.
+    expect(header(one)).toEqual([['Open CI settings', '#/settings/ci', 1], ['Run tests on…', null, 0], ['Run tests', null, 0]]);
     await r!.unmount();
     const two = await open([], GOLDENS, (v) => ({ ...v, diverged: ['goldens/refunds', 'goldens/judged'] }));
-    expect(header(two)).toEqual([['Open CI settings', '#/settings/ci', 1], ['Update goldens', null, 0], ['Run tests', null, 0]]);
+    expect(header(two)).toEqual([['Open CI settings', '#/settings/ci', 1], ['Update goldens', null, 0], ['Run tests on…', null, 0], ['Run tests', null, 0]]);
+    await r!.unmount();
+    // One golden, or one and others that can't be read, leaves nothing to pick between.
+    const alone = await open([], GOLDENS.slice(0, 1));
+    expect(header(alone).map(([label]) => label)).toEqual(['Open CI settings', 'Run tests']);
   });
 
   it('says a golden whose pack can’t be read now so over the result it had, and keeps Find breaking commit in its place, saying why it can’t search', async () => {
@@ -266,6 +270,17 @@ describe('the Tests page', () => {
     expect([one(tr, 'td.glast .st').className, one(tr, 'td.glast .st').textContent, one(tr, 'td.glast .rsub').textContent]).toEqual(['st err', 'can’t be read', "can't be read: no run.json: not a pack"]);
     const find = all(page.one('section[id="report-refunds"]'), '.actions button').find((b) => b.textContent.startsWith('Find breaking commit'))!;
     expect([find.getAttribute('aria-disabled'), find.getAttribute('data-why')]).toEqual(['true', 'The golden’s pack can’t be read: no run.json: not a pack']);
+  });
+
+  it('runs the goldens picked in Run tests on…, as the job for them, with the price its dialog showed', async () => {
+    const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
+    const page = await open(started);
+    await page.click(page.byText('.ph .btn', 'Run tests on…'));
+    await page.click(page.byText('.dialog .togchips button', 'judged'));
+    await page.click(page.byText('.dialog .togchips button', 'passes'));
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(started).toEqual([{ kind: JOB_KINDS.tests, fields: { goldens: ['goldens/passes', 'goldens/judged'] } }]);
+    expect(page.all('.dialog')).toHaveLength(0);
   });
 
   it('says older than your working tree, in amber, after the facts of a session that ended, and not while one runs', async () => {

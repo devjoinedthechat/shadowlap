@@ -33,6 +33,11 @@ import { Verdict, type LeadPress } from '../tests/Verdict.js';
 import { bisectLive, runTestsCard, testsJob, updatesCard } from './tests-cards.js';
 import { reasonField } from '../update-reason.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
+import { pickedAsk, RunPickedDialog } from '../tests/RunPicked.js';
+import { ActionButton } from '../components/ActionButton.js';
+
+/** Run tests on…'s card, under its name: it asks which goldens before it runs them. */
+const PICKED_SUB = 'Asks which goldens to run, then replays them as CI does';
 
 /**
  * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
@@ -46,6 +51,7 @@ import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './
 const TEST_KINDS = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_KINDS.normalizeAndTest]);
 
 type Open =
+  | { kind: 'picked' }
   | { kind: 'update'; paths: string[]; estimate?: Price }
   | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; goods: GoodCommitsOf }
   | { kind: 'normalize-update'; name: string; golden: string; steps: string[][]; estimate?: Price }
@@ -118,6 +124,12 @@ export function TestsPage() {
         <JobButton className="btn" why={updateWait} {...testsJob(updatesCard(view.diverged), updatesPrice(prices, view.diverged), (e) => guard(() => setOpen({ kind: 'update', paths: view.diverged, estimate: e })))}>
           {ACTIONS.updateGoldens.label}
         </JobButton>
+      ) : null}
+      {/* Some of them, picked in its dialog: only where there are goldens to pick between. */}
+      {runTests && view.rows.filter((r) => !r.error).length > 1 ? (
+        <ActionButton className="btn" why={runWait} tip={ACTIONS.runTestsOn.label} sub={PICKED_SUB} command="$ shadowlap test <goldens>" onClick={() => guard(() => setOpen({ kind: 'picked' }))}>
+          {ACTIONS.runTestsOn.label}
+        </ActionButton>
       ) : null}
       {runTests ? (
         <JobButton className={lead || (stale === undefined && rescanLeads(coverage.data)) ? 'btn' : 'btn lime'} why={runWait} {...runTests}>
@@ -192,6 +204,7 @@ export function TestsPage() {
         />
       ) : null}
       {open?.kind === 'presets' ? <PresetsDialogPart runId={open.runId} onClose={() => setOpen(null)} /> : null}
+      {open?.kind === 'picked' ? <RunPickedDialog rows={view.rows} wait={runWait} onClose={() => setOpen(null)} onRun={(goldens, e) => start(JOB_KINDS.tests, { goldens }, pickedAsk(goldens), e)} /> : null}
       {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} estimate={open.estimate} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden }, divergedAsk(view, open.golden, 'normalize-update'), open.estimate)} /> : null}
     </Page>
   );

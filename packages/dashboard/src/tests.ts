@@ -50,6 +50,7 @@ export interface GoldenSource {
 export type GoldenVerdict = 'passed' | 'failed' | 'inconclusive';
 
 export { shortReason };
+export { runTestsJob, updateGoldensJob } from './tests-run.js';
 
 /** A result's verdict: as kept, or for one kept before verdicts were, as its `ok` says (the engine's, which Training's tasks read too). */
 export const verdictOfResult: (r: Pick<TestResult, 'ok' | 'failure' | 'data'>) => GoldenVerdict = testResultVerdict;
@@ -1389,43 +1390,6 @@ export function checkedRevision(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const rev = raw.trim().replace(/\+dirty$/, '');
   return REVISION.test(rev) && !rev.includes('..') ? rev : null;
-}
-
-/**
- * Run tests: every golden (`test goldens/*` and any kept elsewhere), or the one `golden` names.
- * `maxAttempts` is Run more attempts: each gate's limit raised for this session only (`--max-attempts`).
- */
-export function runTestsJob(goldens: readonly GoldenSource[], req: Record<string, unknown>, options: TestsOptions = {}): TestsJob {
-  let more: string[] = [];
-  if (req.maxAttempts !== undefined) {
-    const n = req.maxAttempts;
-    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > GATE_MAX_ATTEMPTS) return { error: `maxAttempts is a whole number from 1 to ${GATE_MAX_ATTEMPTS}` };
-    more = ['--max-attempts', String(n)];
-  }
-  // Run more attempts carries an inconclusive gate's attempts over rather than starting again.
-  if (req.continue !== undefined) {
-    if (typeof req.continue !== 'boolean') return { error: 'continue is true or false' };
-    if (req.continue) more.push('--continue');
-  }
-  if (req.golden !== undefined) {
-    const golden = knownGolden(goldens, req.golden);
-    return golden ? { title: more.length ? ACTIONS.runMoreAttempts.doing : ACTIONS.runTests.doing, args: ['test', golden, ...more] } : { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
-  }
-  if (!goldens.length) return { error: `no goldens yet: pack a run you consider correct into ${options.folder ?? 'goldens'}/ first` };
-  return { title: ACTIONS.runTests.doing, args: ['test', ...testPatterns(goldens, options.folder), ...more] };
-}
-
-/** Update golden, or Update goldens for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */
-export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
-  const raw = Array.isArray(req.goldens) ? req.goldens : req.golden !== undefined ? [req.golden] : [];
-  if (!raw.length || raw.length > 500) return { error: 'name the goldens to update' };
-  const paths: string[] = [];
-  for (const r of raw) {
-    const golden = knownGolden(goldens, r);
-    if (!golden) return { error: `no such golden: ${typeof r === 'string' ? r : 'a name that is not text'}` };
-    if (!paths.includes(golden)) paths.push(golden);
-  }
-  return { title: paths.length === 1 ? ACTIONS.updateGolden.doing : ACTIONS.updateGoldens.doing, args: ['test', ...paths, '--update'] };
 }
 
 /**

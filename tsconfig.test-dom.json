@@ -75,6 +75,7 @@
     "packages/dashboard/test/ui-action-consent.test.ts",
     "packages/dashboard/test/ui-load.test.ts",
     "packages/dashboard/test/ui-tests-page.test.ts",
+    "packages/dashboard/test/ui-tests-picked.test.ts",
     "packages/dashboard/test/ui-tests-check-entries.test.ts",
     "packages/dashboard/test/ui-run-check-steps.test.ts",
     "packages/dashboard/test/ui-judge-calls.test.ts",
