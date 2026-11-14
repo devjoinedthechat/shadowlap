@@ -1413,6 +1413,9 @@ or `by hand` for one you made that a verdict checked.
 - **`verifyLeft`**, for a verified or applied fix whose change is in the working tree: the failing
   `runs` no accepted verdict checked, and the `command` that verifies the working tree's code on
   them. It is `null` when every failing run was verified.
+- **`verifyChange`**, for a fix with a failing run left: those `runs`, and the `command` that
+  verifies a change of your own on them, the runs held out and the good runs it keeps, under its
+  check. It is `null` when none is left.
 
 `apply` has:
 
