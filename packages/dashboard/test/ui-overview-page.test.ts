@@ -17,10 +17,11 @@ import { render, type Rendered } from './ui-render.js';
 import { withMigrateDialogs } from './ui-served-now.js';
 
 /**
- * The Overview as the shell draws it: Watch live naming the recording by what it is about, Recent
- * runs' eight newest with a recording first, j and k through its four lists in the order they read,
- * where the focus goes when a job a Needs a look row started ends and the page draws anew, and a
- * Dismiss in another tab, which the page reads again without asking a fix step its price again.
+ * The Overview as the shell draws it: Watch live naming the recording by what it is about, Needs a
+ * look over Usage with the activity feed beside them, j and k through its three lists in the order
+ * they read, where the focus goes when a job a Needs a look row started ends and the page draws
+ * anew, and a Dismiss in another tab, which the page reads again without asking a fix step its price
+ * again.
  */
 
 const NOW = Date.UTC(2026, 9, 22, 12);
@@ -29,7 +30,6 @@ const rid = (n: number) => `01M5H3${String(n).padStart(4, '0')}QJ8V2W3X4Y5Z6A7B`
 const run = (n: number, over: Record<string, unknown> = {}) =>
   ({ runId: rid(n), parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: 'node refund_agent.mjs', codeVersion: null, startedAt: NOW - n * 60_000, endedAt: NOW - n * 60_000 + 1, calls: 3, spent: 0, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [], about: { text: `Ticket T-${8800 + n}`, from: 'user' }, ...over }) as unknown as RunListItem;
 const text = (el: { textContent: string }) => el.textContent.replace(/\s+/g, ' ').trim();
-const tip = (el: { getAttribute(name: string): string | null }) => JSON.parse(el.getAttribute('data-tip')!) as { t: string; s: string | null };
 
 /** The week of a store with one run, as the server works it out, with what each test puts in its place. */
 let week: OverviewSummary;
@@ -100,7 +100,7 @@ async function overview(first: Shown, more: Partial<Client> = {}): Promise<{ sho
   };
 }
 
-describe('the Overview’s header and Recent runs', () => {
+describe('the Overview’s header and its layout', () => {
   it('names the recording on Watch live’s hover by what it is about, never its command, and counts its calls as they come', async () => {
     const recording = { runId: '01M5GRZNA5PJ6DHP9G395YMSJG', command: 'node refund_agent.mjs T-8813', calls: 9, startedAt: NOW - 60_000, about: { text: 'My blender arrived broken', from: 'user' as const } };
     await overview({ summary: { ...week, today: { ...week.today, recording: [recording] } }, live: [{ runId: recording.runId, calls: 12 }] as AppState['live'] });
@@ -110,25 +110,22 @@ describe('the Overview’s header and Recent runs', () => {
     expect(text(live.querySelector('.lc')!)).toBe('12 calls');
   });
 
-  it('lists the eight newest runs, one being recorded first, each with its kind on hover, a fork blame rescued a run with named so', async () => {
-    const runs = [
-      ...Array.from({ length: 10 }, (_, n) => run(n + 1)),
-      // Started before all of them, and still recording.
-      run(40, { status: 'running', endedAt: null }),
-    ];
-    runs[1] = run(2, { mode: 'replay', parentRunId: rid(1), divergence: { callNo: 17 }, rescues: rid(9) });
-    runs[2] = run(3, { test: true, mode: 'replay', parentRunId: rid(1) });
-    await overview({ summary: week, runs });
-    const rows = r!.all('.rrows > a');
-    expect(rows.map((a) => a.getAttribute('data-rowkey'))).toEqual([40, 1, 2, 3, 4, 5, 6, 7].map((n) => href.run(rid(n))));
-    expect(rows.slice(1, 4).map((a) => tip(a).t)).toEqual([`${rid(1).slice(0, 10)} · recording`, `${rid(2).slice(0, 10)} · rescued fork`, `${rid(3).slice(0, 10)} · test replay`]);
-    expect(tip(rows[1]).s).toBe('Ticket T-8801');
-    expect(text(r!.one('.ovruns a.more'))).toBe('All runs →');
+  it('holds Needs a look and Usage in one column, the activity feed its aside with its eight latest, and lists no runs of its own', async () => {
+    const activity = vi.fn((_limit?: number) => Promise.resolve({ items: [{ id: 'e:1', at: NOW - 1000, kind: 'clean', text: 'Replay clean · 30/30 · 0 upstream', runId: rid(1) }] as ActivityItem[], next: null }));
+    await overview({ summary: week, runs: Array.from({ length: 10 }, (_, n) => run(n + 1)) }, { activity });
+    await r!.until('the activity feed', () => r!.all('.feed > a').length === 1);
+    // The sections in the order they are read and tabbed through: the column, then its aside.
+    expect(r!.all('.ovg > .ovmain > section > header h2').map(text)).toEqual(['Needs a look', 'Usage']);
+    expect(r!.all('.ovg > section > header h2').map(text)).toEqual(['Activity']);
+    expect(r!.all('.ovg section > header h2').map(text)).toEqual(['Needs a look', 'Usage', 'Activity']);
+    expect(activity.mock.calls.map((c) => c[0])).toEqual([8]);
+    // The newest runs are the sidebar's: the page links to none of the ten.
+    expect(r!.all('.ovg a').map((a) => a.getAttribute('href')).filter((to) => to?.startsWith('#/run/'))).toEqual([href.run(rid(1))]);
   });
 });
 
 describe('the Overview’s keys', () => {
-  it('walk Needs a look’s rows, then Recent runs, Activity’s entries that lead somewhere and, with Usage open, the prompt cache’s misses', async () => {
+  it('walk Needs a look’s rows, then, with Usage open, the prompt cache’s misses, then Activity’s entries that lead somewhere', async () => {
     vi.stubGlobal('sessionStorage', { getItem: () => 'open', setItem: () => undefined, removeItem: () => undefined });
     const items: NeedsLookRow[] = [
       { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', key: 'attn:local', group: 'housekeeping', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 },
@@ -152,12 +149,13 @@ describe('the Overview’s keys', () => {
       await r!.press('j');
       walked.push(r!.focused().getAttribute('data-rowkey'));
     }
-    expect(walked).toEqual(['attn:local', `attn:unblamed:${rid(2)}`, href.run(rid(1)), href.run(rid(2)), href.run(rid(3)), 'e:1', 'e:3', `${rid(1)}#17`, `${rid(3)}#4`, `${rid(3)}#4`, `${rid(3)}#4`]);
+    // Down the column, then down its aside, stopping at the last entry.
+    expect(walked).toEqual(['attn:local', `attn:unblamed:${rid(2)}`, `${rid(1)}#17`, `${rid(3)}#4`, 'e:1', 'e:3', 'e:3', 'e:3', 'e:3', 'e:3', 'e:3']);
     // And back up with k, one list into the one above it.
     await r!.press('k');
     await r!.press('k');
-    expect(r!.focused().getAttribute('data-rowkey')).toBe('e:3');
-    expect(r!.all('.krow').map((x) => x.getAttribute('data-rowkey'))).toEqual(['e:3']);
+    expect(r!.focused().getAttribute('data-rowkey')).toBe(`${rid(3)}#4`);
+    expect(r!.all('.krow').map((x) => x.getAttribute('data-rowkey'))).toEqual([`${rid(3)}#4`]);
   });
 });
 

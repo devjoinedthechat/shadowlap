@@ -17,10 +17,10 @@ import { chartScale, dayText, kindGlyph, originCounts, originRows, share, tickTe
 import { useAbouts } from './words.js';
 
 /**
- * Usage, under the rest and folded until asked for: what replaying served, the prompt cache and
+ * Usage, under Needs a look and folded until asked for: what replaying served, the prompt cache and
  * what was spent, each a receipt next to what it paid for. Folded, its heading's line says the three
- * in figures, and nothing under it is drawn; open, each has its part, with today's receipt under
- * them. Open or folded is kept for the session.
+ * in figures, and nothing under it is drawn; open, each has its part, the calls beside the cache
+ * over the spend chart, with today's receipt under them. Open or folded is kept for the session.
  */
 
 const USAGE_KEY = 'shadowlap-overview-usage';
@@ -135,7 +135,7 @@ function CachePart({ cache }: { cache: CacheUse }) {
   const pct = cache.readShare === null ? null : share(cache.readShare, 1);
   const box = useRef<HTMLDivElement>(null);
   const aboutOf = useAbouts();
-  // j and k walk the misses last, after Activity's entries, while Usage is open; Enter opens the call's context.
+  // j and k walk the misses after Needs a look's rows, while Usage is open; Enter opens the call's context.
   const inFocus = useListKeys({ rows: cache.misses, keyOf: (m) => `${m.runId}#${m.callNo}`, root: box, open: (m) => navigate(href.run(m.runId, m.callNo, 'context')) });
   return (
     <Part title="Prompt cache" sub="live model calls, this week">

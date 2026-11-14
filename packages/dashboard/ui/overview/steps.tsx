@@ -21,8 +21,10 @@ import { moreAttemptsAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
 import type { LookStep, NeedsLookRow } from '../types.js';
 
 /**
- * A Needs a look row's step, at its end: small and plain, never lime, labelled as the page it opens
- * leads with it, and running or asking from here as it would there (mock:MISSING.md:149). A list
+ * A Needs a look row's step, at its end: small and plain, labelled as the page it opens leads with
+ * it, and running or asking from here as it would there. The list's first row's is the Overview's
+ * lime (`lead`): the page has one list, in the order its rows matter, so its first step is the
+ * page's own; a step that waits is plain, as every lime is, and so is every row's after it. A list
  * carries no estimate, so a step asks for its own when the pointer or the focus reaches it, and a
  * press before it came waits for it; its card then says its sentence, its cost and its command. The
  * section reads the server's jobs once, for every row (`useLookWaits`). A run's step is the one Runs'
@@ -87,40 +89,45 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
   }
 }
 
+/** A row's step, and the first row's, the page's lime. */
+const STEP = 'btn sm';
+const LEAD_STEP = 'btn sm lime';
+
 /**
  * A row's step: a link as itself, one to an attempt waiting while the server is out of reach; a job's
  * button where this dashboard runs jobs, else `Open →`, as a step that opens its page has (a
  * read-only dashboard's rows each open what they are about).
  */
-export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait: LookWait | null; version: string }) {
+export function LookStepButton({ row, wait, version, lead = false }: { row: NeedsLookRow; wait: LookWait | null; version: string; lead?: boolean }) {
   const app = useApp();
   const offline = useOfflineLink();
   const s = row.step;
+  const cls = lead ? LEAD_STEP : STEP;
   if (s?.of === 'link') {
     return (
-      <a className="btn sm" href={s.href} {...(s.title ? { 'data-tip': tipCard(s.label, [], s.title) } : {})} {...(s.attempt ? { onClick: offline } : {})}>
+      <a className={cls} href={s.href} {...(s.title ? { 'data-tip': tipCard(s.label, [], s.title) } : {})} {...(s.attempt ? { onClick: offline } : {})}>
         {s.label}
       </a>
     );
   }
   // Edit check opens the check builder at the check on its golden, as Tests and the run's page do: no job, so no wait.
-  if (s?.of === 'run' && s.step.key === 'edit-check' && !app.actionsOff && !app.exported) return <EditCheckStep step={s.step} className="btn sm" />;
+  if (s?.of === 'run' && s.step.key === 'edit-check' && !app.actionsOff && !app.exported) return <EditCheckStep step={s.step} className={cls} />;
   const run = stepRun(s);
   if (!s || !run || !wait || app.actionsOff || app.exported) return <span className="go">Open →</span>;
   const why = stepWhy(app.hasKind, run, wait);
   switch (s.of) {
     case 'fix':
       // A fix's lead, as its row on Fixes draws and presses it; `version`, the list's answer its prices last as long as.
-      return <RowStep fixId={s.fixId} lead={s.lead} why={why} version={version} />;
+      return <RowStep fixId={s.fixId} lead={s.lead} why={why} version={version} className={cls} />;
     case 'run':
-      return <RunStep s={s} why={why} />;
+      return <RunStep s={s} why={why} className={cls} />;
     case 'push':
     case 'migrate':
-      return <StoreStep s={s} why={why} />;
+      return <StoreStep s={s} why={why} className={cls} />;
     case 'pack':
-      return <PackStep s={s} runId={row.runId} why={why} />;
+      return <PackStep s={s} runId={row.runId} why={why} className={cls} />;
     default:
-      return <GoldenStep s={s} why={why} />;
+      return <GoldenStep s={s} why={why} className={cls} />;
   }
 }
 
@@ -133,7 +140,7 @@ const PACK_FORK_SUB = 'Asks first: a golden that forks where the agent parts fro
  * (a part the served dashboard hands in). Once the pack ends, its drawer's Run test takes the focus,
  * and the row then packs the next behaviour.
  */
-function PackStep({ s, runId, why }: { s: Extract<LookStep, { of: 'pack' }>; runId: string | null; why: string | null }) {
+function PackStep({ s, runId, why, className }: { s: Extract<LookStep, { of: 'pack' }>; runId: string | null; why: string | null; className: string }) {
   const app = useApp();
   const { PackDialog } = useServedParts();
   const [asking, show] = useAsking();
@@ -149,7 +156,7 @@ function PackStep({ s, runId, why }: { s: Extract<LookStep, { of: 'pack' }>; run
     });
   return (
     <>
-      <JobButton className="btn sm" why={why} tip={s.label} sub={sub} command={words.command ?? undefined} bills={false} start={open} ask={open}>
+      <JobButton className={className} why={why} tip={s.label} sub={sub} command={words.command ?? undefined} bills={false} start={open} ask={open}>
         {s.label}
       </JobButton>
       {asking}
@@ -158,7 +165,7 @@ function PackStep({ s, runId, why }: { s: Extract<LookStep, { of: 'pack' }>; run
 }
 
 /** A golden's step on Tests: Run more attempts, Update golden or Re-run test, its price from Tests' estimates. */
-function GoldenStep({ s, why }: { s: Extract<LookStep, { of: 'more' | 'update' | 'rerun' }>; why: string | null }) {
+function GoldenStep({ s, why, className }: { s: Extract<LookStep, { of: 'more' | 'update' | 'rerun' }>; why: string | null; className: string }) {
   const app = useApp();
   const priced = usePriced(() => app.client.estimates.testsEstimates().then((e) => e.goldens[s.golden]?.[s.of === 'rerun' ? 'rerun' : s.of] ?? null));
   const [asking, show] = useAsking();
@@ -174,7 +181,7 @@ function GoldenStep({ s, why }: { s: Extract<LookStep, { of: 'more' | 'update' |
   const words = stepWords(s);
   return (
     <>
-      <JobButton className="btn sm" why={why} tip={s.label} sub={words.sub} command={words.command ?? undefined} estimate={e} {...priced.on} start={() => go(e)} ask={priced.when(go)}>
+      <JobButton className={className} why={why} tip={s.label} sub={words.sub} command={words.command ?? undefined} estimate={e} {...priced.on} start={() => go(e)} ask={priced.when(go)}>
         {s.label}
       </JobButton>
       {asking}
@@ -183,19 +190,19 @@ function GoldenStep({ s, why }: { s: Extract<LookStep, { of: 'more' | 'update' |
 }
 
 /** Push local runs, which bills nothing, and Migrate to <model>, priced, which always asks in Migrate's one dialog. */
-function StoreStep({ s, why }: { s: Extract<LookStep, { of: 'push' | 'migrate' }>; why: string | null }) {
-  if (s.of === 'migrate') return <MigrateButton s={{ from: s.from, to: s.to, goldens: s.goldens }} label={s.label} className="btn sm" />;
-  return <PushStep s={s} why={why} />;
+function StoreStep({ s, why, className }: { s: Extract<LookStep, { of: 'push' | 'migrate' }>; why: string | null; className: string }) {
+  if (s.of === 'migrate') return <MigrateButton s={{ from: s.from, to: s.to, goldens: s.goldens }} label={s.label} className={className} />;
+  return <PushStep s={s} why={why} className={className} />;
 }
 
-function PushStep({ s, why }: { s: Extract<LookStep, { of: 'push' }>; why: string | null }) {
+function PushStep({ s, why, className }: { s: Extract<LookStep, { of: 'push' }>; why: string | null; className: string }) {
   const [post, consent] = usePost(JOB_KINDS.push, 'Run command');
   const words = stepWords(s);
   const card = { tip: s.label, sub: words.sub, command: words.command ?? undefined };
   const push = () => post({ all: true });
   return (
     <>
-      <JobButton className="btn sm" why={why} {...card} bills={false} start={push} ask={push}>
+      <JobButton className={className} why={why} {...card} bills={false} start={push} ask={push}>
         {s.label}
       </JobButton>
       {consent}

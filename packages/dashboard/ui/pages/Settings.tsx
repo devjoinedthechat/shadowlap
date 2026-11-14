@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
+import { addressNow } from '../dom.js';
 import { useActiveTabInView } from '../hooks.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -9,8 +10,10 @@ import { useApp } from '../state.js';
 import { ProblemHeader } from './Setup.js';
 import { AgentsTab } from './settings/Agents.js';
 import { CiTab } from './settings/Ci.js';
+import { GatesTab } from './settings/Gates.js';
 import './settings/jobs.js';
 import { SETTINGS_TABS, settingsTab, type SettingsTab } from './settings/logic.js';
+import { olderGateLink } from './settings/tabs.js';
 import { MatchingTab } from './settings/Matching.js';
 import { ProjectTab } from './settings/Project.js';
 import { RedactionTab } from './settings/Redaction.js';
@@ -20,8 +23,9 @@ import { ToolsTab } from './settings/Tools.js';
 /**
  * Settings (`#/settings/<tab>`): how this project records, replays and shares, most of it kept in
  * shadowlap.config.json beside its code, one tab per address. Matching, Redaction, CI
- * (`#/settings/ci`, still opened by `#/settings/alerts`), Coding agents, Tools, Project (still
- * opened by `#/settings/plan`) and Store. Nothing here needs a run, so it opens as it is in a project
+ * (`#/settings/ci`, still opened by `#/settings/alerts`), Gates (which CI's address with a gate's
+ * kind still leads to), Coding agents, Tools, Project (still opened by `#/settings/plan`) and Store.
+ * Nothing here needs a run, so it opens as it is in a project
  * with none. A project that can't be opened (its folder is gone) says so in its header, as every
  * other page does in its place, with Remove project…; its tabs turn their edits off (`useFolderGone`).
  */
@@ -35,6 +39,7 @@ export function SettingsPage({ tab }: { tab: string | null }) {
   useEffect(() => {
     if (!tab || !current) navigate(href.settings(current ?? 'matching'), true);
   }, [current, tab]);
+  useOlderGateLink();
   const shown: SettingsTab = current ?? 'matching';
   const eyebrow = [projectOf(meta)?.name, 'project settings'].filter(Boolean).join(' · ');
   return (
@@ -54,6 +59,23 @@ export function SettingsPage({ tab }: { tab: string | null }) {
   );
 }
 
+/**
+ * A link to a gate's kind from when Gates was CI's last panel (`#/settings/ci?gate=<kind>`) goes on
+ * to Gates, on that kind: as the page opens on it, and as the address moves to it with the CI tab
+ * already shown, which changes no tab for the page to hear of.
+ */
+function useOlderGateLink(): void {
+  useEffect(() => {
+    const read = () => {
+      const gate = olderGateLink(addressNow());
+      if (gate) navigate(href.settings('gates', { gate }), true);
+    };
+    read();
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, []);
+}
+
 function TabBody({ tab }: { tab: SettingsTab }) {
   switch (tab) {
     case 'matching':
@@ -62,6 +84,8 @@ function TabBody({ tab }: { tab: SettingsTab }) {
       return <RedactionTab />;
     case 'ci':
       return <CiTab />;
+    case 'gates':
+      return <GatesTab />;
     case 'agents':
       return <AgentsTab />;
     case 'tools':

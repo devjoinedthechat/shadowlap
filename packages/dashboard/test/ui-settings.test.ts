@@ -6,7 +6,7 @@ import { CI_DEFAULTS, ciWorkflows } from '../src/ci-workflows.js';
 import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
 import { TeamStoreRow } from '../ui/pages/settings/CiTeamStore.js';
-import { settingsTabLabel } from '../ui/pages/settings/tabs.js';
+import { gateLink, olderGateLink, settingsTabLabel } from '../ui/pages/settings/tabs.js';
 import {
   MCP_FORMS,
   SETTINGS_TABS,
@@ -82,8 +82,8 @@ describe('when a tab reads again', () => {
 
 describe('the Settings tabs', () => {
   it('opens Matching without a tab, CI at ci and its older name alerts, Project at plan, and knows no other tab', () => {
-    expect(SETTINGS_TABS.map((t) => t.label)).toEqual(['Matching', 'Redaction', 'CI', 'Coding agents', 'Tools', 'Project', 'Store']);
-    expect(SETTINGS_TABS.map((t) => t.key)).toEqual(['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store']);
+    expect(SETTINGS_TABS.map((t) => t.label)).toEqual(['Matching', 'Redaction', 'CI', 'Gates', 'Coding agents', 'Tools', 'Project', 'Store']);
+    expect(SETTINGS_TABS.map((t) => t.key)).toEqual(['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store']);
     expect(settingsTab(null)).toBe('matching');
     expect(settingsTab('ci')).toBe('ci');
     expect(settingsTab('alerts')).toBe('ci');
@@ -92,7 +92,17 @@ describe('the Settings tabs', () => {
     expect(settingsTab('members')).toBeNull();
     expect(settingsTab('toString')).toBeNull();
     // The breadcrumb names the tab shown, whatever the address said.
-    expect(['alerts', 'ci', null, 'tools', 'plan', 'members'].map(settingsTabLabel)).toEqual(['CI', 'CI', 'Matching', 'Tools', 'Project', 'Matching']);
+    expect(['alerts', 'ci', null, 'tools', 'plan', 'members', 'gates'].map(settingsTabLabel)).toEqual(['CI', 'CI', 'Matching', 'Tools', 'Project', 'Matching', 'Gates']);
+  });
+
+  it('reads the gate’s kind a link asks Gates for, and the one a link had when Gates was CI’s last panel', () => {
+    expect(gateLink('#/settings/gates?gate=baseline')).toBe('baseline');
+    expect(gateLink('#/settings/gates?x=1&gate=sprt')).toBe('sprt');
+    // The tab alone, another tab's address, or a kind the engine has none of: no kind.
+    expect(['#/settings/gates', '#/settings/store?gate=sprt', '#/settings/gates?gate=wilson', '#/settings/gates?gates=sprt'].map((hash) => gateLink(hash))).toEqual([null, null, null, null]);
+    // CI's address with a kind is the older link, and only that: it goes on to Gates.
+    expect(olderGateLink('#/settings/ci?gate=baseline')).toBe('baseline');
+    expect([gateLink('#/settings/ci?gate=baseline'), olderGateLink('#/settings/gates?gate=sprt'), olderGateLink('#/settings/ci')]).toEqual([null, null, null]);
   });
 });
 

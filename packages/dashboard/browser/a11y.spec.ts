@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { links as built } from '../src/links.js';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
-import { contrast, dash, demoId, focusedLabel, openPage, RESET_RETRY, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
+import { contrast, dash, demoId, focusedLabel, openPage, patched, RESET_RETRY, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
 /**
@@ -46,9 +46,34 @@ test('the Overview has no serious or critical axe violation on a laptop or a pho
     expect(await usage.getAttribute('aria-expanded')).toBe('true');
     expect(await seriousViolations(page)).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
-    // A piece too long for any line, as the demo project's path in its Project added entry, breaks where it must.
+    // A piece too long for any line breaks where it must; the demo project's path, in its Project added entry, is drawn as its last folders.
     const past = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w, main#view .arow .at')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
     expect(past, `at ${width}px`).toEqual([]);
+  }
+});
+
+test('an activity entry whose reference is longer than any line breaks inside its column, beside Needs a look and on a phone', async ({ page }) => {
+  // A team store's address with its endpoint, as Push from CI's entry names it: no line of the feed holds it whole.
+  const ref = 's3://northwind-agent-runs/support-agent?endpoint=https://objects.eu-central-1.example.com:9000';
+  await page.route('**/api/activity*', (route) => patched<{ items: object[] }>(route, (feed) => ({ ...feed, items: [{ id: 'long-ref', at: Date.now(), kind: 'setting', text: 'Push from CI on', ref, actor: 'dana@northwind.example' }, ...feed.items] })));
+  for (const width of [1440, 1200, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/', 'main#view .ovg');
+    const code = page.locator('main#view .feed code', { hasText: 'objects.eu-central-1.example.com' });
+    await expect(code).toHaveText(ref);
+    const past = await code.evaluate((el) => {
+      const feed = el.closest('.feed')!.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      const lines = new Set([...el.getClientRects()].map((r) => Math.round(r.top))).size;
+      return { right: Math.round(box.right - feed.right), left: Math.round(feed.left - box.left), lines, height: Math.round(box.height) };
+    });
+    // Inside the feed on both sides, on more lines than one.
+    expect(past.right, `at ${width}px`).toBeLessThanOrEqual(0);
+    expect(past.left, `at ${width}px`).toBeLessThanOrEqual(0);
+    expect(past.height, `at ${width}px`).toBeGreaterThan(20);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
+    const over = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
+    expect(over, `at ${width}px`).toEqual([]);
   }
 });
 
@@ -323,6 +348,41 @@ test('every link the server writes opens a page the dashboard has', async ({ req
     // A link to Runs with a filter opens that filter, and every other link reads back as it was written.
     if (link.includes('?')) expect(runsLinkQuery(link), link).not.toBeNull();
     expect(routeHref(route), link).toBe(link);
+  }
+});
+
+test('a migration’s What changes sets each run’s cells beside its own label, and under it where a row stacks', async ({ page, request }) => {
+  const { origin, token } = dash();
+  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
+  const migration = sessions.find((s) => s.kind === 'migrate')?.href;
+  expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
+  /** Each row of the compact matrix as drawn: where its label and its cells sit. */
+  const rows = () =>
+    page.locator('main#view .dmx.compact .dmr').evaluateAll((all) =>
+      all.map((row) => {
+        const [label, cells] = [...row.children].map((c) => c.getBoundingClientRect());
+        return { parts: row.children.length, label: { top: Math.round(label!.top), bottom: Math.round(label!.bottom), left: Math.round(label!.left), right: Math.round(label!.right) }, cells: { top: Math.round(cells!.top), left: Math.round(cells!.left) } };
+      }),
+    );
+  // At a desk: a row is its label and its cells on one line of the grid, the cells to the label's right, each row under the one before.
+  await openPage(page, migration!.slice(1), 'main#view .dmx.compact button.dc');
+  const wide = await rows();
+  expect(wide.length).toBeGreaterThan(1);
+  for (const [i, r] of wide.entries()) {
+    expect(r.parts, `row ${i}`).toBe(2);
+    expect(r.cells.top, `row ${i}: its cells start with its label`).toBe(r.label.top);
+    expect(r.cells.left, `row ${i}: its cells are beside its label`).toBeGreaterThanOrEqual(r.label.right);
+    if (i) expect(r.label.top, `row ${i} is under row ${i - 1}`).toBeGreaterThanOrEqual(wide[i - 1]!.label.bottom);
+    expect(r.label.left, `row ${i}: every label starts the grid's first column`).toBe(wide[0]!.label.left);
+  }
+  // On a phone a row stacks: its cells under its own label, at the label's left edge.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, migration!.slice(1), 'main#view .dmx.compact button.dc');
+  const narrow = await rows();
+  for (const [i, r] of narrow.entries()) {
+    expect(r.cells.top, `row ${i}: its cells are under its label`).toBeGreaterThanOrEqual(r.label.bottom);
+    expect(r.cells.left, `row ${i}`).toBe(r.label.left);
+    if (i) expect(r.label.top, `row ${i} is under row ${i - 1}'s cells`).toBeGreaterThan(narrow[i - 1]!.cells.top);
   }
 });
 

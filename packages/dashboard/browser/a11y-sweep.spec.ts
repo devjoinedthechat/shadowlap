@@ -464,8 +464,6 @@ function wholeLines(rows: Awaited<ReturnType<typeof aboutRows>>, said: string[])
 test('on a 390px phone each run’s link says its whole about line, however short the line drawn, then its status heard apart', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openPage(page, '/', 'overview');
-  const recent = await aboutRows(page, 'main#view .rrows a.rrow');
-  expect(wholeLines(recent, await names(page, 'main#view .rrows', 'link'))).toEqual([]);
   await page.locator('button.menu-toggle').click();
   await expect(page.locator('aside#side.open')).toBeVisible();
   const side = await aboutRows(page, 'aside#side .runs a.run');
@@ -481,7 +479,6 @@ test('on a 390px phone each run’s link says its whole about line, however shor
 
 test('a screen reader hears apart the parts the margins draw apart, and each settings control by its row', async ({ page }) => {
   await openPage(page, '/', 'overview');
-  expect(wholeLines(await aboutRows(page, 'main#view .rrows a.rrow'), await names(page, 'main#view .rrows', 'link'))).toEqual([]);
   // The facts named once by what they sum up.
   expect(await names(page, 'main#view', 'region')).toContain('Overview in figures');
   // Runs: the calendar's busiest day and failed count, each with what it counts; a chip's word and its count.
@@ -535,19 +532,29 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   // Training's tabs: the word and its count.
   await openPage(page, '/training', 'main#view .stabs a');
   expect(await names(page, 'main#view .stabs', 'link')).toEqual([expect.stringMatching(/^Pairs [\d,]+$/), expect.stringMatching(/^Tasks [\d,]+$/)]);
-  // Settings: a control named by its row's label and described by its line.
+  // Settings: a control named by its row's label and described by its line. Fix on failure is off in the demo's workflow,
+  // so its panel is folded and its controls are out of reach until Show settings opens it.
   await openPage(page, '/settings/ci', 'main#view .settab > :not(.skel)');
+  await expect(page.locator('#cifixBudget')).toBeHidden();
+  await page.locator('#fix-on-failure').getByRole('button', { name: 'Show settings' }).click();
+  // A list's button says its name and how many rows it holds, and whether it is open.
+  const needs = page.locator('#alerts .cimain .cifold > button');
+  await expect(needs).toHaveAccessibleName(/^it needs \d+$/i);
+  await expect(needs).toHaveAttribute('aria-expanded', 'false');
   for (const id of ['alertSecret', 'cifixBudget', 'cifixRepairer']) {
     const control = page.locator(`#${id}`);
     await expect(control).toHaveCount(1);
     await expect(control).toHaveAccessibleName((await page.locator(`#${id}-name`).textContent())!.trim());
     await expect(control).toHaveAccessibleDescription((await page.locator(`#${id}-help`).textContent())!.trim());
   }
-  // The pull request comment's switch for the decisions, named and described by its row the same way.
-  const decisions = page.locator('[aria-labelledby="cidecisions-name"]');
-  await expect(decisions).toHaveCount(1);
-  await expect(decisions).toHaveAccessibleName((await page.locator('#cidecisions-name').textContent())!.trim());
-  await expect(decisions).toHaveAccessibleDescription((await page.locator('#cidecisions-help').textContent())!.trim());
+  // The pull request comment's switch for the decisions, named and described by its row the same way, and what an
+  // inconclusive golden does, in Your workflow.
+  for (const row of ['cidecisions', 'inconclusive']) {
+    const control = page.locator(`[aria-labelledby="${row}-name"]`);
+    await expect(control).toHaveCount(1);
+    await expect(control).toHaveAccessibleName((await page.locator(`#${row}-name`).textContent())!.trim());
+    await expect(control).toHaveAccessibleDescription((await page.locator(`#${row}-help`).textContent())!.trim());
+  }
 });
 
 test('a screen reader hears a judge no attempt of its fork golden asked by its mark’s word, its label and why, each apart, in its row on Tests and in its report', async ({ page }) => {

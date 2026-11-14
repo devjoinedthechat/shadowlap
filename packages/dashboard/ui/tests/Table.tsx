@@ -272,13 +272,13 @@ function PresetsLine({ p }: { p: Presets }) {
 }
 
 /** A rule's card: where its link goes. */
-export const RULE_TIP = tipCard('What this gate takes', [], 'its figures, the attempts they take and the odds of each verdict, on Settings → CI');
+export const RULE_TIP = tipCard('What this gate takes', [], 'its figures, the attempts they take and the odds of each verdict, on Settings → Gates');
 
 /**
  * Under the table: the key to By revision's cells, then each gate's rule, stated once for every
  * golden it decided (decision 9), beside the mode its goldens show: no row repeats it. Where two
  * rules share a mode (two goldens' gates with different limits), each names the goldens it decided,
- * so "up to 12 attempts" says whose it is. A rule opens Settings → CI's Gates on its gate's kind.
+ * so "up to 12 attempts" says whose it is. A rule opens Settings → Gates on its gate's kind.
  */
 function TableFoot({ rows, history }: { rows: readonly GoldenRow[]; history: boolean }) {
   const rules = new Map<string, { mode: string; kind: 'sprt' | 'baseline'; names: string[] }>();
@@ -301,7 +301,7 @@ function TableFoot({ rows, history }: { rows: readonly GoldenRow[]; history: boo
           <span className="chip">{mode}</span>
           <span>
             {shared(mode) ? <b className="gnames">{`${names.join(', ')}: `}</b> : null}
-            <a className="dlink" href={href.settings('ci', { gate: kind })} data-tip={RULE_TIP}>
+            <a className="dlink" href={href.settings('gates', { gate: kind })} data-tip={RULE_TIP}>
               <RuleText rule={rule} />
             </a>
           </span>

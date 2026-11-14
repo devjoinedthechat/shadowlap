@@ -1044,7 +1044,7 @@ function likelyAt(risk: number): string {
 }
 
 /**
- * What a gate's verdicts state, in one sentence, as Settings → CI's Gates says it: the test, never a
+ * What a gate's verdicts state, in one sentence, as Settings → Gates says it: the test, never a
  * rate it found. `Tells an agent that passes 90% of the time or more from one that passes 70% or
  * less, each verdict wrong at most 5% of the time at those two rates, and gives up after 80
  * attempts.`; against history, `Asks whether this golden’s pass rate dropped 15 points or more from

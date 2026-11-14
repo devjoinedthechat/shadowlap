@@ -2,7 +2,7 @@ import { ktok } from '../format.js';
 
 /**
  * What a strip cell says of a call, on the run page's strip (ui/run/RunStrip.tsx). The small strips,
- * the Runs table's and the Overview's, are MiniStrip.tsx.
+ * as the Runs table draws them, are MiniStrip.tsx.
  */
 
 /** What a strip cell says about one call: its tokens for a model call, else its effect or kind. */

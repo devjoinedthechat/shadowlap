@@ -1,38 +1,40 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { previewSub, PREVIEW_WAIT } from '../../ci/words.js';
 import { ActionButton } from '../../components/ActionButton.js';
-import { Tile } from '../../components/Icon.js';
+import { Icon, Tile } from '../../components/Icon.js';
 import { Section } from '../../components/Section.js';
 import { Switch } from '../../components/Switch.js';
 import { shortFixId } from '../../fixes/model.js';
 import { clock } from '../../format.js';
-import { useLatest, useLoad } from '../../hooks.js';
+import { useLoad } from '../../hooks.js';
 import { ACTIONS } from '../../labels.js';
 import { PR_COMMENT_ASK } from '../../page-ask.js';
 import { href } from '../../route.js';
 import { useServedParts } from '../../served-parts.js';
 import type { CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
-import { CiList, Select } from './CiList.js';
-import { Gates } from './CiGates.js';
+import { ListFold, Needs, Select } from './CiList.js';
 import { YourWorkflow } from './CiWorkflow.js';
 import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
+import { useCiWorkflows } from './ci-read.js';
 import { ConfigProblem, LoadProblem, Loading } from './common.js';
-import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 import { Copy, Words } from '../../components/Copy.js';
 import { ruleWords } from '../../components/Verdict.js';
 
 /**
  * CI (`#/settings/ci`; `#/settings/alerts`, as Alerts had it, opens it too): Your workflow first,
- * where the repository's workflow stands against the one the switches below build, with Write file;
- * then a panel for each part the one job runs after the action, each with its switch in its header:
- * Pull request comment, Fix on failure and Alerts, their settings on the left and what lands on the
- * right; then Gates, which previews a gate's figures and what an inconclusive golden does in CI. The
- * panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked again as you pick: the
- * switches start as the repository's workflow sets them, and the file is the repository's with only
- * what they own changed. While shadowlap.config.json can't be read, the tab says so as the others
- * do, and Write file waits. A switch changes only what Write file would write.
+ * where the repository's workflow stands against the one the switches below build, with Write file
+ * and what an inconclusive golden does in CI; then a panel for each part the one job runs after the
+ * action, each with its switch in its header: Pull request comment, Fix on failure and Alerts, their
+ * settings on the left and what lands on the right. A part that is off is its header and one line,
+ * what happens without it, with Show settings; each list (what it needs, what it never does, what
+ * fails a golden) opens from its name and count, what a part needs open already while a row of it
+ * is amber. A gate's figures to try are a tab of their own,
+ * Gates (Gates.tsx). The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked
+ * again as you pick: the switches start as the repository's workflow sets them, and the file is the
+ * repository's with only what they own changed. While shadowlap.config.json can't be read, the tab
+ * says so as the others do, and Write file waits. A switch changes only what Write file would write.
  */
 
 export function CiTab() {
@@ -66,7 +68,7 @@ function CiPanels({ project }: { project: string | null }) {
     if (error) return <LoadProblem error={error} retry={reload} />;
     return (
       <>
-        {['Your workflow', 'Pull request comment', 'Fix on failure', 'Alerts', 'Gates'].map((t) => (
+        {['Your workflow', 'Pull request comment', 'Fix on failure', 'Alerts'].map((t) => (
           <Loading key={t} title={t} />
         ))}
       </>
@@ -80,6 +82,8 @@ function CiPanels({ project }: { project: string | null }) {
       <YourWorkflow
         view={view}
         changed={changed}
+        inconclusive={o.inconclusive ?? 'fail'}
+        set={set}
         reload={reload}
         onWritten={() => {
           // Written: the switches follow the file again.
@@ -90,55 +94,33 @@ function CiPanels({ project }: { project: string | null }) {
       <PullRequestComment o={o} view={view} toggle={toggle} />
       <FixOnFailure o={o} view={view} set={set} onSwitch={(on) => toggle({ fix: on }, `Fix on failure is ${on ? 'on' : 'off'}`)} />
       <Alerts o={o} view={view} set={set} toggle={toggle} />
-      <Gates o={o} view={view} set={set} />
       {error ? <p className="fieldnote err">{error.message}</p> : null}
     </>
   );
 }
 
 /**
- * The panels for what was changed: the server's answer, kept while the next one is asked so nothing
- * empties as you type, with the options it answered for (`servedFor`). Asked again when the window
- * comes back (the file or Push from CI may have changed meanwhile), when Settings changed from
- * elsewhere, in another project, and on Retry (`reload`).
+ * A part's fold. Off, the panel is its header and `line`: what the part leaves undone, and Show
+ * settings, which opens the panel under it for a look. `body` goes on what that opens, and what
+ * switching the part on does: its settings, what it needs and what lands, drawn either way and
+ * hidden while folded.
  */
-function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null; reload: () => void; servedFor: string | null } {
-  const { client, meta } = useApp();
-  const options = useLatest(o);
-  const [seen, setSeen] = useState(0);
-  const key = `${JSON.stringify(o)}:${meta?.project?.id ?? ''}:${seen}`;
-  const [served, setServed] = useState<{ view: CiWorkflowsView | null; error: Error | null; servedFor: string | null }>({ view: null, error: null, servedFor: null });
-  useEffect(() => {
-    const again = () => document.visibilityState === 'visible' && setSeen((n) => n + 1);
-    window.addEventListener('focus', again);
-    document.addEventListener('visibilitychange', again);
-    const off = onSettingsChanged(() => setSeen((n) => n + 1));
-    return () => {
-      window.removeEventListener('focus', again);
-      document.removeEventListener('visibilitychange', again);
-      off();
-    };
-  }, []);
-  useEffect(() => {
-    let alive = true;
-    const asked = options.current;
-    client.ciWorkflows(asked).then(
-      (view) => alive && setServed({ view, error: null, servedFor: JSON.stringify(asked) }),
-      (err: unknown) => alive && setServed((s) => ({ ...s, error: err instanceof Error ? err : new Error(String(err)) })),
-    );
-    return () => {
-      alive = false;
-    };
-  }, [client, key, options]);
-  return { ...served, reload: () => setSeen((n) => n + 1) };
+function usePartFold(on: boolean, offNote: string) {
+  const [peek, setPeek] = useState(false);
+  const id = useId();
+  const line = on ? null : (
+    <div className="pbody cioff">
+      <b className="offnote">
+        <Words>{offNote}</Words>
+      </b>
+      <button className="linkbtn" type="button" aria-expanded={peek} aria-controls={id} onClick={() => setPeek(!peek)}>
+        {peek ? 'Hide' : 'Show'} settings
+        <Icon name="caret" />
+      </button>
+    </div>
+  );
+  return { line, body: { id, hidden: !(on || peek) } };
 }
-
-/** What a CI feature that is off leaves undone, a line of its own under the panel's lead. */
-const OffNote = ({ children }: { children: string }) => (
-  <b className="offnote">
-    <Words>{children}</Words>
-  </b>
-);
 
 /**
  * The action's comment on each pull request: its switch, what it carries, the decisions' switch, its
@@ -158,6 +140,7 @@ function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: C
   }, []);
   const s = preview.data?.session ?? null;
   const waits = !!preview.data && !s;
+  const fold = usePartFold(o.comment, view.comment.offNote);
   return (
     <Section
       className={`set cip prpanel${o.comment ? '' : ' off'}`}
@@ -166,9 +149,9 @@ function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: C
       sub="the verdict on every pull request"
       actions={<Switch on={o.comment} label="Pull request comment" onChange={(on) => toggle({ comment: on }, `The pull request comment is ${on ? 'on' : 'off'}`)} />}
     >
-      <div className="pbody cimain">
+      {fold.line}
+      <div className="pbody cimain" {...fold.body}>
         <Copy className="muted">{`One comment on each pull request, kept current on every push: each golden’s verdict by its gate, beside the base branch’s last session, ${o.decisions ? 'the decisions the branch changes, ' : ''}a run’s cost before and after, and what planted instructions did.`}</Copy>
-        {o.comment ? null : <OffNote>{view.comment.offNote}</OffNote>}
         <div className="setrow tight">
           <div>
             <b id="cidecisions-name">The decisions the branch changes</b>
@@ -183,8 +166,7 @@ function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: C
             {ACTIONS.previewPrComment.label}
           </ActionButton>
         </div>
-        <span className="k cineeds">it needs</span>
-        <CiList rows={view.comment.needs} />
+        <Needs rows={view.comment.needs} />
       </div>
       {open && PrCommentDialog ? <PrCommentDialog preview={preview.data} onClose={() => setOpen(false)} /> : null}
     </Section>
@@ -193,12 +175,13 @@ function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: C
 
 function FixOnFailure({ o, view, set, onSwitch }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; onSwitch: (on: boolean) => void }) {
   const f = view.fixOnFailure;
+  const fold = usePartFold(o.fix, f.offNote);
   return (
     <Section className={`set cip${o.fix ? '' : ' off'}`} id="fix-on-failure" title="Fix on failure" sub="a fix pull request when a rule breaks in CI" actions={<Switch on={o.fix} label="Fix on failure" onChange={onSwitch} />}>
-      <div className="alertgrid">
+      {fold.line}
+      <div className="alertgrid" {...fold.body}>
         <div className="pbody cimain">
           <Copy className="muted">When an outcome check fails, CI runs blame, repair and verify. If verify accepts a fix, CI opens a pull request with its evidence.</Copy>
-          {o.fix ? null : <OffNote>{f.offNote}</OffNote>}
           <div className="setrow tight">
             <div>
               <b id="cifixBudget-name">Budget per failing golden</b>
@@ -217,14 +200,12 @@ function FixOnFailure({ o, view, set, onSwitch }: { o: CiWorkflowOptions; view: 
             </div>
             <Select id="cifixRepairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
           </div>
-          <span className="k cineeds">it needs</span>
-          <CiList rows={f.needs} />
+          <Needs rows={f.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">{f.preview.example ? 'what lands in GitHub · example' : 'what lands in GitHub'}</span>
           <PullRequest pr={f.preview} />
-          <span className="k">it never</span>
-          <CiList rows={f.never} />
+          <ListFold name="it never" rows={f.never} />
         </div>
       </div>
     </Section>
@@ -297,12 +278,13 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
 
 function Alerts({ o, view, set, toggle }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; toggle: (patch: Partial<CiWorkflowOptions>, what: string) => void }) {
   const a = view.alerts;
+  const fold = usePartFold(o.alerts, a.offNote);
   return (
     <Section className={`set cip${o.alerts ? '' : ' off'}`} id="alerts" title="Alerts" sub="a message in Slack when a golden fails in CI" actions={<Switch on={o.alerts} label="Alerts" onChange={(on) => toggle({ alerts: on }, `Alerts are ${on ? 'on' : 'off'}`)} />}>
-      <div className="alertgrid">
+      {fold.line}
+      <div className="alertgrid" {...fold.body}>
         <div className="pbody cimain">
           <Copy className="muted">The test step counts the goldens that failed. These steps post the count to Slack, then fail the job.</Copy>
-          {o.alerts ? null : <OffNote>{a.offNote}</OffNote>}
           <div className="setrow tight">
             <div>
               <b id="onlyMain-name">Only for the {a.branch} branch</b>
@@ -321,8 +303,7 @@ function Alerts({ o, view, set, toggle }: { o: CiWorkflowOptions; view: CiWorkfl
             </div>
             <input id="alertSecret" className="inp" type="text" spellCheck={false} autoComplete="off" aria-labelledby="alertSecret-name" aria-describedby="alertSecret-help" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
           </div>
-          <span className="k cineeds">it needs</span>
-          <CiList rows={a.needs} />
+          <Needs rows={a.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">what lands in Slack</span>
@@ -338,8 +319,7 @@ function Alerts({ o, view, set, toggle }: { o: CiWorkflowOptions; view: CiWorkfl
               <span className="sl">{a.message.link}</span>
             </div>
           </div>
-          <span className="k">a golden fails when</span>
-          <CiList rows={a.failures} tone="err" />
+          <ListFold name="a golden fails when" rows={a.failures} tone="err" />
         </div>
       </div>
     </Section>

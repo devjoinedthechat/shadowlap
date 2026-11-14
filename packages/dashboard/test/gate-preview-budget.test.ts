@@ -7,7 +7,7 @@ import { Store } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
 
 /**
- * Settings → CI's Gates asks for a preview each time a figure changes, and the preview's CI figure
+ * Settings → Gates asks for a preview each time a figure changes, and the preview's CI figure
  * plans a session as `shadowlap test` does: about half a second the first time a gate against
  * history's figures are seen. It is worked out beside the server (tests-gate.ts `GATE_READS`), so
  * while cold previews come one after another, the status bar's poll of /api/meta keeps to its few

@@ -12,6 +12,7 @@ import { migratePaletteRows } from '../ui/migrate-command.js';
 import { MIGRATE_ASK } from '../ui/page-ask.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DecisionSessionView, MigrateStartView, MigrateUse } from '../ui/types.js';
+import { styleRules } from './css-sheet.js';
 import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
 import { withMigrateDialogs } from './ui-served-now.js';
 
@@ -57,6 +58,42 @@ const runOf = (runId: string, golden: string, decisions: DecisionStep[]): Decisi
   const ranks = decisions.map((d) => d.rank).filter((r): r is NonNullable<typeof r> => r !== null);
   return { runId, golden, steps: decisions.length, asked: decisions.length, rank: ranks.length ? (Math.min(...ranks) as DecisionRun['rank']) : null, majority: ranks.length ? (Math.min(...ranks) as DecisionRun['majority']) : null, counts: emptyCounts(), cost: { before: 0.04, after: 0.03, spent: 0.01 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions, warnings: [] };
 };
+
+/** A grid's column tracks, counted at its top-level spaces: `minmax(170px, 270px) minmax(0, 1fr)` is two. */
+function tracks(columns: string): number {
+  let depth = 0;
+  let n = 1;
+  for (const ch of columns.trim()) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === ' ' && depth === 0) n++;
+  }
+  return n;
+}
+
+/** How many columns the compact matrix's grid has, at a desk: the last rule for it outside any at-rule. */
+function compactColumns(): number {
+  let columns: string | null = null;
+  for (const rule of styleRules()) if (!rule.conditions.length && rule.selectors.includes('.dmx.compact .dmg')) for (const [prop, value] of rule.decls) if (prop === 'grid-template-columns') columns = value;
+  return columns ? tracks(columns) : 0;
+}
+
+describe('the compact matrix’s grid', () => {
+  it('has a column for each of a row’s two cells, never the full matrix’s three, and one where a row stacks', () => {
+    const value = (selector: string, conditions: string[] = []) => {
+      let found: string | null = null;
+      for (const rule of styleRules()) if (rule.conditions.join(' ') === conditions.join(' ') && rule.selectors.includes(selector)) for (const [prop, v] of rule.decls) if (prop === 'grid-template-columns') found = v;
+      return found;
+    };
+    // The full matrix: a run, its cells, what changed most.
+    expect(tracks(value('.dmg')!)).toBe(3);
+    // Compact, as a migration's What changes draws it: the run and its cells, so no row's cells flow into the next row's line.
+    expect(compactColumns()).toBe(2);
+    // Stacked, both are one column, the compact one named so its two columns don't outlast the full one's.
+    const stacked = ['@container (max-width: 760px)'];
+    expect([value('.dmg', stacked), value('.dmx.compact .dmg', stacked)]).toEqual(['minmax(0, 1fr)', 'minmax(0, 1fr)']);
+  });
+});
 
 describe('Changes › Migrate', () => {
   let store: Store;
@@ -317,6 +354,12 @@ describe('Changes › Migrate', () => {
       expect(m.retirements[0].text).toMatch(new RegExp(`^${FROM} \\(claude-sonnet-4-5-20250929\\) retires on the Claude API on November 30, 2026`));
       // What changes: the compact matrix, then the write it changes opening its cell.
       expect(p.all('.mgch .dmr')).toHaveLength(2);
+      // Compact, a row is its run and its cells and nothing after them, on a grid of as many columns.
+      expect(p.all('.mgch .dmx.compact .dmr').map((row) => row.children.map((c) => c.className.split(' ')[0]))).toEqual([
+        ['dml', 'dmcw'],
+        ['dml', 'dmcw'],
+      ]);
+      expect(compactColumns()).toBe(2);
       expect(shown(p.one('.mgch header .sub'))).toBe(`the calls made with ${FROM}, asked under ${TO}`);
       expect(p.all('.mgsteps li').map((li) => [li.querySelector('b')!.className, ...['b', 'a', '.mgw', '.mgarg'].map((q) => shown(li.querySelector(q)))])).toEqual([['dsd q1', 'rank 1', 'refund #2', 'issue_refund is no longer called', 'issue_refund → end_turn']]);
       expect(p.one('.mgsteps a').getAttribute('href')).toBe(`#/changes/migrate/${MG}/${a}/2`);
@@ -336,9 +379,23 @@ describe('Changes › Migrate', () => {
       expect(p.all('.mgset .mgfield').map((f) => [shown(f.querySelector('b')), f.querySelector('b')!.querySelectorAll('code').map(shown), shown(f.querySelector('p')), f.querySelector('p')!.querySelectorAll('code').map(shown)])).toEqual([['leave temperature out (the requests were sent temperature=1, its default, meanwhile)', ['temperature', 'temperature=1'], `${TO} refuses temperature with thinking on`, ['temperature']]]);
       expect(shown(p.one('.mgset > p.muted'))).toBe('verify takes them as: --set temperature=null');
       expect(shown(p.one('.mgset > p.muted code'))).toBe('--set temperature=null');
-      // The config change: files and places, the patch in its colours, what it takes out, the review, git apply and Copy config change.
+      // The config change: files and places, a row a file with its diff folded, what it takes out, the review, git apply and Copy config change.
       expect(shown(p.one('.mgcfg header .sub'))).toBe('agent.py · 2 places');
-      expect(p.all('.mgcfg .fxpatch span').map((l) => l.className)).toContain('del');
+      const file = () => p.one('.mgcfg .mgfiles > li');
+      const diff = () => p.one('.mgcfg .mgfile button');
+      expect(p.all('.mgcfg .mgfiles > li')).toHaveLength(1);
+      expect([shown(file().querySelector('.mgfile > code')), file().querySelectorAll('.mgstat span').map((x) => [x.className, x.textContent])]).toEqual(['agent.py', [['add', '+1'], ['del', '−1']]]);
+      expect([shown(diff()), diff().getAttribute('aria-label'), diff().getAttribute('aria-expanded'), p.all('.mgcfg .fxpatch').length]).toEqual(['Show diff', 'Show diff of agent.py', 'false', 0]);
+      // Show diff draws the file's hunks under its row, in the patch's colours, without the lines that only name the file.
+      await p.click(diff());
+      expect([shown(diff()), diff().getAttribute('aria-label'), diff().getAttribute('aria-expanded'), diff().getAttribute('aria-controls') === p.one('.mgcfg .mgfiles > li > div[id]').getAttribute('id')]).toEqual(['Hide diff', 'Hide diff of agent.py', 'true', true]);
+      expect(p.all('.mgcfg .mgfiles .fxpatch span').map((l) => [l.className, l.textContent])).toEqual([
+        ['', '  @@ -3 +3 @@'],
+        ['del', `− MODEL = "${FROM}"`],
+        ['add', `+ MODEL = "${TO}"`],
+      ]);
+      await p.click(diff());
+      expect(p.all('.mgcfg .fxpatch')).toHaveLength(0);
       expect(p.all('.mgcfg .mgalso.inpatch')).toHaveLength(1);
       expect(p.all('.mgcfg .mgrev').map(shown)).toEqual([`Left for review: README.md:12 names ${FROM}`]);
       expect(shown(p.one('.mgcfg .mgcmd'))).toContain(`git apply .shadowlap/migrations/${MG}/config.patch`);

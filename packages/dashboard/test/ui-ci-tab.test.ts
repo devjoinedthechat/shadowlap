@@ -11,7 +11,9 @@ import { tipCard } from '../ui/components/HoverCard.js';
 import { PR_COMMENT_ASK } from '../ui/page-ask.js';
 import { sessionLine } from '../ui/pages/settings/CiWorkflow.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
+import { keptFor } from '../ui/pages/settings/ci-kept.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { styleRules } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 import { withServed } from './ui-served-now.js';
 
@@ -19,9 +21,10 @@ import { withServed } from './ui-served-now.js';
  * Settings → CI as the page renders the server's answers: Your workflow first, where the
  * repository's file stands against the one the switches build, folded behind Show workflow, with
  * Write file and its ask while the two differ; then Pull request comment, Fix on failure and Alerts,
- * each with its switch in its header and its own needs; then Gates, which previews a gate's figures
- * and holds what an inconclusive golden does in CI. The fake server answers as the routes do: the
- * switches start from the repository's file, Write file writes it, and its Undo puts it back.
+ * each with its switch in its header and its own needs, a part that is off folded to one line and
+ * each list behind its name and count; and Gates, a tab of its own, which previews a gate's figures.
+ * The fake server answers as the routes do: the switches start from the repository's file, Write
+ * file writes it, and its Undo puts it back.
  */
 
 const goldens = [
@@ -161,7 +164,14 @@ afterEach(async () => {
 
 async function open(s: ReturnType<typeof fakeServer>, toast: AppState['toast'] = () => undefined, conn: AppState['conn'] = 'ok', tab = 'ci'): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(s, toast, conn) }, withServed(createElement(SettingsPage, { tab }))));
-  await r.until('the panels and the gate preview', () => r!.all('#alerts .cilist').length > 1 && r!.all('#gates .gsays').length === 1);
+  await r.until('the panels', () => r!.all('#alerts .cilist').length > 1);
+  return r;
+}
+
+/** Gates, a tab of its own, with its preview drawn. */
+async function openGates(s: ReturnType<typeof fakeServer>, conn: AppState['conn'] = 'ok'): Promise<Rendered> {
+  r = await render(createElement(AppContext.Provider, { value: app(s, () => undefined, conn) }, withServed(createElement(SettingsPage, { tab: 'gates' }))));
+  await r.until('the gate preview', () => r!.all('#gates .gsays').length === 1);
   return r;
 }
 
@@ -175,12 +185,13 @@ function shownFile(): string {
 const plain = (el: FakeElement) => el.textContent.replace(/\s+/g, ' ');
 
 describe('Settings → CI', () => {
-  it('lays the tab out as the design does: Your workflow, a panel for each part with its switch in its header, then Gates', async () => {
+  it('lays the tab out as the design does: Your workflow, then a panel for each part with its switch in its header, and no gate’s figures, which are Gates’ own tab', async () => {
     const s = fakeServer(DEFAULTS_FILE);
     const toast = vi.fn();
     // Alerts' old address opens the tab too.
     await open(s, toast, 'ok', 'alerts');
-    expect(r!.all('.settab section.sec').map((x) => x.getAttribute('id'))).toEqual(['workflow', 'pr-comment', 'fix-on-failure', 'alerts', 'gates']);
+    expect(r!.all('.settab section.sec').map((x) => x.getAttribute('id'))).toEqual(['workflow', 'pr-comment', 'fix-on-failure', 'alerts']);
+    expect(s.gate).not.toHaveBeenCalled();
     for (const [id, label] of [
       ['pr-comment', 'Pull request comment'],
       ['fix-on-failure', 'Fix on failure'],
@@ -192,7 +203,9 @@ describe('Settings → CI', () => {
     // The repository's file is the one the switches build: nothing to write.
     expect(plain(r!.one('#workflow .wfstate'))).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#workflow header .btn')).toHaveLength(0);
-    // The file folds behind Show workflow, with Copy workflow beside it, its one copy icon CopyButton's own.
+    // The file folds behind Show workflow, the panel's last line, right over the box it opens, with Copy workflow beside it, its one copy icon CopyButton's own.
+    const lines = r!.all('#workflow > .pbody')[0].children;
+    expect([lines[lines.length - 1].className, r!.all('#workflow > .pbody').map((x) => x.getAttribute('id'))]).toEqual(['wftog', [null, 'wfBox']]);
     const show = r!.one('#workflow .wftog button[aria-controls="wfBox"]');
     expect([show.textContent, show.getAttribute('aria-expanded'), r!.one('#wfBox').hasAttribute('hidden')]).toEqual(['Show workflow', 'false', true]);
     expect(r!.byText('#workflow .wftog button', 'Copy workflow').querySelectorAll('svg')).toHaveLength(1);
@@ -234,6 +247,50 @@ describe('Settings → CI', () => {
     expect(toast).toHaveBeenLastCalledWith('Fix on failure is off · Your workflow is your repository’s again');
     expect(plain(r!.one('#workflow .wfstate'))).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#wfBox pre.wfcode span.add')).toHaveLength(0);
+  });
+
+  it('folds a part that is off to what happens without it, which Show settings opens for a look and its switch for good, and each list behind its name and count', async () => {
+    await open(fakeServer(DEFAULTS_FILE));
+    const fix = () => r!.one('#fix-on-failure');
+    const body = () => r!.one('#fix-on-failure .alertgrid');
+    const show = () => r!.one('#fix-on-failure .cioff button');
+    // Fix on failure is off as the file has it: its header, what happens without it, and Show settings.
+    expect(plain(r!.one('#fix-on-failure .cioff .offnote'))).toBe('Off: a failed check fails the build, and nobody opens a fix.');
+    expect([show().textContent, show().getAttribute('aria-expanded'), show().getAttribute('aria-controls') === body().getAttribute('id'), body().hasAttribute('hidden')]).toEqual(['Show settings', 'false', true, true]);
+    // The parts that are on have no such line: their panels are open.
+    expect(r!.all('#pr-comment .cioff, #alerts .cioff')).toHaveLength(0);
+    expect([r!.one('#pr-comment .cimain').hasAttribute('hidden'), r!.one('#alerts .alertgrid').hasAttribute('hidden')]).toEqual([false, false]);
+    // Show settings opens the panel for a look, the part still off; Hide settings folds it again.
+    await r!.click(show());
+    expect([show().textContent, show().getAttribute('aria-expanded'), body().hasAttribute('hidden'), fix().className]).toEqual(['Hide settings', 'true', false, 'panel sec set cip off']);
+    await r!.click(show());
+    expect([show().textContent, body().hasAttribute('hidden')]).toEqual(['Show settings', true]);
+    // Its switch opens it too, the line gone; off again, it folds.
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('Fix on failure on', () => fix().className === 'panel sec set cip');
+    expect([r!.all('#fix-on-failure .cioff').length, body().hasAttribute('hidden')]).toEqual([0, false]);
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('Fix on failure off', () => fix().className === 'panel sec set cip off');
+    expect(body().hasAttribute('hidden')).toBe(true);
+    // Each list is behind its name and how many rows it holds, the rows drawn and hidden until asked for.
+    const view = served({}, DEFAULTS_FILE);
+    const folds = () => r!.all('.settab .cifold');
+    const fold = (f: FakeElement) => [f.querySelector('button .k')!.textContent, f.querySelector('button .n')!.textContent, f.querySelector('button')!.getAttribute('aria-expanded'), f.querySelector('.cilist')!.hasAttribute('hidden')];
+    expect(folds().map(fold)).toEqual([
+      ['it needs', String(view.comment.needs.length), 'false', true],
+      ['it needs', String(view.fixOnFailure.needs.length), 'false', true],
+      ['it never', String(view.fixOnFailure.never.length), 'false', true],
+      ['it needs', String(view.alerts.needs.length), 'false', true],
+      ['a golden fails when', String(view.alerts.failures.length), 'false', true],
+    ]);
+    expect(folds().map((f) => f.querySelectorAll('.cilist li').length)).toEqual([view.comment.needs.length, view.fixOnFailure.needs.length, view.fixOnFailure.never.length, view.alerts.needs.length, view.alerts.failures.length]);
+    // One opened leaves the others as they are, and its button names the list it opens.
+    const fails = () => folds()[4];
+    await r!.click(fails().querySelector('button')!);
+    expect(folds().map((f) => f.querySelector('button')!.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false', 'true']);
+    expect([fails().querySelector('.cilist')!.hasAttribute('hidden'), fails().querySelector('button')!.getAttribute('aria-controls') === fails().querySelector('.cilist')!.getAttribute('id')]).toEqual([false, true]);
+    await r!.click(fails().querySelector('button')!);
+    expect(fails().querySelector('.cilist')!.hasAttribute('hidden')).toBe(true);
   });
 
   it('writes a workflow that isn’t there yet after asking, with every line it adds, and its Undo takes the file away again', async () => {
@@ -307,21 +364,21 @@ describe('Settings → CI', () => {
     expect(shownFile()).toMatch(/^ +env:\n +ANTHROPIC_API_KEY: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}$/m);
   });
 
-  it('sets what an inconclusive golden does under Gates, in the design’s words, which takes the row from Alerts and adds the input to the step', async () => {
+  it('sets what an inconclusive golden does in Your workflow, in the design’s words, which takes the row from Alerts and adds the input to the step', async () => {
     const s = fakeServer(DEFAULTS_FILE);
     const toast = vi.fn();
     await open(s, toast);
-    const row = () => r!.all('#gates .setrow').find((x) => x.querySelector('b')?.textContent === 'An inconclusive golden')!;
+    const row = () => r!.all('#workflow .setrow').find((x) => x.querySelector('b')?.textContent === 'An inconclusive golden')!;
     // Fails writes no input, as shadowlap test does by default: a gate against a short history only warns, and the row says so.
     expect(plain(row().querySelector('span')!)).toBe('Fails the step, as a failed one does, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them. Run more attempts can settle it.');
     expect(RECORD_WINDOWS * BASELINE_DEFAULTS.window).toBe(30);
     expect(shownFile()).not.toContain('inconclusive:');
-    const seg = r!.one('#gates .seg[aria-labelledby="inconclusive-name"]');
+    const seg = r!.one('#workflow .seg[aria-labelledby="inconclusive-name"]');
     expect(seg.querySelectorAll('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
       ['Fails', 'true'],
       ['Warns', 'false'],
     ]);
-    await r!.click(r!.byText('#gates .seg[aria-labelledby="inconclusive-name"] button', 'Warns'));
+    await r!.click(r!.byText('#workflow .seg[aria-labelledby="inconclusive-name"] button', 'Warns'));
     await r!.until('the answer for warn', () => r!.all('#alerts .teamside .cilist li').length === 5);
     expect(s.ciWorkflows).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'warn' }));
     expect(toast).toHaveBeenCalledWith('An inconclusive golden warns · Your workflow says inconclusive: warn');
@@ -329,7 +386,7 @@ describe('Settings → CI', () => {
     expect(plain(row().querySelector('span')!)).toBe('Lets the step pass with a warning: inconclusive: warn. Every report still says inconclusive.');
     expect(row().querySelector('span code')!.textContent).toBe('inconclusive: warn');
     // Back to Fails: the input goes, and the toast says what the default does with a short history.
-    await r!.click(r!.byText('#gates .seg[aria-labelledby="inconclusive-name"] button', 'Fails'));
+    await r!.click(r!.byText('#workflow .seg[aria-labelledby="inconclusive-name"] button', 'Fails'));
     await r!.until('the answer for fail', () => r!.all('#alerts .teamside .cilist li').length === 6);
     expect(s.ciWorkflows).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'fail' }));
     expect(toast).toHaveBeenLastCalledWith('An inconclusive golden fails the step, the default · a gate against fewer than 30 sessions only warns');
@@ -357,11 +414,44 @@ describe('Settings → CI', () => {
     expect(r!.one('.settab .verdict p').textContent).toContain('not valid JSON');
     const unread = r!.all('.settab .cilist li').find((li) => li.textContent.startsWith('which goldens run live'))!;
     expect(unread.querySelector('i')!.getAttribute('class')).toBe('warn');
+    // What a part needs is open where a row of it is amber: what the workflow leaves out is not folded away. The other lists stay folded.
+    expect(r!.all('.settab .cifold').map((f) => [f.querySelector('button .k')!.textContent, f.querySelectorAll('.cilist li i.warn').length > 0, f.querySelector('button')!.getAttribute('aria-expanded'), f.querySelector('.cilist')!.hasAttribute('hidden')])).toEqual([
+      ['it needs', false, 'false', true],
+      ['it needs', true, 'true', false],
+      ['it never', false, 'false', true],
+      ['it needs', true, 'true', false],
+      ['a golden fails when', true, 'false', true],
+    ]);
     expect(shownFile()).toContain("#   shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
     expect(plain(r!.one('#workflow .cistore span'))).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
     const problem = served({}, DEFAULTS_FILE, { goldens: [], configError }).problem;
     expect(problem).toBeTruthy();
     expect(r!.one('#workflow .fieldnote').textContent).toBe(problem);
+  });
+
+  it('opens what a part needs when a row of it turns amber while the tab is shown, and leaves it folded once folded by hand', async () => {
+    const over: Partial<CiContext> = {};
+    await open(fakeServer(DEFAULTS_FILE, over));
+    const needs = () => r!.one('#alerts .cimain .cifold');
+    const shown = () => [needs().querySelector('button')!.getAttribute('aria-expanded'), needs().querySelector('.cilist')!.hasAttribute('hidden')];
+    expect(shown()).toEqual(['false', true]);
+    try {
+      // The config can't be read from here on: the next answer, asked for by a switch, has an amber row.
+      Object.assign(over, { goldens: [], configError: 'shadowlap.config.json: not valid JSON (Unexpected end of JSON input)' });
+      await r!.click(r!.one('#alerts .setrow .switch[aria-labelledby="onlyMain-name"]'));
+      await r!.until('the amber row', () => needs().querySelectorAll('.cilist li i.warn').length === 1);
+      expect(shown()).toEqual(['true', false]);
+      await r!.click(needs().querySelector('button')!);
+      expect(shown()).toEqual(['false', true]);
+      // Another answer with the row still amber, known by the session it brings, opens nothing again.
+      Object.assign(over, { session: SESSION });
+      await r!.click(r!.one('#alerts .setrow .switch[aria-labelledby="onlyMain-name"]'));
+      await r!.until('the next answer', () => r!.all('#workflow p.muted').some((p) => plain(p) === sessionLine(SESSION)));
+      expect(needs().querySelectorAll('.cilist li i.warn')).toHaveLength(1);
+      expect(shown()).toEqual(['false', true]);
+    } finally {
+      delete keptFor('support-agent').onlyMain;
+    }
   });
 });
 
@@ -494,10 +584,13 @@ describe('Settings → CI: the pull request comment', () => {
   });
 });
 
-describe('Settings → CI: Gates', () => {
+describe('Settings → Gates', () => {
   it('previews a gate as its figures change, asking only for those that differ from the defaults, with Reset and the golden’s entry', async () => {
     const s = fakeServer(DEFAULTS_FILE);
-    await open(s);
+    await openGates(s);
+    // The tab's one section, none of the CI tab's panels beside it.
+    expect(r!.all('.settab section.sec').map((x) => x.getAttribute('id'))).toEqual(['gates']);
+    expect(r!.one('nav.stabs a[aria-current="page"]').textContent).toBe('Gates');
     expect(r!.one('#gates header .sub').textContent.replace(/\u00a0/g, ' ')).toBe('try figures, then copy the golden’s entry');
     expect(s.gate).toHaveBeenLastCalledWith('suiteRisk=0.05', expect.anything());
     expect(r!.all('#gates select').map((x) => x.getAttribute('aria-label'))).toEqual(['Good', 'Bad', 'Risk', 'Max']);
@@ -522,11 +615,11 @@ describe('Settings → CI: Gates', () => {
   });
 
   it('opens on the kind a link asks for, history’s figures with it, and puts the address back to the tab’s own', async () => {
-    address = '#/settings/ci?gate=baseline';
+    address = '#/settings/gates?gate=baseline';
     const s = fakeServer(DEFAULTS_FILE);
-    await open(s);
+    await openGates(s);
     await r!.until('the history preview', () => r!.all('#gates select[aria-label="Window"]').length === 1 && s.gate.mock.calls.some((c) => c[0] === 'baseline=history&suiteRisk=0.05'));
-    expect(address).toBe('#/settings/ci');
+    expect(address).toBe('#/settings/gates');
     expect(r!.all('#gates select').map((x) => x.getAttribute('aria-label'))).toEqual(['Drop', 'Risk', 'Window', 'Min', 'Max']);
     expect(r!.byText('#gates header .seg button', 'fork · history').getAttribute('aria-pressed')).toBe('true');
     const history = gatePreview(new URLSearchParams('baseline=history&suiteRisk=0.05'));
@@ -538,6 +631,50 @@ describe('Settings → CI: Gates', () => {
     expect(s.gate).toHaveBeenLastCalledWith('suiteRisk=0.05', expect.anything());
   });
 
+  it('says what an inconclusive golden does in CI as Your workflow has it, changed there and not written yet too, and leads to where it is set', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    const line = () => r!.all('#gates .setrow').find((x) => x.querySelector('b')?.textContent === 'An inconclusive golden')!;
+    await openGates(s);
+    // No control of its own: the words, and the way to the CI tab, where Your workflow sets it.
+    expect(plain(line().querySelector('span')!)).toMatch(/^Fails the step, as a failed one does/);
+    expect(r!.all('#gates .seg').map((x) => x.getAttribute('aria-label'))).toEqual(['Kind of gate']);
+    expect([line().querySelector('a')!.textContent, line().querySelector('a')!.getAttribute('href')]).toEqual(['Settings → CI', '#/settings/ci']);
+    // In CI heads it on a line of its own, as a part's heading does: its first letter is raised only there.
+    expect(r!.all('#gates .cimain > .k').map((k) => [k.textContent, k.className])).toEqual([['in CI', 'k gci']]);
+    expect(styleRules().filter((x) => !x.conditions.length && x.selectors.includes('.gatep .gci')).flatMap((x) => x.decls)).toContainEqual(['display', 'block']);
+    await r!.unmount();
+    // Warns, picked on the CI tab and not written: Gates reads it, and words its CI figure for a step that warns.
+    await open(s);
+    await r!.click(r!.byText('#workflow .seg[aria-labelledby="inconclusive-name"] button', 'Warns'));
+    await r!.until('the answer for warn', () => /^ +inconclusive: warn$/m.test(shownFile()));
+    await r!.unmount();
+    try {
+      await openGates(s);
+      expect(s.ciWorkflows).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'warn' }));
+      expect(plain(line().querySelector('span')!)).toBe('Lets the step pass with a warning: inconclusive: warn. Every report still says inconclusive.');
+    } finally {
+      delete keptFor('support-agent').inconclusive;
+    }
+  });
+
+  it('leads with can’t read while shadowlap.config.json can’t be read, as the CI tab does', async () => {
+    const configError = 'shadowlap.config.json: not valid JSON (Unexpected end of JSON input)';
+    await openGates(fakeServer(DEFAULTS_FILE, { goldens: [], configError }));
+    expect(plain(r!.one('.settab .verdict h2'))).toBe('can’t read Fix shadowlap.config.json to change these settings');
+    expect(r!.one('.settab .verdict p').textContent).toContain('not valid JSON');
+  });
+
+  it('is where a link to a gate’s kind from when Gates was CI’s last panel goes on to, its kind kept', async () => {
+    address = '#/settings/ci?gate=baseline';
+    await open(fakeServer(DEFAULTS_FILE));
+    await r!.until('the address of Gates', () => address === '#/settings/gates?gate=baseline');
+    // The CI tab alone stays where it is.
+    await r!.unmount();
+    address = '#/settings/ci';
+    await open(fakeServer(DEFAULTS_FILE));
+    expect(address).toBe('#/settings/ci');
+  });
+
   it('words its note from the answer’s CI figures, and names the attempts column in a hover card', async () => {
     const s = fakeServer(DEFAULTS_FILE);
     // A CI run as the answer figures it: 40 goldens of an agent that passes 85% of the time, short of the gate's good rate.
@@ -545,14 +682,14 @@ describe('Settings → CI: Gates', () => {
       const p = gatePreview(new URLSearchParams(query));
       return { ...p, ci: { ...p.ci, goldens: 40, rate: 0.85, redText: '1.5%', redWarnText: '1.5%' } };
     });
-    await open(s);
+    await openGates(s);
     expect(plain(r!.one('#gates .gnote'))).toBe('Between 70% and 90% either verdict can come, so a verdict states the test, never the agent’s rate. With 40 forked goldens of an agent that passes 85% of the time, 1.5% of CI runs go red.');
     const attempts = r!.byText('#gates table.godds th', 'attempts');
     expect([attempts.getAttribute('data-tip'), attempts.getAttribute('title')]).toEqual([tipCard('attempts', [], 'the attempts it runs on average'), null]);
   });
 
   it('waits while the dashboard server is away, saying the preview is the last it worked out', async () => {
-    await open(fakeServer(DEFAULTS_FILE), () => undefined, 'offline');
+    await openGates(fakeServer(DEFAULTS_FILE), 'offline');
     expect(plain(r!.one('#gates .gdef'))).toBe('Paused until the dashboard server is back: the preview is the last it worked out.');
     expect(r!.all('#gates select').every((x) => x.props.disabled === true)).toBe(true);
   });
@@ -568,7 +705,7 @@ async function openProjects(servers: Record<string, ReturnType<typeof fakeServer
     return createElement(AppContext.Provider, { value }, createElement(SettingsPage, { tab: 'ci' }));
   }
   r = await render(createElement(Projects));
-  await r.until('the panels', () => r!.all('#alerts .cilist').length > 1 && r!.all('#gates .gsays').length === 1);
+  await r.until('the panels', () => r!.all('#alerts .cilist').length > 1);
   return (to) => act(async () => move(to));
 }
 

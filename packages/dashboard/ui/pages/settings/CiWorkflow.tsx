@@ -10,14 +10,17 @@ import type { CiSession, CiWorkflowOptions, CiWorkflowsView } from '../../types.
 import { useApp } from '../../state.js';
 import { TeamStoreRow } from './CiTeamStore.js';
 import { useEditor, type EditUndo } from './common.js';
+import { InconclusiveRow } from './inconclusive.js';
 
 /**
  * Your workflow, the CI tab's first panel: where the repository's workflow stands against the one
  * the switches below build (the same, not there yet, or so many lines added and taken out), the
- * test session last seen, the file folded behind Show workflow with Copy workflow, and Write file,
- * the tab's one lime, while the two differ. The file is the server's (`GET /api/ci/workflows`): the
- * repository's with only the lines the switches own changed, each marked. Write file asks first,
- * showing every line it changes, and writes only that file, against the version read.
+ * test session last seen, its Team store row, what an inconclusive golden does to the step, then
+ * the file folded behind Show workflow, right over where it opens, with Copy workflow, and Write
+ * file, the tab's one lime, while the two differ. The file is the server's
+ * (`GET /api/ci/workflows`): the repository's with only the lines the switches own changed, each
+ * marked. Write file asks first, showing every line it changes, and writes only that file, against
+ * the version read.
  */
 
 /** `8 lines added and 1 line taken out`: each count kept whole, so a phone breaks only between them. */
@@ -58,7 +61,7 @@ export function sessionLine(s: CiSession, now = Date.now()): string {
   return `${s.ci ? 'Last seen in CI' : 'The last test session'}, ${sessionWhen(s.revision, s.at, now)}: ${s.text}.`;
 }
 
-export function YourWorkflow({ view, changed, onWritten, reload }: { view: CiWorkflowsView; changed: Partial<CiWorkflowOptions>; onWritten: () => void; reload: () => void }) {
+export function YourWorkflow({ view, changed, inconclusive, set, onWritten, reload }: { view: CiWorkflowsView; changed: Partial<CiWorkflowOptions>; inconclusive: 'fail' | 'warn'; set: (patch: Partial<CiWorkflowOptions>) => void; onWritten: () => void; reload: () => void }) {
   const w = view.workflow;
   const { client } = useApp();
   const [open, setOpen] = useState(false);
@@ -81,8 +84,11 @@ export function YourWorkflow({ view, changed, onWritten, reload }: { view: CiWor
       <div className="pbody">
         <WorkflowState view={view} />
         {w.session ? <Copy className="muted">{sessionLine(w.session)}</Copy> : null}
-        {/* Why Write file waits, said where the file is: Copy workflow still has the whole file. */}
+        {/* Why Write file waits, said under how the file stands: Copy workflow still has the whole file. */}
         {view.problem && !w.same ? <p className="fieldnote">{view.problem}</p> : null}
+        {view.fixOnFailure.teamStore ? <TeamStoreRow store={view.fixOnFailure.teamStore} /> : null}
+        <InconclusiveRow inc={inconclusive} set={set} />
+        {/* Last, so the file opens right under what shows it. */}
         <p className="wftog">
           <button className="linkbtn" type="button" aria-expanded={open} aria-controls="wfBox" onClick={() => setOpen(!open)}>
             {open ? 'Hide' : 'Show'} workflow
@@ -92,7 +98,6 @@ export function YourWorkflow({ view, changed, onWritten, reload }: { view: CiWor
             Copy workflow
           </CopyButton>
         </p>
-        {view.fixOnFailure.teamStore ? <TeamStoreRow store={view.fixOnFailure.teamStore} /> : null}
       </div>
       <div className="pbody cicode" id="wfBox" hidden={!open}>
         <CodeBox file={view.file} lines={w.lines} />

@@ -1,4 +1,5 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
+import { Icon } from '../../components/Icon.js';
 import type { CiListRow } from '../../types.js';
 
 /**
@@ -6,9 +7,9 @@ import type { CiListRow } from '../../types.js';
  * amber, a pass lime), else the list's. A value that lists several (the providers' keys) breaks only
  * after a comma, each one whole. Rows between hairlines on the page, no box.
  */
-export function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | 'err' }) {
+function CiList({ rows, tone = '', id, hidden }: { rows: readonly CiListRow[]; tone?: '' | 'err'; id?: string; hidden?: boolean }) {
   return (
-    <ul className="cilist">
+    <ul className="cilist" id={id} hidden={hidden}>
       {rows.map((r) => (
         <li key={`${r.label}\u0000${r.value}`}>
           {/* A row's own tone first: an inconclusive golden is amber, never a failure's red. */}
@@ -28,6 +29,39 @@ export function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?:
       ))}
     </ul>
   );
+}
+
+/**
+ * A CI panel's list behind its name and how many rows it holds (`It needs 9`): what a part needs,
+ * what it never does and what fails a golden are read once, so each opens on request and the panel
+ * keeps to its settings and what lands. The rows are drawn either way, hidden while folded, as Your
+ * workflow's file is. A list with a row that asks for a look (`look`) starts open, and opens when
+ * one comes.
+ */
+export function ListFold({ name, rows, tone = '', look = false }: { name: string; rows: readonly CiListRow[]; tone?: '' | 'err'; look?: boolean }) {
+  const [open, setOpen] = useState(look);
+  const id = useId();
+  useEffect(() => {
+    if (look) setOpen(true);
+  }, [look]);
+  return (
+    <div className="cifold">
+      <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+        {/* The space is for a reader of the button's name: the two are set apart by the line's gap. */}
+        <span className="k">{name}</span> <span className="n">{rows.length}</span>
+        <Icon name="caret" />
+      </button>
+      <CiList rows={rows} tone={tone} id={id} hidden={!open} />
+    </div>
+  );
+}
+
+/**
+ * What a part needs. An amber row says what the workflow leaves out until something is fixed
+ * (shadowlap.config.json can't be read), which is not for a fold to hide: its list is open.
+ */
+export function Needs({ rows }: { rows: readonly CiListRow[] }) {
+  return <ListFold name="it needs" rows={rows} look={rows.some((r) => r.tone === 'warn')} />;
 }
 
 /**

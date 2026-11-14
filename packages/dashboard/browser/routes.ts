@@ -258,9 +258,16 @@ const STEPS = ['', '/blame', '/repair', '/verify'];
 const RUN_VIEWS = ['', 'turns', 'context', 'timeline', 'forks', 'provenance', 'decisions'];
 /** The runs drawn in every view: a recording with writes, a fork of it, and a batch of sub-agents' calls. */
 const VIEWED = ['ticket', 'override', 'batch'];
-const SETTINGS = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
+const SETTINGS = ['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store'];
 /** A Settings tab, drawn past its loading shape. */
 const SETTAB = 'main#view .settab > :not(.skel)';
+/** Settings → CI with what it folds shown: a part that is off opened by Show settings, then each list by its name. One a state before opened stays open. */
+const ciFolds = async (page: Page): Promise<void> => {
+  for (const shut of ['main#view .cioff button[aria-expanded="false"]', 'main#view .cifold > button[aria-expanded="false"]']) {
+    while (await page.locator(shut).count()) await page.locator(shut).first().click();
+  }
+  await settled(page, { shows: 'main#view #alerts .cilist' });
+};
 
 const route = (path: string, drawn = 'main#view'): RouteState => ({ name: path, path: () => path, drawn });
 
@@ -358,6 +365,12 @@ const previewChange = async (page: Page): Promise<void> => {
 const bodyShown = async (page: Page): Promise<void> => {
   const body = 'main#view .mgpr button.linkbtn';
   if ((await page.locator(body).getAttribute('aria-expanded')) !== 'true') await click(page, body, undefined, { shows: 'main#view .mgpr .prbody.md' })();
+};
+/** A migration's config change with each file's diff shown: one shown stays shown on that migration's page. */
+const diffsShown = async (page: Page): Promise<void> => {
+  const shut = page.locator('main#view .mgfile button[aria-expanded="false"]');
+  while (await shut.count()) await shut.first().click();
+  await settled(page, { shows: 'main#view .mgfiles .fxpatch' });
 };
 /**
  * Migrate to's menu on a migration's page, and the dialog its first model asks in. The page a state
@@ -527,6 +540,7 @@ export const ROUTES: readonly RouteState[] = [
   // of its matrix, then Migrate to's menu and the dialog a model in it asks in, closed by the next page.
   route('/changes/migrate', `main#view :is(.mgstart, ${MIGRATED})`),
   { name: 'a migration’s report, its pull request body shown', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: bodyShown },
+  { name: 'a migration’s report, each file’s diff of its config change shown', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: diffsShown },
   { name: 'a migration’s opened cell', path: async (p) => (await migrated(p)).cell, drawn: CELL },
   { name: 'Migrate to’s menu on a migration', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateTo },
   { name: 'Migrate’s dialog from Migrate to’s menu', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateAsk },
@@ -558,6 +572,7 @@ export const ROUTES: readonly RouteState[] = [
   // The check builder's Judge beside a check of a golden that may fork (port/judges-e34), from Tests, closed by the next page.
   { name: 'the check builder’s Judge beside a fork golden’s check, its cost line and judges note', path: () => '/tests', drawn: 'main#view table.gt', then: judgeOnFork },
   ...SETTINGS.map((t): RouteState => ({ name: `Settings → ${t}`, path: () => `/settings/${t}`, drawn: SETTAB })),
+  { name: 'Settings → ci with every fold open', path: () => '/settings/ci', drawn: SETTAB, then: ciFolds },
   route('/new'),
   route('/setup'),
   route('/setup/store'),

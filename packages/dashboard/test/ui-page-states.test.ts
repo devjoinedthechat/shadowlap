@@ -173,7 +173,7 @@ describe('the Overview while it works the week out', () => {
     waiting(r, 'the Overview');
     expect(text(r.one('.ph .eyebrow'))).toBe('support-agent · this week');
     expect(text(r.one('.ph h1'))).toBe('Overview');
-    expect(r.all('.skin .ovgs section h2').map(text)).toEqual(['Needs a look', 'Recent runs', 'Activity']);
+    expect(r.all('.skin .ovgs > section h2').map(text)).toEqual(['Needs a look', 'Activity']);
     // In the final layout, so nothing moves when the week lands: the header's four facts, and Needs a look's rows in their own markup.
     expect(r.all('.skin .metrics.pfacts > .metric').map((m) => text(m.querySelector('span')!))).toEqual(['failures reproduced', 'fixes verified', 'goldens passing', 'spent live']);
     expect(r.all('.skin .ovgs .attn > .arow').map((row) => row.querySelectorAll('.at .t, .at .d, .ast .btn').length)).toEqual([3, 3, 3]);
