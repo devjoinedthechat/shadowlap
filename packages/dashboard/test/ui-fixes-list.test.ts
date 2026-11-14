@@ -354,6 +354,9 @@ describe('the Fixes list', () => {
     expect(status(ready.href)).toBe('verified');
     expect(status(ci.href)).toBe('merged · PR #138');
     expect(row(ci.href).querySelector('.rs .st')!.props.className).toBe('st ok');
+    // Its pull request a link to its page, apart from the dashboard.
+    const pr = row(ci.href).querySelector('.rs .st a')!;
+    expect([text(pr), pr.getAttribute('href'), pr.getAttribute('target')]).toEqual(['PR #138', 'https://github.com/acme/agent/pull/138', '_blank']);
     expect(status(applied.href)).toBe('broken');
     expect(row(applied.href).querySelector('.rs .st')!.props.className).toBe('st err');
     expect(text(row(applied.href).querySelector('.fxbad')!)).toBe('doesn’t hold: shadowlap test failed on its goldens');
