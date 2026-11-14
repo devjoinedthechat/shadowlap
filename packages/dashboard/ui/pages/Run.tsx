@@ -328,7 +328,10 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const detail = whole.data ? whole : quick;
   const change = useChange({ parent: run.run.parentRunId, forkAt, detail: detail.data, by: changedBy(run) });
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
-  const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
+  // What replaying didn't wait for: the server's, for the whole run; while a long run's pages come with
+  // none from it, nothing yet, as its first calls' would read as the run's; else from every call read.
+  const reading = !!paging;
+  const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : reading ? { ms: 0, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, reading, calls, ancestors]);
 
   // A judge's call picked picks the judge's chip, though it is selected already (call-list.ts).
   const select = useCallback((n: number) => (closePanel(), pickScope(n), navigate(href.run(runId, n, v), true)), [runId, v, closePanel, pickScope]);

@@ -19,7 +19,7 @@ describe('the run page: conversations', () => {
     const { runId, byTicket } = batchRun(store, 40);
     const d = runDetail(store, runId)!;
     expect(d.conversations).toHaveLength(40);
-    expect(d.cache.misses).toEqual([]);
+    expect(d.cache!.misses).toEqual([]);
     const [get, m1, lookup, m2, refund, m3] = byTicket.get(31)!;
     const row = (n: number) => d.calls.find((c) => c.callNo === n)!;
     expect([get, m1, lookup, m2, refund, m3].map((n) => row(n).conversation)).toEqual([31, 31, 31, 31, 31, 31]);
@@ -89,7 +89,7 @@ describe('the run page: conversations', () => {
       [2, 'agent', a1],
       [3, 'agent/policy-checker', p1],
     ]);
-    expect(d.cache.misses).toEqual([]);
+    expect(d.cache!.misses).toEqual([]);
     expect(callDetail(store, b.runId, lo)!.conversation).toMatchObject({ fromCallNo: a1, n: 2 });
     expect(callDetail(store, b.runId, lp)!.conversation).toMatchObject({ fromCallNo: p1, n: 3 });
     expect(d.calls.find((c) => c.callNo === a2)!.conversation).toBe(2);
@@ -208,10 +208,10 @@ describe('the run page: conversations', () => {
     const { runId, byTicket } = batchRun(store, 5, { broken: { ticket: 4, call: 2 } });
     const d = runDetail(store, runId)!;
     const [, m1, , m2] = byTicket.get(4)!;
-    expect(d.cache.misses).toEqual([{ callNo: m2, sentAgain: 6000, previousCallNo: m1, scope: null, conversation: 4 }]);
+    expect(d.cache!.misses).toEqual([{ callNo: m2, sentAgain: 6000, previousCallNo: m1, scope: null, conversation: 4 }]);
     expect(d.calls.find((c) => c.callNo === m2)!.cacheMiss).toEqual({ sentAgain: 6000, previousCallNo: m1 });
     expect(d.calls.find((c) => c.callNo === m1)!.cacheMiss).toBeNull();
-    expect(d.cache.readShare).toBeGreaterThan(0.5);
+    expect(d.cache!.readShare).toBeGreaterThan(0.5);
     store.close();
   });
 });

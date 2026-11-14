@@ -11,6 +11,7 @@ import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 import { analysisFor, blameAt, conversationSource, judgeCallNos, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_BEFORE, READ_PAST, runPageFacts, runProvenance, runShowJson, verdictsByCall, windowAnalysis, type CallFacts, type JudgeRow, type JudgeVerdicts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
 import { keptCalls, runCalls } from './run-calls.js';
+import { callTotalsWithin } from './run-stats.js';
 import { blameStep, runWholeFacts } from './run-summary.js';
 import { kindCode } from './call-kinds.js';
 import { lineageInjection, type LineageInjection } from './injection-view.js';
@@ -126,8 +127,18 @@ export interface CallRow extends CallFacts {
   extraRead?: true;
 }
 
-export interface RunDetail extends RunPageFacts {
+export interface RunDetail extends Omit<RunPageFacts, 'cache' | 'notWaitedMs'> {
   run: RunRecord;
+  /**
+   * The prompt cache (RunPageFacts `cache`); null in a long run's first answer (`warming`), where only
+   * its first calls are analysed: each call's own `cacheMiss` says it then.
+   */
+  cache: RunPageFacts['cache'] | null;
+  /**
+   * What replaying did not wait for (RunPageFacts `notWaitedMs`); in a long run's first answer the
+   * whole run's as the warm-up worked it out (run-stats.ts `callTotals`), else null until it has.
+   */
+  notWaitedMs: number | null;
   label: string;
   /** How many calls the run has: `calls` holds the first page of them (`CALLS_PAGE`), the rest come a page at a time (`runCallsPage`). */
   callsTotal: number;
@@ -153,9 +164,10 @@ export interface RunDetail extends RunPageFacts {
   judgeCalls?: number[];
   /**
    * Set while the run is too long to analyse whole for a first answer and the whole of it is being
-   * analysed beside the server: what the page reads of its conversations, the prompt cache and the
-   * time not waited covers its first `done` calls of `total`, and a call near their end may read
-   * differently once it is done. Asked again, the answer has the whole run.
+   * analysed beside the server: what the page reads of its conversations covers its first `done` calls
+   * of `total`, and a call near their end may read differently once it is done; the prompt cache and
+   * the time not waited are said only as the whole run has them (`cache`, `notWaitedMs`). Asked again,
+   * the answer has the whole run.
    */
   warming?: { done: number; total: number };
   /** What the run was about, as the lists say it (run-about.ts); null for a run the index doesn't have yet. */
@@ -499,6 +511,7 @@ function firstPageOfLongRun(store: Store, run: RunRecord, shown: RunRecord, stat
     attempts: bundleOf(loadRunIndex(store), runId).length,
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, flagCalls, analysis, { models: whole.models, blameStep: at?.callNo != null ? blameStep(store, runId, at.callNo, at.scope) : null }),
+    ...wholeOnly(store, run),
     fix: fixForRun(store, run.runId),
     state,
     attemptPlace: attemptPlace(store, run),
@@ -553,6 +566,18 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     ...(whole ? {} : { warming: { done, total: calls.length } }),
     ...exitOf(store, shown),
   };
+}
+
+/**
+ * What a long run's first answer says of the whole run that its first calls alone can't: no prompt
+ * cache (each call's own `cacheMiss` says it), and the time not waited where the warm-up has worked
+ * the run's totals out (run-stats.ts), never a sum of its first calls' as the run's.
+ */
+function wholeOnly(store: Store, run: RunRecord): Pick<RunDetail, 'cache' | 'notWaitedMs'> {
+  const index = loadRunIndex(store);
+  const row = index.byId.get(run.runId);
+  const known = row ? callTotalsWithin(store, index, [row], { budget: 0 }).totals.get(run.runId) : undefined;
+  return { cache: null, notWaitedMs: known ? known.notWaitedMs : null };
 }
 
 /** The trace an imported run was read from, with its page in the trace store, where the import kept one. */

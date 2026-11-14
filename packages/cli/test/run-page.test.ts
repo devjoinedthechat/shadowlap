@@ -82,8 +82,8 @@ describe('the run page on a recorded batch', () => {
     expect(d.calls.map((c) => c.conversation)).toEqual(Array.from({ length: TICKETS * 4 }, (_, i) => Math.floor(i / 4) + 1));
     // Every ticket's first call wrote the cache and its second read it back: no misses, though
     // each new ticket reads nothing after the previous ticket's last call.
-    expect(d.cache.misses).toEqual([]);
-    expect(d.cache.readShare).toBeCloseTo(3010 / (3010 + 3420), 3);
+    expect(d.cache!.misses).toEqual([]);
+    expect(d.cache!.readShare).toBeCloseTo(3010 / (3010 + 3420), 3);
     // A streamed response's tool-use id, matched to the tool call it asked for.
     for (const c of d.calls.filter((x) => x.name === 'lookup_order')) {
       expect(c.requestedBy).toBe(c.callNo - 1);

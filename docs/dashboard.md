@@ -1030,7 +1030,7 @@ A call's *Conversation* is its own conversation as it stood at that call, never 
 - A server that reports no cache at all (a local model behind an OpenAI-compatible API) shows no misses.
 - The share of input read from the cache counts live model calls.
 
-**Time not waited.** A replayed call is answered from the recording at once. The time it saved is how long the recording waited for it, found on the run it was replayed from, or further back for a replay of a replay. Each replayed call carries it, and the run sums it.
+**Time not waited.** A replayed call is answered from the recording at once. The time it saved is how long the recording waited for it, found on the run it was replayed from, or further back for a replay of a replay. Each replayed call carries it, and the run sums it. On a long run whose calls still come a page at a time, the sum waits for every page unless the server has the whole run's: its first calls' alone would read as the run's.
 
 **What was not recorded.** These ran for real, and a replay runs them again:
 
@@ -3137,7 +3137,7 @@ Every request needs the session token in `x-shadowlap-token`.
 
 **A run** (`/api/runs/:id`) comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins`: every call's origin, one character per call, as the run list encodes them. Beside it, `kinds` says what every call was, for a recording's strip: `m` a model call, `r` a read, `w` a write, `e` an error.
 
-- **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls.
+- **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls. That answer's `notWaitedMs` is the whole run's where the warm-up has worked it out, else `null`, and its `cache` is `null`: each call's `cacheMiss` says it.
 - **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
 - **A preset's attempt** in the family carries its `preset`: the preset's words, the verdict of the session that decided it, that `session`, the call it hit (`callNo`) and its `golden`. It also carries that session's totals (`counts`: passed, failed, inconclusive and not applicable) and what its attempts `spent`.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.

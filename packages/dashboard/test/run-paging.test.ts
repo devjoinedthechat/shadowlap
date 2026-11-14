@@ -7,6 +7,8 @@ import { callDetail, runCallsPage, runDetail, type RunDetail } from '../src/api.
 import { exportHtml, startDashboard } from '../src/index.js';
 import { runCalls } from '../src/run-calls.js';
 import { analyseRun } from '../src/run-page.js';
+import { loadRunIndex } from '../src/run-index.js';
+import { callTotals } from '../src/run-stats.js';
 import { recordLoop } from './long-run.js';
 import { addRun, DAY } from './read-model-store.js';
 
@@ -117,6 +119,29 @@ describe('a run a page at a time', () => {
     analyseRun(store, store.getRun(fork.runId)!, runCalls(store, fork.runId));
     const whole = runDetail(store, fork.runId)!;
     expect(ofRun(quick)).toEqual(ofRun(whole));
+    store.close();
+  });
+
+  it('says of a long run’s first answer no time not waited nor prompt cache but the whole run’s: the warm-up’s, or none yet', () => {
+    const store = Store.open(':memory:');
+    const rec = longRun(store, 1500);
+    const fork = longRun(store, 1500, { parent: rec, liveFrom: 1201 });
+    const quick = runDetail(store, fork.runId)!;
+    expect(quick.warming).toBeDefined();
+    // Worked out from its first calls alone, neither would be the run's: none is said.
+    expect(quick.notWaitedMs).toBeNull();
+    expect(quick.cache).toBeNull();
+    // The warm-up works the run's totals out beside the server: its time not waited is then the whole run's, as the whole answer says it.
+    const index = loadRunIndex(store);
+    callTotals(store, index, [index.byId.get(fork.runId)!]);
+    const warmed = runDetail(store, fork.runId)!;
+    expect(warmed.warming).toBeDefined();
+    analyseRun(store, store.getRun(fork.runId)!, runCalls(store, fork.runId));
+    const whole = runDetail(store, fork.runId)!;
+    expect(whole.warming).toBeUndefined();
+    expect(whole.notWaitedMs).toBeGreaterThan(0);
+    expect(warmed.notWaitedMs).toBe(whole.notWaitedMs);
+    expect(whole.cache).not.toBeNull();
     store.close();
   });
 

@@ -320,6 +320,45 @@ describe('a run’s page, opened without a call', () => {
   });
 });
 
+describe('a long replay’s header while its pages come', () => {
+  const RECORDING = '01M5GRVTKSJ12EE2SE9YZ5W4J3';
+  /** A clean replay of 1,200 calls, each served from its recording, which took a second there: its page with its first 200, as a long run's first answer comes. */
+  const replayed = (n: number): CallRow => ({ ...call(n, null), origin: 'replayed', replayedFrom: n, recordedMs: 1000, latencyMs: 0 }) as unknown as CallRow;
+  function longReplay(notWaitedMs: number | null): { client: Client; details: number[] } {
+    const a = answer(1200, 200, { failed: false, failAt: null });
+    const run = { ...a, run: { ...a.run, parentRunId: RECORDING, mode: 'replay' }, calls: a.calls.map((c) => replayed(c.callNo)), origins: 'r'.repeat(1200), parent: { runId: RECORDING, label: 'recording' }, warming: { done: 300, total: 1200 }, notWaitedMs, state: { ...a.state!, kind: 'clean' } } as unknown as RunDetail;
+    const { client, details } = server(1200, 200, { failed: false, failAt: null });
+    const calls = (_id: string, from: number, limit = PAGE): Promise<CallsPage> => {
+      const to = Math.min(1200, from + Math.min(limit, PAGE) - 1);
+      return Promise.resolve({ runId: RUN, calls: range(from, to).map(replayed), callsTotal: 1200, callsNext: to < 1200 ? to + 1 : null });
+    };
+    // Its verdict by checks and its next step, which a warming answer leaves to their own reads.
+    const outcome = () => Promise.resolve({ judged: null });
+    const nextStep = () => Promise.resolve({ next: null });
+    return { client: { ...client, run: () => Promise.resolve(run), calls, outcome, nextStep } as unknown as Client, details };
+  }
+  const notWaited = () => r!.all('.rhead .metrics .metric').map((m) => `${m.querySelector('b')?.textContent ?? ''} ${m.querySelector('span')?.textContent ?? ''}`).find((t) => t.endsWith(' not waited')) ?? null;
+
+  it('says no time not waited of its first calls as the run’s, and the whole run’s once every page is read', async () => {
+    addressBar(`#/run/${RUN}`);
+    const { client } = longReplay(null);
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RunPage, { id: RUN, call: null, view: null })));
+    await r.until('the run’s header', () => r!.all('.rhead .metrics').length === 1);
+    expect(notWaited()).toBeNull();
+    // Every page read: the time every replayed call took where it was recorded, 1,200 seconds.
+    await r.until('every page', () => notWaited() !== null);
+    expect(notWaited()).toBe('20m not waited');
+  });
+
+  it('says the server’s time not waited where it has the whole run’s', async () => {
+    addressBar(`#/run/${RUN}`);
+    const { client } = longReplay(1_200_000);
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RunPage, { id: RUN, call: null, view: null })));
+    await r.until('the run’s header', () => r!.all('.rhead .metrics').length === 1);
+    expect(notWaited()).toBe('20m not waited');
+  });
+});
+
 describe('a replay that ended early, on its page', () => {
   const RECORDING = '01M5GRVTKSJ12EE2SE9YZ5W4J3';
   /**
