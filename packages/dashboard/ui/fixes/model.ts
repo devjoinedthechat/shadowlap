@@ -706,7 +706,7 @@ export function otherBlameWords(o: FixDetail['blames'][number]): string {
 const BLAME_REFUSED: Readonly<Record<string, { why: string; tone: 'warn' | 'err' }>> = {
   passes: { why: 'passes when replayed', tone: 'err' },
   diverged: { why: 'doesn’t replay as recorded', tone: 'err' },
-  bypassed: { why: 'replay went around Shadowlap', tone: 'err' },
+  bypassed: { why: 'replay went around shadowlap', tone: 'err' },
   prefix: { why: 'replays aren’t clean', tone: 'err' },
   'no-model-calls': { why: 'no model calls to probe', tone: 'err' },
   unpriced: { why: 'no price for its model', tone: 'err' },

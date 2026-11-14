@@ -2655,7 +2655,7 @@ How a blame ended:
 - **It found the call**: *lost at #5 · exit 0*, or *lost between #7 and #9* where no one call is pinned, in lime.
 - **No call rescues the run**: *not rescued · exit 0*, in red, as the run's page says it.
 - **Its first probe couldn't tell**: *inconclusive · exit 3*, in amber. So is *stopped*, for a search cut short.
-- **It refused to search**: why, as *refused · passes when replayed · exit 1*. A run that doesn't replay as recorded, a replay that went around Shadowlap, or a model with no price say so the same way, above the CLI's words on what to do.
+- **It refused to search**: why, as *refused · passes when replayed · exit 1*. A run that doesn't replay as recorded, a replay that went around shadowlap, or a model with no price say so the same way, above the CLI's words on what to do.
 
 Closing and stopping:
 

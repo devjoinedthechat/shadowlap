@@ -643,7 +643,7 @@ describe('the job drawer', () => {
     const refused = (reason: string, code: number) => jobStatus(job('blame', code, { runId: '01M5', outcome: 'error', error: { reason, message: '…' }, judge: null }), []);
     expect(refused('passes', 1)).toEqual({ text: 'refused · passes when replayed · exit 1', tone: 'err' });
     expect(refused('diverged', 1)).toEqual({ text: 'refused · doesn’t replay as recorded · exit 1', tone: 'err' });
-    expect(refused('bypassed', 1)).toEqual({ text: 'refused · replay went around Shadowlap · exit 1', tone: 'err' });
+    expect(refused('bypassed', 1)).toEqual({ text: 'refused · replay went around shadowlap · exit 1', tone: 'err' });
     expect(refused('prefix', 1)).toEqual({ text: 'refused · replays aren’t clean · exit 1', tone: 'err' });
     expect(refused('no-model-calls', 2)).toEqual({ text: 'refused · no model calls to probe · exit 2', tone: 'err' });
     expect(refused('unpriced', 2)).toEqual({ text: 'refused · no price for its model · exit 2', tone: 'err' });
