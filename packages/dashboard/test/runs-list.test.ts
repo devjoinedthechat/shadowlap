@@ -90,7 +90,9 @@ describe('the Runs table', () => {
     expect(k('inj')).toEqual(['fork', { kind: 'check-failed', check: 'send_email called 1 time' }]);
     // Blame's probe that passed is the fork that rescued the run: a row of its own.
     const p1 = rows.get(id.p1)!;
-    expect(p1).toMatchObject({ kind: 'fork', rescues: id.failed, attemptKind: null, outcome: { kind: 'passed', checks: 1 }, label: 'fork @5' });
+    expect(p1).toMatchObject({ kind: 'fork', attemptKind: null, outcome: { kind: 'passed', checks: 1 }, label: 'fork @5' });
+    // Which run it rescued is its page's to say (`rescuedBy`): nothing on a row shows it.
+    expect(p1).not.toHaveProperty('rescues');
     expect(rows.get(id.failed)).toMatchObject({ lostAt: 5, failed: true, author: 'ci', labels: ['refund-bug'], command: 'node agent.mjs' });
     expect(rows.get(id.test2)!.checks).toEqual({ passed: 2, total: 2 });
     expect(rows.get(id.cap)).toMatchObject({ source: '2026-09-30.jsonl', imported: true, covers: ['api'], label: 'capture' });

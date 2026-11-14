@@ -87,8 +87,6 @@ export interface RunRow extends RunListItem {
   /** When attempts are listed: the run an attempt is bundled under. */
   attemptOf: string | null;
   attemptKind: AttemptKind | null;
-  /** The fork blame rescued a run with: the run it rescued. */
-  rescues: string | null;
   outcome: RunOutcome;
   /** It counts as failed in the lists (runs-filter.ts `listFailed`): Failed, the days' failures and Status read the same. */
   failed: boolean;
@@ -96,7 +94,10 @@ export interface RunRow extends RunListItem {
   fixedBy?: string;
   /** One character per call: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
   origins: string;
-  /** Attempts bundled under this run, those bundled under them in turn included: what deleting it takes with it. */
+  /**
+   * Attempts bundled under this run, those bundled under them in turn included: what deleting it
+   * takes with it, which Delete and the bulk bar count. A row stays quiet: its run's Forks view lists them.
+   */
   attempts: number;
   /**
    * Its totals (what it spent, its calls by origin) aren't worked out yet: too long to add up inside
@@ -458,7 +459,6 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       kind: r.kind,
       attemptOf: r.attemptOf,
       attemptKind: r.attemptKind,
-      rescues: r.rescues,
       outcome: r.outcome,
       failed: listFailed(r, fixed),
       ...(fixed.has(r.runId) ? { fixedBy: fixed.get(r.runId)! } : {}),

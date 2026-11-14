@@ -46,7 +46,9 @@ describe('/api/runs', () => {
       [id.rescued, 1, 'fork @3'],
     ]);
     expect(runs[0]).toMatchObject({ kind: 'recording', outcome: { kind: 'lost', callNo: 3 }, failed: true, lostAt: 3, attempts: 2, origins: 'llllll' });
-    expect(runs[1]).toMatchObject({ kind: 'fork', rescues: id.rec, attemptKind: null });
+    // The fork blame rescued it with is a fork of its own, though blame made it as a probe; its page names it rescued (`rescuedBy`), a row stays quiet.
+    expect(runs[1]).toMatchObject({ kind: 'fork', attemptKind: null });
+    expect(runs[1]).not.toHaveProperty('rescues');
   });
 
   it('lists the attempts an exported copy holds, as the copy chose them', () => {
