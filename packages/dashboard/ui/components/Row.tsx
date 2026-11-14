@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 /**
- * A row of a list in a section (Needs a look, Recent runs, Activity, a fix's rows): full width
+ * A row of a list in a section (Needs a look, Activity, a fix's rows): full width
  * between hairlines, its hover tinting it 12px past its text on both sides and never moving it, and
  * where you are (a picked row, the one selected: `sel`) on the selected ground, which wins over the
  * pointer's (`.srow`, `--bleed`). One in focus from j and k is `.krow` (list-keys.ts), its ground and a

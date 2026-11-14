@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { factTip } from '../ui/components/Facts.js';
-import { activityGlyph, activityLine, callsSaid, chartScale, dayText, keepParts, keepPieces, kindGlyph, originCounts, originRows, overviewFacts, personName, recentKind, reproducedNote, share, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, chartScale, dayText, keepParts, keepPieces, kindGlyph, originCounts, originRows, overviewFacts, personName, reproducedNote, share, shortPaths, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -112,16 +112,25 @@ describe('the Overview’s words', () => {
     expect(tickText(10, 2.5)).toBe('$10.00');
   });
 
-  it('says Usage in figures, a run’s calls to a screen reader and its kind on hover', () => {
+  it('says Usage in figures', () => {
     const week = { calls: 2785, runs: 28, origins: { r: 1030, l: 1755 } };
     expect(usageLine(week, 0.87, 16.24)).toEqual(['2,785 calls in 28 runs', '37% replayed', '87% of input from the cache', '$16.24 spent live this week']);
     expect(usageLine({ calls: 0, runs: 0, origins: {} }, null, 0)).toEqual(['0 calls in 0 runs', '$0.00 spent live this week']);
     expect(usageLine({ calls: 1, runs: 1, origins: { l: 1 } }, 0.004, 0.01)).toEqual(['1 call in 1 run', '0% replayed', '<1% of input from the cache', '$0.01 spent live this week']);
-    expect(callsSaid(['rep', 'live', 'rep', 'block'])).toBe('4 calls: 2 replayed, 1 live, 1 blocked');
-    expect(callsSaid(['live'])).toBe('1 call: 1 live');
-    expect(recentKind('test')).toBe('test replay');
-    expect(recentKind('fork @17')).toBe('fork @17');
-    expect(recentKind('fork @17', '01K5CQ2E8MABCDEFGHJKMNPQRS')).toBe('rescued fork');
+  });
+
+  it('draws a folder’s path in an activity entry as a label has it: ~ for the home folder, and a long one as its last folders, short enough to stay whole', () => {
+    expect(shortPaths('Project added · /Users/dana/code/support-agent')).toBe('Project added · ~/code/support-agent');
+    const long = '/srv/checkouts/northwind/2026-10-22-b7f3a91c/agents/demo/support-agent';
+    expect(shortPaths(`Project added · ${long}`)).toBe('Project added · …/agents/demo/support-agent');
+    expect(shortPaths(`Removed from the dashboard · ${long}`)).toBe('Removed from the dashboard · …/agents/demo/support-agent');
+    expect(shortPaths('Skills added to C:\\Users\\dana\\work\\clients\\northwind\\agents\\support-agent')).toBe('Skills added to …/northwind/agents/support-agent');
+    // What it draws is a name's length at most, so the feed keeps it whole where its line wraps.
+    const drawn = shortPaths(long);
+    expect(drawn.length).toBeLessThanOrEqual(32);
+    expect(keepPieces(drawn)).toEqual([{ text: drawn, kind: 'nw' }]);
+    // A tally, an address, a file in the project and words with a slash in them are no folder's path.
+    for (const words of ['Replay clean · 30/30 · 0 upstream', 'Pushed 2 runs to the store · s3://northwind-agent-runs/support-agent', 'Packed · .shadowlap/exports/packs/eval-damaged-order · 14 calls', 'Golden packed · goldens/refund-flow', 'A read/write tool was wrapped']) expect(shortPaths(words)).toBe(words);
   });
 
   it('names days, run kinds, activity icons and people the way the panels show them', () => {

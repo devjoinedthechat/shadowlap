@@ -7,7 +7,7 @@ import { useLoad } from '../hooks.js';
 import { ErrorState, Skeleton } from '../components/States.js';
 import { overviewFacts } from '../overview/model.js';
 import { NeedsLook } from '../overview/NeedsLook.js';
-import { ActivityCard, RecentRuns, WatchLive } from '../overview/panels.js';
+import { ACTIVITY_SHOWN, ActivityCard, WatchLive } from '../overview/panels.js';
 import { Usage } from '../overview/Usage.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
@@ -19,11 +19,11 @@ import { NoRunsSteps } from './no-runs.js';
  * The Overview: this week at a glance, worked out on the server in the viewer's time zone. Its
  * header says the outcomes in four facts (failures reproduced, fixes verified, goldens passing, and
  * what was spent live, last and quieter), each with its makeup and last week on hover. Needs a look
- * leads, widest, beside the newest runs over the activity feed; Usage, folded until asked for, is
- * under both. Needs a look takes the width below 1180px, and one column is left below 760px. It
- * follows the runs as they change, a recording included. While the server is still adding up the
- * runs' totals (a store no dashboard has opened yet), it says how far that has got and asks again
- * every second; once it has shown the Overview, it keeps it until a whole one replaces it.
+ * is the page's one list, with Usage under it, folded until asked for; the activity feed is the
+ * aside beside them, and goes under them below 1180px. It follows the runs as they change, a
+ * recording included. While the server is still adding up the runs' totals (a store no dashboard
+ * has opened yet), it says how far that has got and asks again every second; once it has shown the
+ * Overview, it keeps it until a whole one replaces it.
  */
 
 /** How often the Overview asks again while the runs' totals are being added up. */
@@ -37,7 +37,7 @@ export function OverviewPage() {
   // It loads again once advice is put away or back (in another tab too), and a fix step's price
   // lasts as long as `version` all the same: a Dismiss asks no step for its price again.
   const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, `${version}:${feeds.dismissals ?? 0}`);
-  const activity = useLoad(() => (exported ? null : client.activity(5)), 'activity:5', tick);
+  const activity = useLoad(() => (exported ? null : client.activity(ACTIVITY_SHOWN)), `activity:${ACTIVITY_SHOWN}`, tick);
   const store = useTeamStore();
   const name = projectOf(meta)?.name ?? 'this project';
   const answer = summary.data;
@@ -88,19 +88,18 @@ export function OverviewPage() {
         actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
       />
       <div className="ovg">
-        <NeedsLook items={s.needsLook.items} total={s.needsLook.total} version={version} dismissals={s.needsLook.dismissals} />
-        <div className="ovside">
-          <RecentRuns runs={runs} now={s.now} />
-          <ActivityCard items={activity.data?.items ?? null} error={activity.error} retry={activity.reload} now={s.now} byPerson={!!store} live={live} />
+        <div className="ovmain">
+          <NeedsLook items={s.needsLook.items} total={s.needsLook.total} version={version} dismissals={s.needsLook.dismissals} />
+          <Usage s={s} />
         </div>
+        <ActivityCard items={activity.data?.items ?? null} error={activity.error} retry={activity.reload} now={s.now} byPerson={!!store} live={live} />
       </div>
-      <Usage s={s} />
     </Page>
   );
 }
 
 /** A section's lines while the Overview loads: placeholder words the skeleton draws as quiet bars. */
-const SKEL_LINES = ['A failure nobody has looked at yet, and its step', 'A golden that diverged at a call', 'A fix to prove, and its run', 'A run that needs a look'];
+const SKEL_LINES = ['A recording that finished, and its run', 'A golden that diverged at a call', 'A fix verified, and its run', 'A fork, and the call it changed'];
 
 /** The header's four facts while the Overview loads, figure then words, as `overviewFacts` gives them. */
 const SKEL_FACTS = [
@@ -119,20 +118,10 @@ const SKEL_ROWS = [
 
 /**
  * The Overview still being worked out, in its final layout as quiet bars under the header: the
- * header's facts, Needs a look's rows in its own markup, and the aside. Its grid is `.ovgs`, never
- * `.ovg`, which the tests read as the Overview drawn.
+ * header's facts, Needs a look's rows in its own markup, and the activity feed beside it. Its grid is
+ * `.ovgs`, never `.ovg`, which the tests read as the Overview drawn.
  */
 function OverviewLoading() {
-  const part = (title: string, lines: number) => (
-    <section className="panel sec">
-      <header>
-        <h2>{title}</h2>
-      </header>
-      {SKEL_LINES.slice(0, lines).map((l) => (
-        <p key={l}>{l}</p>
-      ))}
-    </section>
-  );
   return (
     <Skeleton what="the Overview">
       <div className="metrics pfacts">
@@ -168,10 +157,14 @@ function OverviewLoading() {
             ))}
           </div>
         </section>
-        <div className="ovside">
-          {part('Recent runs', 3)}
-          {part('Activity', 2)}
-        </div>
+        <section className="panel sec">
+          <header>
+            <h2>Activity</h2>
+          </header>
+          {SKEL_LINES.map((l) => (
+            <p key={l}>{l}</p>
+          ))}
+        </section>
       </div>
     </Skeleton>
   );

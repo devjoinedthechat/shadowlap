@@ -168,7 +168,7 @@ The dashboard keeps the search index up to date on a thread of its own, with its
 
 ## Overview
 
-The Overview is this week at a glance, in your own days: this week is the last seven, today included. It leads with what needs doing: the header says the week's outcomes in four facts, and **Needs a look** lists every item to act on, each with its step. Beside it are the newest runs and what happened. **Usage**, folded under both, says what the week's calls cost.
+The Overview is this week at a glance, in your own days: this week is the last seven, today included. It leads with what needs doing: the header says the week's outcomes in four facts, and **Needs a look** lists every item to act on, each with its step. **Usage**, folded under it, says what the week's calls cost, and beside them is what happened. The newest runs are in the [sidebar](#sidebar), on every page.
 
 ### Outcomes
 
@@ -235,17 +235,17 @@ A step that bills names its price on hover, asked for once the pointer or the fo
 - **When it comes back**: once it states a fact it didn't, such as another behaviour or run, another date or golden, or a migration that checks it. **Restore** under **Dismissed (n)** brings it back sooner.
 - **Where it is kept**: in this project's store, never pushed or pulled, and never in Activity.
 
-### Recent runs
-
-**Recent runs** lists the eight newest runs, one being recorded first, each as the sidebar has it: its id, its calls by origin and when, then what it was about and what needs a look. Hover a row for its kind (*clean replay*, *fork @17*, *rescued fork*, *test replay*) and its calls by origin. **All runs →** opens Runs.
-
 ### Keys on the Overview
 
-**j** and **k** walk Needs a look's rows, an open **Dismissed (n)**'s too, then Recent runs, Activity and, with Usage open, the prompt cache's misses. **Enter** opens the row in focus. **⌘K** on a row offers what it opens, and on Needs a look its step, which waits, asks and starts as its button does, and Dismiss on advice or Restore on a dismissed row.
+**j** and **k** walk Needs a look's rows, an open **Dismissed (n)**'s too, then, with Usage open, the prompt cache's misses, then Activity. **Enter** opens the row in focus. **⌘K** on a row offers what it opens, and on Needs a look its step, which waits, asks and starts as its button does, and Dismiss on advice or Restore on a dismissed row.
 
 ### Activity
 
-The activity feed is what happened in the project, newest first: the Overview shows its five latest entries. Each has a glyph for its kind, red when it failed and amber when a check couldn't decide or it stopped. Each ends on what it happened to (a run by its id, with what it was about on hover, else the fix, verdict or file it names), and with a [team store](./team.md) names who did it. Most of it comes from the runs themselves:
+The activity feed is what happened in the project, newest first: the Overview shows its eight latest entries, beside Needs a look. Each has a glyph for its kind, red when it failed and amber when a check couldn't decide or it stopped. Each ends on what it happened to (a run by its id, with what it was about on hover, else the fix, verdict or file it names), and with a [team store](./team.md) names who did it.
+
+When it happened is at the entry's end: the time today, else the day. A folder's path reads as its last folders (*…/demo/support-agent*), with the whole path on hover.
+
+Most of it comes from the runs themselves:
 
 - Recordings started and finished, and clean replays.
 - Forks, with the flags that made them as the replay kept them on the run (`--fail-at 19=529`, `--model 15:claude-opus-5`).
@@ -269,7 +269,7 @@ Who did it is the run's author, worked out when the run was made: `SHADOWLAP_AUT
 
 ### Usage
 
-**Usage** sits folded under both columns, its heading's line saying the week in figures: *1,240 calls in 18 runs · 62% replayed · 48% of input from the cache · $16.24 spent live this week*. **Show** opens it for the session:
+**Usage** sits folded under Needs a look, its heading's line saying the week in figures: *1,240 calls in 18 runs · 62% replayed · 48% of input from the cache · $16.24 spent live this week*. **Show** opens it for the session:
 
 | Part | Shows |
 | --- | --- |
@@ -402,7 +402,7 @@ What the table shows is in the address: the filter's words, the chip, the sort a
 - The words typed take the place of the step they were typed in, once they settle. So Back undoes the words and the step after them together.
 - Each view comes back scrolled where its list was left.
 - Under **Failed**, the issues keep no sort: the address keeps it for the next chip. Which issues are open isn't in the address, so a reload or a bookmark opens Failed with every issue closed.
-- `#/runs` alone is every run, as the sidebar's **all** and the Overview open it. The nav's **Runs**, the crumbs, `g r`, Search or jump to's Runs and Esc from a run opened cold open the view Runs showed last while the dashboard is open.
+- `#/runs` alone is every run, as the sidebar's **all** opens it. The nav's **Runs**, the crumbs, `g r`, Search or jump to's Runs and Esc from a run opened cold open the view Runs showed last while the dashboard is open.
 
 The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), and Runs writes it so in its place. It reads keys and a chip's word in any case, and a chip's word in the plural too (`#/runs?TYPES=Forks` is `#/runs?types=fork`). A value it can't read, such as a day there isn't, is left out.
 

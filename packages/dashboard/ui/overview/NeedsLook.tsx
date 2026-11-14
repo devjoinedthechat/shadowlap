@@ -17,7 +17,7 @@ import { LookStepButton, stepRun } from './steps.js';
 import { type AboutOf, DotPieces, Pieces, useAbouts } from './words.js';
 
 /**
- * Needs a look, the Overview's first column: every item, in its groups, as an inbox reads. A group's
+ * Needs a look, the Overview's one list: every item, in its groups, as an inbox reads. A group's
  * head is quiet, with the count of what is left in it (none when nothing is); a row is its icon, what
  * it is about (the whole row opens it), and its step at its end, small and plain, which runs or asks
  * from here (steps.tsx); its last column, which every row keeps so the steps share one right edge,

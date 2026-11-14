@@ -3,17 +3,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { OnShow } from '../ui/components/OnShow.js';
 import { resetLookMemory } from '../ui/overview/dismissed.js';
 import { NeedsLook } from '../ui/overview/NeedsLook.js';
+import { ActivityCard } from '../ui/overview/panels.js';
 import type { BuilderProps } from '../ui/run/check-part.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { Usage } from '../ui/overview/Usage.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { NeedsLookRow, NextStep, OverviewSummary } from '../ui/types.js';
+import type { ActivityItem, NeedsLookRow, NextStep, OverviewSummary } from '../ui/types.js';
+import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
  * The Overview's Usage folds until asked for, and Needs a look shows every item under its group's
- * head, each row ending on its step, which runs from the row, or Open where nothing runs.
+ * head, each row ending on its step, which runs from the row, or Open where nothing runs. The
+ * activity feed is their aside, an entry a row as a run's row reads.
  */
 
 const app = (actionsOff: string | null = null) => ({ actionsOff, exported: false, meta: null }) as unknown as AppState;
@@ -234,5 +237,67 @@ describe('Needs a look', () => {
     } finally {
       errors.mockRestore();
     }
+  });
+});
+
+describe('the Overview’s Activity', () => {
+  const NOW = new Date(2026, 9, 22, 12).getTime();
+  const folder = '/srv/checkouts/northwind/2026-10-22-b7f3a91c/agents/demo/support-agent';
+  const items: ActivityItem[] = [
+    { id: 'a', at: new Date(2026, 9, 22, 9, 5).getTime(), kind: 'project', text: `Project added · ${folder}`, actor: 'dana@northwind.example' },
+    { id: 'b', at: new Date(2026, 9, 20, 9, 5).getTime(), kind: 'rec', text: 'Recorded 9 calls', runId: '01M5GRZK3PG7SR16CB2T3CFE21' },
+  ];
+  const feed = (byPerson: boolean) => createElement(AppContext.Provider, { value: { actionsOff: null, runs: [] } as unknown as AppState }, createElement(ActivityCard, { items, now: NOW, byPerson, live: [] }));
+
+  it('draws an entry as a run’s row reads: its glyph, what happened, and when at its end, today’s by the clock', async () => {
+    r = await render(feed(true));
+    const rows = [r.one('.feed > .plain'), r.one('.feed > a')];
+    expect(rows.map((row) => row.children.map((c) => c.className.split(' ')[0]))).toEqual([
+      ['glyph', 'w', 'at'],
+      ['glyph', 'w', 'at'],
+    ]);
+    expect(rows.map((row) => text(row.querySelector('.at')!))).toEqual(['09:05', 'Oct 20']);
+    // Who did it leads its words, with a team store.
+    expect(text(rows[0].querySelector('.w .actor')!)).toBe('dana');
+  });
+
+  it('draws a folder’s path as its last folders, kept whole, with the whole path on its hover', async () => {
+    r = await render(feed(false));
+    const words = r.one('.feed > .plain .w');
+    expect(text(words).replace(/\u00a0/g, ' ')).toBe('Project added · …/agents/demo/support-agent');
+    expect(words.querySelectorAll('.nw').map(text)).toContain('…/agents/demo/support-agent');
+    expect(words.getAttribute('title')).toBe(`Project added · ${folder}`);
+    // Words with no path to shorten carry no hover of their own.
+    expect(r.one('.feed > a .w').getAttribute('title')).toBeNull();
+  });
+});
+
+describe('the Overview’s layout', () => {
+  const value = (selector: string, prop: string, conditions: string[] = []) => {
+    let found: string | null = null;
+    for (const rule of styleRules()) if (rule.conditions.join(' ') === conditions.join(' ') && rule.selectors.includes(selector)) for (const [p, v] of rule.decls) if (p === prop) found = v;
+    return found;
+  };
+  const NARROW = ['@media (max-width: 1180px)'];
+
+  it('is one list and its aside under one hairline, the aside going under the list where there is no room beside it', () => {
+    expect([value('.ovg', 'grid-template-columns'), value('.ovg', 'border-top'), value('.ovg', 'align-items')]).toEqual(['minmax(0, 1fr) clamp(300px, 30%, 380px)', '1px solid var(--line)', 'start']);
+    // The hairline is the grid's: neither column's first section draws one of its own.
+    expect([value('.ovg > .panel.sec', 'border-top'), value('.ovmain > .panel.sec:first-child', 'border-top')]).toEqual(['0', '0']);
+    expect(value('.ovg', 'grid-template-columns', NARROW)).toBe('minmax(0, 1fr)');
+    expect(value('.ovg > .panel.sec', 'border-top', NARROW)).toBe('1px solid var(--line)');
+    // The loading page takes the same grid, so nothing moves when the week lands.
+    expect(value('.ovgs', 'grid-template-columns')).toBe(value('.ovg', 'grid-template-columns'));
+  });
+
+  it('sets an activity entry on a run’s row’s columns, a link or not: its glyph, its words, and when', () => {
+    expect([value('.feed a', 'grid-template-columns'), value('.feed > .plain', 'grid-template-columns')]).toEqual(['14px minmax(0, 1fr) auto', '14px minmax(0, 1fr) auto']);
+    expect(value('.feed .at', 'white-space')).toBe('nowrap');
+  });
+
+  it('opens Usage in the list’s column: its calls beside its cache, over the spend chart at the column’s width', () => {
+    expect(value('.ugrid', 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))');
+    expect(value('.ugrid .uspend', 'grid-column')).toBe('1 / -1');
+    expect(value('.ugrid', 'grid-template-columns', ['@media (max-width: 760px)'])).toBe('minmax(0, 1fr)');
   });
 });

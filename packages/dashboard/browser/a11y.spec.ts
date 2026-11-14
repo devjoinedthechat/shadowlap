@@ -46,7 +46,7 @@ test('the Overview has no serious or critical axe violation on a laptop or a pho
     expect(await usage.getAttribute('aria-expanded')).toBe('true');
     expect(await seriousViolations(page)).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
-    // A piece too long for any line, as the demo project's path in its Project added entry, breaks where it must.
+    // A piece too long for any line breaks where it must; the demo project's path, in its Project added entry, is drawn as its last folders.
     const past = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w, main#view .arow .at')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
     expect(past, `at ${width}px`).toEqual([]);
   }
