@@ -1,7 +1,7 @@
 import { Store } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
 import { changesView } from '../src/changes.js';
-import { connStart, connStep, feedCursor, onTick, reloadFor, secondsLeft, type ConnState } from '../ui/connection.js';
+import { connStart, connStep, feedCursor, feedsMoved, onTick, reloadFor, secondsLeft, type ConnState } from '../ui/connection.js';
 import { sameRun } from '../ui/format.js';
 import { addRun } from './read-model-store.js';
 import { afterPollError, jobStatus } from '../ui/jobs.js';
@@ -95,6 +95,26 @@ describe('the connection to the dashboard server', () => {
     }
     expect(feedCursor({ version: 7 })).toBe('7');
     expect(feedCursor(null)).toBeNull();
+  });
+
+  it('names an activity entry stored with no run changed, so the Overview’s feed loads it', () => {
+    const store = Store.open(':memory:');
+    try {
+      addRun(store, { startedAt: Date.UTC(2026, 9, 1), calls: 'l' });
+      const feed = (since: string | null) => changesView(store, { boot: 'b1', jobsVersion: 0, since });
+      const at = feedCursor(feed(null));
+      expect(feedsMoved(feed(at), false)).toEqual([]);
+      // A normalizer added: an entry in the activity feed, and no run touched.
+      store.addEvent({ kind: 'normalizer.added', data: { path: '$.metadata.trace_id' } });
+      const poll = feed(at);
+      expect(reloadFor(poll, false)).toBe(false);
+      expect(feedsMoved(poll, false)).toEqual(['events']);
+      // On the first look every page loads anyway.
+      expect(feedsMoved(poll, true)).toEqual([]);
+    } finally {
+      store.close();
+    }
+    expect(feedsMoved({ jobs: true, events: true, other: ['fixes', 'tests'] }, false)).toEqual(['jobs', 'events', 'fixes', 'tests']);
   });
 
   it('knows a run opened by its short id when the page settles on the full one', () => {

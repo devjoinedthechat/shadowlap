@@ -94,6 +94,17 @@ export function feedMoves(ch: { changed?: boolean; runs?: boolean; calls?: boole
 }
 
 /**
+ * The feeds besides the runs that moved since the last look, by name, for the pages that read them to
+ * load again: `jobs`, `events` (an activity entry stored, such as a normalizer added, with no run
+ * changed), and each feature's table the change feed names in `other`. None on the first look, which
+ * every page loads for anyway.
+ */
+export function feedsMoved(ch: { jobs?: boolean; events?: boolean; other?: readonly string[] }, first: boolean): string[] {
+  if (first) return [];
+  return [...(ch.jobs ? ['jobs'] : []), ...(ch.events ? ['events'] : []), ...(ch.other ?? [])];
+}
+
+/**
  * The run list with each recording's call count as the change feed has it now: when only calls
  * moved, the list itself is not asked for again. The same list when no count moved.
  */
