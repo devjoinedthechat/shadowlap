@@ -68,7 +68,8 @@ describe("Compare's decisions on any two runs", () => {
     expect(pair.changes.map((c) => [c.rank, c.kind, c.tool])).toEqual(fork.changes.map((c) => [c.rank, c.kind, c.tool]));
     expect(pair.changes.find((c) => c.kind === 'write-added')).toMatchObject({ tool: 'escalate', a: null, b: { callNo: 4, href: `#/run/${id.fork}/4` } });
     expect(pair.ended).toEqual({ a: fork.ended.parent, b: fork.ended.fork });
-    expect(pair.writes.b).toEqual(fork.writes);
+    // Each side's writes are its ending's, by what became of them, and its rows': the pair keeps no list of its own.
+    expect(pair).not.toHaveProperty('writes');
     expect(pair.verdict).toEqual({ words: 'Different writes', where: 'after #2', tone: 'err' });
     // How each side ended after the calls they share: the fenced write under its origin's word.
     expect(pair.endings.b).toEqual({ failures: null, writes: [{ fate: 'blocked', tools: [{ tool: 'escalate', count: 1 }] }], end: { kind: 'answered', callNo: 5 }, quit: false });

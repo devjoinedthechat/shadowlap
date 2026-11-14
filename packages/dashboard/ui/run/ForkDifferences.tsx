@@ -45,8 +45,6 @@ const FATE_WORDS: Record<string, string> = { blocked: 'blocked', stubbed: 'stubb
  * writes under it (`.fbody`), which a closed bar hides. `fx`: a finding the closed bar folds away.
  */
 export function DifferencesPanel({ d, fx = false, more = null }: { d: Differences; fx?: boolean; more?: ReactNode }) {
-  const [all, setAll] = useState(false);
-  const shown = all ? d.changes : d.changes.slice(0, SHOWN);
   const parent = shortId(d.parentRunId);
   const same = d.changes.length === 0;
   return (
@@ -73,17 +71,8 @@ export function DifferencesPanel({ d, fx = false, more = null }: { d: Difference
             The same tool calls as its parent from #{d.from}, and it ended as its parent did: {d.ended.fork.words}.
           </Copy>
         ) : (
-          <ol className="fdl">
-            {shown.map((c, i) => (
-              <Change key={`${c.kind}:${c.tool ?? ''}:${i}`} c={c} ended={d.ended} ranks={d.ranks} />
-            ))}
-          </ol>
+          <ChangeList changes={d.changes} ended={d.ended} ranks={d.ranks} />
         )}
-        {d.changes.length > SHOWN ? (
-          <button className="linkbtn fdall" type="button" aria-expanded={all} onClick={() => setAll(!all)}>
-            {all ? 'Show the first few' : `Show all ${d.changes.length}`}
-          </button>
-        ) : null}
         <Writes d={d} />
       </div>
     </section>
@@ -142,7 +131,38 @@ function Writes({ d }: { d: Differences }) {
   );
 }
 
-function Change({ c, ended, ranks }: { c: ForkChange; ended: Differences['ended']; ranks: Differences['ranks'] }) {
+/** What a change's link to each side's call says: a fork's `#4 in the parent · #6 here`, Compare's run ids. */
+export interface SideWords {
+  parent: string;
+  fork: string;
+}
+
+const FORK_SIDES: SideWords = { parent: 'in the parent', fork: 'here' };
+
+/**
+ * The changes, most consequential first: the first few, then Show all. A fork's against its parent,
+ * and Compare's B against A, whose links `sides` words.
+ */
+export function ChangeList({ changes, ended, ranks, sides = FORK_SIDES }: { changes: readonly ForkChange[]; ended: Differences['ended']; ranks: Differences['ranks']; sides?: SideWords }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? changes : changes.slice(0, SHOWN);
+  return (
+    <>
+      <ol className="fdl">
+        {shown.map((c, i) => (
+          <Change key={`${c.kind}:${c.tool ?? ''}:${i}`} c={c} ended={ended} ranks={ranks} sides={sides} />
+        ))}
+      </ol>
+      {changes.length > SHOWN ? (
+        <button className="linkbtn fdall" type="button" aria-expanded={all} onClick={() => setAll(!all)}>
+          {all ? 'Show the first few' : `Show all ${changes.length}`}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function Change({ c, ended, ranks, sides }: { c: ForkChange; ended: Differences['ended']; ranks: Differences['ranks']; sides: SideWords }) {
   const write = c.effect === 'write' || c.effect === 'unknown';
   return (
     <li className={`r${c.rank}`}>
@@ -174,9 +194,9 @@ function Change({ c, ended, ranks }: { c: ForkChange; ended: Differences['ended'
             ) : null}
             {c.parent || c.fork ? (
               <span className="at">
-                {c.parent ? <a href={c.parent.href}>#{c.parent.callNo} in the parent</a> : null}
+                {c.parent ? <a href={c.parent.href}>#{c.parent.callNo} {sides.parent}</a> : null}
                 {c.parent && c.fork ? ' · ' : null}
-                {c.fork ? <a href={c.fork.href}>#{c.fork.callNo} here</a> : null}
+                {c.fork ? <a href={c.fork.href}>#{c.fork.callNo} {sides.fork}</a> : null}
               </span>
             ) : null}
           </>

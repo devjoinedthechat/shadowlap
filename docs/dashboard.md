@@ -1127,6 +1127,8 @@ Under the verdict, a line a run says what it did from there:
 
 While a run is still recording, the lines show without a verdict. Two runs with no call after the ones they share have neither.
 
+Then come B's changes, ranked as a fork's are on its page: the first four, **Show all** for the rest. Each opens the call it is about in each run (*#20 in 01M5GRVTKS*), and a change of how they end says both endings in their colours. Past 2,000 tool calls in a run, it says the first 2,000 of each were compared.
+
 #### What changed
 
 Then one line a changed fact, and one quiet line for the rest, such as *Code, system prompt, tools and model unchanged*. That line's hover says what each of them is on both sides.
@@ -3195,7 +3197,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 The whole answer adds `pair`: what B decided differently from A after the calls they share, compared after the project's normalizers. It is `null` where a run isn't in the run index.
 
 - `verdict`: its words, `where` and `tone`; `null` where no call follows the prefix, or while a run records;
-- `rank` and `changes`: the changes, most consequential first;
+- `rank` and `changes`: the changes, most consequential first, each with its call in each run; `ended`, how each run ended; `cut`, where a run made more tool calls than are compared;
 - `endings`: each run's HTTP failures, its writes by what became of them, and how its turn ended;
 - `rows`: both paths a row a call, each numbered by its place (`n`), each call as its decision (cut as its row shows it, with `moreTools` for the tool calls past 20), its failure or its tool, at most 200, and `more` for the rest.
 

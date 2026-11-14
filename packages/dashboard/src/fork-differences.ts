@@ -107,13 +107,11 @@ export interface PairDifferences {
   rank: DecisionRank | null;
   /** Each change, most consequential first. */
   changes: PairChange[];
-  /** How each run ended, as the run lists count it. */
+  /** How each run ended, as the run lists count it: a change of how they end says both. */
   ended: { a: ForkEnd; b: ForkEnd };
   /** What each did after the calls they share: its HTTP failures, its writes by what became of them, how its turn ended. */
   endings: { a: PairEnding; b: PairEnding };
-  /** Each run's writes from there on, in order. */
-  writes: { a: ForkWrite[]; b: ForkWrite[] };
-  toolCalls: { a: number; b: number };
+  /** True when a run made more tool calls from there than are compared. */
   cut: boolean;
   /** Both paths after the prefix, a row a call, at most `PATH_ROWS`. */
   rows: PathRow[];
@@ -143,8 +141,6 @@ export function pairDifferences(store: StoreOf<'recording' | 'readModels' | 'tes
     changes: c.changes.map(({ aCallNo, bCallNo, ...change }) => ({ ...change, a: link(a, aCallNo), b: link(b, bCallNo) })),
     ended: { a: shown(c.ended.a), b: shown(c.ended.b) },
     endings: p.endings,
-    writes: { a: c.writes.a.map((w) => ({ ...w, href: links.run(a.runId, w.callNo) })), b: c.writes.b.map((w) => ({ ...w, href: links.run(b.runId, w.callNo) })) },
-    toolCalls: c.toolCalls,
     cut: c.cut,
     rows: p.rows,
     more: p.more,
