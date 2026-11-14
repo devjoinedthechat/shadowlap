@@ -98,7 +98,7 @@ from shadowlap import tool
 def lookup_order(order_id): ...
 ```
 
-A tool you don't wrap runs for real on every replay. `run` names each one the model called, and every command that replays a run won't run one that writes, or one nothing says the effect of, until you wrap it, declare its effect under `tools.unrecorded`, or pass&nbsp;`--allow-unrecorded`.
+A tool you don't wrap runs for real on every replay. `run` names each one the model called. A replay won't run one that writes, or one whose effect nothing declares, until you wrap it, declare its effect under `tools.unrecorded`, or pass&nbsp;`--allow-unrecorded`.
 
 Then record a run, replay it and open&nbsp;the&nbsp;dashboard:
 
@@ -258,8 +258,8 @@ Each task, with the command or page that does it:
 - **Fork from any call**, or compare two runs side by side. Edit a tool's result, or what a person answered, in the call inspector and fork&nbsp;from&nbsp;it.
 - **A failed run opens where it went wrong:** where blame found it lost, or else where it first failed, its calls grouped under the model call each&nbsp;belongs&nbsp;to.
 - **A fork's page says what the fork did differently**, ranked as `shadowlap decisions` ranks&nbsp;a&nbsp;change.
-- **One press labels a run good or bad**, and `u` undoes it. A fix must leave each good run no worse than its own baseline, as `repair --keeps label:good` holds it, and Runs lists them with `label:good` and keeps its filters in&nbsp;the&nbsp;address.
-- **Large stores and long runs open at once.** What reads every run or every call, the search index included, is worked out beside the server, and a long run's calls come a page at a time, from any depth, while the rest is&nbsp;read.
+- **One press labels a run good or bad**, and `u` undoes it. A fix must leave each good run no worse than its own baseline, as `repair --keeps label:good` holds it, and Runs lists those runs under&nbsp;`label:good`.
+- **Large stores and long runs open at once.** Reads of every run or every call, search included, are worked out beside the server, and a long run's calls arrive a page at a time, from&nbsp;any&nbsp;depth.
 
 <p align="center">
   <picture>
@@ -271,7 +271,7 @@ Each task, with the command or page that does it:
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background. It shows why a run failed, where blame found it lost and whether its fix held, and where a fork left its parent and what it then did differently. Each call has conversation, request, response and meta tabs. Press&nbsp;`:` for the what&#8209;ifs at the selected call, and to blame, repair or verify the&nbsp;run:
+`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: why a run failed, where blame found it lost and whether its fix held, and what a fork did differently from its parent. Each call has conversation, request, response and meta tabs. Press&nbsp;`:` for the what&#8209;ifs at the selected call, or to blame, repair or verify the&nbsp;run:
 
 <p align="center">
   <picture>
