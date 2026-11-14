@@ -1,5 +1,5 @@
 import { isAbsolute, join, resolve } from 'node:path';
-import { applyGoldens, applyLeft, defaultGoldenNames, type FixRecords, gitApplyCommand, goldensFolder, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, repairPatchProblem, repairToApply, selectedRuns, shownBlame, type StoredRepair, type StoreOf, verifyArgv } from '@shadowlap/engine';
+import { applyGoldens, applyLeft, defaultGoldenNames, type FixRecords, gitApplyCommand, goldensFolder, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, repairPatchProblem, repairToApply, shownBlame, type StoredRepair, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { blameNext } from './fix-blame-step.js';
 import { repairSpent } from './fix-lead.js';
 import { acceptedVerdict, commandLine, fieldsSet, type FixActions, notVerified, type PatchCheck, patchMerged, type RewriteCheck, unrepairedVerdict } from './fix-shared.js';
@@ -151,11 +151,14 @@ export interface FixActionsOptions {
   verifyArgs?: readonly string[] | undefined;
 }
 
-/** Verify your change (`FixActions['verifyChange']`): the fix's verify command, with the failing runs it selects; null where it makes none. */
+/**
+ * Verify your change (`FixActions['verifyChange']`): the fix's verify command, with the failing runs
+ * it verifies, every one left in the store, those it holds out among them (as `verifyArgv` selects
+ * them, read with no other read of every run); null where it makes none.
+ */
 function verifyChangeOffer(store: StoreOf<'recording'>, rec: FixRecords, argv: readonly string[]): FixActions['verifyChange'] {
   if (!argv.length) return null;
-  const failing = new Set(rec.failing);
-  return { runs: selectedRuns(store, argv).flatMap((r) => (failing.has(r.runId) ? [r.runId] : [])), argv: [...argv], command: commandLine([...argv]) };
+  return { runs: rec.failing.filter((id) => store.getRun(id) !== null), argv: [...argv], command: commandLine([...argv]) };
 }
 
 /** What each of a fix's buttons would run, as its page offers them and its Fixes row leads with one (fix-lead.ts). */

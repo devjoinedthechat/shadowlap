@@ -91,6 +91,8 @@ export const ACTIONS = {
   // A check changed in the check builder: a golden's its own recording fails (Tests, a run's page, Needs a
   // look), or an open fix's (`shadowlap fix check`), whose Save is the builder's confirm.
   editCheck: { label: 'Edit check…', confirm: 'Save check', doing: 'Changing check' },
+  // The pull request opened for a fix by hand, or by CI's fix on failure, recorded on it (`shadowlap fix pr <fix> <url>`).
+  recordPullRequest: { label: 'Record pull request…', confirm: 'Record pull request', doing: 'Recording pull request' },
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
   openCandidates: { label: 'Open candidates' },

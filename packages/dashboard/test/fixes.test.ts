@@ -588,8 +588,8 @@ describe('a fix', () => {
     expect(noFix(kept(['d'], (r) => blameReport(r, 'unrescuable'), { scope: 'agent' }))).toMatch(/^No failing run was rescued/);
     // A blame that found the call has a passing path to learn from: the repair runs.
     expect(noFix(kept(['e'], (r) => blameReport(r)))).toBeNull();
-    // One made with a rescue the repair doesn't ask for is made again, live, and may find the call.
-    expect(noFix(kept(['f'], (r) => blameReport(r, 'unrescuable'), { fields: { temperature: 1 } }))).toBeNull();
+    // One made with a rescue: the repair asks for the same (`--set`), so it is reused all the same.
+    expect(noFix(kept(['f'], (r) => ({ ...blameReport(r, 'unrescuable'), rescue: { fields: { temperature: 1 } } }), { fields: { temperature: 1 } }))).toMatch(/^No failing run was rescued/);
     // So is one kept with the fix only, from before blames were kept on the run as well.
     const before = makeRun(store, { labels: ['g'] });
     expect(noFix(recordBlame(store, { runId: before, report: blameReport(before, 'unrescuable'), expect: EXPECT, scope: null, command: 'b', title: 't', checkText: 'x', at: NOW }).fix.fixId)).toBeNull();

@@ -373,6 +373,38 @@ function repairerChanged(req: JobRequest, configured: string | null): JobBuildRe
   return { error: `the repairer in shadowlap.config.json changed since this page loaded: now ${who}. Nothing ran: open Run repair again`, status: 409 };
 }
 
+/** A branch name as `repair --branch` takes one: no flag, no space, no `..` or `//`, nothing hidden; git's own rule refuses the rest in the CLI's words. */
+const BRANCH = /^(?!.*\.\.)(?!.*\/\/)(?!.*@\{)[A-Za-z0-9_][\w./-]{0,199}$/;
+
+/**
+ * Run repair's hand-over, as its dialog sends it: the accepted change committed to a branch of its
+ * own (`branch`, `repair --branch`, without checking it out), pushed and opened as a pull request
+ * with gh (`pr`, `--pr`), as the CLI does it. Refused before anything runs: a name `--branch` would
+ * misread, or `--pr` with no branch, in the CLI's words.
+ */
+function handOverArgs(req: JobRequest): { args: string[] } | { error: string } {
+  const branch = req.branch === undefined || req.branch === null ? null : typeof req.branch === 'string' ? req.branch.trim() : '';
+  if (branch !== null && (!BRANCH.test(branch) || /(?:\/|\.|\.lock)$/.test(branch) || /(?:^|\/)\./.test(branch))) return { error: 'name the branch to commit the fix to, such as fix/refund-limit' };
+  if (req.pr === true && branch === null) return { error: '--pr opens a pull request from the branch --branch <name> makes; give both' };
+  return { args: branch === null ? [] : ['--branch', branch, ...(req.pr === true ? ['--pr'] : [])] };
+}
+
+/** A pull request's address as `fix pr` records one: an http(s) link, at most 2048 characters. */
+const PR_URL = /^https?:\/\/\S+$/;
+
+/**
+ * Record pull request…: the pull request opened for a fix by hand, recorded on it as `shadowlap fix pr
+ * <fix> <url>` records it, open until gh reads it otherwise (pr-state.ts). Refused in the CLI's words
+ * before anything runs.
+ */
+function fixPrJob(req: JobRequest, store: StoreOf<'fixes'>): JobBuildResult {
+  const fix = findFix(store, req.fixId);
+  if (typeof req.url !== 'string' || !req.url.trim()) return { error: 'url is the pull request’s https:// link' };
+  const url = req.url.trim();
+  if (!PR_URL.test(url) || url.length > 2048 || HIDDEN_IN_NAME.test(url)) return { error: `${url.slice(0, 80)} is not a pull request's address: give its https:// link` };
+  return { args: ['fix', 'pr', fix.fixId, url], fixId: fix.fixId, title: ACTIONS.recordPullRequest.doing };
+}
+
 function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, repairer: string | null): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const configured = repairer?.trim() || null;
@@ -383,8 +415,10 @@ function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   if (!d.actions.repair) return { error: `none of the failing runs of ${short(fix.fixId)} is left in the store, so there is nothing to repair`, status: 409 };
   // It would blame every failing run, then find no one to propose a fix: nothing runs.
   if (d.repairer.problem) return { error: `${d.repairer.problem.replace(/\.$/, '')}. Nothing ran`, status: 409 };
+  const handOver = handOverArgs(req);
+  if ('error' in handOver) return handOver;
   // Every run the command will select, as the CLI selects it: a label can bring in an imported run.
-  const args = withBudget(repairJobArgv(d.actions.repair.argv, configured), req.budget);
+  const args = withBudget([...repairJobArgv(d.actions.repair.argv, configured), ...handOver.args], req.budget);
   if (!Array.isArray(args)) return args;
   const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes, args);
   if ('ask' in consent) return consent.ask;
@@ -514,6 +548,8 @@ export function register(router: Router, ctx: RouteContext): void {
   jobs.registerJobKind('apply', { title: () => ACTIONS.applyFix.doing, build: (req, b) => applyJob(req, b.store) });
   // Another check for an open fix: it changes the store alone, never the working tree, so it waits on no other job.
   jobs.registerJobKind('fix-check', { title: () => ACTIONS.editCheck.doing, build: (req, b) => fixCheckJob(req, b.store) });
+  // A pull request opened for a fix, recorded on it: the store alone, as a check is.
+  jobs.registerJobKind('fix-pr', { title: () => ACTIONS.recordPullRequest.doing, build: (req, b) => fixPrJob(req, b.store) });
   // A verdict's more attempts (`verifyId`), a verified fix's runs left (`left: true`, Verify this run),
   // or a change of your own on the fix's runs (`change: true`, Verify your change).
   jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => (req.change === true ? verifyChangeJob(req, b.store) : req.left === true ? verifyLeftJob(req, b.store, b.project?.path ?? null) : verifyJob(req, b.store, verifyRule(ctx).keptMax)) });

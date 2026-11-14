@@ -359,3 +359,5 @@ table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background
 .fxstop input:focus { border-color: var(--accent-line); }
 /* Run blame's settings: the check it is judged by, JSON, in mono. */
 .fxblame textarea { min-height: 64px; font: 12.5px/1.55 var(--mono); }
+/* Run repair's hand-over: its switch under the branch it opens the pull request from. */
+.fxhand .switch { justify-self: start; font-size: 12.5px; color: var(--ink); }

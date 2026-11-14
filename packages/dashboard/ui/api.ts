@@ -62,6 +62,8 @@ export const JOB_KINDS = {
   verify: 'verify',
   // An open fix given another check (Edit check…, Save check).
   fixCheck: 'fix-check',
+  // The pull request opened for a fix, recorded on it (Record pull request…).
+  fixPr: 'fix-pr',
   tests: 'test',
   importCapture: 'import',
   calibrate: 'calibrate',

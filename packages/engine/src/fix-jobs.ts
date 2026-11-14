@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto';
 import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { unsettledFirst } from './blame.js';
+import { repairReuse, type ReusedBlame } from './blame-reuse.js';
+import { setOwn } from './canonical.js';
+import { fieldValue } from './field-value.js';
 import { checkStatus } from './check-status.js';
 import { checkKey, fixLabelInfo, fixLabels, fixOfRun, GOOD_LABEL, type FixRecords } from './fixes.js';
 import { HIDDEN_IN_NAME } from './hidden-characters.js';
@@ -175,44 +178,74 @@ export function fixRunArgs(store: StoreOf<'recording' | 'fixes'>, rec: FixRecord
   };
 }
 
+/** A request field's key as `--set` reads it: a name, or a dotted path of names. */
+const FIELD_KEY = /^[A-Za-z_][\w.]*$/;
+
+/**
+ * How a repair from the fix rescues, as the blame it shows did: each request field that blame set
+ * from the probed call on (`--set`, in `fields`), and the model it was asked with (`--stronger`),
+ * which the repair blames with where asking the recorded model again rescues nothing, so it reuses
+ * that blame rather than end on trying a stronger model. Null where a field's key isn't one `--set`
+ * reads, a value would disguise the command line, or the model isn't of a name's shape: no repair
+ * runs from here then.
+ */
+export function repairRescue(b: StoredBlame | null): { fields: Record<string, unknown>; stronger: string | null; args: string[] } | null {
+  const fields: Record<string, unknown> = {};
+  const set: string[] = [];
+  let stronger: string | null = null;
+  for (const [key, value] of Object.entries(b?.report.rescue?.fields ?? {})) {
+    if (key === 'model' && typeof value === 'string') {
+      if (!NAME.test(value)) return null;
+      stronger = value;
+      continue;
+    }
+    const arg = `${key}=${fieldValue(value)}`;
+    if (!FIELD_KEY.test(key) || HIDDEN.test(arg)) return null;
+    setOwn(fields, key, value);
+    set.push('--set', arg);
+  }
+  return { fields, stronger, args: [...set, ...(stronger ? ['--stronger', stronger] : [])] };
+}
+
 /**
  * `shadowlap repair` from a fix: its failing runs (by its label when that selects exactly them),
- * the good runs it keeps (`keepArgs`), the scope its blame searched, so the repair blames the same
- * calls and reuses that blame rather than make it again, and its check. Empty when none of its
- * failing runs is left in the store.
+ * the good runs it keeps (`keepArgs`), the scope its blame searched and how it rescued
+ * (`repairRescue`), so the repair blames the same calls the same way and reuses that blame rather
+ * than make it again, and its check. Empty when none of its failing runs is left in the store.
  */
 export function repairArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
   const runs = fixRunArgs(store, rec);
   // A blame's scope (a pulled one's too) goes as `--scope` only when it is a name, never a flag.
-  const scope = scopeArg(shownBlame(rec)?.scope);
-  if (!runs || !scope) return [];
-  return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...scope, ...runs.expect];
+  const shown = shownBlame(rec);
+  const scope = scopeArg(shown?.scope);
+  const rescue = repairRescue(shown);
+  if (!runs || !scope || !rescue) return [];
+  return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...scope, ...rescue.args, ...runs.expect];
 }
 
 /**
  * Why a repair from here would end "No fix to try" without running the agent, in a sentence, or
  * null when it would run it. A repair reuses the blame kept on a failing run when it searched under
- * the same check, rescue and scope, rather than search again (as `shadowlap repair` does): when that
- * blame of every failing run left rescued it from no call, there is no passing path to learn from.
- * Said as the CLI says why: no answer of the model's lost the runs, blame couldn't settle where they
- * were lost, or nothing rescued them; with which of the estimate's two cases it is (`kind`), told
- * apart where it is worded.
+ * the same check, rescue and scope, rather than search again (as `shadowlap repair` does), then the
+ * one with the stronger model it was given (`repairReuse`): when the blame it ends with on every
+ * failing run left rescued it from no call, there is no passing path to learn from. Said as the CLI
+ * says why: no answer of the model's lost the runs, blame couldn't settle where they were lost, or
+ * nothing rescued them; with which of the estimate's two cases it is (`kind`), told apart where it is
+ * worded.
  */
 export function noFixReason(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null): { sentence: string; kind: NoFixToTry } | null {
   const runs = rec.failing.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
-  if (!runs.length) return null;
-  const oracle = JSON.stringify(rec.fix.check.oracle);
-  const kept: StoredBlame[] = [];
+  const rescue = repairRescue(shownBlame(rec));
+  if (!runs.length || !rescue) return null;
+  const ended: ReusedBlame[] = [];
   for (const run of runs) {
-    const stored = run.meta?.blame;
-    const last = store.blamesOfRun(run.runId).at(-1);
-    if (!stored || !last || stored.outcome !== 'unrescuable') return null;
-    if (JSON.stringify(stored.oracle) !== oracle || Object.keys(stored.fields ?? {}).length || (stored.scope ?? null) !== scope) return null;
-    kept.push(last);
+    const r = repairReuse(store, run.runId, { oracle: rec.fix.check.oracle, fields: rescue.fields, scope, stronger: rescue.stronger });
+    if (r?.stored.outcome !== 'unrescuable') return null;
+    ended.push(r);
   }
   const one = runs.length === 1;
-  if (kept.every(noAnswerLost)) return { kind: 'unrescued', sentence: `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.` };
-  if (kept.every((b, i) => runs[i]!.meta?.blame?.unsettled === true || (b.outcome === 'unrescuable' && unsettledFirst(b.report)))) return { kind: 'unsettled', sentence: `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.` };
+  if (ended.every((r) => noAnswerLost(r.kept))) return { kind: 'unrescued', sentence: `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.` };
+  if (ended.every((r) => r.stored.unsettled === true || (r.kept.outcome === 'unrescuable' && unsettledFirst(r.kept.report)))) return { kind: 'unsettled', sentence: `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.` };
   return { kind: 'unrescued', sentence: 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.' };
 }
 

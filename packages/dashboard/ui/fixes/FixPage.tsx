@@ -41,7 +41,7 @@ import { VerifyAsk } from './verify-asks.js';
 import { VerifyChangeButton, VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
 
 export { StrongerDialog } from './BlameAgain.js';
-import { ApplyDialog, PatchDialog, RepairDialog } from './FixDialogs.js';
+import { ApplyDialog, PatchDialog, PrDialog, RepairDialog } from './FixDialogs.js';
 export { ApplyDialog, PatchDialog, RepairDialog } from './FixDialogs.js';
 import { ACTIONS } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -247,8 +247,8 @@ export function RenameFixDialog({ fix, onClose, onDone }: { fix: FixDetail; onCl
   );
 }
 
-/** What a button of the header opens: Run repair's dialog, Apply fix's (Mark applied, Finish applying), or the patch to read. */
-type Ask = 'repair' | 'apply' | 'patch';
+/** What a button of the header opens: Run repair's dialog, Apply fix's (Mark applied, Finish applying), the patch to read, or Record pull request…'s. */
+type Ask = 'repair' | 'apply' | 'patch' | 'pr';
 
 /** What each status's buttons are given: the fix, its prices, the lead that takes the lime (none while its Verify step leads), why its write waits, and what a press opens. */
 interface ButtonsProps {
@@ -330,6 +330,7 @@ export function FixActions({ fix, shown = null }: { fix: FixDetail; shown?: Veri
       {asking === 'repair' ? <RepairDialog fix={fix} onClose={close} onRun={(repairer, sent) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer, ...sent }))} /> : null}
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={close} onRun={(names) => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId, ...(names ? { names } : {}) }))} /> : null}
       {asking === 'patch' && diff ? <PatchDialog fix={fix} diff={diff} onClose={close} /> : null}
+      {asking === 'pr' ? <PrDialog fix={fix} onClose={close} onRun={(url) => app.guard(() => void start(JOB_KINDS.fixPr, { fixId: fix.fixId, url }))} /> : null}
       {consent ? (
         <ConsentDialog
           why={consent.why}
@@ -441,12 +442,30 @@ function VerifiedButtons({ fix, prices, lime, why, ask }: ButtonsProps) {
   );
 }
 
-/** An applied fix's buttons: its patch to read, then Finish applying while applying left something undone; Marked applied, plain, for one with no patch, its hover naming the change. */
+/**
+ * Record pull request…, on an applied fix no merged pull request holds: the one opened for it by hand
+ * recorded on it, as `shadowlap fix pr` records it, for Fixes to read where it stands and say merged
+ * once it is. It writes the store alone, so it waits for no other job.
+ */
+function RecordPrButton({ fix, ask }: Pick<ButtonsProps, 'fix' | 'ask'>) {
+  const app = useApp();
+  if (fix.rung === 'merged') return null;
+  const why = app.actionsOff ?? (app.hasKind(JOB_KINDS.fixPr) ? null : 'This dashboard doesn’t record pull requests: run the command in a terminal.');
+  const command = `$ shadowlap fix pr ${shortFixId(fix.fixId)} <url>`;
+  return (
+    <ActionButton className="btn" why={why} tip={ACTIONS.recordPullRequest.confirm} sub={fix.pr ? 'Record the pull request opened for this fix in place of the one it has' : 'Record the pull request you opened for this fix'} command={command} onClick={() => ask('pr')}>
+      {ACTIONS.recordPullRequest.label}
+    </ActionButton>
+  );
+}
+
+/** An applied fix's buttons: its patch to read, Record pull request…, then Finish applying while applying left something undone; Marked applied, plain, for one with no patch, its hover naming the change. */
 function AppliedButtons({ fix, lime, why, ask }: ButtonsProps) {
   const marked = appliedButton(fix.actions.apply);
   return (
     <>
       <ShowPatch fix={fix} ask={ask} />
+      <RecordPrButton fix={fix} ask={ask} />
       {fixAction(fix).kind !== 'applied' ? (
         <ApplyButton fix={fix} lime={lime} why={why} ask={ask} />
       ) : marked ? (

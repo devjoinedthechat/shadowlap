@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { CodeBox } from '../components/CodeBox.js';
-import { Dialog } from '../components/Dialog.js';
+import { Dialog, PromptDialog } from '../components/Dialog.js';
+import { Switch } from '../components/Switch.js';
 import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { sentEstimate } from '../spending.js';
@@ -19,10 +20,63 @@ import { StopAtField, useStopAt } from './stop-at.js';
  */
 
 /**
+ * How Run repair rescues the failing runs it blames, as the fix's blame did (engine fix-jobs.ts
+ * `repairRescue`), in words for its dialog's Rescues: the request fields it sets from each probed
+ * call (`--set`), then the stronger model where the recorded one rescues nothing (`--stronger`).
+ * Null for a repair that only asks the recorded model again.
+ */
+function rescueOf(argv: readonly string[]): string | null {
+  const sets = argv.filter((_, i) => argv[i - 1] === '--set');
+  const at = argv.indexOf('--stronger');
+  const stronger = at < 0 ? null : (argv[at + 1] ?? null);
+  if (!sets.length && !stronger) return null;
+  const fields = sets.length ? `${sets.join(', ')} from each probed call` : null;
+  const model = stronger ? `${stronger} where the recorded model rescues nothing` : null;
+  return `with ${[fields, model].filter(Boolean).join(', then ')}, as the fix’s blame did`;
+}
+
+/**
+ * Run repair's hand-over, as the CLI hands a fix over (`repair --branch`, `--pr`): a patch for you to
+ * apply, or, with a branch named, the accepted change committed to it without checking it out, and,
+ * switched on, pushed and opened as a pull request with gh, which the fix then records. What it sends
+ * with the job, its flags in the command, and its words as the dialog's Hands over says them.
+ */
+function useHandOver() {
+  const [branch, setBranch] = useState('');
+  const [pr, setPr] = useState(false);
+  const name = branch.trim();
+  const opens = !!name && pr;
+  return {
+    branch,
+    setBranch,
+    pr: opens,
+    setPr,
+    fields: name ? { branch: name, ...(opens ? { pr: true } : {}) } : {},
+    flags: name ? ` --branch ${name}${opens ? ' --pr' : ''}` : '',
+    says: !name ? 'the accepted one, as a patch for you to apply' : opens ? `the accepted one, committed to ${name} and opened as a pull request with gh` : `the accepted one, committed to the branch ${name}, not checked out`,
+  };
+}
+
+/** Run repair's hand-over fields: the branch to commit to, and the switch that opens it as a pull request. */
+function HandOverFields({ hand }: { hand: ReturnType<typeof useHandOver> }) {
+  const id = useId();
+  return (
+    <div className="form one fxhand">
+      <label htmlFor={id}>Commit to branch</label>
+      <input id={id} type="text" value={hand.branch} placeholder="none: a patch for you to apply" spellCheck={false} onChange={(e) => hand.setBranch(e.target.value)} />
+      <Switch on={hand.pr} onChange={hand.setPr} disabled={!hand.branch.trim()} title={hand.branch.trim() ? undefined : 'Name the branch it opens the pull request from first'}>
+        Open it as a pull request with gh
+      </Switch>
+    </div>
+  );
+}
+
+/**
  * Asks before a repair, naming who is asked for candidates: the repairer shadowlap.config.json names,
  * read again as the dialog opens (the config can change while the page stays open), and sent with
  * the job, which the server refuses if the config names another by then. One that can't be asked
- * from here (claude isn't on the PATH) is said instead, with what to do, and nothing can start.
+ * from here (claude isn't on the PATH) is said instead, with what to do, and nothing can start. Its
+ * hand-over (`useHandOver`) and Stop at $ go with the job.
  */
 export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string, sent: Record<string, unknown>) => boolean }) {
   const { client } = useApp();
@@ -43,6 +97,7 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
   }, [client, fix.fixId]);
   const ask = repairAsk(fix, fresh);
   const stop = useStopAt(null);
+  const hand = useHandOver();
   const now = fresh?.fix ?? fix;
   // Priced again for the fix as it re-read it, so the repairer priced is the one it names.
   const estimate = useFixEstimates(now)?.repair;
@@ -50,6 +105,7 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
   const repair = now.actions.repair;
   const stopped = now.actions.blameAgain?.kind === 'stopped';
   const keeps = repair ? keepsOf(repair.argv) : [];
+  const rescue = repair ? rescueOf(repair.argv) : null;
   // A line is one sentence with no stop; the engine's own sentence keeps it where the terminal UI shows it.
   const line = ask.why?.replace(/\.$/, '') ?? aside ?? (now.blame?.oldCheck ? OLD_BLAME_REPAIR : stopped ? 'Blame stopped part way: repair blames the run again first' : null);
   // While it reads, what it is doing; then who it asks, or "the repairer" where it can't ask one from here.
@@ -66,20 +122,48 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
           ? []
           : [
               { label: 'Changes', value: 'nothing in your working tree', quiet: 'each candidate is tried in a worktree of its own' },
-              { label: 'Hands over', value: 'the accepted one, as a patch for you to apply' },
+              { label: 'Hands over', value: hand.says },
+              rescue ? { label: 'Rescues', value: rescue } : null,
               keeps.length ? { label: <DialogTip title="Keeps" tip="A candidate that breaks a good run is rejected">Keeps</DialogTip>, value: `${keeps.map((k) => `\`${k}\``).join(', ')} passing` } : null,
               { label: 'While it runs', value: 'leave the prompt and tools alone' },
             ]
       }
-      command={ask.command === null ? null : stop.command(ask.command)}
+      command={ask.command === null ? null : stop.command(`${ask.command}${hand.flags}`)}
       cost={repair && (!ask.why || repair.noFixWhy) ? { ...repairCost(repair, stopped), estimate } : null}
       ok={ACTIONS.runRepair.label}
       okDisabled={!ask.ready}
       onClose={onClose}
-      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer, { ...sentEstimate(estimate), ...stop.fields }) : false)}
+      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer, { ...sentEstimate(estimate), ...stop.fields, ...hand.fields }) : false)}
     >
-      {ask.ready ? <StopAtField typed={stop.typed} setTyped={stop.setTyped} /> : null}
+      {ask.ready ? (
+        <>
+          <HandOverFields hand={hand} />
+          <StopAtField typed={stop.typed} setTyped={stop.setTyped} />
+        </>
+      ) : null}
     </Dialog>
+  );
+}
+
+/**
+ * Record pull request…: the pull request opened for a fix by hand, or by CI's fix on failure,
+ * recorded on it as `shadowlap fix pr` records it, the one it has to start from. Fixes reads where
+ * it stands with gh, on the hosts the project uses, and says merged once it is.
+ */
+export function PrDialog({ fix, onClose, onRun }: { fix: Pick<FixDetail, 'fixId' | 'pr'>; onClose: () => void; onRun: (url: string) => unknown }) {
+  return (
+    <PromptDialog
+      title={ACTIONS.recordPullRequest.confirm}
+      lead="Records the pull request opened for this fix: Fixes reads where it stands with gh, and says merged once it is."
+      doc="repairHandover"
+      label="Its address"
+      placeholder="https://github.com/acme/agent/pull/138"
+      initial={fix.pr?.url ?? ''}
+      command={(url) => `shadowlap fix pr ${shortFixId(fix.fixId)} ${url || '<url>'}`}
+      ok={ACTIONS.recordPullRequest.confirm}
+      onClose={onClose}
+      onRun={onRun}
+    />
   );
 }
 

@@ -21,7 +21,8 @@ import {
   repairerProblem,
   repeatEstimate,
   resolveFix,
-  reusedBlame,
+  repairRescue,
+  repairReuse,
   runBisectEstimate,
   selectedRuns,
   shownBlame,
@@ -228,16 +229,19 @@ export interface FixEstimates {
 
 /**
  * Run repair as its command selects the runs (engine fix-jobs.ts `repairArgv`): each failing run with
- * the blame the repair would reuse on it under the fix's check and its blame's scope, so a blame is
- * priced only where it runs one; the good runs each candidate must keep passing; and Free where it
- * ends "No fix to try" before it runs anything.
+ * the blame the repair would end with on it under the fix's check, its blame's scope and rescue, a
+ * stronger model its blame was asked with among it (`repairReuse`), so a blame is priced only where
+ * it runs one; the good runs each candidate must keep passing; and Free where it ends "No fix to try"
+ * before it runs anything.
  */
 function repairPrice(store: Store, rec: FixRecords, job: FixEstimatesJob, p: Pricing): Estimate {
   const runs = fixRunArgs(store, rec);
-  const scope = shownBlame(rec)?.scope ?? null;
+  const shown = shownBlame(rec);
+  const scope = shown?.scope ?? null;
   const oracle = rec.fix.check.oracle;
+  const rescue = repairRescue(shown) ?? { fields: {}, stronger: null };
   const failing = selectedRuns(store, ['--fixes', ...(runs?.fixes ?? [])]).map((r) => {
-    const reused = reusedBlame(store, r.runId, { oracle, fields: {}, scope });
+    const reused = repairReuse(store, r.runId, { oracle, fields: rescue.fields, scope, stronger: rescue.stronger });
     return { runId: r.runId, startedAt: r.startedAt, calls: p.calls(r.runId), blame: reused ? { outcome: reused.stored.outcome } : null };
   });
   const good = selectedRuns(store, ['--keeps', ...(runs?.keeps ?? [])]).map((r) => ({ calls: p.calls(r.runId) }));

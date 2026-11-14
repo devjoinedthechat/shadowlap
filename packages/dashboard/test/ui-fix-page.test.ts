@@ -280,10 +280,11 @@ describe('Run repair', () => {
     expect(text(r!.one('.dialog .dcost'))).toContain('nothing runs: the blame it reuses rescued no call');
   });
 
-  it('says the agent runs live and is billed when the repair has a passing path to learn from', async () => {
+  it('says the agent runs live and is billed when the repair has a passing path to learn from, and hands it over as you ask', async () => {
     const run = newRun({ labels: ['refund-bug'] });
     const { fix } = blame(run);
-    await open(fix.fixId);
+    const started: Array<[string, unknown]> = [];
+    await open(fix.fixId, null, null, { started });
     const button = r!.byText('.ph .actions button', 'Run repair');
     expect(button.className).toBe('btn lime');
     await r!.click(button);
@@ -300,6 +301,25 @@ describe('Run repair', () => {
     const kept = r!.all('.dialog .cmdline span.nw').map((e) => e.textContent);
     expect(kept).toContain('--repairer ');
     expect(kept[kept.indexOf('--repairer ') + 1]).toBe('claude-code');
+    // As a pull request, as repair --branch and --pr hand one over: no switch to turn on until a branch is named.
+    expect(r!.one('.dialog .fxhand [role="switch"]').disabled).toBe(true);
+    await r!.type(r!.one('.dialog .fxhand input'), 'fix/refund-limit');
+    await r!.click(r!.one('.dialog .fxhand [role="switch"]'));
+    expect(r!.all('.dialog .dfacts div').map(text)).toContain('Hands overthe accepted one, committed to fix/refund-limit and opened as a pull request with gh');
+    expect(text(r!.one('.dialog .cmdline'))).toContain('--repairer claude-code --branch fix/refund-limit --pr');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['repair', { fixId: fix.fixId, repairer: 'claude-code', branch: 'fix/refund-limit', pr: true }]]);
+  });
+
+  it('rescues as the fix’s blame did, with the stronger model that rescued its run', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    blame(run, { report: blameReport(run, 'unrescuable') });
+    const { fix } = blame(run, { report: { ...blameReport(run), rescue: { fields: { temperature: 1, model: 'claude-opus-5-5' } } } });
+    await open(fix.fixId);
+    await r!.click(r!.byText('.ph .actions button', 'Run repair'));
+    await r!.until('the dialog to read the fix again', () => !r!.one('.dialog .dlg-ok').disabled);
+    expect(r!.all('.dialog .dfacts div').map(text)).toContain('Rescueswith temperature=1 from each probed call, then claude-opus-5-5 where the recorded model rescues nothing, as the fix’s blame did');
+    expect(text(r!.one('.dialog .cmdline'))).toContain('--set temperature=1 --stronger claude-opus-5-5');
   });
 });
 
@@ -423,12 +443,13 @@ describe('Apply fix', () => {
     expect(started).toEqual([['apply', { fixId, names: { [runs[1]]: 'refund-once' } }]]);
   });
 
-  it('offers the patch to read on an applied fix, never a git apply that would fail', async () => {
+  it('offers the patch to read on an applied fix, never a git apply that would fail, and records the pull request opened for it', async () => {
     const fixId = verified();
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/01M3RZ0001'], tests: 'passed', via: 'fix apply' });
-    await open(fixId);
+    const started: Array<[string, unknown]> = [];
+    await open(fixId, null, null, { started });
     // The status says applied: no Patch applied beside it.
-    expect(buttons()).toEqual(['Show patch']);
+    expect(buttons()).toEqual(['Show patch', 'Record pull request…']);
     await r!.click(r!.byText('.ph .actions button', 'Show patch'));
     expect(text(r!.one('.dialog h3'))).toBe('Show patch');
     expect(text(r!.one('.dialog header p'))).toContain('The fix as repair handed it over, in your working tree since you applied it.');
@@ -436,6 +457,15 @@ describe('Apply fix', () => {
     expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+ You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
     // To read only: Close, and nothing to run.
     expect(r!.all('.dialog footer button').map(text)).toEqual(['Close']);
+    await r!.click(r!.one('.dialog footer button'));
+    // A pull request opened for it by hand, recorded as fix pr records it.
+    await r!.click(r!.byText('.ph .actions button', 'Record pull request…'));
+    expect(text(r!.one('.dialog h3'))).toBe('Record pull request');
+    const url = 'https://github.com/acme/agent/pull/138';
+    await r!.type(r!.one('.dialog input'), url);
+    expect(text(r!.one('.dialog .cmdline'))).toContain(`shadowlap fix pr ${fixId.slice(0, 13)} ${url}`);
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['fix-pr', { fixId, url }]]);
   });
 });
 
@@ -671,7 +701,8 @@ describe('Mark applied for a change of request fields', () => {
     const button = r!.byText('.ph .actions button', 'Marked applied');
     expect(button.disabled).toBe(true);
     expect(button.props.title).toBe("Verified with temperature=1 from each run's first model call, a change to the requests that your agent makes, not to your files");
-    expect(r!.all('.ph .actions button').map(text)).toEqual(['Marked applied']);
+    // A pull request opened for that change can be recorded all the same.
+    expect(r!.all('.ph .actions button').map(text)).toEqual(['Record pull request…', 'Marked applied']);
   });
 
   it('reads Marked applied for a fix verified on the working tree, as it was', async () => {

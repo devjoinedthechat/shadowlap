@@ -2445,8 +2445,10 @@ Its drawer reads *Packing with injection gate*, prints the line it added, then t
 **Run repair**, on an open fix, runs [`shadowlap repair`](./repair.md):
 
 - **From** the fix's failing runs, its check and the scope its blame searched, so the repair blames the same calls and reuses that blame. A blame that stopped part way, whose rescued fork is gone, or that was found under the old check, it blames again first.
+- **Rescuing** as that blame did: the request fields it set (`--set`), and the model **Run blame with stronger model…** asked (`--stronger`), which the repair blames with where the recorded model rescues nothing. So it reuses both blames, and its dialog says so under **Rescues**.
 - **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
 - **With** the repairer `repair.repairer` in `shadowlap.config.json` names, or else your own Claude Code (`--repairer claude-code`).
+- **Handing over** the accepted change as a patch for you to apply, or as the CLI hands one over. **Commit to branch** commits it to a branch of that name without checking it out (`--branch`). **Open it as a pull request with gh** then pushes it and opens it (`--pr`), and the fix records it.
 
 It asks first on every setting of [Spending](#spending), since it runs your agent live. Its card and Cost line say how many candidates it tries, each verified up to twice, and what that is estimated to cost. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
 
@@ -2471,6 +2473,8 @@ The dialog's cost line then reads *Free*, nothing runs, and the blame's own next
 Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, the count for a fixed count, or, for a search that stopped, the furthest call it had rescued the run at.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
+
+**Record pull request…**, on an applied fix no merged pull request holds, records the pull request you opened for it, as `shadowlap fix pr <fix> <url>` does. Fixes then reads where it stands with gh, as for one repair opened, and says *merged* once it is.
 
 **After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*, and its notice offers **Edit check…**, since what is left is to change the check or verify a change of your own. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
 
@@ -3561,6 +3565,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `decisions-verify { sessionId, runId?, runIds?, max?, keptMax?, yes? }` | `decisions --verify`; for Run more attempts, a failing run's attempts raised to `max` and a good run's pairs to `keptMax` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
 | `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
+| `fix-pr { fixId, url }` | Record pull request…: [`fix pr`](./cli.md#fix-pr) with the pull request's link; a 400 for one that isn't one |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or a trace by its id, `{ format: "langfuse", traceId, host? }`, from `langfuse`, `langsmith`, `phoenix` or `logfire`, with `project?` too for `phoenix` |
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
@@ -3589,6 +3594,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 What some of them do:
 
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
+- **`branch`** and **`pr`**, on `repair`: Run repair's hand-over, run as `--branch` and `--pr`. A name `--branch` would misread, or `pr` without a branch, is a 400.
 - **`scope`**, **`set`** and **`model`**, on a run's `blame`: Run blame's settings, run as `--scope`, `--set` for each `key=value` and `--model`. One blame would refuse is a 400 in its words.
 - **`budget`**, on `blame`, `verify` and `repair`: Stop at $, an amount in dollars above 0, run as `--budget` in place of one the command kept, or null for none. Left out, the command runs as it was made. An amount that isn't one is a 400.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).

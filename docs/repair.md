@@ -55,7 +55,7 @@ Your working tree is as it was. The fix is a patch, a report written for a pull 
 
 The repairer is asked for candidates, and that is all it does. Everything that decides what is kept is deterministic: where the run was lost, whether an edit may be applied, the replays, and the verdict. A model that grades its own fixes is lenient with them; here it never sees the verdict until the gate has given it.
 
-1. **Localize**, with `shadowlap blame`: for each failing run, the model call where it was lost, and a fork from that call that passed.
+1. **Localize**, with `shadowlap blame`: for each failing run, the model call where it was lost, and a fork from that call that passed. A blame of the run kept under the same check, rescue and scope is reused, the newest made here, even where another blame of it followed.
 2. **Propose**, by the repairer: rewrites of the system prompt or a tool description, each with a different strategy. It is asked for `--candidates` of them, 3 by default, and only its first that many are tried.
 3. **Screen**, by Shadowlap: it sets aside any rewrite that can't be applied safely or that names a detail of the failing runs.
 4. **Verify**, with `shadowlap verify`: it tries each remaining rewrite, smallest first, and keeps the first the gate accepts twice, the second time with fresh attempts.
