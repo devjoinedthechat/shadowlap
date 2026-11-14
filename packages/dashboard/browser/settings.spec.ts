@@ -48,8 +48,8 @@ test('Settings → Store says when this machine last pushed and pulled, and Pull
   await page.setViewportSize({ width: 390, height: 844 });
   await openPage(page, '/settings/store', 'main#view dl.kvs');
   const sync = page.locator('main#view dl.kvs dt:text-is("Last sync") + dd');
-  // Each part's dot kept with it by a no-break space.
-  await expect(sync).toHaveText(/^(never|pushed \S+\s·\spulled \S+)\s\d+ runs? in the store/);
+  // Each part's dot kept with it by a no-break space; a time today, else a date (`Nov 14`).
+  await expect(sync).toHaveText(/^(never|pushed [^·]+·\spulled [^·]+?)\s\d+ runs? in the store/);
   await sync.getByRole('button', { name: 'Pull runs…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Pull runs' });
   const command = dialog.locator('.cmdline');
