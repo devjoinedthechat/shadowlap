@@ -39,6 +39,8 @@ export interface SelectionInput {
   forkAt: number | null;
   lostAt: number | null;
   outcomeAt: number | null;
+  /** A replay that stopped before its recording did: it opens where it stopped (open-at.ts). */
+  endedEarly?: boolean;
 }
 
 /**
@@ -57,13 +59,13 @@ export function useFailedAt(run: RunDetail, calls: CallRow[], paging: Paging | n
  * in the session, then the most telling (open-at.ts), and a recording follows its newest. It keeps the
  * address and the session's memory in step (`useOpenAt`), and reads the page that holds it first.
  */
-export function useRunSelection({ run, id, call, view, calls, paging, forkAt, lostAt, outcomeAt }: SelectionInput): number | null {
+export function useRunSelection({ run, id, call, view, calls, paging, forkAt, lostAt, outcomeAt, endedEarly = false }: SelectionInput): number | null {
   const runId = run.run.runId;
   const status = run.run.status;
   const live = status === 'running';
   // The newest call: the last of the run's count while its pages come, never the last read.
   const last = paging ? paging.total : calls.length ? calls[calls.length - 1]!.callNo : null;
-  const fallback = useMemo(() => openOn(runId, { forkAt, lostAt, outcomeAt, live, calls, origins: paging?.origins ?? null, kinds: paging?.kinds ?? null, judge: paging?.judge ?? null, total: paging?.total ?? null }), [runId, forkAt, lostAt, outcomeAt, live, calls, paging?.origins, paging?.kinds, paging?.judge, paging?.total]);
+  const fallback = useMemo(() => openOn(runId, { forkAt, endedEarly, lostAt, outcomeAt, live, calls, origins: paging?.origins ?? null, kinds: paging?.kinds ?? null, judge: paging?.judge ?? null, total: paging?.total ?? null }), [runId, forkAt, endedEarly, lostAt, outcomeAt, live, calls, paging?.origins, paging?.kinds, paging?.judge, paging?.total]);
   // While its pages come, a call of the run is one numbered up to its count, read yet or not.
   const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
   const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;

@@ -11,6 +11,9 @@ import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns
 import { callTotals } from '../src/run-stats.js';
 import { addDays, dayIndex, daysFrom, isTimeZone, localDay } from '../src/local-days.js';
 import { addRun, blameOf, capture, DAY, HOUR, OFFLINE } from './read-model-store.js';
+import { normalizeRuns } from '../ui/normalize.js';
+import { runTree } from '../ui/runs.js';
+import type { RunListItem } from '../ui/types.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC: 12:15 in Berlin.
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
@@ -87,7 +90,9 @@ describe('the Runs table', () => {
     expect(k('inj')).toEqual(['fork', { kind: 'check-failed', check: 'send_email called 1 time' }]);
     // Blame's probe that passed is the fork that rescued the run: a row of its own.
     const p1 = rows.get(id.p1)!;
-    expect(p1).toMatchObject({ kind: 'fork', rescues: id.failed, attemptKind: null, outcome: { kind: 'passed', checks: 1 }, label: 'fork @5' });
+    expect(p1).toMatchObject({ kind: 'fork', attemptKind: null, outcome: { kind: 'passed', checks: 1 }, label: 'fork @5' });
+    // Which run it rescued is its page's to say (`rescuedBy`): nothing on a row shows it.
+    expect(p1).not.toHaveProperty('rescues');
     expect(rows.get(id.failed)).toMatchObject({ lostAt: 5, failed: true, author: 'ci', labels: ['refund-bug'], command: 'node agent.mjs' });
     expect(rows.get(id.test2)!.checks).toEqual({ passed: 2, total: 2 });
     expect(rows.get(id.cap)).toMatchObject({ source: '2026-09-30.jsonl', imported: true, covers: ['api'], label: 'capture' });
@@ -520,6 +525,17 @@ describe('the sidebar’s recent runs', () => {
         [forkOfAttempt, 1],
       ]);
       expect(recentRuns(local, { includeAttempts: true }).map((r) => [r.runId, r.depth])).toEqual([
+        [rec, 0],
+        [attempt, 1],
+        [forkOfAttempt, 2],
+      ]);
+      // The sidebar draws it there too, under the recording, though its parent isn't listed.
+      const drawn = (rows: RunRow[]) => runTree(normalizeRuns(rows as unknown as RunListItem[])).map((x) => [x.run.runId, x.depth]);
+      expect(drawn(recentRuns(local))).toEqual([
+        [rec, 0],
+        [forkOfAttempt, 1],
+      ]);
+      expect(drawn(recentRuns(local, { includeAttempts: true }))).toEqual([
         [rec, 0],
         [attempt, 1],
         [forkOfAttempt, 2],

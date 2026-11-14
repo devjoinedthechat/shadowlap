@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { formatSummary, plain, type RunSummary } from '@shadowlap/engine';
 import { dash, demoId, openPage, RESET_RETRY, seriousViolations, startJob } from './dashboard.js';
 
 /**
@@ -35,6 +36,25 @@ async function rowsClearOfTheDock(page: Page, width: number) {
 }
 
 const CLEAN = '✓ Replay clean: 30/30 calls replayed';
+
+/** What `replay` prints for a replay that stopped after 10 of its recording's 30 calls (engine report.ts `formatSummary`). */
+const ENDED_EARLY = formatSummary({
+  runId: '01M53NKBCHNWFMBS9RFZHCREE4',
+  mode: 'replay',
+  status: 'completed',
+  total: 10,
+  byOrigin: { replayed: 10, live: 0, blocked: 0, stubbed: 0, overridden: 0 },
+  byKind: { api: 5, tool: 5, clock: 0, random: 0 },
+  upstreamRequests: 0,
+  injected: 0,
+  imported: false,
+  tokensNotRespent: { inputTokens: 12_000, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+  cost: { spent: 0, saved: 0, captured: 0, unknownModels: [] },
+  durationMs: 900,
+  notReached: [],
+  warnings: [],
+  divergence: { type: 'ended_early', callNo: 11, kind: 'api', name: 'POST /v1/messages', replayedBefore: 10, recorded: 30 },
+} satisfies RunSummary, plain).split('\n');
 
 /** A page in a connection state's preview, which stops no server. */
 async function openState(page: Page, state: 'offline' | 'expired', path: string, drawn: string) {
@@ -99,6 +119,25 @@ test.describe('at 1440', () => {
     await page.locator('#jx').click();
     await expect(page.locator('section.drawer')).toHaveCount(0);
     await expect(page.locator('main#view')).toHaveCSS('padding-bottom', '0px');
+  });
+
+  test('says a Replay that stopped before its recording did ended early, in amber, never finished', async ({ page }) => {
+    const { end } = await startJob(page);
+    end(ENDED_EARLY);
+    await expect(page.locator('#jtitle')).toHaveText('Replayed');
+    const status = page.locator('section.drawer .st2').last();
+    await expect(status).toHaveText('ended early at #11 · exit 0');
+    await expect(status).toHaveClass(/\bwarn\b/);
+  });
+
+  test('says a job killed from outside was interrupted, in amber, never stopped', async ({ page }) => {
+    const { end } = await startJob(page);
+    // Killed by a signal nobody sent from the dashboard: no exit code, and no Stop pressed.
+    end([], { code: null });
+    await expect(page.locator('#jtitle')).toHaveText('Tried replaying');
+    const status = page.locator('section.drawer .st2').last();
+    await expect(status).toHaveText('interrupted');
+    await expect(status).toHaveClass(/\bwarn\b/);
   });
 
   test('stays across pages while it runs, and goes with the page once it has ended', async ({ page }) => {

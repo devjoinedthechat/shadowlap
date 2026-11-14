@@ -207,12 +207,12 @@ describe('a page of a project with no runs', () => {
     expect(r.all('ol.setup')).toEqual([]);
   });
 
-  it('offers Import capture… alone in Runs’ header, a team store’s Pull and Push waiting for the list', async () => {
+  it('offers Record run… and Import capture… alone in Runs’ header, a team store’s Pull and Push waiting for the list', async () => {
     const store = { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs/support-agent', onlyLocal: 2 };
     const state = { ...app({}), runs: [], client: { exported: false, teamStore: () => Promise.resolve(store) } } as unknown as AppState;
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunsPage, {})));
     await r.until('the team store', () => text(r!.one('.ph .eyebrow')) === 'support-agent · team store');
-    expect(r.all('.ph .actions .btn').map(text)).toEqual(['Import capture…']);
+    expect(r.all('.ph .actions .btn').map(text)).toEqual(['Record run…', 'Import capture…']);
   });
 
   it('says on Fixes what it will hold, with Set up <project>, and no blame command, which needs a run', async () => {

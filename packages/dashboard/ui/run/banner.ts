@@ -127,12 +127,15 @@ export interface AttemptInput {
   golden?: string | null;
   /** How blame or verify judged it, as the record keeps it; a `--repeat`'s is worked out from its checks and exit. */
   verdict?: 'passed' | 'failed' | 'inconclusive' | null;
+  /** Its provider was unavailable for it, as blame or verify kept it: inconclusive, never failed. */
+  unavailable?: boolean;
 }
 
 /**
  * How an attempt came out, in the design's words and colours (`em.ok`, `em.no`, `em.inc`): passed,
  * failed, inconclusive, or interrupted, in grey (`n`). `why`: for an inconclusive one, the check
- * that could not be decided, which ends its banner; why one failed is the header's red line.
+ * that could not be decided, or that the provider was unavailable, which ends its banner; why one
+ * failed is the header's red line.
  */
 export interface AttemptOutcome {
   tone: 'ok' | 'no' | 'inc' | 'n';
@@ -505,12 +508,13 @@ function madeBy(i: Pick<BannerInput, 'intervention' | 'interventions'>): FlagVie
  * it stopped, it did not fail); then the verdict blame or verify kept on it, or for a `--repeat`'s
  * attempt what its checks say, else its exit, as the Forks view's bundle counts it: failed (the line
  * under the run's id says what, in the CLI's words), inconclusive with the check that could not be
- * decided, or passed.
+ * decided or the provider that was unavailable for it, as the CLI says it, or passed.
  */
-export function attemptOutcome(i: Pick<BannerInput, 'status' | 'checks' | 'interrupted'>, a: Pick<AttemptInput, 'verdict'> = {}): AttemptOutcome {
+export function attemptOutcome(i: Pick<BannerInput, 'status' | 'checks' | 'interrupted'>, a: Pick<AttemptInput, 'verdict' | 'unavailable'> = {}): AttemptOutcome {
   const { verdict, unsure } = attemptVerdict(i, a.verdict ?? undefined);
   if (verdict === 'interrupted') return { tone: 'n', text: 'interrupted' };
-  if (verdict === 'inconclusive') return unsure ? { tone: 'inc', text: 'inconclusive', why: unsure.label } : { tone: 'inc', text: 'inconclusive' };
+  const why = a.unavailable ? 'provider unavailable' : unsure?.label;
+  if (verdict === 'inconclusive') return why ? { tone: 'inc', text: 'inconclusive', why } : { tone: 'inc', text: 'inconclusive' };
   return verdict === 'passed' ? { tone: 'ok', text: 'passed' } : { tone: 'no', text: 'failed' };
 }
 

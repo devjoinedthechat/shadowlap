@@ -116,9 +116,9 @@ describe('the activity feed', () => {
     expect(byId(items, `r:${ids.failAt}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #2 with --fail-at 2=529 · 1 live · 1 blocked · the agent failed' });
     expect(byId(items, `r:${ids.override}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #3 with --override 2 · 1 live' });
     expect(byId(items, `r:${ids.replayFailed}:end`)).toMatchObject({ kind: 'fail', text: 'Replay failed · 3/3 replayed' });
-    // Only a clean replay gets the icon the mock calls "Clean replay".
-    expect(byId(items, `r:${ids.replayStopped}:end`)).toMatchObject({ kind: 'rec', text: 'Replay interrupted · 3/3 replayed' });
-    expect(byId(items, `r:${ids.replayEmpty}:end`)).toMatchObject({ kind: 'rec', text: 'Replay finished · no calls' });
+    // Only a clean replay gets the icon the mock calls "Clean replay"; any other is a plain replay's, never a recording's.
+    expect(byId(items, `r:${ids.replayStopped}:end`)).toMatchObject({ kind: 'replay', text: 'Replay interrupted · 3/3 replayed' });
+    expect(byId(items, `r:${ids.replayEmpty}:end`)).toMatchObject({ kind: 'replay', text: 'Replay finished · no calls' });
   });
 
   it('bundles --repeat attempts into one entry, and leaves blame probes out', () => {
@@ -580,7 +580,7 @@ describe('an outcome that is inconclusive', () => {
     store.endRun(failed, 'completed', 600);
     const items = activity(store).items;
     expect(items.find((i) => i.id === `r:${rec}:end`)).toMatchObject({ kind: 'rec', outcome: 'warn', text: `Recorded 0 calls · check inconclusive: ${judge}` });
-    expect(items.find((i) => i.id === `r:${replay}:end`)).toMatchObject({ kind: 'rec', outcome: 'warn', text: `Replay finished · no calls · check inconclusive: ${judge}` });
+    expect(items.find((i) => i.id === `r:${replay}:end`)).toMatchObject({ kind: 'replay', outcome: 'warn', text: `Replay finished · no calls · check inconclusive: ${judge}` });
     const red = items.find((i) => i.id === `r:${failed}:end`);
     expect(red).toMatchObject({ kind: 'fail', text: 'Replay finished · no calls · check failed: exits 0' });
     expect(red?.outcome).toBeUndefined();

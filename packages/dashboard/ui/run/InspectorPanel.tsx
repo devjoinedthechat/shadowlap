@@ -38,9 +38,9 @@ const RequestDiff = onShow(
  * Show diff about to be pressed (the pointer or the focus on it): its scripts and, for a run that
  * ended, its answer are asked for now, so the panel draws at once.
  */
-export function warmDiff(client: Pick<Client, 'requestDiff'>, runId: string, live: boolean): void {
+export function warmDiff(client: Pick<Client, 'requestDiff'>, runId: string, live: boolean, at: number | null = null): void {
   RequestDiff.preload();
-  if (!live) import('./RequestDiff.js').then((m) => m.askDiff(client, runId, false)).catch(() => undefined);
+  if (!live) import('./RequestDiff.js').then((m) => m.askDiff(client, runId, false, at)).catch(() => undefined);
 }
 
 /**
@@ -103,11 +103,12 @@ export function usePickInView(select: (n: number) => void, selected: number | nu
 
 /**
  * The panel open on a run's page, for that run alone: `showDiff` and `onToggleDiff` for the diff's
- * toggle, `showChange` and `onToggleChange` for the first bad commit's, `close` for every pick of a
- * call. One opened on the page below 1160px is brought into view; one the page comes back to, kept
- * open from a visit before, leaves the page where it starts.
+ * toggle, which opens it at the call `diffAt` where one is picked (diffCallOf), `showChange` and
+ * `onToggleChange` for the first bad commit's, `close` for every pick of a call. One opened on the
+ * page below 1160px is brought into view; one the page comes back to, kept open from a visit before,
+ * leaves the page where it starts.
  */
-export function useFindingPanel(runId: string) {
+export function useFindingPanel(runId: string, diffAt: number | null = null) {
   const panel = usePanel(runId);
   const showDiff = panel?.kind === 'diff';
   const showChange = panel?.kind === 'change';
@@ -119,7 +120,7 @@ export function useFindingPanel(runId: string) {
     was.current = { runId, shown };
     if (shown && before.runId === runId && before.shown !== shown) inspectorInView();
   }, [runId, shown]);
-  return { panel, showDiff, onToggleDiff: () => (showDiff ? closePanelOn(runId) : openDiff(runId)), showChange, onToggleChange: () => (showChange ? closePanelOn(runId) : openDiff(runId, 'change')), close };
+  return { panel, showDiff, onToggleDiff: () => (showDiff ? closePanelOn(runId) : openDiff(runId, 'diff', diffAt)), showChange, onToggleChange: () => (showChange ? closePanelOn(runId) : openDiff(runId, 'change')), close };
 }
 
 /** The prefix of an injection test's results' key: `injection:<result id>`, its finding's `which`. */
@@ -148,13 +149,15 @@ export function useResultsBodies(runId: string, presets: ChaosMatrix | null, abo
  * inspector's width. The page gives the results' body by their key (`results`); a panel with nothing
  * to show leaves the inspector as it is, as a run with no diff does. `onPick` is the page's pick of a
  * call, which a link in the panel to one of the run's calls makes. The diff's title names the call it
- * shows: the divergence's, or once the answer came the one it shows (after a tool a fork changed, the
- * next model call).
+ * shows: the call it opened at, else the divergence's, or once the answer came the one it shows
+ * (after a tool a fork changed, the next model call).
  */
 export function InspectorPlace({ panel, run, offers = null, onClose, onPick, results, children }: { panel: Panel | null; run: RunDetail; offers?: RunOffers | null; onClose: () => void; onPick: (n: number) => void; results?: ((key: string) => ReactNode) | undefined; children: ReactNode }) {
   const runId = run.run.runId;
-  const [shown, setShown] = useState<{ runId: string; at: number } | null>(null);
-  const onAt = useCallback((at: number) => setShown({ runId, at }), [runId]);
+  // The call the answer showed, for the call it was asked at (none: where the run left its recording).
+  const asked = panel?.kind === 'diff' ? (panel.at ?? null) : null;
+  const [shown, setShown] = useState<{ runId: string; asked: number | null; at: number } | null>(null);
+  const onAt = useCallback((at: number) => setShown({ runId, asked, at }), [runId, asked]);
   // A part the served dashboard hands in, as a copy never shows a change (served-parts.ts).
   const { ChangeBox } = useServedParts();
   const body = panel?.kind === 'results' ? (results?.(panel.key) ?? null) : null;
@@ -174,8 +177,8 @@ export function InspectorPlace({ panel, run, offers = null, onClose, onPick, res
   const d = run.run.divergence;
   if (panel?.kind !== 'diff' || !d) return <>{children}</>;
   return (
-    <PanelFrame title={`Diff at #${shown?.runId === runId ? shown.at : d.callNo}`} hide="Hide diff" panel={panel} onClose={onClose} onPick={onPick}>
-      <RequestDiff run={run} onAt={onAt} />
+    <PanelFrame title={`Diff at #${shown?.runId === runId && shown.asked === asked ? shown.at : (asked ?? d.callNo)}`} hide="Hide diff" panel={panel} onClose={onClose} onPick={onPick}>
+      <RequestDiff run={run} at={asked} onAt={onAt} />
     </PanelFrame>
   );
 }

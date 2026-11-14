@@ -407,7 +407,9 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 /** Details' Origin and Outcome: what made the call, an overridden one by the flag that did, and who answered a failed one. */
 function originRows(c: CallDetail['call'], flag: string | null, played: string | null): Array<[string, ReactNode]> {
   const origin = originOf(c);
-  const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
+  // An overridden call says what overrode it, though it ended in an error and is drawn as failed.
+  const overridden = c.origin === 'overridden';
+  const over = overridden && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
   // The preset a call was played in by, said once for its Origin and its Outcome.
   const pre = played && `by the ${played} preset`;
   const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? (
@@ -421,7 +423,7 @@ function originRows(c: CallDetail['call'], flag: string | null, played: string |
           )}
         </small>
       </>
-    ) : over || (origin === 'over' && pre) ? (
+    ) : over || (overridden && pre) ? (
       <>
         {c.origin} <small>{pre || (over ? <Code>{over}</Code> : null)}</small>
       </>
@@ -523,11 +525,7 @@ function DetailsTab({ runId, detail, models, flag, played }: { runId: string; de
 }
 
 function Notes({ runId, callNo, notes }: { runId: string; callNo: number; notes: RunNote[] }) {
-  const { client, actionsOff, exported, toast, guard } = useApp();
   const [list, setList] = useState(notes);
-  const [text, setText] = useState('');
-  const [saving, setSaving] = useState(false);
-  const enabled = !exported && !actionsOff;
   return (
     <>
       <div className="sec-k">Notes on #{callNo}</div>
@@ -543,36 +541,49 @@ function Notes({ runId, callNo, notes }: { runId: string; callNo: number; notes:
           <div className="muted">No notes yet. Notes travel with the run when it is packed or exported.</div>
         )}
       </div>
-      {enabled ? (
-        <form
-          className="addnote"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const v = text.trim();
-            if (!v) return;
-            guard(() => {
-              setSaving(true);
-              client
-                .note(runId, callNo, v)
-                .then(
-                  (r) => {
-                    setList(r.notes);
-                    setText('');
-                    toast(`Note saved on #${callNo}`);
-                  },
-                  (err: unknown) => toast(errorText(err), 'error'),
-                )
-                .finally(() => setSaving(false));
-            });
-          }}
-        >
-          <textarea placeholder="Add a note on this call" aria-label={`A note on #${callNo}`} value={text} onChange={(e) => setText(e.target.value)} />
-          <ActionButton className="btn" type="submit" disabled={saving || !text.trim()}>
-            Add note
-          </ActionButton>
-        </form>
-      ) : null}
+      <NoteForm runId={runId} callNo={callNo} onSaved={setList} />
     </>
+  );
+}
+
+/**
+ * Adds a note on a call, or on the whole run (`callNo` null), as `shadowlap note` does with or without
+ * `--call`: `onSaved` hears the notes the server keeps on that call, or on the run, after it. None on
+ * a dashboard that changes nothing, or in a copy.
+ */
+export function NoteForm({ runId, callNo, onSaved }: { runId: string; callNo: number | null; onSaved: (notes: RunNote[]) => void }) {
+  const { client, actionsOff, exported, toast, guard } = useApp();
+  const [text, setText] = useState('');
+  const [saving, setSaving] = useState(false);
+  if (exported || actionsOff) return null;
+  return (
+    <form
+      className="addnote"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const v = text.trim();
+        if (!v) return;
+        guard(() => {
+          setSaving(true);
+          client
+            .note(runId, callNo, v)
+            .then(
+              (r) => {
+                onSaved(r.notes);
+                setText('');
+                toast(callNo === null ? 'Note saved on the run' : `Note saved on #${callNo}`);
+              },
+              (err: unknown) => toast(errorText(err), 'error'),
+            )
+            .finally(() => setSaving(false));
+        });
+      }}
+    >
+      <textarea placeholder={callNo === null ? 'Add a note on this run' : 'Add a note on this call'} aria-label={callNo === null ? 'A note on this run' : `A note on #${callNo}`} value={text} onChange={(e) => setText(e.target.value)} />
+      <ActionButton className="btn" type="submit" disabled={saving || !text.trim()}>
+        Add note
+      </ActionButton>
+    </form>
   );
 }
 

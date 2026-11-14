@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { glued, openPage, seriousViolations } from './dashboard.js';
+import { demoId, glued, openPage, patched, seriousViolations } from './dashboard.js';
 
 /**
  * Runs as the design draws it, in a real browser: the twelve weeks a slim row of days that a drag
@@ -240,4 +240,56 @@ test('Back and Forward take each view of Runs to where it was left, after a scro
   await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
   await expect.poll(() => rows.count()).toBeLessThan(every);
   await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(100);
+});
+
+test('a golden’s issue on Runs › Failed opens Tests with its report open, as Needs a look’s golden does', async ({ page }) => {
+  await openPage(page, '/runs?types=failed', 'main#view table.issues tbody tr');
+  const golden = page.locator('main#view table.issues tr.iss .it a', { has: page.locator('code.gn') }).first();
+  const name = (await golden.locator('code.gn').textContent())!;
+  await expect(golden).toHaveAttribute('href', `#/tests?report=${encodeURIComponent(name)}`);
+  await golden.click();
+  await expect(page).toHaveURL(/#\/tests/);
+});
+
+test('Record run… asks for your command, asks first where this folder never ran it, and its drawer offers Watch live while it records', async ({ page }) => {
+  // The setup's command, the plan and the job are answered here, so nothing runs: the run the job makes is a demo recording's.
+  const made = demoId('ticket');
+  const job = { id: 'deadbeefdeadbeef', kind: 'record', title: 'Recording', args: ['run', '--', 'node', 'agent.mjs'], worktree: null, runId: null, opensRun: true, startedAt: Date.now(), done: false, stopped: false, code: null, newRunId: null as string | null, lines: [] as string[], total: 0 };
+  const now = { job, planned: [] as unknown[], started: [] as unknown[] };
+  const confirm = { title: 'Record run in ~/support-agent', lead: 'Records one run: every model and tool call.', moved: null, calls: { value: 'the real API, with your keys', quiet: 'never stored' }, command: 'shadowlap run -- node agent.mjs', button: 'Record run' };
+  await page.route(/\/api\/setup(\?.*)?$/, (route) => patched<Record<string, unknown>>(route, (setup) => ({ ...setup, command: 'node agent.mjs' })));
+  await page.route(/\/api\/setup\/record$/, (route) => {
+    now.planned.push(route.request().postDataJSON());
+    return route.fulfill({ json: { display: confirm.command, argv: ['node', 'agent.mjs'], confirm } });
+  });
+  await page.route(/\/api\/jobs(\?.*)?$/, (route) => {
+    if (route.request().method() !== 'POST') return route.fulfill({ json: { jobs: now.started.length ? [{ ...now.job, lines: undefined }] : [] } });
+    now.started.push(route.request().postDataJSON());
+    return route.fulfill({ json: now.job });
+  });
+  await page.route(new RegExp(`/api/jobs/${job.id}(\\?.*)?$`), (route) => route.fulfill({ json: now.job }));
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  await page.locator('main#view .ph .actions button', { hasText: 'Record run…' }).click();
+  const dialog = page.locator('.dialog');
+  await expect(dialog.locator('h3')).toHaveText('Record run');
+  await expect(dialog.locator('input')).toHaveValue('node agent.mjs');
+  await expect(dialog.locator('input')).toBeFocused();
+  await expect(dialog.locator('.cmdline')).toContainText('shadowlap run -- node agent.mjs');
+  await expect(dialog.locator('.dcost')).toContainText('Billed by your provider');
+  expect(await seriousViolations(page)).toEqual([]);
+  // A command this folder never ran asks first, in the setup's own words; nothing starts before the yes.
+  await page.keyboard.press('Enter');
+  await expect(dialog.locator('h3')).toHaveText('Record run in ~/support-agent');
+  expect(now.planned).toEqual([expect.objectContaining({ command: 'node agent.mjs' })]);
+  expect(now.started).toEqual([]);
+  expect(await seriousViolations(page)).toEqual([]);
+  await dialog.locator('.dlg-ok').click();
+  await expect(page.locator('#jtitle')).toHaveText('Recording');
+  expect(now.started).toEqual([expect.objectContaining({ kind: 'record', command: 'node agent.mjs', confirmed: true })]);
+  // Once the CLI names the run it records, Watch live opens its page.
+  now.job = { ...job, newRunId: made };
+  const watch = page.locator('section.drawer a', { hasText: 'Watch live' });
+  await expect(watch).toHaveAttribute('href', `#/run/${made}`);
+  await watch.click();
+  await expect(page).toHaveURL(new RegExp(`#/run/${made}`));
 });

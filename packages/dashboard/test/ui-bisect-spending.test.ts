@@ -135,3 +135,39 @@ describe('Find breaking commit, priced from its commit', () => {
     expect(est()).toEqual({ usd: null, ceiling: false, form: true });
   });
 });
+
+describe('Find breaking commit from the calendar', () => {
+  const choices = (o: Record<string, unknown> = {}) => ({ ...OFFER, target: { kind: 'run', runId: RUN }, expect: null, revisions: [{ rev: 'aaaaaaa', at: Date.UTC(2026, 0, 1), runs: 2, failed: 0, subject: 'Escalate refunds above the limit' }], ...o }) as unknown as BisectChoices;
+  const failure = { label: 'fork @17', command: 'python refund_agent.py T-8812', startedAt: Date.UTC(2026, 8, 30, 10, 14) };
+
+  it('names each commit by its subject, as the server sends it, never by a date', async () => {
+    await shown(createElement(FindCommitDialog, { runId: RUN, choices: choices(), failure, onClose: () => undefined }));
+    const pick = text(r!.one('.dialog .bgood label'));
+    expect(pick).toContain('aaaaaaa Escalate refunds above the limit');
+    expect(pick).not.toMatch(/Jan 1/);
+  });
+
+  it('says the failure it starts from: its id, what it is, its command and when it ran', async () => {
+    await shown(createElement(FindCommitDialog, { runId: RUN, choices: choices(), failure, onClose: () => undefined }));
+    const first = r!.all('.dialog .dfacts > div')[0];
+    expect(text(first.querySelectorAll('dt')[0])).toBe('Failure');
+    expect(first.querySelector('dd a')!.getAttribute('href')).toBe(`#/run/${RUN}`);
+    expect(text(first)).toContain(RUN.slice(0, 10));
+    expect(text(first)).toContain('fork @17');
+    expect(text(first)).toContain('python refund_agent.py T-8812');
+  });
+
+  it('names the first failure on the days picked that it passed over, a link to its run', async () => {
+    const earlier = { runId: '01M50J6C69T0S34ZZX4WBXJKD0', why: '01M50J6C69 failed at the first commit, f6c5756: there is nothing before it to search' };
+    await shown(createElement(FindCommitDialog, { runId: RUN, choices: choices(), failure, earlier, onClose: () => undefined }));
+    const link = r!.one('.dialog .dwarn a');
+    expect(link.getAttribute('href')).toBe(`#/run/${earlier.runId}`);
+    expect(text(link)).toBe('01M50J6C69');
+  });
+
+  it('offers Open Tests where it can’t search and Tests finds the commit from the golden', async () => {
+    const off = choices({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund: find the breaking commit from the golden on Tests', onTests: true, good: null });
+    await shown(createElement(FindCommitDialog, { runId: RUN, choices: off, failure, onClose: () => undefined }));
+    expect(text(r!.one('.dialog .dlg-ok'))).toBe('Open Tests');
+  });
+});

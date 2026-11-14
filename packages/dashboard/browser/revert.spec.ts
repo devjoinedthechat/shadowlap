@@ -118,7 +118,7 @@ for (const [width, height] of [
 
 test('a revert’s drawer reads Reverting, then Reverted once git reverted and the test ran, or Tried reverting where git refused', async ({ page }) => {
   const run = await routeCrash(page);
-  const job = (git: 'done' | 'untouched', code: number | null, lines: string[]) => ({
+  const job = (git: 'done' | 'untouched', code: number | null, lines: string[], stopped = false) => ({
     id: 'revertjob',
     kind: 'revert',
     title: `Reverting ${REV}`,
@@ -129,7 +129,7 @@ test('a revert’s drawer reads Reverting, then Reverted once git reverted and t
     startedAt: Date.now() - 1000,
     endedAt: code === null ? null : Date.now(),
     done: code !== null,
-    stopped: false,
+    stopped,
     code,
     git: code === null ? undefined : git,
     newRunId: null,
@@ -143,13 +143,15 @@ test('a revert’s drawer reads Reverting, then Reverted once git reverted and t
   const ends = [
     { git: 'done' as const, code: 1, lines: [`$ git revert --no-commit ${REV}`, `reverted ${REV} in your working tree · not committed`, `$ shadowlap test ${GOLDEN}`, '✗ 1 of 1 failed'], title: `Reverted ${REV}`, status: 'test failed · exit 1' },
     { git: 'untouched' as const, code: 128, lines: [`$ git revert --no-commit ${REV}`, 'error: Your local changes to the following files would be overwritten by merge:', '\tagent/refund.py'], title: `Tried reverting ${REV}`, status: 'not reverted · exit 128' },
+    // Stopped while its test ran: the revert stays in your working tree, which the drawer says.
+    { git: 'done' as const, code: 143, stopped: true, lines: [`$ git revert --no-commit ${REV}`, `reverted ${REV} in your working tree · not committed`, `$ shadowlap test ${GOLDEN}`, '0 passed, 0 failed, 1 not run: interrupted'], title: `Reverted ${REV}`, status: 'test stopped · exit 143' },
   ];
   for (const end of ends) {
     let polls = 0;
     await page.unroute(/\/api\/jobs(\?.*)?$/);
     await page.unroute(/\/api\/jobs\/revertjob(\?.*)?$/);
     await page.route(/\/api\/jobs(\?.*)?$/, (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 202, json: job(end.git, null, []) }) : route.fulfill({ json: { jobs: [] } })));
-    await page.route(/\/api\/jobs\/revertjob(\?.*)?$/, (route) => route.fulfill({ json: ++polls >= 2 ? job(end.git, end.code, end.lines) : job(end.git, null, end.lines.slice(0, 1)) }));
+    await page.route(/\/api\/jobs\/revertjob(\?.*)?$/, (route) => route.fulfill({ json: ++polls >= 2 ? job(end.git, end.code, end.lines, end.stopped) : job(end.git, null, end.lines.slice(0, 1)) }));
     await openPage(page, `/run/${run}`, 'run');
     await page.locator('.rhead .btn.lime[data-next="revert"]').click();
     const dialog = page.locator(DIALOG);

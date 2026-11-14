@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ABOUT_FROM } from '../../../engine/src/about.js';
-import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail } from '../api.js';
+import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail, RunNote } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { CopyButton, Org } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
@@ -14,6 +14,7 @@ import { navigate } from '../router.js';
 import { kindWord } from '../runs.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
+import { NoteForm } from './Inspector.js';
 import { modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
 import { lineageRunLike } from './view-model.js';
 import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes, tallyProviders, upstreamParts } from './provenance.js';
@@ -126,7 +127,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   const scopes = recordedScopes(run.calls);
   const like = runLikeOf(run);
   const flag = flagText(run.intervention ?? null);
-  const what = r.divergence ? `fork at #${r.divergence.callNo}${run.parent ? ` of ${shortId(run.parent.runId)}` : ''}${flag ? ` · ${flag}` : ''}` : run.parent ? `${kindWord(like)} of ${shortId(run.parent.runId)}${r.meta?.test?.golden ? ` · ${r.meta.test.golden}` : ''}` : run.source ? `imported from ${run.source}` : 'recording';
+  const what = r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'fork'} at #${r.divergence.callNo}${run.parent ? ` of ${shortId(run.parent.runId)}` : ''}${flag ? ` · ${flag}` : ''}` : run.parent ? `${kindWord(like)} of ${shortId(run.parent.runId)}${r.meta?.test?.golden ? ` · ${r.meta.test.golden}` : ''}` : run.source ? `imported from ${run.source}` : 'recording';
   // The ancestors, oldest first, and this run.
   const chain: LineageNode[] = [];
   if (lineage.data) {
@@ -137,8 +138,6 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       cur = cur.parentRunId ? byId.get(cur.parentRunId) : undefined;
     }
   }
-  const notes = r.meta?.notes ?? [];
-  const labels = r.meta?.labels ?? [];
   const rules = prov?.mask?.rules ?? meta?.redactRules;
   // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
   const uncounted = prov?.mask?.why ?? null;
@@ -264,28 +263,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
             </Copy>
           )}
           <Copy className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</Copy>
-          {labels.length || notes.length ? (
-            <>
-              <h2>Labels and notes</h2>
-              {labels.length ? (
-                <p className="muted">
-                  {labels.map((l) => (
-                    <span className="chip" key={l}>
-                      {l}
-                    </span>
-                  ))}
-                </p>
-              ) : null}
-              <div className="notes">
-                {notes.map((n, i) => (
-                  <div className="note" key={i}>
-                    {n.callNo !== null ? <b>#{n.callNo}</b> : null} {n.text}
-                    <small>{stamp(n.at)}</small>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : null}
+          <LabelsAndNotes run={r} />
         </section>
       </div>
       {ledger ? (
@@ -357,6 +335,46 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Its labels, and its notes on its calls and on the run, with the form that writes a note on the
+ * whole run, as `shadowlap note` without --call does (a call's is added in its details). A note saved
+ * here brings the run's own back as the server keeps them (api.ts `addNote`). Nothing where there are
+ * none and none can be written: an exported copy, a read-only dashboard.
+ */
+function LabelsAndNotes({ run: r }: { run: RunDetail['run'] }) {
+  const { exported, actionsOff } = useApp();
+  const [own, setOwn] = useState<{ runId: string; notes: RunNote[] } | null>(null);
+  const kept = r.meta?.notes ?? [];
+  const notes = own?.runId === r.runId ? [...kept.filter((n) => n.callNo !== null), ...own.notes].sort((a, b) => a.at - b.at) : kept;
+  const labels = r.meta?.labels ?? [];
+  if (!labels.length && !notes.length && (exported || actionsOff)) return null;
+  return (
+    <>
+      <h2>Labels and notes</h2>
+      {labels.length ? (
+        <p className="muted">
+          {labels.map((l) => (
+            <span className="chip" key={l}>
+              {l}
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {notes.length ? (
+        <div className="notes">
+          {notes.map((n, i) => (
+            <div className="note" key={i}>
+              {n.callNo !== null ? <b>#{n.callNo}</b> : null} {n.text}
+              <small>{stamp(n.at)}</small>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <NoteForm runId={r.runId} callNo={null} onSaved={(n) => setOwn({ runId: r.runId, notes: n })} />
+    </>
   );
 }
 

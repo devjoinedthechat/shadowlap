@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { demoId, openPage, seriousViolations, sideways, startJob } from './dashboard.js';
+import { demoId, openPage, patched, seriousViolations, sideways, startJob } from './dashboard.js';
 
 /**
  * A run's strip and views as the design lays them out (ui/css/run.css, ui/run/fit-work.ts): the strip
@@ -288,4 +288,58 @@ test('in a forced-colours theme the notch is drawn in the text colour and the ke
   // stylesheet gives where it paints the system's, so the lime button's dark words would read as dark
   // on the forced black. Its contrast is checked in the page's own colours above.
   expect((await seriousViolations(page)).filter((v) => !v.startsWith('color-contrast '))).toEqual([]);
+});
+
+test('a replayed call that ended in an error is drawn failed in Calls, as Runs’ strip codes it', async ({ page }) => {
+  // The demo's clean replay, its fifth call a recorded error served again, as a replay serves one (the sidecar's serveReplayedTool).
+  const id = demoId('clean');
+  await page.route(new RegExp(`/api/runs/${id}(\\?.*)?$`), (route) =>
+    patched<{ calls: Array<{ callNo: number; origin: string; outcome: string | null; error: string | null }> }>(route, (d) => ({ ...d, calls: d.calls.map((c) => (c.callNo === 5 ? { ...c, outcome: 'error', error: 'TimeoutError: the order service timed out' } : c)) })),
+  );
+  await openPage(page, `/run/${id}/5`, 'main#view table.calls tbody tr[data-wi]');
+  const row = page.locator('main#view table.calls tbody tr[aria-selected="true"]');
+  await expect(row.locator('td').first()).toHaveText('5');
+  await expect(row.locator('.orgw')).toHaveText('failed');
+});
+
+test('Show diff opens at a call picked that the fork made live, its request against the recording’s call of its number', async ({ page }) => {
+  const id = demoId('override');
+  await openPage(page, `/run/${id}`, 'run');
+  // The fork's last call it made live, past where it left the recording.
+  const live = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll<HTMLElement>('#vbody table.calls tbody tr[data-call]')].filter((tr) => tr.querySelector('.orgw')?.textContent === 'live');
+    return Number(rows.at(-1)?.getAttribute('data-call'));
+  });
+  expect(live).toBeGreaterThan(0);
+  await page.locator(`#vbody table.calls tbody tr[data-call="${live}"]`).click();
+  await expect(page.locator('#vbody tr[aria-selected="true"]')).toHaveAttribute('data-call', String(live));
+  const asked = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith(`/runs/${id}/diff`) && new URL(r.url()).searchParams.get('call') === String(live));
+  await page.locator('#view [data-act="diff"]').click();
+  await asked;
+  const panel = page.locator('#insp.fpanel');
+  await expect(panel.locator('.fhead .ct')).toHaveText(`Diff at #${live}`);
+  await expect(panel.locator('.diffpanel')).toBeVisible();
+});
+
+test('Provenance writes a note on the whole run where the run’s notes are listed, from the keyboard', async ({ page }) => {
+  const id = demoId('ticket');
+  const sent: unknown[] = [];
+  // Answered here, so nothing is written to the demo every test shares: the run's own notes, as the server keeps them.
+  await page.route(new RegExp(`/api/runs/${id}/notes$`), (route) => {
+    const body = route.request().postDataJSON() as { callNo: number | null; text: string };
+    sent.push(body);
+    return route.fulfill({ json: { notes: [{ callNo: null, text: body.text, at: Date.now() }] } });
+  });
+  await openPage(page, `/run/${id}/provenance`, 'main#view .prov');
+  const field = page.getByRole('textbox', { name: 'A note on this run' });
+  await field.focus();
+  await page.keyboard.type('Escalated to billing after the refund audit.');
+  await page.keyboard.press('Tab');
+  await expect(page.locator(':focus')).toHaveText('Add note');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('main#view .prov .notes .note', { hasText: 'Escalated to billing after the refund audit.' })).toBeVisible();
+  expect(sent).toEqual([{ callNo: null, text: 'Escalated to billing after the refund audit.' }]);
+  // A note on a call stays listed with it.
+  await expect(page.locator('main#view .prov .notes .note b', { hasText: '#17' })).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
 });

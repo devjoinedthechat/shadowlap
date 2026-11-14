@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, expectAccessible, openPage } from './dashboard.js';
+import { dash, demoId, expectAccessible, openPage, patched } from './dashboard.js';
 
 // The shell: the sidebar, the top bar, the status bar and the palette, as every page shows them.
 
@@ -108,6 +108,16 @@ test('the parent’s crumb says p on its card, and p opens it', async ({ page })
   await page.keyboard.press('p');
   // The parent's page, at the call it opens on.
   await expect.poll(() => page.evaluate(() => location.hash)).toMatch(new RegExp(`^${to!}(/\\d+)?$`));
+});
+
+test('Recent runs draws a run made from an attempt it leaves out under the run that attempt came from, as the server nests it', async ({ page }) => {
+  // The demo's override fork, as the server lists a run made from one of its recording's attempts:
+  // its parent, the attempt, is left out, and the row comes a level in under the recording.
+  const fork = demoId('override');
+  await page.route(/\/api\/runs(\?.*)?$/, (route) => patched<{ runs: Array<{ runId: string; parentRunId: string | null }> }>(route, (d) => ({ ...d, runs: d.runs.map((r) => (r.runId === fork ? { ...r, parentRunId: '01M5GRZZZZZZZZZZZZZZZZZZZZ' } : r)) })));
+  await openPage(page, '/', 'overview');
+  const row = page.locator(`#side #runs a.run[data-rowkey="#/run/${fork}"]`);
+  await expect(row).toHaveAttribute('style', /--d:\s*1\b/);
 });
 
 test('Recent runs folds at its caret, and the browser keeps it folded', async ({ page }) => {

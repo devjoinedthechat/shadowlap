@@ -124,7 +124,10 @@ export const ACTIONS = {
   packBehaviour: { label: 'Pack as golden' },
   packWithChecks: { label: 'Pack with checks…' },
   runTest: { label: 'Run test' },
-  // Runs and Training. Import capture… takes a trace from a store too, which Activity names.
+  // Runs and Training. Record run… asks for the agent's command, as the setup's Record does (the
+  // server titles its job `Recording`); Import capture… takes a trace from a store too, which
+  // Activity names.
+  recordRun: { label: 'Record run…', doing: 'Recording' },
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
   scoreModel: { label: 'Score model…', doing: 'Scoring model' },

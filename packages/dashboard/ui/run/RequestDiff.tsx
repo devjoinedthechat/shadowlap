@@ -19,12 +19,12 @@ export { askDiff, JsonDiffPart };
  * report load too.
  */
 
-/** The panel's body: `onAt` hears the call the diff shows once the answer came, for the panel's head. */
-export function RequestDiff({ run, onAt }: { run: RunDetail; onAt: (at: number) => void }) {
+/** The panel's body, at call `at` where one was picked (null: where the run left its recording): `onAt` hears the call the diff shows once the answer came, for the panel's head. */
+export function RequestDiff({ run, at: asked = null, onAt }: { run: RunDetail; at?: number | null; onAt: (at: number) => void }) {
   const { client } = useApp();
   const r = run.run;
   const live = r.status === 'running';
-  const answer = useLoad(() => askDiff(client, r.runId, live), live ? `${r.runId} live` : r.runId);
+  const answer = useLoad(() => askDiff(client, r.runId, live, asked), `${r.runId}${asked === null ? '' : ` #${asked}`}${live ? ' live' : ''}`);
   const at = answer.data?.at;
   useEffect(() => {
     if (at !== undefined) onAt(at);
@@ -32,13 +32,13 @@ export function RequestDiff({ run, onAt }: { run: RunDetail; onAt: (at: number) 
   return (
     <section className="diffpanel jdp">
       {answer.data ? (
-        <DiffAnswer diff={answer.data} />
+        <DiffAnswer diff={answer.data} picked={asked !== null} />
       ) : answer.error ? (
         <ErrorState retry={answer.reload}>{errorText(answer.error)}</ErrorState>
       ) : answer.loading ? (
         <Skeleton what="diff" lines={6} />
       ) : (
-        <NoDiffAnswer who="This run" at={r.divergence?.callNo} />
+        <NoDiffAnswer who="This run" at={asked ?? r.divergence?.callNo} />
       )}
     </section>
   );

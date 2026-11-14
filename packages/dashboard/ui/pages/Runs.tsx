@@ -9,15 +9,16 @@ import { viewerTimeZone } from '../format.js';
 import { useLatest, useLoad, useSettled, type Loaded } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
-import { IMPORT_ASK } from '../page-ask.js';
+import { IMPORT_ASK, RECORD_ASK, type PageAsk } from '../page-ask.js';
 import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { TwelveWeeks } from '../runspage/DaysRow.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
 import { RunsActions } from '../runspage/RunsActions.js';
 import { RunsFilterField } from '../runspage/FilterField.js';
-import { FindCommitDialog } from '../runspage/FindCommit.js';
+import { FindCommitDialog, type DaysFailure } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
+import { RecordRunAsks } from '../runspage/RecordRun.js';
 import { ALL_RUNS, dayTimes, runsHref } from '../runspage/query.js';
 import { commitRuns, replaceRuns, useRunsAddress } from '../runspage/history.js';
 import { useKeptScroll } from '../runspage/scroll.js';
@@ -88,23 +89,35 @@ export function RunsPage({ filter }: { filter?: RunsFilterRead | undefined }) {
 const RUNS_LINE = 'Recordings, and the replays and forks made from them.';
 
 /**
- * Runs in a project with no runs yet: its header, with Import capture… alone (a team store's Pull
- * and Push wait for the list, as the setup is the way to a first run), then what the page will hold,
- * with Set up <project> and the command quiet under it. No calendar, chips or filter: nothing to
- * pick from. The first run recorded turns it into the list.
+ * Runs in a project with no runs yet: its header, with Record run… and Import capture… alone (a team
+ * store's Pull and Push wait for the list, as the setup is the way to a first run), then what the
+ * page will hold, with Set up <project> and the command quiet under it. No calendar, chips or
+ * filter: nothing to pick from. The first run recorded turns it into the list.
  */
 function NoRuns() {
   const { meta } = useApp();
   const { store, known } = useTeamStoreState();
-  const [importing, setImporting] = useState(() => IMPORT_ASK.take());
-  useImportAsked(useCallback(() => setImporting(true), []));
+  const [dialog, setDialog] = useState<RunsDialog | null>(askedDialog);
+  useDialogsAsked(setDialog);
   return (
     <Page>
-      <PageHeader eyebrow={runsEyebrow(projectOf(meta), store, known)} title="Runs" text={RUNS_LINE} actions={<RunsActions store={null} onImport={() => setImporting(true)} />} />
+      <PageHeader eyebrow={runsEyebrow(projectOf(meta), store, known)} title="Runs" text={RUNS_LINE} actions={<RunsActions store={null} onImport={() => setDialog('import')} onRecord={() => setDialog('record')} />} />
       <EmptyState title="No runs yet" text="Every recording shows here with its replays and forks: record the agent once, or import a capture another tool made." copy step={<SetUpStep />} command="shadowlap run -- <command>" />
-      {importing ? <ImportDialog onClose={() => setImporting(false)} /> : null}
+      <AskedDialog dialog={dialog} onClose={() => setDialog(null)} />
     </Page>
   );
+}
+
+/** The dialogs Runs' header and the palette open: Import capture…'s and Record run…'s. */
+type RunsDialog = 'import' | 'record';
+
+/** The dialog the palette asked for before Runs showed, which it opens as it does. */
+const askedDialog = (): RunsDialog | null => (IMPORT_ASK.take() ? 'import' : RECORD_ASK.take() ? 'record' : null);
+
+/** Import capture…'s dialog or Record run…'s, as asked. */
+function AskedDialog({ dialog, onClose }: { dialog: unknown; onClose: () => void }) {
+  if (dialog === 'import') return <ImportDialog onClose={onClose} />;
+  return dialog === 'record' ? <RecordRunAsks onClose={onClose} /> : null;
 }
 
 /**
@@ -330,11 +343,17 @@ function useShownTable<T extends TableState>(table: T, o: { chip: RunChip; q: st
 }
 
 /** Asked from the palette: on this page already, or arriving on it. */
-function useImportAsked(open: () => void): void {
+function useDialogsAsked(open: (dialog: RunsDialog) => void): void {
+  useAsked(IMPORT_ASK, useCallback(() => open('import'), [open]));
+  useAsked(RECORD_ASK, useCallback(() => open('record'), [open]));
+}
+
+/** Opens its dialog each time the palette asks for it, an ask this page took as it showed forgotten. */
+function useAsked(ask: PageAsk, open: () => void): void {
   useEffect(() => {
-    IMPORT_ASK.take();
-    return IMPORT_ASK.on(open);
-  }, [open]);
+    ask.take();
+    return ask.on(open);
+  }, [ask, open]);
 }
 
 /**
@@ -390,9 +409,9 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const shownKey = runsHref({ ...f, q });
   const [limit, setLimit] = useReadTo(shownKey);
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
-  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (IMPORT_ASK.take() ? 'import' : null));
+  const [dialog, setDialog] = useState<null | RunsDialog | { runId: string; choices: BisectChoices; failure: DaysFailure; earlier: { runId: string; why: string } | null }>(askedDialog);
   const now = Date.now();
-  useImportAsked(useCallback(() => setDialog('import'), []));
+  useDialogsAsked(setDialog);
 
   // A chip or a sort is a step of its own, as are the days picked and Enter, with the words as typed so far.
   const setChip = (c: RunChip) => commitRuns({ ...f, q: query, types: c });
@@ -498,7 +517,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
     if (!t) return;
     guard(() =>
       void client.daysBisect({ ...t, types, q }).then(
-        (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices, earlier: out.earlier ?? null })),
+        (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices, failure: { label: out.label, command: out.command, startedAt: out.startedAt }, earlier: out.earlier ?? null })),
         (err: unknown) => toast(errorText(err), 'error'),
       ),
     );
@@ -512,7 +531,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         eyebrow={runsEyebrow(p, store, storeKnown)}
         title="Runs"
         text={RUNS_TEXT}
-        actions={<RunsActions store={store} onImport={() => setDialog('import')} />}
+        actions={<RunsActions store={store} onImport={() => setDialog('import')} onRecord={() => setDialog('record')} />}
       />
       <TwelveWeeks load={cal} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} />
       <div className="tbar">
@@ -542,8 +561,8 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
           <div className="bulkspace" />
         </>
       ) : null}
-      {dialog === 'import' ? <ImportDialog onClose={() => setDialog(null)} /> : null}
-      {dialog && dialog !== 'import' ? <FindCommitDialog runId={dialog.runId} choices={dialog.choices} earlier={dialog.earlier} onClose={() => setDialog(null)} /> : null}
+      <AskedDialog dialog={dialog} onClose={() => setDialog(null)} />
+      {dialog && typeof dialog === 'object' ? <FindCommitDialog runId={dialog.runId} choices={dialog.choices} failure={dialog.failure} earlier={dialog.earlier} onClose={() => setDialog(null)} /> : null}
     </Page>
   );
 }

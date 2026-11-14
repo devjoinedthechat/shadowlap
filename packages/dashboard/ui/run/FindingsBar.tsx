@@ -26,7 +26,7 @@ import { findingPath, judgeVerdicts, notRecordedBanner, ownBanner, type Banner a
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
-import { attemptLinks, attemptOf, runLikeOf } from './model.js';
+import { attemptLinks, attemptOf, recordedAt, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
 import { blameTitle } from './offers.js';
@@ -128,6 +128,8 @@ export interface BannerProps {
   offers: RunOffers | null;
   showDiff: boolean;
   onToggleDiff: () => void;
+  /** The call Show diff opens at, where the one picked may differ from the recording's (diffCallOf); none: where the run left it. */
+  diffAt?: number | null;
   /** The first bad commit's change, open in the inspector's place, and its Show change; none on a page that shows no change. */
   showChange?: boolean;
   onToggleChange?: () => void;
@@ -154,6 +156,37 @@ function CallWords({ words, call }: { words: string; call: (n: number) => ReactN
     <>
       <span className="bk">{glossed(label.trim())}</span>
       <span>{rest.map((part, i) => (/^#\d+$/.test(part) ? <Fragment key={i}>{call(Number(part.slice(1)))}</Fragment> : part))}</span>
+    </>
+  );
+}
+
+/**
+ * Where a finding says the run left its recording: `forked at` its call, which selects it. A replay
+ * that stopped before its recording did names the recording's first call it never made, which no
+ * call of its own is: `ended early at` it, as Runs and the sidebar say it, its number opening that
+ * call on the recording's page.
+ */
+function LeftAt({ callNo, x }: { callNo: number; x: Draw }) {
+  const d = x.run.run.divergence;
+  if (d?.type !== 'ended_early' || d.callNo !== callNo) {
+    return (
+      <>
+        <span className="bk">forked at</span>
+        {x.call(callNo)}
+      </>
+    );
+  }
+  const recording = recordedAt(x.run, callNo);
+  return (
+    <>
+      <span className="bk">ended early at</span>
+      {recording ? (
+        <a className="bn" href={href.run(recording, callNo)} data-tip={tipText('Open the recording’s call')}>
+          #{callNo}
+        </a>
+      ) : (
+        <span className="bn">#{callNo}</span>
+      )}
     </>
   );
 }
@@ -284,8 +317,7 @@ function PresetFinding({ b, x, s }: { b: Of<'preset'>; x: Draw; s: Slot }) {
   const rec = x.run.run.parentRunId;
   return (
     <section className={cls('fork wrap', s)}>
-      <span className="bk">forked at</span>
-      {b.callNo !== null ? x.call(b.callNo) : null}
+      {b.callNo !== null ? <LeftAt callNo={b.callNo} x={x} /> : <span className="bk">forked at</span>}
       {/* A tally never breaks inside: "attempt 1 of 6". */}
       <span className="why">{wholeTallies(b.why)}</span>
       {rec ? (
@@ -311,8 +343,7 @@ function AttemptFinding({ b, x, s }: { b: Of<'attempt'>; x: Draw; s: Slot }) {
   const links = b.of === 'rescued' ? [] : a ? attemptLinks(x.run, a) : [];
   return (
     <section className={cls('fork wrap', s)}>
-      <span className="bk">{b.callNo !== null ? 'forked at' : 'replayed'}</span>
-      {b.callNo !== null ? x.call(b.callNo) : null}
+      {b.callNo !== null ? <LeftAt callNo={b.callNo} x={x} /> : <span className="bk">replayed</span>}
       <span className="why">{said(b.why, b.flag, true)}</span>
       <span className="end">
         {b.diff ? x.diffToggle : null}
@@ -341,8 +372,7 @@ function InjectionAttemptFinding({ b, x, s }: { b: Of<'injection-attempt'>; x: D
   const { Proof } = useServedParts();
   return (
     <section className={cls('fork wrap', s)}>
-      <span className="bk">forked at</span>
-      {b.callNo !== null ? x.call(b.callNo) : null}
+      {b.callNo !== null ? <LeftAt callNo={b.callNo} x={x} /> : <span className="bk">forked at</span>}
       <span className="why">{said(b.why, null, true)}</span>
       {tested ? (
         <span className="end">
@@ -362,8 +392,7 @@ function ForkFinding({ b, x, s }: { b: Of<'fork'>; x: Draw; s: Slot }) {
   const normalizer = x.run.actions.find((a) => a.key === 'n');
   return (
     <section className={cls('fork', s)}>
-      <span className="bk">forked at</span>
-      {x.call(b.callNo)}
+      <LeftAt callNo={b.callNo} x={x} />
       <code>{b.name}</code>
       <Why code={b.flag}>{b.why}</Why>
       {b.path ? <span className="path">~ {b.path}</span> : null}
@@ -522,7 +551,7 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
     </button>
   );
   // The pointer or the focus on Show diff asks for its scripts and its answer, so it opens at once.
-  const warm = () => warmDiff(app.client, p.run.run.runId, p.run.run.status === 'running');
+  const warm = () => warmDiff(app.client, p.run.run.runId, p.run.run.status === 'running', p.diffAt ?? null);
   const diffToggle = (
     <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff} onPointerEnter={warm} onFocus={warm}>
       {p.showDiff ? 'Hide diff' : 'Show diff'}

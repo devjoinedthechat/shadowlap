@@ -14,7 +14,7 @@ import { PrCommentDialog } from '../ui/ci/PrCommentDialog.js';
 import { RunBlameButton } from '../ui/fixes/RunBlame.js';
 import { updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
 import { stopAsk } from '../ui/jobs.js';
-import { RecordRunDialog } from '../ui/pages/Setup.js';
+import { RecordRunDialog } from '../ui/components/RecordRunDialog.js';
 import { ExportPairsDialog, ScoreDialog, TaskUpdateDialog } from '../ui/pages/Training.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from '../ui/pages/TestsDialogs.js';
 import { ReplaceSkillsDialog } from '../ui/pages/settings/Agents.js';

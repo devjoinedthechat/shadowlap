@@ -6,7 +6,8 @@ import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
 import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, stopAsk, type RunLink } from '../ui/jobs.js';
-import { displayOrigin, parseOrigins } from '../ui/origins.js';
+import { displayOrigin as storedOrigin, ORIGIN_CODE as STORED_CODE } from '../../engine/src/classify.js';
+import { displayOrigin, ORIGIN_CODE, parseOrigins } from '../ui/origins.js';
 import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, runIdPrefix, runsById, runsToAskFor, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, timeOf, tokensText, turnCalls, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
@@ -166,7 +167,7 @@ describe('palette', () => {
   });
 
   it('orders Actions as the design does, whichever page added them, with Keyboard shortcuts last', () => {
-    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run tests', 'Calibrate', 'Preview model switch…', 'Import capture…', 'Something new…', 'Score model…', 'Preview changed prompt', 'Export pairs…', 'Update goldens'].map((label) => ({ group: 'Actions', label, hint: '' }));
+    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run tests', 'Calibrate', 'Preview model switch…', 'Import capture…', 'Something new…', 'Score model…', 'Preview changed prompt', 'Record run…', 'Export pairs…', 'Update goldens'].map((label) => ({ group: 'Actions', label, hint: '' }));
     expect(matchPalette(actions, '').map((x) => x.label)).toEqual([...ACTION_ORDER, 'Something new…', 'Keyboard shortcuts']);
     // Typed, a better match still leads.
     expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export pairs…', 'Update goldens']);
@@ -229,6 +230,15 @@ describe('strip', () => {
     expect(displayOrigin({ origin: 'blocked', outcome: 'error' })).toBe('block');
     expect(displayOrigin({ origin: 'injected', outcome: 'error' })).toBe('inject');
     expect(displayOrigin({ origin: 'replayed', outcome: 'ok' })).toBe('rep');
+  });
+
+  it('draws a call as the server codes it for Runs’ strip and the run’s counts: a replayed or overridden call that errored failed too', () => {
+    // The engine's code for each call (classify.ts `displayOrigin`), as the server sends it in `origins`.
+    for (const origin of ['replayed', 'live', 'overridden', 'blocked', 'stubbed'] as const) {
+      for (const outcome of ['ok', 'error'] as const) expect(displayOrigin({ origin, outcome }), `${origin}, ${outcome}`).toBe(ORIGIN_CODE[STORED_CODE[storedOrigin(origin, { outcome })]]);
+    }
+    expect(displayOrigin({ origin: 'replayed', outcome: 'error' })).toBe('fail');
+    expect(displayOrigin({ origin: 'overridden', outcome: 'error' })).toBe('fail');
   });
 });
 
@@ -658,9 +668,11 @@ describe('job drawer', () => {
     expect(jobStatus({ ...done(0), done: false }, [])).toEqual({ text: 'running', tone: '' });
     expect(jobStatus(done(0), ['✓ Replay clean: 30/30 calls replayed'])).toEqual({ text: 'reproduced · exit 0', tone: 'ok' });
     expect(jobStatus(done(1), ['✗ Diverged at call 1 (api POST /v1/messages)'])).toEqual({ text: 'diverged at #1 · exit 1', tone: 'err' });
-    expect(jobStatus(done(1), ['✗ check failed: issue_refund called 1×'])).toEqual({ text: 'check failed · exit 1', tone: 'err' });
+    // A replay's checks as the CLI prints them: their tally, then each.
+    expect(jobStatus(done(1), ['✗ 1 of 2 checks failed (--expect)', '  ✓ escalate called 1 time', '  ✗ issue_refund called 0 times, but called 1 time'])).toEqual({ text: 'check failed · exit 1', tone: 'err' });
     expect(jobStatus({ ...done(1), args: ['replay', 'X', '--fail-at', '19=529'] }, ['⑂ Forked at call 19', '  the agent process exited with an error'])).toEqual({ text: 'agent exited 1', tone: 'warn' });
-    expect(jobStatus(done(null), [])).toEqual({ text: 'stopped', tone: 'err' });
+    // Killed from outside, by a signal: no exit code, and nobody asked it to stop.
+    expect(jobStatus(done(null), [])).toEqual({ text: 'interrupted', tone: 'warn' });
     expect(lastLine(['a', '✓ Forked at call 17 · ran to the end', '  '])).toBe('Forked at call 17 · ran to the end');
   });
 

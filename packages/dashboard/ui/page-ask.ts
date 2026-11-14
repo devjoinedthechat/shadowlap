@@ -38,6 +38,8 @@ function pageAsk(name: string): PageAsk {
 
 /** Runs' Import capture… dialog. */
 export const IMPORT_ASK = pageAsk('import');
+/** Runs' Record run… dialog. */
+export const RECORD_ASK = pageAsk('record');
 /** Settings › Matching's Add normalizer… dialog. */
 export const NORMALIZER_ASK = pageAsk('normalizer');
 /** Settings › Redaction's Add redaction rule… dialog. */

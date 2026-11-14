@@ -131,7 +131,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 
 - **Every page**, with **Add project…**, and **This run's actions**, its next step first.
 - **The other projects**, each as *Switch to support-agent*, its folder as the hint.
-- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, Migrate while a golden's model retires, Rescan coverage, Preview pull request comment once the goldens have a test session, the team store's setup, and Keyboard shortcuts.
+- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Record run…, Import capture…, Calibrate, Rescan coverage, the team store's setup, and Keyboard shortcuts. Export pairs… and Score model… show while there is something to export or score, Migrate while a golden's model retires, and Preview pull request comment once the goldens have a test session.
 - **Preview model switch…** and **Preview changed prompt**, while the project has goldens. Each opens [Preview](#start-a-preview) with its dialog on every golden. The changed prompt waits while a job holds your working tree.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
@@ -348,7 +348,7 @@ Each issue's row shows:
 - **First seen** and **Last seen**: when the oldest and the newest of them started.
 - **Fix**: the fix's place on the ladder, as on Fixes, with *· 1 not blamed* for its runs nobody has blamed, or *passed* for a golden whose last result passed. At its end is the issue's next step.
 
-The next step starts from the row, as on [Needs a look](#needs-a-look): **Run blame** for the newest run nobody has blamed, or the golden's step, such as **Add normalizer and re-run**, **Find breaking commit**, or **Revert** once that names the commit, which always asks first. **Open fix** opens the fix, and a capture's **Run blame** opens its page, which asks for your command first. An issue with no step links to its newest run, or to Tests.
+The next step starts from the row, as on [Needs a look](#needs-a-look): **Run blame** for the newest run nobody has blamed, or the golden's step, such as **Add normalizer and re-run**, **Find breaking commit**, or **Revert** once that names the commit, which always asks first. **Open fix** opens the fix, and a capture's **Run blame** opens its page, which asks for your command first. An issue with no step links to its newest run, or to Tests with the golden's report open.
 
 The days and the filter's words narrow the issues as they narrow the table: an issue counts only the runs they keep. While the verdicts Failed counts by are worked out, the line above says so, as it does for `status:`. On a phone, each issue is a block.
 
@@ -366,9 +366,11 @@ One line beside the bars says what they count: *207 runs in 12 weeks, on this ma
 
 With **Failed** picked and days chosen, **Find breaking commit…** bisects from the first failure of those days, between a commit where it still worked and its own:
 
+- **Its dialog** names that failure on its first row: its id, a link to the run, what it is, its command and when it ran. Each commit to start from is named by its subject, with how the runs there went.
 - It offers only commits this checkout has. A teammate's runs can name commits of theirs, and a failure whose own commit isn't here is bisected up to HEAD.
 - Days whose only failures fail their family's checks have nothing to start from. Find breaking commit says so and opens no dialog: *…needs a run that failed on its own.*
-- A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search. The dialog says so, and bisects from the first failure of those days that started later, or offers no search when none did.
+- A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search. The dialog says so, its id a link to the run, and bisects from the first failure of those days that started later, or offers no search when none did.
+- **A replay it can't start from**, one cut short or of a session its golden came out inconclusive in, says why, with **Open Tests**, which finds the commit from the golden or says what settles it.
 
 ### Act on several runs
 
@@ -406,6 +408,15 @@ What the table shows is in the address: the filter's words, the chip, the sort a
 - `#/runs` alone is every run, as the sidebar's **all** opens it. The nav's **Runs**, the crumbs, `g r`, Search or jump to's Runs and Esc from a run opened cold open the view Runs showed last while the dashboard is open.
 
 The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), and Runs writes it so in its place. It reads keys and a chip's word in any case, and a chip's word in the plural too (`#/runs?TYPES=Forks` is `#/runs?types=fork`). A value it can't read, such as a day there isn't, is left out.
+
+### Record a run
+
+**Record run…** is on Runs, and in Search or jump to, on a dashboard started with `shadowlap dashboard` in a project folder. It records one run of your agent, as `shadowlap run -- <command>` and the setup's [Record](#setting-it-up) step do:
+
+- **Its dialog** starts from the command the setup records with: the one it last recorded from the dashboard, else the one `shadowlap init` found. It shows the `shadowlap run` command as you edit it, and that your provider bills its model calls.
+- **A command this folder never ran**, or ran with its model calls going elsewhere, asks first, as the setup does. One it ran before starts at once.
+- **While it records**, its drawer offers **Watch live**, which opens the run as its calls arrive, then **Open run** once it ends.
+- **It waits** while a repair or an apply holds your working tree.
 
 ### Import a capture or a trace
 
@@ -570,7 +581,7 @@ A finding never says what the header's first fact already does, but for the run 
 
 **A judge's verdict** is a finding of its own for each judge check that gave one, among the rest, in ink. Its label is *verdict*, then **#15**, which opens the judge's call. It goes on with ✓ or ✗ and the check, then the judge's reason and where the verdict came from, as in *The reply names the escalation · judged live · <$0.001*. Where the run's own finding lists its checks, a judge check's line there carries the same instead.
 
-A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
+A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Then it says what asking that call again did, such as *asked again, it calls escalate instead*, whether or not a fix holds the run. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
 
 **The first bad commit.** Once Find breaking commit names the commit a crashed test replay's golden broke at, its finding leads the crash's: *first bad commit*, the commit's short id and subject, then who made it where names show, when, and the tokens the search spent. It goes once a later replay of the golden passes, and the run reads *fixed by* that replay.
 
@@ -634,6 +645,8 @@ Sometimes the rule alone can't make the replay match: the request carries a fiel
 Under the diff, a sentence says what changed and, on a fork, what changed it: its flag, or a tool's result the next request carries. A line for each changed path says what fixes it: a normalizer for a value made anew on every run, or **Update golden** for what your code or config changed. A change that matching masks gets a line too, as do a changed header and the clock. Every normalizer's command is in one box, so the diff never says no normalizer is suggested where the finding offers one.
 
 A fork forced live, as Run live from here makes, has Show diff too, and says so where its request didn't change. After a tool forced live or failed, the diff shows the next model call, the first request the tool's result reaches. A model call that `--fail-at` failed has none, since that call made no upstream request.
+
+With a later call picked that the run didn't replay from its recording (made live, answered by an override, or failed), Show diff opens at that call instead. It shows its request against the recording's call of its number, as *Diff at #24*, and says so where the two are the same. An exported copy holds the first diff alone.
 
 Where the run it is compared with is gone, left out of an exported copy, or kept without its request, the diff is built from the finding's changes. It shows the model, each path that changed, and `messages: [ … ]` for the conversation it leaves out.
 
@@ -915,7 +928,7 @@ Provenance is the run's record. It shows:
 - **Its lineage**, with how each run stands (what a failed one failed, in red; an interrupted one in grey) and its revision.
 - **What a copy made at this point applies**, and what it would mask.
 - **Each call's fingerprint and blobs.**
-- **Its labels and notes.**
+- **Its labels and notes**, with **Add note** for a note on the whole run.
 
 **Copy show --json** copies what `shadowlap show <run> --json` prints.
 
@@ -987,7 +1000,7 @@ On a failed model call, the input tokens are what its request held, `in the requ
 
 ### Labels and notes
 
-Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. Both offer the labels runs carry as you type, most used first. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details.
+Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. Both offer the labels runs carry as you type, most used first. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details, and on the whole run with **Add note** in Provenance, where the run's notes are listed, as `shadowlap note` does without `--call`.
 
 The **good/bad key** labels a run `good` or `bad` in one press:
 
@@ -1028,7 +1041,7 @@ A call's *Conversation* is its own conversation as it stood at that call, never 
 - A server that reports no cache at all (a local model behind an OpenAI-compatible API) shows no misses.
 - The share of input read from the cache counts live model calls.
 
-**Time not waited.** A replayed call is answered from the recording at once. The time it saved is how long the recording waited for it, found on the run it was replayed from, or further back for a replay of a replay. Each replayed call carries it, and the run sums it.
+**Time not waited.** A replayed call is answered from the recording at once. The time it saved is how long the recording waited for it, found on the run it was replayed from, or further back for a replay of a replay. Each replayed call carries it, and the run sums it. On a long run whose calls still come a page at a time, the sum waits for every page unless the server has the whole run's: its first calls' alone would read as the run's.
 
 **What was not recorded.** These ran for real, and a replay runs them again:
 
@@ -2115,6 +2128,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 
 - When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, **Check again**, then **Record again**. It shows once they are wrapped, also after the replay was made clean, while packing waits.
 - Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
+- [**Record run…**](#record-a-run) on Runs records the same way, from the setup's command, also once the setup is finished. Until then, its recording becomes the setup's, as one made here does.
 
 **3. Calibrate.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add normalizer** writes them to `shadowlap.config.json`, and **Calibrate again** asks again.
 
@@ -2577,6 +2591,7 @@ Its drawer reads *Reverting 9a3c5e0*. It shows `$ git revert --no-commit 9a3c5e0
 | *Reverted 9a3c5e0 · test failed · exit 1* | The revert stays in your tree, and the golden still fails |
 | *Reverted 9a3c5e0 · inconclusive · exit 3* | The revert stays in your tree, and the test couldn't say whether the golden passes |
 | *Reverted 9a3c5e0 · test interrupted · exit 130* | The revert stays in your tree, and a signal stopped the test |
+| *Reverted 9a3c5e0 · test stopped · exit 143* | The revert stays in your tree, and you stopped the test with **Stop** |
 | *Tried reverting 9a3c5e0 · not reverted · exit 128* | git refused, with changes to the commit's files in your tree; the test didn't run |
 | *Tried reverting 9a3c5e0 · conflicts left in your working tree · exit 1* | git left conflicts for you to resolve; the test didn't run |
 
@@ -2620,6 +2635,14 @@ How a replay or a fork ended:
 - **Calibrate**, beside **Open replay**, replays the recording offline and proposes a normalizer for each value the agent makes anew on every run (a user id, a temporary path). Its drawer offers **Add normalizer**, and the next Replay is clean.
 - **A fork from the menu** says *forked*: diverging where its flag changed the run is what it was asked for.
 - **A fork that left the recording before the call its flag acts on** says that instead, *diverged at #3, before the inject at #17 · went live · exit 0*, in the same colours and with **Calibrate**. The calls before it did not replay, so what the flag changed is not the only difference.
+- **A Replay or a fork that stopped before its recording did** says *ended early at #11 · exit 0*, at the recording's first call it never made, as Runs says it. A fork whose flag acts at that call or after adds it: *ended early at #11, before the inject at #17*.
+- **A replay that made no call** says *no calls were made · exit 0*. Both read amber where the agent exited 0, and red where it failed.
+- **A check that couldn't be decided** ends a Replay or a fork *inconclusive · exit 3*, in amber. A divergence still leads, in amber too: the agent ended well.
+- **A Repeat**, and **Plant instruction…**, which replays its text three times, say how the attempts went. Ended 0, a Repeat says *identical* or *4 of 5 same path*, and Plant instruction *check passed*, or *replayed* where no check judged whether the agent obeyed.
+- **A Repeat where a check failed or couldn't be decided** says how many attempts passed: *failed · 3 of 5 attempts passed · exit 1*, or *inconclusive · 4 of 5 attempts passed · exit 3* in amber. An attempt that failed or never ran counts against it.
+- **A command the CLI refused** before it ran, such as a status `--fail-at` doesn't take, ends *Tried forking · exit 2*, its toast giving the CLI's reason.
+
+A recording, from **Record run…** or the setup's **Record run**, offers **Watch live** while it records. It ends on the calls it holds, *12 calls · exit 0*, or *12 calls · agent exited 1* in amber, as the run holds the failure. One that made no call says *no calls were made*, in amber where the agent exited 0, as `shadowlap run` warns.
 
 How a preview and its verify ended:
 
@@ -2634,6 +2657,8 @@ Closing and stopping:
 - **Esc or Close** closes a drawer that has ended, and so does leaving the page.
 - **A hidden job that ends** says so in a toast, its title in the past tense with how it came out (*Ran tests · failed · 2 of 7 goldens passed · exit 1*), and offers its way on, or **Show**. Where the past tense would claim more than happened, it says what ran instead (*Tried repairing · no fix found · exit 1*).
 - **Stop**, in the drawer while its job runs, stops the command and the agent it started, as Ctrl-C would, even an agent that ignores the signal (it is killed after five seconds); the drawer then says *stopped*. It asks first while the job holds your working tree: a repair verifying candidates made from it, a patch being applied.
+- **A Revert stopped** once git had reverted the commit says so, as the table under [Revert](#revert) has it: *Reverted 9a3c5e0 · test stopped*, the revert staying in your tree.
+- **A job killed from outside**, by a signal it never got to answer, ends with no exit code. It reads *interrupted* in amber, as a run its recorder left does: *Tried replaying · interrupted*.
 - **A run the stopped job left recording** is marked as interrupted, so it no longer shows as live and can be deleted.
 
 Stopping the dashboard (Ctrl-C, a kill, or closing the terminal it runs in) stops its running jobs the same way, and waits for them. Stopping it again while it waits kills them at once. The dashboard the terminal UI opens (`o` in `shadowlap ui`) does the same when you quit the terminal UI or it is killed, and kills its jobs at once when the terminal it runs in closes.
@@ -3126,14 +3151,14 @@ Every request needs the session token in `x-shadowlap-token`.
 
 **A run** (`/api/runs/:id`) comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins`: every call's origin, one character per call, as the run list encodes them. Beside it, `kinds` says what every call was, for a recording's strip: `m` a model call, `r` a read, `w` a write, `e` an error.
 
-- **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls.
+- **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls. That answer's `notWaitedMs` is the whole run's where the warm-up has worked it out, else `null`, and its `cache` is `null`: each call's `cacheMiss` says it.
 - **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
 - **A preset's attempt** in the family carries its `preset`: the preset's words, the verdict of the session that decided it, that `session`, the call it hit (`callNo`) and its `golden`. It also carries that session's totals (`counts`: passed, failed, inconclusive and not applicable) and what its attempts `spent`.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
 - **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
 - **A judge check's verdict**: each judge check in `checks` carries its `judge`, with the `verdict` (null for none), its `source`, `cost` and `model`, what was done to what it read (`redactions`, `cut`) and the judge's call in the run (`callNo`).
 - **A judge's calls**: a call in one of Shadowlap's own scopes says `reserved`, and a judge's call its `judge`: the `check` it answered and the `verdict` its run kept (null for none). Beside `origins`, `judgeCalls` numbers the judge's calls wherever they come, absent where the run has none, so the page keeps them out of All before their pages come.
-- **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code.
+- **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code, on its page and in a list's rows. A test replay's rows carry its `test` too: its `golden` and `session`, `null` on any other run.
 - **Its next step**: `next` is what its header leads with ([The next step](#the-next-step)): its `key`, `label`, `href` for a link, `off` for why it can't start, the hover's `title` and `sub`, the `command` it runs and `estimate`, what it bills. `later` says this answer left out what would read a long run's calls, which `/api/runs/:id/next` answers with.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
 - **A list's rows** carry `next` too, with only `key`, `label`, `href`, `off`, `title`, `command` and `capture` (a capture's Run blame, which asks for your command on its page), as a list reads no run's calls for it.

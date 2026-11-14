@@ -83,7 +83,7 @@ export function ForksView({ runId }: { runId: string }) {
     // The kind, unless the about line says it already ("clean replay").
     const said = n.about && !line.err && line.text.startsWith(`${n.about.text} · `) ? n.about.text.length + 3 : 0;
     return (
-      <a key={n.runId} className={`fnode${here ? ' here' : ''}`} href={href.run(n.runId, n.divergence?.callNo ?? null)}>
+      <a key={n.runId} className={`fnode${here ? ' here' : ''}`} href={href.run(n.runId, n.divergence && n.divergence.type !== 'ended_early' ? n.divergence.callNo : null)}>
         <RunIcon run={r} className="" />
         <span className="fmain">
           <span className="f1">

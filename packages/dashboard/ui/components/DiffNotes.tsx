@@ -156,8 +156,15 @@ function sameLead(d: RequestDiff): ReactNode {
   return firstChanged(d);
 }
 
+/**
+ * A call picked past where the run left its recording (`picked`): what it is against, never that it
+ * was the first to change, nor what changed it.
+ */
+const pickedLead = (d: RequestDiff): string => `The ${d.what} at #${d.at} ${d.same ? 'is the same as' : 'differs from'} the recording’s${d.against ? ` #${d.against.callNo}` : ''}.`;
+
 /** The sentence over the lines: what changed and, on a fork, what changed it. None where the lines alone say it. */
-function leadOf(d: RequestDiff, lines: readonly JsonLine[]): ReactNode {
+function leadOf(d: RequestDiff, lines: readonly JsonLine[], picked = false): ReactNode {
+  if (picked) return pickedLead(d);
   if (d.same) return sameLead(d);
   if (d.test) {
     const only = d.paths.length === 1 && d.paths[0]!.fix?.kind === 'normalizer' ? d.paths[0]! : null;
@@ -217,10 +224,11 @@ function unnamed(d: Pick<RequestDiff, 'outside' | 'hints'>): string[] {
  * What Show diff says under the diff: the sentence (none where the lines say it all), a line for each
  * changed path with what fixes it, one for each change matching masks, the engine's hints on what no
  * line of the body shows (the headers, the query, the clock), then every normalizer's command in one
- * box. `lines`, the walk JsonDiff drew: a fork's one added field is said by its key.
+ * box. `lines`, the walk JsonDiff drew: a fork's one added field is said by its key. `picked`: the call
+ * shown is one picked past where the run left its recording (pickedLead).
  */
-export function DiffNotes({ diff: d, lines }: { diff: RequestDiff; lines: readonly JsonLine[] }) {
-  const lead = leadOf(d, lines);
+export function DiffNotes({ diff: d, lines, picked = false }: { diff: RequestDiff; lines: readonly JsonLine[]; picked?: boolean }) {
+  const lead = leadOf(d, lines, picked);
   const single = d.test && d.paths.length === 1 && d.paths[0]!.fix?.kind === 'normalizer';
   const said = [
     ...(lead ? [lead] : []),
@@ -254,16 +262,17 @@ export function DiffNotes({ diff: d, lines }: { diff: RequestDiff; lines: readon
 /**
  * Show diff's answer drawn: the heads, the structural diff (a script of its own, JsonDiffPart.tsx) and
  * the notes under it; where both sides are the same, the words alone. A run's finding and a golden's
- * report on Tests draw it, `as` the heads' level there.
+ * report on Tests draw it, `as` the heads' level there; `picked`, a call picked past where the run
+ * left its recording (DiffNotes).
  */
-export function DiffAnswer({ diff, as }: { diff: RequestDiff; as?: 'h2' | 'h3' | 'h4' }) {
+export function DiffAnswer({ diff, as, picked = false }: { diff: RequestDiff; as?: 'h2' | 'h3' | 'h4'; picked?: boolean }) {
   // The server says whether the two sides are the same (`same`): no render reads both bodies to find out.
-  if (diff.same) return <DiffNotes diff={diff} lines={[]} />;
+  if (diff.same) return <DiffNotes diff={diff} lines={[]} picked={picked} />;
   return (
     <>
       <DiffHead diff={diff} {...(as ? { as } : {})} />
       <JsonDiffPart was={diff.was} now={diff.now} leftOut={diff.leftOut}>
-        {(lines) => <DiffNotes diff={diff} lines={lines} />}
+        {(lines) => <DiffNotes diff={diff} lines={lines} picked={picked} />}
       </JsonDiffPart>
     </>
   );

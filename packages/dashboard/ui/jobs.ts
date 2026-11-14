@@ -96,6 +96,51 @@ export function forkDivergedEarly(job: JobLike, lines: readonly string[]): { cal
   return target && at && at.callNo < target.callNo ? { ...at, target } : null;
 }
 
+/**
+ * A Replay or a fork that stopped before its recording did, from the CLI's report ("✗ Ended early at
+ * call 11: 10 of 30 recorded calls replayed"): the recording's first call it never made, and a fork's
+ * flag that acts there or after, which never got to change the run. Null while it runs, for one that
+ * left its recording otherwise, and for a repeat, whose attempts say where each ended.
+ */
+export function replayEndedEarly(job: JobLike, lines: readonly string[]): { callNo: number; target: { callNo: number; flag: string } | null } | null {
+  const own = ownArgs(job.args);
+  if (!job.done || own[0] !== 'replay' || own.includes('--repeat')) return null;
+  const at = [...lines.join('\n').matchAll(/^\s*(?:✗\s*)?Ended early at call (\d+)/gm)].at(-1);
+  if (!at) return null;
+  const callNo = Number(at[1]);
+  const target = forkTarget(job.args);
+  return { callNo, target: target && target.callNo >= callNo ? target : null };
+}
+
+/** The line `replay` ends a replay that made no call with, and `run` a recording (engine report.ts `formatSummary`). */
+const NO_CALLS = /^\s*(?:⚠\s*)?(?:Recorded|Replayed) \S+: no calls were made/m;
+
+/** The line `run` ends a recording that holds calls with, and how many (engine report.ts `formatSummary`). */
+const RECORDED = /^\s*(?:●\s*)?Recorded \S+: (\d+) calls/m;
+
+/** The line a replay's summary says the agent's own failure with: what its exit code is then. */
+const AGENT_FAILED = /the agent process exited with an error/;
+
+/** Amber where the agent ended well (0; 3, a check that could not be decided), red where it didn't. */
+const agentTone = (code: number): JobWords['tone'] => (code === 0 || code === 3 ? 'warn' : 'err');
+
+/**
+ * How a Replay or a fork left its recording, which leads its status whatever the agent did after: it
+ * made no call at all; a Replay diverged, and went live, or ended early; a fork left it, or stopped,
+ * before the call its flag acts on, or ended early. Null where it left it nowhere it wasn't asked to.
+ */
+function leftStatus(job: JobLike, lines: readonly string[], code: number): JobWords | null {
+  const exit = `exit ${code}`;
+  const own = ownArgs(job.args);
+  if (own[0] === 'replay' && !own.includes('--repeat') && NO_CALLS.test(lines.join('\n'))) return { text: `no calls were made · ${exit}`, tone: agentTone(code) };
+  const diverged = replayDivergence(job, lines);
+  if (diverged) return { text: `diverged at #${diverged.callNo}${diverged.live ? ' · went live' : ''} · ${exit}`, tone: agentTone(code) };
+  const early = forkDivergedEarly(job, lines);
+  if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]!} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: agentTone(code) };
+  const ended = replayEndedEarly(job, lines);
+  return ended ? { text: `ended early at #${ended.callNo}${ended.target ? `, before ${FORK_WORDS[ended.target.flag]!} at #${ended.target.callNo}` : ''} · ${exit}`, tone: agentTone(code) } : null;
+}
+
 /** A run as the run list has it: enough to walk from a replay to the recording it came from. */
 export type RunLink = { runId: string; parentRunId: string | null; mode: string; status: string; imported: boolean };
 
@@ -130,6 +175,33 @@ export function unrecordedRefused(lines: readonly string[]): string | null {
 const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
 
 /**
+ * How a recording ended, from what `run` prints: the calls it holds, and that its agent failed where
+ * it did, the run holding that failure; none made, in amber, as `run` warns. Null for any other job,
+ * and for a recording that held nothing to say so (its command never started), whose exit code
+ * says it.
+ */
+function recordedStatus(job: JobLike, lines: readonly string[], code: number): JobWords | null {
+  if (ownArgs(job.args)[0] !== 'run') return null;
+  const all = lines.join('\n');
+  const exit = `exit ${code}`;
+  if (NO_CALLS.test(all)) return { text: `no calls were made · ${exit}`, tone: agentTone(code) };
+  const held = RECORDED.exec(all);
+  if (!held) return null;
+  const calls = count(Number(held[1]), 'call');
+  if (code === 0) return { text: `${calls} · ${exit}`, tone: 'ok' };
+  return AGENT_FAILED.test(all) ? { text: `${calls} · agent exited ${code}`, tone: 'warn' } : null;
+}
+
+/**
+ * The run a recording is making, for its drawer's Watch live while it records (the run's page, where
+ * its calls arrive, as the setup's Record step offers it), once the CLI has named it. Null for any
+ * other job, and once it ended, when Open run takes its place.
+ */
+export function recordingLive(job: Pick<JobLike, 'done' | 'args' | 'kind'> & { newRunId?: string | null }): string | null {
+  return !job.done && ownArgs(job.args)[0] === 'run' && job.newRunId ? job.newRunId : null;
+}
+
+/**
  * How a Training job ended, in the job drawer's status line, from the result it reports: Score a model
  * by the tasks it scored (`scored · mean 0.87`; `3 of 4 tasks scored` when a golden no longer replays
  * up to its takeover or was skipped; `nothing scored`), Export pairs by the pairs it wrote. Null for
@@ -154,14 +226,27 @@ export function trainingJobStatus(job: { kind?: string; code: number | null; res
 }
 
 /**
+ * A Revert stopped on request once git had reverted the commit, or left conflicts: its status says
+ * what is in your working tree, as one that ended on its own does, never only that it stopped.
+ */
+const leftInTree = (job: JobLike): boolean => job.kind === 'revert' && (job.git === 'done' || job.git === 'conflicts');
+
+/** Stopped on request: that is how it ended, whatever its exit code says, after what a Revert left in your working tree. */
+function stoppedStatus(job: JobLike): JobWords {
+  const exit = job.code === null ? '' : ` · exit ${job.code}`;
+  if (job.kind === 'revert' && job.git === 'done') return { text: `reverted · test stopped${exit}`, tone: 'warn' };
+  if (job.kind === 'revert' && job.git === 'conflicts') return { text: `conflicts left in your working tree · stopped${exit}`, tone: 'err' };
+  return { text: `stopped${exit}`, tone: 'warn' };
+}
+
+/**
  * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
  * from the CLI's own words when the server sends no structured result.
  */
 export function jobStatus(job: JobLike, lines: readonly string[], lost = false): JobWords {
   if (lost && !job.done) return { text: 'lost · the dashboard server no longer has this job', tone: 'err' };
   if (!job.done) return { text: job.stopped ? 'stopping' : 'running', tone: '' };
-  // Stopped on request: that is how it ended, whatever its exit code says.
-  if (job.stopped) return { text: job.code === null ? 'stopped' : `stopped · exit ${job.code}`, tone: 'warn' };
+  if (job.stopped) return stoppedStatus(job);
   // Blame, repair and fix apply say how they came out in their result.
   const fixes = fixJobStatus(job);
   if (fixes) return fixes;
@@ -170,15 +255,14 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   if (training) return training;
   const all = lines.join('\n');
   const code = job.code;
-  if (code === null) return { text: 'stopped', tone: 'err' };
+  // Killed from outside, by a signal it never got to answer: it stopped before it ended, as a run its
+  // recorder left is interrupted, though nobody asked it to.
+  if (code === null) return { text: 'interrupted', tone: 'warn' };
   const exit = `exit ${code}`;
-  // A Replay whose request differed from the recording didn't reproduce the run, whatever the agent
-  // did once it went live, so that leads: amber when the agent ended well, red when it didn't.
-  const diverged = replayDivergence(job, lines);
-  if (diverged) return { text: `diverged at #${diverged.callNo}${diverged.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
-  // So did a fork that left the recording before the call its flag acts on.
-  const early = forkDivergedEarly(job, lines);
-  if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]!} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
+  // A Replay that didn't reproduce the run, or a fork that left it before its flag acted, whatever the
+  // agent did after (leftStatus); a recording, the calls it holds (recordedStatus).
+  const left = leftStatus(job, lines, code) ?? recordedStatus(job, lines, code);
+  if (left) return left;
   // A session, an update, a search, a verify or a repeat: in the words of its kind.
   const ending = jobEnding(job, all, code);
   if (ending) return ending;
@@ -192,8 +276,11 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
     return { text: `finished · ${exit}`, tone: 'ok' };
   }
   if (/check(s)? failed/i.test(all)) return { text: `check failed · ${exit}`, tone: 'err' };
+  // A Replay or a fork ends 3 on a check that could not be decided, its agent having ended well.
+  if (code === 3 && ownArgs(job.args)[0] === 'replay' && !AGENT_FAILED.test(all)) return { text: `inconclusive · ${exit}`, tone: 'warn' };
   if (/Diverged at call/.test(all) && !/Forked at call/.test(all)) return { text: `diverged · ${exit}`, tone: 'err' };
-  if (/the agent process exited with an error|--fail-at/.test(all)) return { text: `agent exited ${code}`, tone: 'warn' };
+  // The agent's own exit, as a replay's summary says it (after a failure --fail-at played in, say); never a command the CLI refused before it ran.
+  if (AGENT_FAILED.test(all)) return { text: `agent exited ${code}`, tone: 'warn' };
   return { text: exit, tone: 'err' };
 }
 
@@ -213,7 +300,7 @@ export function lastLine(lines: readonly string[]): string {
  */
 export function jobEnd(status: { text: string; tone: string }): JobEnd {
   if (status.tone === 'ok') return 'ok';
-  return /^(refused\b|stopped$|lost\b|exit \d+$)/.test(status.text) ? 'not' : 'ran';
+  return /^(refused\b|stopped$|interrupted$|lost\b|exit \d+$)/.test(status.text) ? 'not' : 'ran';
 }
 
 /**
@@ -222,10 +309,11 @@ export function jobEnd(status: { text: string; tone: string }): JobEnd {
  * · 2 of 7 goldens passed · exit 1", "Tried repairing · no fix found · exit 1", "Tried importing
  * capture · shadowlap: x.har is not a HAR file"), a status that only repeats the verb left out
  * ("Forked · exit 0"). When those say no more than the exit code, the last line the job printed says
- * it instead. One stopped says so ("Running tests stopped"): it ended on no outcome to say in the past.
+ * it instead. One stopped says so ("Running tests stopped"): it ended on no outcome to say in the past,
+ * unless it left something in your working tree (a Revert's revert), which it says as one that ended does.
  */
 export function endToast(job: JobLike, lines: readonly string[]): string {
-  if (job.stopped) return `${jobTitle(job)} stopped`;
+  if (job.stopped && !leftInTree(job)) return `${jobTitle(job)} stopped`;
   const st = jobStatus(job, lines);
   const status = st.text;
   const done = doneWords(jobTitle(job), jobEnd(st), status);
@@ -251,12 +339,13 @@ function withoutRepeat(done: string, said: string): string {
  * The drawer's header and the status bar's chip: what it does or did, how that stands and in what
  * colour. Running, its -ing title. Ended, its past tense, where that claims no more than happened,
  * the same words its toast leads with, and a status that doesn't repeat them. A job stopped by hand
- * or lost keeps its -ing title: it ended on no outcome to say in the past.
+ * or lost keeps its -ing title: it ended on no outcome to say in the past, unless it left something
+ * in your working tree (`leftInTree`).
  */
 export function jobHeader(job: JobLike, lines: readonly string[], lost = false): JobWords & { title: string } {
   const title = jobTitle(job);
   const st = jobStatus(job, lines, lost);
-  if (!job.done || job.stopped) return { title, ...st };
+  if (!job.done || (job.stopped && !leftInTree(job))) return { title, ...st };
   const done = doneWords(title, jobEnd(st), st.text);
   return { title: done, text: withoutRepeat(done, st.text), tone: st.tone };
 }
