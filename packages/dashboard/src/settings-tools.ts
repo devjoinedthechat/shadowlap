@@ -1,4 +1,4 @@
-import { isObject, parseToolTrust, type Effect, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { isObject, parseToolTrust, UNRECORDED_KEY, type Effect, type ToolTrust, type TrustSource } from '@shadowlap/engine';
 import { toolTrust, type ToolTrustRow } from './tool-trust.js';
 import type { ToolsRead, ToolTest } from './injection-security.js';
 import { toolReads, type ToolReads } from './tool-reads.js';
@@ -60,6 +60,8 @@ export interface ToolsSettings {
   live: ToolRow[];
   /** Blocked or stubbed after a fork: write tools. */
   fenced: ToolRow[];
+  /** `tools.unrecorded`: each tool the agent runs without Shadowlap recording it, with what the file declares it does; a replay runs a read again and refuses a write. Absent from an older server. */
+  unrecorded?: Array<{ name: string; effect: 'read' | 'write' }>;
   http: HttpHostRow[];
   mcp: {
     /** `mcp.effects` in the config: effects by tool name, over the servers' annotations. */
@@ -111,6 +113,12 @@ export function toolsEntry(tools: unknown): ToolsEntryLine[] {
   if (!isObject(tools)) return [];
   const keys = Object.entries(tools);
   return keys.map(([tool, v], i) => ({ tool, text: `  ${JSON.stringify(tool)}: ${oneLine(v)}${i < keys.length - 1 ? ',' : ''}` }));
+}
+
+/** The tools `tools.unrecorded` declares, in the file's order, each with its effect; one the file declares otherwise than read or write is left out, as a recording refuses the file. */
+function declaredUnrecorded(tools: unknown): NonNullable<ToolsSettings['unrecorded']> {
+  const declared = isObject(tools) && isObject(tools[UNRECORDED_KEY]) ? tools[UNRECORDED_KEY] : {};
+  return Object.entries(declared).flatMap(([name, effect]) => (effect === 'read' || effect === 'write' ? [{ name, effect }] : []));
 }
 
 /** The config's trust marks, for a page read without the pooled job's: none where `tools` can't be read. */
@@ -212,6 +220,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
     entry: toolsEntry(data.tools),
     live: rows.filter((t) => t.effect !== 'write'),
     fenced: rows.filter((t) => t.effect === 'write'),
+    unrecorded: declaredUnrecorded(data.tools),
     http,
     mcp: { effects, servers, recorded, files: found.files, ...clientConfigs(servers, doc === null ? null : mcpClientConfig(doc)) },
   };

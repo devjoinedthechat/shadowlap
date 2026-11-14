@@ -1,4 +1,4 @@
-import { type CallRecord, type ConfigEvent, CONFIG_FILE, configuredTrust, editConfigFile, isObject, messageOf, parseToolTrust, RuleError, type StoreOf, type ToolTrust, type Trust, TRUST_FROM, trustOf, type TrustSource } from '@shadowlap/engine';
+import { type CallRecord, type ConfigEvent, CONFIG_FILE, configuredTrust, editConfigFile, isObject, messageOf, parseToolTrust, parseUnrecordedConfig, RuleError, type StoreOf, type ToolTrust, type Trust, TRUST_FROM, trustOf, type TrustSource, UNRECORDED_KEY } from '@shadowlap/engine';
 
 /**
  * Settings → Tools' Trust column: each tool the recordings called, with its trust and where that
@@ -76,10 +76,11 @@ export interface ToolTrustWrite {
   event: ConfigEvent | null;
 }
 
-/** `tools` checked as a recording reads it, refused in its words. */
+/** `tools` checked as a recording reads it, refused in its words: its trust marks and its `unrecorded`. */
 function checked(tools: unknown): void {
   try {
     parseToolTrust(tools);
+    parseUnrecordedConfig(tools);
   } catch (err) {
     throw new RuleError(messageOf(err));
   }
@@ -114,5 +115,62 @@ export function setToolTrust(dir: string, tool: string, trust: Trust | null, o: 
     version: file.version,
     line: shown ? trustLine(tool, shown) : null,
     event: changed ? { kind: 'tool.trust', ref: tool, data: { trust, was } } : null,
+  };
+}
+
+/** The effect `tools.unrecorded` declares for a tool Shadowlap doesn't record: a read runs again on replay, a write is refused. */
+export type UnrecordedEffect = 'read' | 'write';
+
+/** The `tools` entry's one line that declares an unrecorded tool, as Settings → Tools shows it and its toasts quote it. */
+export function unrecordedLine(name: string, effect: UnrecordedEffect): string {
+  return `"tools": { "unrecorded": { ${JSON.stringify(name)}: "${effect}" } }`;
+}
+
+/** What a declaration answers: the effect now declared (null: none), the one the file held before (`was`), whether the file changed, its version, and the line written or taken out. */
+export interface UnrecordedWrite {
+  tool: string;
+  effect: UnrecordedEffect | null;
+  was: UnrecordedEffect | null;
+  changed: boolean;
+  version: string;
+  /** The line written, or the one taken out when `effect` is null; null when there was none to take out. */
+  line: string | null;
+  event: ConfigEvent | null;
+}
+
+/**
+ * Sets `tools.unrecorded.<tool>` to `effect`, as `shadowlap.config.json` declares what a tool the
+ * agent runs without Shadowlap recording it does, or takes the tool's key out (null), `unrecorded`
+ * and `tools` with it when nothing is left: how an Undo puts back a file that declared none.
+ * `expect` is the version the page read (ConfigConflictError when the file is no longer that). The
+ * rest of `tools`, its trust marks included, stays as it was; the whole is checked as a recording
+ * checks it, refused in its words.
+ */
+export function setUnrecorded(dir: string, tool: string, effect: UnrecordedEffect | null, o: { expect: string; wait?: number }): UnrecordedWrite {
+  const { file, result: was, changed } = editConfigFile(dir, o, (data): UnrecordedEffect | null => {
+    const tools = isObject(data.tools) ? data.tools : {};
+    checked(tools);
+    const declared = isObject(tools[UNRECORDED_KEY]) ? tools[UNRECORDED_KEY] : {};
+    const entry = Object.hasOwn(declared, tool) ? declared[tool] : undefined;
+    const before = entry === 'read' || entry === 'write' ? entry : null;
+    // Defined, never assigned: a tool's name is the agent's and is never a key of Object's own.
+    if (effect === null) delete declared[tool];
+    else Object.defineProperty(declared, tool, { value: effect, enumerable: true, writable: true, configurable: true });
+    if (Object.keys(declared).length) tools[UNRECORDED_KEY] = declared;
+    else delete tools[UNRECORDED_KEY];
+    if (Object.keys(tools).length) data.tools = tools;
+    else delete data.tools;
+    checked(data.tools);
+    return before;
+  });
+  const shown = effect ?? was;
+  return {
+    tool,
+    effect,
+    was,
+    changed,
+    version: file.version,
+    line: shown ? unrecordedLine(tool, shown) : null,
+    event: changed ? { kind: 'tool.unrecorded', ref: tool, data: { effect, was } } : null,
   };
 }

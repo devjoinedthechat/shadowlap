@@ -313,7 +313,7 @@ export interface EditOptions {
  * that belongs.
  */
 export interface ConfigEvent {
-  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set' | 'checks.changed' | 'tool.trust';
+  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set' | 'checks.changed' | 'tool.trust' | 'tool.unrecorded';
   ref: string | null;
   data: Record<string, unknown>;
 }

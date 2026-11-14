@@ -716,9 +716,12 @@ What Shadowlap did not record is a finding in the bar, under **N findings** when
 **Unrecorded tools.** Each line gives the tool, how often it was called, from which model call (a click opens it), and what it does, as `tools.unrecorded` in `shadowlap.config.json` declares it or a built-in's or its name says. These tools ran in the agent unseen, and a replay runs them for real. So every command that replays the run refuses one that writes, or may (one whose effect nothing tells, *may write*), until it is recorded, declared a read, or allowed with `--allow-unrecorded`.
 
 - **How to record them**: the line says how to have them recorded (a Claude Code built-in through the Claude Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped). It gives the config's lines that declare them, with **Copy**.
-- **A refused replay**: a replay the CLI refuses for one, a fix's rerun among them (it passes no `--allow-unrecorded`), ends its drawer on why, *refused · an unrecorded tool may write · exit 2*, above the CLI's words on what to do.
+- **A refused replay**: a replay the CLI refuses for one, a fix's rerun among them (it passes no `--allow-unrecorded`), ends its drawer on why, *refused · an unrecorded tool may write · exit 2*, above the CLI's words on what to do. Where the CLI suggests `--allow-unrecorded`, the drawer and its toast offer **Run again, allowing Bash**, below.
+- **Declaring one**: [Settings → Tools](#tools) declares an unrecorded tool a read or a write under `tools.unrecorded`.
 - **A run that holds its model calls alone** (a capture, a trace): the line names the tools its replay runs live, refusing nothing.
 - **An exported copy**, which replays nothing, leaves the unrecorded tools out.
+
+**Run again, allowing.** It asks first, titled *Run again, allowing Bash?*, with the command it runs. A warning in red says a tool that writes acts on your systems for real, and nothing undoes it. **Run again** starts the same job again, its fields checked as before, with `--allow-unrecorded` naming the tools the CLI named on each command that replays a recording. A yes the job asks, as for a command someone else recorded, is asked in its place before it runs.
 
 **No preload** shows in red under `--guard block`, which failed the run for it, with what the command shows of why.
 
@@ -1924,7 +1927,13 @@ Reads come first, the untrusted ones first among them. A row you mark keeps its 
 
 **Trust.** An [untrusted read](./injection.md#mark-the-reads-that-bring-outside-text-in) brings outside text in, and `shadowlap injection` plants its payloads there. The cell names where its mark comes from: `shadowlap.config.json`, `SDK`, `MCP openWorldHint · <server>`, or *recorded with its config’s mark* for a mark the calls were recorded with. A read whose MCP server sets `openWorldHint` starts untrusted.
 
-Only a read takes a mark. A pure tool, a write, a tool that declares no effect and what the user types read `—`, with why on hover: a write's result is only its receipt, and what the user types is the user's own words.
+Only a read takes a mark. A pure tool, a write, a tool that declares no effect and what the user types read `—`, with why on hover: a write's result is only its receipt, and what the user types is the user's own words. A pure tool or what the user types marked untrusted all the same reads *untrusted*, with **Mark trusted**: `shadowlap injection` plants in every untrusted call but a write and one of no effect.
+
+**Tools Shadowlap doesn't record.** Under the table, each tool `tools.unrecorded` declares, with what it does and **Declare read** or **Declare write** for the other. A field takes another tool's name, as a run's page names it, and **Declare read** declares it a read. A replay runs a tool declared a read again for real, and refuses one that writes or of no declared effect. Each writes its line against the version the page read, with **Undo**:
+
+```json
+"tools": { "unrecorded": { "Bash": "read" } }
+```
 
 **Mark untrusted** and **Mark trusted** show on a read's row as the pointer or the focus reaches it, and write the read's line under `tools` in `shadowlap.config.json`:
 
@@ -2604,9 +2613,9 @@ Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, 
 - **No lost edits**: each change names the version of the file the page read, so one made in an editor or a terminal since is never overwritten. The page says so, and shows the file as it stands.
 - **The CLI's words**: a rule the CLI would refuse is refused with the same words.
 - **The activity feed**: every change lands in it.
-- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, marking a tool, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
+- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, marking a tool, declaring an unrecorded one, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
 
-**Mark untrusted** and **Mark trusted**, on [Settings → Tools](#tools), write a read's line under `tools` the same way. The activity feed says *Tool marked untrusted · get_ticket*, or *Tool mark removed · get_ticket* for an Undo that takes the line out.
+**Mark untrusted** and **Mark trusted**, on [Settings → Tools](#tools), write a read's line under `tools` the same way. The activity feed says *Tool marked untrusted · get_ticket*, or *Tool mark removed · get_ticket* for an Undo that takes the line out. **Declare read** and **Declare write** write a line under `tools.unrecorded`, the feed saying *Unrecorded tool declared a read · Bash*, or *Unrecorded tool declaration removed · Bash*.
 
 **Write file**, on Settings → CI, writes your repository's workflow the same way. It names the version of the file it read and the workflow the page showed, so a file changed since, or switches changed meanwhile, write nothing. It lands in the activity feed, as *Wrote .github/workflows/agent.yml · 8 lines added, 1 line taken out*. Its **Undo** puts the file back, or removes the file it made, and is refused once the file changed since. The dashboard keeps its last 20 Undos until it stops.
 
@@ -3213,6 +3222,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 | `POST /api/jobs { kind: "export-html" \| "export-har" \| "pack" \| "export-dataset" \| "export-otel", … }` | The Share menu's copies |
 | `POST /api/runs/:id/actions` | A run action the terminal UI shares, as the `action` job kind starts it |
 | `GET /api/jobs`, `GET /api/jobs/:id?after=n`, `POST /api/jobs/:id/stop` | Recent jobs (without output or result); one job's output from line `n`, its runs, links, files and result; stop it, with its agent |
+| `POST /api/jobs/:id/again { allowUnrecorded, yes? }` | Run again, allowing: a job that ended, built again with `--allow-unrecorded` naming the tools |
 
 **A job's estimate.** `estimate` is the price its page showed: `usd`, `ceiling`, and where they apply `per` and `stops`. The job keeps it, and both `GET` routes answer it, so its drawer says what its card and its ask said. One of another shape is dropped, and the job still starts. Nothing reads it to decide what runs, and it never reaches the command line.
 
@@ -3370,6 +3380,7 @@ It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+di
 | `POST /api/settings/calibrate/write { jobId }` | Calibrate's **Add normalizer**: adds what that calibrate job proposed, checked against no version |
 | `POST /api/settings/rules/:list/:n/restore { rule, expect }` | A removed rule's Undo: the rule back at its number, as the file held it |
 | `PUT /api/settings/tools/trust { tool, trust, expect }` | Mark untrusted and Mark trusted: a tool's line under `tools`, `trust` being `trusted`, `untrusted` or `null` for no mark; it answers `was`, for Undo |
+| `PUT /api/settings/tools/unrecorded { tool, effect, expect }` | Declare read and Declare write: a tool's line under `tools.unrecorded`, `effect` being `read`, `write` or `null` for none; it answers `was`, for Undo |
 | `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.

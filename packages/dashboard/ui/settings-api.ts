@@ -72,6 +72,8 @@ export interface SettingsApi {
    * (the Undo of a file that had none). `line` is the line written, the box's marked one.
    */
   setToolTrust(tool: string, trust: 'trusted' | 'untrusted' | null, expect: string): Promise<{ tool: string; trust: 'trusted' | 'untrusted' | null; was: 'trusted' | 'untrusted' | null; changed: boolean; version: string; line: string | null }>;
+  /** What a tool Shadowlap doesn't record does, under `tools.unrecorded`, against the version read (`expect`); null takes its line out (the Undo of a file that declared none). */
+  setUnrecorded(tool: string, effect: 'read' | 'write' | null, expect: string): Promise<{ tool: string; effect: 'read' | 'write' | null; was: 'read' | 'write' | null; changed: boolean; version: string; line: string | null }>;
   /** "Add normalizer": the normalizers a finished calibrate job proposed, read from its result on the server. */
   writeCalibration(jobId: string): Promise<{ added: number[]; already: number[]; version: string }>;
   /**
@@ -108,6 +110,7 @@ export function settingsApi(request: Request): SettingsApi {
     setClock: (mode, expect) => send('PUT', 'settings/clock', { mode, expect }),
     setCiPush: (on, expect) => send('PUT', 'settings/store/ci-push', { on, expect }),
     setToolTrust: (tool, trust, expect) => send('PUT', 'settings/tools/trust', { tool, trust, expect }),
+    setUnrecorded: (tool, effect, expect) => send('PUT', 'settings/tools/unrecorded', { tool, effect, expect }),
     writeCalibration: (jobId) => send('POST', 'settings/calibrate/write', { jobId }),
     writeWorkflow: (options, expect, shown) => send('PUT', 'ci/workflow', { options, expect, shown }),
     undoWorkflow: (was) => send('POST', 'ci/workflow/undo', { was }),
@@ -133,6 +136,7 @@ export function noSettings(refuse: () => Promise<never>): SettingsApi {
     setClock: refuse,
     setCiPush: refuse,
     setToolTrust: refuse,
+    setUnrecorded: refuse,
     writeCalibration: refuse,
     writeWorkflow: refuse,
     undoWorkflow: refuse,

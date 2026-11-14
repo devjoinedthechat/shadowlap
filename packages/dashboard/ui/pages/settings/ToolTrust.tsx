@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { ActionButton } from '../../components/ActionButton.js';
 import { SrSpace } from '../../components/bits.js';
 import { CodeBox, CopyButton } from '../../components/CodeBox.js';
+import { Copy } from '../../components/Copy.js';
 import { tipCard, type TipRow } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { Term } from '../../components/Term.js';
@@ -14,12 +15,16 @@ import { CONFIG_FILE, type useEditor } from './common.js';
 
 /**
  * Settings → Tools' Trust table: every tool in one table, by what a fork does to it (a read runs
- * live, a pure tool is served when its call is the same, a write is blocked or stubbed). Only a read
+ * live, a pure tool is served when its call is the same, a write is blocked or stubbed). A read
  * takes a mark: a pure tool computes from its arguments, what the user types is the user's own, and
- * a write's result is only its receipt. Reads come first, untrusted first among them, in the order
- * the page first drew them, so a mark made here keeps its row in place until the page loads again.
- * Mark untrusted and Mark trusted write `tools.<name>.trust` against the version the tab read, with
- * an Undo; under the table, the `tools` entry they write, folded, the line written here marked.
+ * a write's result is only its receipt. A pure tool or what the user types marked untrusted all the
+ * same is planted in, as `shadowlap injection` plants in any untrusted call but a write and one of no
+ * effect, so its row says so and offers Mark trusted. Reads come first, untrusted first among them,
+ * in the order the page first drew them, so a mark made here keeps its row in place until the page
+ * loads again. Mark untrusted and Mark trusted write `tools.<name>.trust` against the version the
+ * tab read, with an Undo; under the table, the `tools` entry they write, folded, the line written
+ * here marked. Under it, the tools Shadowlap doesn't record, each declared a read or a write under
+ * `tools.unrecorded` the same way (UnrecordedTools).
  */
 
 export type ToolRow = ToolsSettings['live'][number];
@@ -34,6 +39,12 @@ const NO_MARK: Readonly<Record<Exclude<Kind, 'read'>, { t: string; s: string }>>
   write: { t: 'A write', s: 'Never planted in: an instruction arrives in what the agent reads, and a write’s result is only its receipt' },
   pure: { t: 'A pure tool', s: 'It computes from its arguments and brings nothing in, so nothing is planted in it' },
   undeclared: { t: 'No effect declared', s: 'It may be a write, so nothing is planted in it' },
+};
+
+/** Whether a tool takes a mark: a read, and a pure tool or what the user types once marked untrusted, where `shadowlap injection` plants as it plants in a read. */
+const planted = (t: ToolRow): boolean => {
+  const k = kindOf(t);
+  return k === 'read' || (t.trust === 'untrusted' && (k === 'pure' || k === 'input'));
 };
 
 /** The order the page first drew, by the tools it drew: kept until the page loads again. */
@@ -107,7 +118,7 @@ export function TrustTable({ data, editor, off, version, test }: TrustProps) {
       },
     );
   };
-  const markable = (t: ToolRow) => kindOf(t) === 'read' && t.name !== 'unrecorded';
+  const markable = (t: ToolRow) => planted(t) && t.name !== 'unrecorded';
   const inFocus = useListKeys({
     rows,
     keyOf: (t) => `tool:${t.name}`,
@@ -161,7 +172,7 @@ function toolCard(t: ToolRow): string {
 function TrustRow({ t, focused, markable, off, onMark, test }: { t: ToolRow; focused: boolean; markable: boolean; off: string | null; onMark: () => void; test: ReactNode }) {
   const k = kindOf(t);
   const other = t.trust === 'untrusted' ? 'trusted' : 'untrusted';
-  const na = k === 'read' ? null : NO_MARK[k];
+  const na = k === 'read' || planted(t) ? null : NO_MARK[k];
   return (
     <tr className={`still${focused ? ' krow' : ''}`} data-rowkey={`tool:${t.name}`}>
       <td>
@@ -228,5 +239,89 @@ function ToolsEntry({ entry }: { entry: ToolsSettings['entry'] }) {
         <CodeBox file={CONFIG_FILE} lines={lines} />
       </div>
     </>
+  );
+}
+
+/** A tool Shadowlap doesn't record, as `tools.unrecorded` declares it. */
+type Declared = NonNullable<ToolsSettings['unrecorded']>[number];
+
+/** The words that write a declaration, and its toasts' line. */
+const unrecordedLine = (name: string, effect: 'read' | 'write') => `"tools": { "unrecorded": { ${JSON.stringify(name)}: "${effect}" } }`;
+
+/** What a replay does with one declared so, on its button's card. */
+const DECLARE_SUB: Readonly<Record<'read' | 'write', string>> = {
+  read: 'Writes this line. A replay then runs it again for real, as it ran when it was recorded',
+  write: 'Writes this line. Every command that replays a run then refuses to run it again, unless allowed',
+};
+
+/**
+ * The tools the agent runs without Shadowlap recording them, as `tools.unrecorded` declares them:
+ * each with what it does and the other declaration, and a field to declare another one a read by
+ * the name the model called it, as a run's page names it. A replay serves the model's answers
+ * again, so it runs such a tool again for real: it runs one declared a read, and refuses one that
+ * writes or whose effect nothing says. Each writes its line against the version the tab read, with
+ * an Undo, as a mark does.
+ */
+export function UnrecordedTools({ data, editor, off, version }: Pick<TrustProps, 'data' | 'editor' | 'off' | 'version'>) {
+  const { client } = useApp();
+  const [name, setName] = useState('');
+  const declare = (tool: string, effect: 'read' | 'write') =>
+    editor.run(
+      () => client.settings.setUnrecorded(tool, effect, version),
+      (r) => `Wrote ${r.line ?? unrecordedLine(tool, effect)} to ${CONFIG_FILE}`,
+      (r) => {
+        if (!r.changed) return null;
+        let back: string | null = null;
+        return {
+          edit: async () => {
+            const u = await client.settings.setUnrecorded(tool, r.was, r.version);
+            back = u.line;
+            return u;
+          },
+          ok: () => (r.was ? `Put ${back ?? ''} back in ${CONFIG_FILE}` : `Took ${r.line ?? unrecordedLine(tool, effect)} out of ${CONFIG_FILE}`),
+        };
+      },
+    );
+  const typed = name.trim();
+  const submit = () => {
+    if (typed) void declare(typed, 'read').then((r) => r && setName(''));
+  };
+  return (
+    <div className="egrp unrec">
+      <span className="k">tools Shadowlap doesn’t record</span>
+      <Copy className="muted">
+        A tool the agent runs without Shadowlap recording it runs again for real on every replay. A replay refuses one that writes, or whose effect nothing says, unless <code>tools.unrecorded</code> in {CONFIG_FILE} declares it a read.
+      </Copy>
+      {data.unrecorded?.length ? (
+        <ul>
+          {data.unrecorded.map((t: Declared) => {
+            const other = t.effect === 'read' ? 'write' : 'read';
+            return (
+              <li key={t.name}>
+                <code>{t.name}</code>
+                <span className="muted">declared a {t.effect}</span>
+                <ActionButton className="linkbtn" why={off} tip={`Declare ${t.name} a ${other}`} sub={DECLARE_SUB[other]} command={unrecordedLine(t.name, other)} onClick={() => void declare(t.name, other)}>
+                  Declare {other}
+                </ActionButton>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <label>
+          <span className="sr">The tool’s name, as the model called it</span>
+          <input spellCheck={false} autoComplete="off" placeholder="Bash" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <ActionButton className="btn sm" why={off ?? (typed ? null : 'Type the tool’s name, as a run’s page names it')} tip={typed ? `Declare ${typed} a read` : 'Declare read'} sub={DECLARE_SUB.read} command={typed ? unrecordedLine(typed, 'read') : undefined} onClick={submit}>
+          Declare read
+        </ActionButton>
+      </form>
+    </div>
   );
 }

@@ -271,6 +271,8 @@ const stepOf = (built: JobBuild): Pick<Job, 'step' | 'ran'> => ({ step: built.st
 interface Job {
   id: string;
   kind: string;
+  /** The request it was started with, less its yes and its estimate: what Run again builds again (`again`). */
+  request: JobRequest;
   title: string;
   args: string[];
   /** What the page showed it would bill as it started it (`shownEstimate`); null for none. */
@@ -323,6 +325,40 @@ interface Job {
   place: JobPlace;
   /** That project's folder, resolved through links once: files the job reports must be inside it. */
   root?: string | null;
+}
+
+/**
+ * The CLI's commands that take `--allow-unrecorded`, each replaying a recording: a replay that serves
+ * the model's answers again would run a tool the recording never recorded again for real, and they
+ * refuse one that writes unless the flag names it (cli/src/unrecorded.ts).
+ */
+const ALLOWS_UNRECORDED: ReadonlySet<string> = new Set(['replay', 'calibrate', 'blame', 'verify', 'repair', 'test', 'bisect', 'injection', 'serve']);
+/** A tool's name as `--allow-unrecorded` takes it among others: one word with no comma, never starting like a flag, nothing hidden in it. */
+const TOOL_NAME = /^[^\s,@-][^\s,\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{0,199}$/u;
+
+/** The tools a Run again allows, checked: one to fifty names, each a tool's. */
+function allowedTools(v: unknown): string[] {
+  if (!Array.isArray(v) || !v.length || v.length > 50 || !v.every((n): n is string => typeof n === 'string' && TOOL_NAME.test(n))) throw new HttpError(400, 'allowUnrecorded names the tools to allow, as the CLI named them: one to fifty names, each one word with no comma');
+  return [...new Set(v)];
+}
+
+/**
+ * A job built, its commands that replay a recording (ALLOWS_UNRECORDED) given `--allow-unrecorded`
+ * with the tools, before their `--` so the flag is Shadowlap's and not the agent's. Refused where it
+ * runs no such command: it has no tool to allow.
+ */
+function allowing(built: JobBuild, tools: readonly string[]): JobBuild {
+  let any = false;
+  const add = (args: string[]): string[] => {
+    if (!ALLOWS_UNRECORDED.has(args[0] ?? '')) return args;
+    any = true;
+    const at = args.indexOf('--');
+    const flag = ['--allow-unrecorded', tools.join(',')];
+    return at < 0 ? [...args, ...flag] : [...args.slice(0, at), ...flag, ...args.slice(at)];
+  };
+  const out = { ...built, args: add(built.args), ...(built.then ? { then: built.then.map(add) } : {}) };
+  if (!any) throw new HttpError(400, 'this job runs no command that replays a recording, so it has no tool to allow');
+  return out;
 }
 
 /** Names a job's command may set (`JobBuild.env`): not the events pipe's, which the spawner sets. */
@@ -484,8 +520,12 @@ export class JobManager {
     for (const j of this.jobs.values()) if (!j.done) yield { tree: j.worktree, at: j.treeAt };
   }
 
-  /** Builds and starts a job of `kind`. Throws an HttpError the client should see when it cannot. */
-  async start(kind: unknown, req: JobRequest): Promise<JobView> {
+  /**
+   * Builds and starts a job of `kind`. Throws an HttpError the client should see when it cannot.
+   * `allow`: the tools its commands that replay a recording run again though their recording never
+   * recorded them (Run again, allowing, `again`).
+   */
+  async start(kind: unknown, req: JobRequest, allow?: readonly string[]): Promise<JobView> {
     const { def, spawnCli } = this.startable(kind);
     const id = randomBytes(8).toString('hex');
     const uploads = this.o.uploads;
@@ -513,6 +553,14 @@ export class JobManager {
       uploads?.release(id);
       throw new HttpError(built.status ?? 400, built.error, built.confirm, built.live);
     }
+    if (allow) {
+      try {
+        built = allowing(built, allow);
+      } catch (err) {
+        uploads?.release(id);
+        throw err;
+      }
+    }
     const root: { value?: string | null } = {};
     let set: ReturnType<JobManager['settle']>;
     try {
@@ -524,9 +572,11 @@ export class JobManager {
 
     let markEnded: () => void = () => undefined;
     const ended = new Promise<void>((resolve) => (markEnded = resolve));
+    const { yes: _yes, estimate: _estimate, ...request } = req;
     const job: Job = {
       id,
       kind: kind as string,
+      request,
       args: [...built.args],
       estimate: shownEstimate(req.estimate),
       ...set,
@@ -570,6 +620,21 @@ export class JobManager {
       }
     }
     return this.view(job);
+  }
+
+  /**
+   * Run again, allowing: a job that ended starts again as it was asked for, its request built again
+   * by its kind's builder (every field checked as before, and the yes its kind asks asked again: a
+   * 409 the page answers, `yes` then), with `--allow-unrecorded` naming the tools on each command
+   * that replays a recording. Only in the project it ran in.
+   */
+  async again(id: string, req: JobRequest): Promise<JobView> {
+    const was = this.jobs.get(id);
+    if (!was) throw new HttpError(404, `no job ${id.slice(0, 40)}`);
+    if (!was.done) throw new HttpError(409, 'the job is still running');
+    const tools = allowedTools(req.allowUnrecorded);
+    if (this.here().projectId !== was.place.projectId) throw new HttpError(409, 'that job ran in another project: switch to it to run it again');
+    return this.start(was.kind, { ...was.request, ...(req.yes !== undefined ? { yes: req.yes } : {}), ...(req.estimate !== undefined ? { estimate: req.estimate } : {}) }, tools);
   }
 
   /** The kind a job is started as, and the spawner, or why none can start now. */

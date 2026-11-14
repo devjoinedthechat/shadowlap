@@ -5,6 +5,7 @@ import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { jobFooter } from '../job-actions.js';
+import { AllowAgain } from '../allow-again.js';
 import { drawnJob } from '../job-store.js';
 import { drawerCost } from '../../../engine/src/estimates/spending.js';
 import { calibrationTarget, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
@@ -215,6 +216,12 @@ function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () =
         <span className="jkind">
           {/* eslint-disable-next-line react-hooks/static-components -- the footer registered for the job's kind: one component a kind, the same on every render */}
           <Footer job={job} plain={lime === 'btn'} done={close} />
+        </span>
+      ) : null}
+      {/* A job the CLI refused for tools its run never recorded: Run again, allowing them, which asks first. */}
+      {!elsewhere && !lost ? (
+        <span className="jkind">
+          <AllowAgain job={job} lines={lines} />
         </span>
       ) : null}
       {calibrate ? <CalibrateButton runId={calibrate} /> : null}
