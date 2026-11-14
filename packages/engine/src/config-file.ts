@@ -313,7 +313,7 @@ export interface EditOptions {
  * that belongs.
  */
 export interface ConfigEvent {
-  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set' | 'checks.changed' | 'tool.trust' | 'tool.unrecorded';
+  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set' | 'build.set' | 'checks.changed' | 'tool.trust' | 'tool.unrecorded';
   ref: string | null;
   data: Record<string, unknown>;
 }
@@ -577,4 +577,46 @@ export function setClock(cwd: string, mode: unknown, options: EditOptions = {}):
   const before = was === 'exact' || was === 'auto' ? was : null;
   const clock = mode ?? 'auto';
   return { file, clock, was: before, changed, event: changed ? { kind: 'clock.set', ref: clock, data: { clock, was: before } } : null };
+}
+
+/** What `"build"` must be, in the words every reader of it and every writer says it. */
+const BUILD_WORDS = 'build must be the command that builds the agent, on one line, such as "npm run build"';
+
+/** A character that ends a line or controls a terminal: a second line would be a second command the file never shows as one. */
+const BUILD_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** Why a value can't be `"build"`, or null: a command on one line, at most 1000 characters, with something in it. */
+function buildProblem(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim() || value.length > 1000 || BUILD_CONTROL.test(value)) return BUILD_WORDS;
+  return null;
+}
+
+/**
+ * `"build"` as the file holds it (`value`): the command that builds the agent, such as `npm run
+ * build`, which `repair`, `fix apply`, `verify` (for the checkout of the code before a change),
+ * `migrate apply` and `bisect` run where they would run `--build` and none is given. Null when the
+ * file sets none; throws, naming `file`, when it is anything but a command on one line.
+ */
+export function configBuild(value: unknown, file: string = CONFIG_FILE): string | null {
+  if (value === undefined) return null;
+  const problem = buildProblem(value);
+  if (problem) throw new Error(`${file}: ${problem}`);
+  return (value as string).trim();
+}
+
+/**
+ * Sets `"build"`, as Settings → Project writes it; null takes the key out (how an Undo puts back a
+ * file that had none). `was` is what the file said before, null for nothing.
+ */
+export function setBuild(cwd: string, command: unknown, options: EditOptions = {}): { file: ConfigFile; build: string | null; was: string | null; changed: boolean; event: ConfigEvent | null } {
+  if (command !== null && buildProblem(command)) throw new RuleError(BUILD_WORDS);
+  const build = command === null ? null : (command as string).trim();
+  let was: unknown;
+  const { file, changed } = editConfigFile(cwd, options, (data) => {
+    was = data.build;
+    if (build === null) delete data.build;
+    else data.build = build;
+  });
+  const before = typeof was === 'string' ? was : null;
+  return { file, build, was: before, changed, event: changed ? { kind: 'build.set', ref: build, data: { build, was: before } } : null };
 }

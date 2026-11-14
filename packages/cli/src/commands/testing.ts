@@ -8,7 +8,7 @@ import { logActivity, newRunMeta } from '../activity.js';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck } from '../checks.js';
-import { codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { buildCommand, codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { EXIT, interruptedStatus } from '../exit-codes.js';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded } from '../unrecorded.js';
 import { confirmGolden } from '../golden-consent.js';
@@ -171,7 +171,7 @@ export function register(program: Command): void {
     .option('--bad <rev>', 'a commit where it fails', 'HEAD')
     .option('--expect <json|@file>', 'checks the replay must pass besides exiting 0 (default: the golden\'s under "tests" in shadowlap.config.json)')
     .option('--fork', 'let each replay diverge and run live from the fork (it costs tokens), so only the exit status and the checks decide: for a run that failed a check')
-    .option('--build <command>', 'run in each worktree before the replay, e.g. "npm ci && npm run build"')
+    .option('--build <command>', 'run in each worktree before the replay, e.g. "npm ci && npm run build" (default: build in shadowlap.config.json; "" for none)')
     .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
@@ -181,6 +181,7 @@ export function register(program: Command): void {
     .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       try {
+        const build = buildCommand(flags.build, () => loadConfig(process.cwd()));
         const report = await runBisect({
           opts,
           target,
@@ -191,7 +192,8 @@ export function register(program: Command): void {
           bad: flags.bad,
           spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,
           fork: !!flags.fork,
-          build: flags.build ?? null,
+          build: build.command,
+          buildNote: build.note,
           cwd: resolve(flags.cwd ?? process.cwd()),
           timeoutMs: flags.timeout * 1000,
           guard: flags.guard,

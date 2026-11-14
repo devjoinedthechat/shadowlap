@@ -5,7 +5,7 @@ import { ACTIONS, describeGate, dimLines, formatRepair, messageOf, splitHoldout,
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
-import { loadConfig } from '../config.js';
+import { buildCommand, loadConfig } from '../config.js';
 import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { recordRepairFix, repairCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
@@ -155,9 +155,11 @@ async function repairTargets(opts: GlobalOpts, request: RepairRequest, runs: { t
   const { targets, held, good, heldOutAutomatically } = runs;
   const progress = progressLog(process.stderr, !opts.verbose);
   const log = progress.log;
-  for (const line of repairPlan(request, runs, flags, columnsOf(process.stderr))) log(line);
+  // Each candidate's worktree, its baseline's and the working tree after --apply build as --build says, else as the config's build does.
+  const build = buildCommand(flags.build, () => config);
+  for (const line of [...repairPlan(request, runs, flags, columnsOf(process.stderr)), ...(build.note ? dimLines(p, '  ', build.note, columnsOf(process.stderr)) : [])]) log(line);
 
-  const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, candidates: flags.candidates, stronger: flags.stronger ?? null, scope: flags.scope ?? null, rescueFields: parseFields(flags.set, undefined), maxGrowth: flags.maxGrowth, build: flags.build ?? null, repairer: repairer ?? { provider: 'anthropic' as const, model: '' }, spec: expect?.spec ?? null, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] };
+  const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, candidates: flags.candidates, stronger: flags.stronger ?? null, scope: flags.scope ?? null, rescueFields: parseFields(flags.set, undefined), maxGrowth: flags.maxGrowth, build: build.command, repairer: repairer ?? { provider: 'anthropic' as const, model: '' }, spec: expect?.spec ?? null, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] };
   const outputs = { apply: !!flags.apply, branch: flags.branch ?? null, pr: !!flags.pr, goldens: flags.goldens ?? null };
   try {
     // The repair, and its hand-over. One that fails part way (a push or `gh` refused, a file changed)

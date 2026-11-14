@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { cpSync, existsSync, readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,7 @@ import { planCopies, type GivenName, type GoldenCopy } from './fix-apply-names.j
 import { ACCEPTED_FILE, addedSentences, appendAcceptance, decidesOtherwise, systemPromptOf } from './golden-accepted.js';
 import { readPackHead } from './goldens.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
-import { ApplyError, APPLY, applyToBytes, checkTreeFile, git, putIn, shown } from './patch-apply.js';
+import { ApplyError, APPLY, applyToBytes, checkTreeFile, git, putIn, rebuild, shown } from './patch-apply.js';
 import { physicalPath } from './real-path.js';
 
 export { ApplyError } from './patch-apply.js';
@@ -51,6 +51,8 @@ export interface ApplyOptions {
   test: boolean;
   /** A command that rebuilds the agent before the test. */
   build: string | null;
+  /** Said as it runs when the config named it, nobody having typed --build (buildCommand). */
+  buildNote?: string | null;
   /** The store, passed on to `shadowlap test` so its runs land in it too. */
   db: string | undefined;
   log: (line: string) => void;
@@ -198,11 +200,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     if (elsewhere) o.log(`  ${elsewhere === 1 ? 'the recording' : `the ${elsewhere} recordings`} the fixed code made ${elsewhere === 1 ? 'stays' : 'stay'} on the machine that ran ${repair.repairId}, which came with a pull: commit ${elsewhere === 1 ? 'it' : 'them'} from there`);
     if (unread) o.log(`  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- ${shownInRepo(o.cwd, root, file)}), then ${o.build ? `rebuild (${o.build}) and ` : ''}check your goldens against it with shadowlap test`);
 
-    if (o.build && !unread) {
-      const b = spawnSync(o.build, { cwd: o.cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-      if (b.status !== 0) o.log(`  ! ${o.build} failed: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' ')}`);
-      else o.log(`  rebuilt: ${o.build}`);
-    }
+    if (!unread) rebuild(o);
     if (o.test && result.goldens.length) result.tests = (await runTests(result.goldens.map((x) => x.to), o)) ? 'passed' : 'failed';
   } else {
     namesNone(o, 'the fix was verified with no repair behind it, so apply copies no recording');

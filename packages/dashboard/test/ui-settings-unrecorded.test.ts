@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import type { ToolsSettings } from '../ui/settings-api.js';
@@ -89,7 +89,7 @@ describe('Settings → Tools’ tools Shadowlap doesn’t record', () => {
     expect(toasts[0][0]).toBe(`Wrote ${declared('Bash', 'read')} to shadowlap.config.json`);
     expect(r.all('.unrec li').map((li) => li.textContent)).toEqual(['Writedeclared a writeDeclare read', 'Bashdeclared a readDeclare write']);
     // Its Undo takes the line out again, against the version it wrote.
-    toasts[0][1]!.run();
+    await act(async () => toasts[0][1]!.run());
     await r.until('the undo landed', () => r!.all('.unrec li').length === 1);
     expect(sent[1]).toEqual(['Bash', null, 'v2']);
     expect(toasts[1][0]).toBe(`Took ${declared('Bash', 'read')} out of shadowlap.config.json`);

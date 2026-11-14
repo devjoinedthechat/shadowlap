@@ -328,6 +328,24 @@ describe('commits bisect cannot test', () => {
     expect(text.stdout).toContain(`or one just before it, which could not be tested: ${rev['Add usage']} (Add usage)`);
   });
 
+  it('runs the build shadowlap.config.json names where --build isn\'t given, says so, and none for --build ""', async () => {
+    const config = join(project, 'shadowlap.config.json');
+    writeFileSync(config, JSON.stringify({ build }));
+    try {
+      const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent'], '--json']);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain(`\n  build: ${build}, from shadowlap.config.json (--build "" for none)\n`);
+      expect(r.out).toContain(`replay at ${rev['Add usage']}  – skipped: could not be built`);
+      expect((JSON.parse(r.stdout) as { untested: Array<{ short: string }> }).untested.map((c) => c.short)).toEqual([rev['Add usage']]);
+      const none = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent'], '--build', '', '--json']);
+      expect(none.code, none.out).toBe(0);
+      expect(none.out).toContain(`replay at ${rev['Add usage']}  replayed clean`);
+      expect(none.out).not.toContain('shadowlap.config.json');
+    } finally {
+      rmSync(config);
+    }
+  });
+
   it('searches from where the histories meet when the good commit is on another branch', async () => {
     const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Side note']]);
     expect(r.code, r.out).toBe(0);

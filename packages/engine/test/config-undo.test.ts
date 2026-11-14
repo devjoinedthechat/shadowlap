@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CONFIG_FILE, ConfigConflictError, RuleError, addRule, readConfigFile, readRules, removeRule, restoreRule, setClock, validateRule } from '../src/config-file.js';
+import { CONFIG_FILE, ConfigConflictError, RuleError, addRule, configBuild, readConfigFile, readRules, removeRule, restoreRule, setBuild, setClock, validateRule } from '../src/config-file.js';
 
 /**
  * The Undo of a Settings edit: a removed rule goes back at its number, as it was stored, and a
@@ -102,5 +102,33 @@ describe('setClock', () => {
     expect(read()).toBe(before);
     expect(back.file.version).toBe(version);
     expect(() => setClock(cwd, 'soon')).toThrow(RuleError);
+  });
+});
+
+describe('setBuild', () => {
+  it('sets the command that builds the agent, says what it replaced, and takes the key out again with null', () => {
+    writeFileSync(join(cwd, CONFIG_FILE), `${JSON.stringify({ normalize: [] }, null, 2)}\n`);
+    const before = read();
+    const { version } = readConfigFile(cwd);
+    const set = setBuild(cwd, '  npm run build ', { expect: version });
+    expect([set.build, set.was, set.changed]).toEqual(['npm run build', null, true]);
+    expect(set.event).toEqual({ kind: 'build.set', ref: 'npm run build', data: { build: 'npm run build', was: null } });
+    expect(configBuild(readConfigFile(cwd).data.build)).toBe('npm run build');
+    const other = setBuild(cwd, 'npm ci && npm run build', { expect: set.file.version });
+    expect([other.build, other.was]).toEqual(['npm ci && npm run build', 'npm run build']);
+    const back = setBuild(cwd, null, { expect: setBuild(cwd, other.was, { expect: other.file.version }).file.version });
+    expect([back.build, back.was, back.changed]).toEqual([null, 'npm run build', true]);
+    expect(back.event).toEqual({ kind: 'build.set', ref: null, data: { build: null, was: 'npm run build' } });
+    expect(read()).toBe(before);
+    expect(back.file.version).toBe(version);
+  });
+
+  it('refuses what is no command on one line, as the file is refused when it holds one', () => {
+    for (const bad of ['', '   ', 'npm run build\nrm -rf ~', 'x'.repeat(1001), 42, ['npm', 'run', 'build'], {}]) {
+      expect(() => setBuild(cwd, bad), JSON.stringify(bad)).toThrow(new RuleError('build must be the command that builds the agent, on one line, such as "npm run build"'));
+      expect(() => configBuild(bad), JSON.stringify(bad)).toThrow(`${CONFIG_FILE}: build must be the command that builds the agent, on one line, such as "npm run build"`);
+    }
+    expect(configBuild(undefined)).toBeNull();
+    expect(() => readFileSync(join(cwd, CONFIG_FILE))).toThrow();
   });
 });

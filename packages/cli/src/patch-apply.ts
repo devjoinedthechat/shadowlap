@@ -101,6 +101,18 @@ export function linkOnTheWay(root: string, file: string): string | null {
 export const shown = (cwd: string, path: string) => relative(cwd, path).split(sep).join('/');
 
 /**
+ * Rebuilds the agent in `cwd` once a patch is in, as `fix apply` and `migrate apply` do before their
+ * replay: `build` run in a shell, `note` said first when the config named it, then how it went.
+ */
+export function rebuild(o: { build: string | null; buildNote?: string | null | undefined; cwd: string; log: (line: string) => void }): void {
+  if (!o.build) return;
+  if (o.buildNote) o.log(`  ${o.buildNote}`);
+  const b = spawnSync(o.build, { cwd: o.cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (b.status !== 0) o.log(`  ! ${o.build} failed: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' ')}`);
+  else o.log(`  rebuilt: ${o.build}`);
+}
+
+/**
  * Refuses a file the patch would write unless it is a plain file of the working tree, reached through
  * no link to a folder (which could lead the write out of the tree: git apply writes nothing beyond one
  * either), that git doesn't ignore: a change to one git ignores would show in neither git status nor

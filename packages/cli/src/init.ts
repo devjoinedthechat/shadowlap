@@ -1,7 +1,7 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
-import { declaredManager, detectCommand, lockfileManager, nodeWorkspaceManager, pythonManager } from './init-command.js';
+import { declaredManager, detectBuild, detectCommand, lockfileManager, nodeWorkspaceManager, pythonManager } from './init-command.js';
 import { findModelServer, scanModels } from './init-models.js';
 import { type Framework, type InitReport, type Language, type Provider, type UnrecordedModel } from './init-report.js';
 import { installedVersion, pythonDependencies, pythonExtras, readJson, readUtf8, rel, sourceFiles } from './init-source.js';
@@ -106,6 +106,7 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
     providers,
     frameworks,
     command: detectCommand(cwd, pkg, packageManager, python, languages, texts),
+    build: detectBuild(cwd, pkg, packageManager),
     tools,
     fence: scanFences(frameworks, languages, texts, cwd),
     hardcodedBaseUrls,

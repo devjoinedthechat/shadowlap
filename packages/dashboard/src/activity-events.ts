@@ -90,10 +90,12 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
   // What an injection test showed, opening the run it tested. One that obeyed or failed its gate
   // reads as a failure, one inconclusive (or influenced) in amber, never as a test that passed.
   ['injection.tested', injectionText],
-  // Find breaking commit that named no first bad commit: why, so the next search starts elsewhere.
-  // A golden's answer opens Tests, which shows it; a run's, the run.
   // Settings → Tools' declaration of what a tool Shadowlap doesn't record does, and the Undo that takes one out.
   ['tool.unrecorded', (e, d) => ({ kind: 'setting', text: `${d.effect === 'read' || d.effect === 'write' ? `Unrecorded tool declared a ${d.effect}` : 'Unrecorded tool declaration removed'} · ${e.ref ?? 'a tool'}`, href: links.settings('tools') })],
+  // Settings → Project's Build: the command that builds the agent, and the Undo or the empty field that takes it out.
+  ['build.set', (_e, d) => ({ kind: 'setting', text: typeof d.build === 'string' && d.build ? `Build set · ${d.build}` : 'Build removed', href: links.settings('project') })],
+  // Find breaking commit that named no first bad commit: why, so the next search starts elsewhere.
+  // A golden's answer opens Tests, which shows it; a run's, the run.
   ['bisect.none', (e, d) => ({ kind: 'test', outcome: 'warn', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() })],
   // A golden's checks changed in the check builder (routes/checks.ts records it): what it gained, or
   // lost, by the golden's name; its ref stays the path.

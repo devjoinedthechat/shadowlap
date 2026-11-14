@@ -280,6 +280,11 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .setrow .spendf input.inp:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent); }
 @media (max-width: 640px) { .setrow.spend .spendset { align-self: stretch; justify-content: flex-start; } }
 @media (pointer: coarse) { .setrow.spend .seg button { position: relative; } .setrow.spend .seg button::after { content: ''; position: absolute; inset: -6px 0; } }
+/* Build, on Project, under Spending: the command that builds the agent, its field and Save beside it. */
+.setrow.buildrow { border-top: 0; border-bottom: 1px solid var(--line); }
+.buildset { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.setrow .buildset input.inp { width: 28ch; }
+@media (max-width: 640px) { .setrow.buildrow .buildset { align-self: stretch; justify-content: flex-start; } .setrow .buildset input.inp { flex: 1; width: auto; min-width: 0; } }
 
 /* Your workflow: where the repository's file stands, its counts in amber; the file folded under it, its lines marked. */
 .wfpanel .wfstate { margin: 0 0 4px; color: var(--dim); }

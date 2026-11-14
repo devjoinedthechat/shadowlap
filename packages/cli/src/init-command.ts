@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
+import { configBuild, readConfigFile } from '@shadowlap/engine';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { type InitReport, type Language } from './init-report.js';
@@ -211,6 +212,25 @@ function modelEntry(cwd: string, texts: ReadonlyArray<readonly [string, string]>
   if (top.some(([f, t]) => basename(f) !== file && imported.test(t))) return null;
   const argv = file.endsWith('.py') ? runPython(python, file) : /\.([cm]?ts|tsx)$/.test(file) ? ['npx', 'tsx', file] : ['node', file];
   return { argv, from: entryFile(file) };
+}
+
+/**
+ * The command that builds the agent, as package.json's `build` script runs with the project's package
+ * manager (`npm run build`, `pnpm build`): what `build` in shadowlap.config.json would name, so repair,
+ * fix apply, verify, migrate apply and bisect rebuild a compiled agent. Null without one, or for one
+ * that watches rather than builds. `configured` is the build the config names, when it reads.
+ */
+export function detectBuild(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager']): InitReport['build'] {
+  const script = ((pkg?.scripts ?? {}) as Record<string, unknown>).build;
+  if (typeof script !== 'string' || !script.trim() || /(?:--watch|\s-w)\b/.test(script)) return null;
+  const argv = manager === 'pnpm' || manager === 'yarn' ? [manager, 'build'] : manager === 'bun' ? ['bun', 'run', 'build'] : ['npm', 'run', 'build'];
+  let configured: string | null = null;
+  try {
+    configured = configBuild(readConfigFile(cwd).data.build);
+  } catch {
+    // a config that can't be read names no build here: doctor says what is wrong with it
+  }
+  return { argv, from: `package.json scripts.build: ${script}`, configured };
 }
 
 export function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], python: PythonManager, languages: Language[], texts: ReadonlyArray<readonly [string, string]> = []): InitReport['command'] {

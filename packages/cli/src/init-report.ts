@@ -80,6 +80,11 @@ export interface InitReport {
   frameworks: Framework[];
   /** The command that starts the agent, when one can be read from the project. */
   command: { argv: string[]; from: string } | null;
+  /**
+   * The command that builds the agent, from package.json's `build` script, for `build` in
+   * shadowlap.config.json; `configured` is the build the config names already, or null.
+   */
+  build: { argv: string[]; from: string; configured: string | null } | null;
   tools: FoundTool[];
   /** Each Claude Agent SDK the project uses, and whether its query runs through the fence; empty without one. */
   fence: Fence[];

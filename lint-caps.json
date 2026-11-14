@@ -47,9 +47,6 @@
     "packages/cli/src/commands/training.ts": {
       "register > action(\"score\")": 60
     },
-    "packages/cli/src/config.ts": {
-      "loadConfig": 43
-    },
     "packages/cli/src/decisions-capture.ts": {
       "captureFromCode": 52
     },
@@ -63,7 +60,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 64
+      "applyFix": 60
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64

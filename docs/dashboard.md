@@ -1969,6 +1969,11 @@ Credentials in a copied config:
 - **Its words follow the setting**: *Ask before spending more than $0.50.* and *A job with no estimate always asks.*
 - **Change**, in a dialog's footer, opens this row with the field focused.
 
+**Build** is the command that builds the agent, `build` in `shadowlap.config.json`. Repair, fix apply, verify's checkout of the code before a change, migrate apply and bisect run it where no `--build` is given, from a terminal and from here alike, so a compiled agent never replays an old build ([where each runs it](./cli.md#the-configuration-file)).
+
+- **Save** writes what the field holds against the version the row read, with **Undo**: *Wrote "build": "npm run build" to shadowlap.config.json*. An empty field takes the key out.
+- **A `build` the file holds that can't run**, such as one on two lines, is said in the CLI's words above the field.
+
 ### Store
 
 *Store* is the [team store](./team.md). It shows:
@@ -2613,9 +2618,9 @@ Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, 
 - **No lost edits**: each change names the version of the file the page read, so one made in an editor or a terminal since is never overwritten. The page says so, and shows the file as it stands.
 - **The CLI's words**: a rule the CLI would refuse is refused with the same words.
 - **The activity feed**: every change lands in it.
-- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, marking a tool, declaring an unrecorded one, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
+- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, marking a tool, declaring an unrecorded one, saving the build, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
 
-**Mark untrusted** and **Mark trusted**, on [Settings → Tools](#tools), write a read's line under `tools` the same way. The activity feed says *Tool marked untrusted · get_ticket*, or *Tool mark removed · get_ticket* for an Undo that takes the line out. **Declare read** and **Declare write** write a line under `tools.unrecorded`, the feed saying *Unrecorded tool declared a read · Bash*, or *Unrecorded tool declaration removed · Bash*.
+**Mark untrusted** and **Mark trusted**, on [Settings → Tools](#tools), write a read's line under `tools` the same way. The activity feed says *Tool marked untrusted · get_ticket*, or *Tool mark removed · get_ticket* for an Undo that takes the line out. **Declare read** and **Declare write** write a line under `tools.unrecorded`, the feed saying *Unrecorded tool declared a read · Bash*, or *Unrecorded tool declaration removed · Bash*. **Build**'s **Save**, on [Settings → Project](#project), writes `build`, the feed saying *Build set · npm run build*, or *Build removed*.
 
 **Write file**, on Settings → CI, writes your repository's workflow the same way. It names the version of the file it read and the workflow the page showed, so a file changed since, or switches changed meanwhile, write nothing. It lands in the activity feed, as *Wrote .github/workflows/agent.yml · 8 lines added, 1 line taken out*. Its **Undo** puts the file back, or removes the file it made, and is refused once the file changed since. The dashboard keeps its last 20 Undos until it stops.
 
@@ -3381,6 +3386,7 @@ It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+di
 | `POST /api/settings/rules/:list/:n/restore { rule, expect }` | A removed rule's Undo: the rule back at its number, as the file held it |
 | `PUT /api/settings/tools/trust { tool, trust, expect }` | Mark untrusted and Mark trusted: a tool's line under `tools`, `trust` being `trusted`, `untrusted` or `null` for no mark; it answers `was`, for Undo |
 | `PUT /api/settings/tools/unrecorded { tool, effect, expect }` | Declare read and Declare write: a tool's line under `tools.unrecorded`, `effect` being `read`, `write` or `null` for none; it answers `was`, for Undo |
+| `GET /api/settings/build`, `PUT /api/settings/build { command, expect }` | Build, on Project: `build`, why it can't run (`problem`) and the file's version; a write answers `was`, for Undo, `null` taking the key out |
 | `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.

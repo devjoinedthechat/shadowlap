@@ -206,6 +206,28 @@ describe('shadowlap verify against a baseline', () => {
     expect(bad.out).toContain('--base no-such-commit is not a commit in this repository');
   });
 
+  it('builds the checkout of the code before the change with the build the config names, nobody having typed --build, and says so', async () => {
+    const good = await record('B-7');
+    writeFileSync(join(work, 'prompt.txt'), `${BAD_FIX}\n`);
+    // A build that fails, so its run shows: the baseline's checkout can't be built, and the good run has none.
+    const build = `"${process.execPath}" -e "process.exit(7)"`;
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ build }));
+    try {
+      const r = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, '--json']);
+      expect(r.out).toContain(`\n  build: ${build}, from shadowlap.config.json (--build "" for none)\n`);
+      const report = JSON.parse(r.stdout) as Json;
+      expect(report.runs[0].noBaseline).toContain(`the baseline could not run: the base ${head()} could not be built`);
+      // Against history no checkout is built, and a fixed count keeps no baseline: the config's build refuses neither.
+      for (const flags of [['--baseline', 'history'], ['--attempts', '1']]) {
+        const other = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, ...flags, '--json']);
+        expect(other.code, other.out).not.toBe(2);
+        expect(other.out).not.toContain('shadowlap.config.json');
+      }
+    } finally {
+      rmSync(join(work, 'shadowlap.config.json'));
+    }
+  });
+
   it('settles a good run the change does not touch with one free replay, and needs no baseline for it', async () => {
     const good = await record('B-7');
     // A change that sends no request differently: the run replays clean.

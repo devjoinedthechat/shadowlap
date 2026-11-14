@@ -46,7 +46,7 @@ const project = {
 
 function app(o: { matching?: MatchingSettings; version?: string | null } = {}): AppState {
   const never = () => new Promise<never>(() => undefined);
-  const settings = { matching: async () => o.matching ?? matching(), project: async () => project, redaction: never, codingAgents: never, tools: never, store: never, spending: never };
+  const settings = { matching: async () => o.matching ?? matching(), project: async () => project, build: never, redaction: never, codingAgents: never, tools: never, store: never, spending: never };
   return {
     client: { settings, startJob: async () => ({}), storeSetup: { view: never }, teamStore: async () => null, jobs: async () => [], ciWorkflows: never },
     meta: { version: 'version' in o ? o.version : '0.1.0', project: { id: 'research-agent', name: 'research-agent', path: '/work/research-agent' } },
