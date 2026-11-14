@@ -393,7 +393,7 @@ shadowlap test goldens/refund-flow --update
 2. **Its checks run on the re-recording.** Only when the agent exits 0 and they pass does the re-recorded pack replace the old one, in your working tree.
 3. **It is replayed offline** like any other golden, and you review the change in your pull request.
 
-Only the pack's own files are replaced (`run.json`, `calls.jsonl` and `blobs/`); anything else you keep in the golden's folder, such as a README, stays as it is. The re-recorded pack is written under `.shadowlap/` first, so an update that is interrupted leaves the old golden.
+Only the pack's own files are replaced (`run.json`, `calls.jsonl` and `blobs/`); anything else you keep in the golden's folder, such as a README or its [`accepted.jsonl`](#say-why), stays as it is. The re-recorded pack is written under `.shadowlap/` first, so an update that is interrupted leaves the old golden.
 
 It prints the checks, the calls and what the re-recording cost, then what the agent sends differently: the system prompt, the tools and the models, and the change in the request that made the golden diverge:
 
@@ -449,7 +449,7 @@ The file holds no prompt text. A pack is written under the project's redaction r
         accepted 2026-11-14 by dev@example.com: refunds above the limit go to a manager
 ```
 
-The JSON report carries the same under the result's `takesOut`. The test fails as any divergence does: the note is for whoever decides whether to update the golden again.
+The JSON report carries the same under the result's `takesOut`, and the Markdown report lists it with the failure, so a job summary shows it. The test fails as any divergence does: the note is for whoever decides whether to update the golden again.
 
 - **Sentences are matched whole.** A sentence reworded counts as taken out, and the note says so before the rule is lost by accident.
 - **`shadowlap fix apply` keeps a reason too.** Each golden it copies gets the fix as its reason, so a change that takes a fix's sentence out names the fix.

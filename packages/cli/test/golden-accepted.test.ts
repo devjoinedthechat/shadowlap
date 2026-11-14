@@ -95,7 +95,7 @@ describe('shadowlap test --update --reason', () => {
     expect((await shadowlap(['test', 'goldens/refund', '--update', '--reason', REASON])).code).toBe(0);
     // Someone tidies the prompt, and the rule goes with it.
     prompt(ORIGINAL);
-    const r = await shadowlap(['test', 'goldens/refund', '--json', 'report.json']);
+    const r = await shadowlap(['test', 'goldens/refund', '--json', 'report.json', '--markdown', 'report.md']);
     expect(r.code).toBe(1);
     expect(r.out).toContain('! this change takes out what an accepted change put in:');
     expect(r.out).toContain(`"${RULE}"`);
@@ -103,6 +103,10 @@ describe('shadowlap test --update --reason', () => {
     expect(r.out).toContain(`by dev@example.com: ${REASON}`);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as { results: Array<{ takesOut?: Array<{ sentence: string; by: string | null; reason: string }> }> };
     expect(report.results[0].takesOut).toMatchObject([{ sentence: RULE, by: 'dev@example.com', reason: REASON }]);
+    // The Markdown report, a job summary in CI, says it where the pull request is reviewed.
+    const markdown = readFileSync(join(work, 'report.md'), 'utf8');
+    expect(markdown).toContain('This change takes out what an accepted change put in:');
+    expect(markdown).toMatch(/- `Escalate refunds above \$100\.`, accepted \d{4}-\d{2}-\d{2} by dev@example\.com: a \$240 refund went out against policy/);
   });
 
   it('says nothing of a change that leaves the accepted sentence in', async () => {

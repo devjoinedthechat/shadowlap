@@ -3950,6 +3950,8 @@ re-run:
 - `ls` and `show` display `<no-recorded-command>` in its place, and `ls --json` says
   `"hasCommand": false`;
 - `replay` without a command refuses, and says what to run;
+- `blame` and `verify` refuse the same way, and take your command after `--` as `replay` does;
+- `check` and `decisions` need none: they read the calls the capture kept;
 - its cost is reported as captured, not spent: that traffic was paid for where it ran.
 
 Give your own command:

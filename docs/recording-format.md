@@ -54,8 +54,9 @@ refund-flow/
   no calls.
 - Every file in it MUST be a regular file. A reader refuses a symbolic link, and a name in `blobs/`
   that isn't a SHA-256.
-- Anything else in the folder, such as a README, is not part of the pack: a reader ignores it, and a
-  writer that replaces a pack (the same golden packed again) leaves it.
+- Anything else in the folder, such as a README or a golden's `accepted.jsonl`, is not part of the
+  pack: a reader ignores it, and a writer that replaces a pack (the same golden packed again)
+  leaves it.
 - `.gitattributes` holds `* -text`, so that git never converts a pack's line endings: a blob that no
   longer matches its name is refused. A writer SHOULD add it unless the folder has one.
 

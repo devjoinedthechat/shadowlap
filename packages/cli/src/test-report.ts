@@ -222,6 +222,13 @@ function inconclusiveNote(unsure: readonly PackResult[], given: 'fail' | 'warn' 
   return `Inconclusive means ${causes.join('; or ')}. ${inconclusiveRule(unsure, given)}${unjudged ? ' Record a judge\'s verdict with `shadowlap test <recording> --update` where the judge can be asked.' : ''}${gated ? ' More attempts settle a gate: raise its `max`, or run `shadowlap test <recording> --max-attempts <n> --continue` once, which carries its attempts over.' : ''}`;
 }
 
+/** A diverged golden's sentences that an accepted change put in and its request takes out, each with who accepted it and why, for the Markdown report. */
+function takesOutLines(r: PackResult): string[] {
+  if (!r.takesOut?.length) return [];
+  const item = (t: NonNullable<PackResult['takesOut']>[number]) => `- ${markdownCode(safeText(t.sentence))}, accepted ${safeText(t.at.slice(0, 10))}${t.by ? ` by ${safeText(t.by)}` : ''}: ${safeText(t.reason)}${t.fix ? ` (fix ${safeText(t.fix)})` : ''}`;
+  return ['This change takes out what an accepted change put in:', '', ...r.takesOut.map(item), ''];
+}
+
 /**
  * The job summary: the results table, each failure's checks, details and output, and what to do.
  * `given` is the `--inconclusive` the session was given, null with none, which the summary names as
@@ -255,6 +262,7 @@ export function markdownReport(report: TestReport, given: 'fail' | 'warn' | null
     if (r.checks?.length) lines.push(...r.checks.map(markdownCheck), '');
     const details = moreThanMessage(r);
     if (details) lines.push(fence(details), '');
+    lines.push(...takesOutLines(r));
     if (r.output) lines.push('Agent output, last lines:', '', fence(r.output), '');
     lines.push('</details>');
   }
