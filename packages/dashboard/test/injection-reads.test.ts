@@ -41,10 +41,10 @@ function record(s: Store, o: { reads?: number; trailing?: number; tool?: string;
 
 const golden = (path: string, runId: string | null): GoldenSource => ({ path, runId, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] });
 
-function plantResult(runId: string, o: { golden?: string | null; at: number; verdict: 'obeyed' | 'ignored'; gate: 'passed' | 'failed' }): StoredInjectionResult {
+function plantResult(runId: string, o: { golden?: string | null; sessionId?: string | null; at: number; verdict: 'obeyed' | 'ignored'; gate: 'passed' | 'failed' }): StoredInjectionResult {
   const resultId = `inj-${o.at}`;
   const data = { resultId, mode: 'plant', runId, gate: { obeyed: 0, influenced: null, verdict: o.gate, reason: null }, attempts: [], cost: { spent: 0, upstreamRequests: 0, unknownModels: [] } };
-  return { resultId, runId, golden: o.golden ?? null, sessionId: null, mode: 'plant', at: o.at, endedAt: o.at + 1, attempts: 6, obeyed: o.verdict === 'obeyed' ? 1 : 0, influenced: 0, ignored: o.verdict === 'ignored' ? 6 : 5, inconclusive: 0, verdict: o.verdict, actor: 'dev', data };
+  return { resultId, runId, golden: o.golden ?? null, sessionId: o.sessionId ?? null, mode: 'plant', at: o.at, endedAt: o.at + 1, attempts: 6, obeyed: o.verdict === 'obeyed' ? 1 : 0, influenced: 0, ignored: o.verdict === 'ignored' ? 6 : 5, inconclusive: 0, verdict: o.verdict, actor: 'dev', data };
 }
 
 beforeEach(() => {
@@ -124,7 +124,7 @@ describe('Tests’ Security', () => {
     store.putInjectionResult(plantResult(planted.runId, { at: 10, verdict: 'ignored', gate: 'passed' }));
     store.putInjectionResult(plantResult(gated.runId, { at: 11, verdict: 'ignored', gate: 'passed' }));
     // The gate a session ran wins over a newer test of its recording.
-    store.putInjectionResult(plantResult(gated.runId, { golden: 'goldens/gated', at: 5, verdict: 'obeyed', gate: 'failed' }));
+    store.putInjectionResult(plantResult(gated.runId, { golden: 'goldens/gated', sessionId: 'S1', at: 5, verdict: 'obeyed', gate: 'failed' }));
     const read = await injectionSecurity(store, { goldens: [golden('goldens/gated', gated.runId), golden('goldens/planted', planted.runId), golden('goldens/untested', untested.runId), golden('goldens/plain', plain.runId), golden('goldens/lost', null)], project });
     expect(read.goldens.map((g) => g.name)).toEqual(['untested', 'planted', 'gated']);
     const by = Object.fromEntries(read.goldens.map((g) => [g.name, g]));
@@ -133,6 +133,10 @@ describe('Tests’ Security', () => {
     expect(by.planted.last).toMatchObject({ verdict: 'passed', gate: false, line: 'ignored every planted instruction · 6 attempts' });
     expect(by.untested.last).toBeNull();
     expect(by.untested.estimate).toMatchObject({ kind: 'injection' });
+    // `shadowlap injection <golden>` names the golden and keeps no session: a test of it, not its gate.
+    store.putInjectionResult(plantResult(gated.runId, { golden: 'goldens/gated', at: 12, verdict: 'ignored', gate: 'passed' }));
+    const alone = (await injectionSecurity(store, { goldens: [golden('goldens/gated', gated.runId)], project })).goldens[0].last;
+    expect(alone).toMatchObject({ resultId: 'inj-12', gate: false });
     expect(read.none).toEqual(['plain']);
     expect(read.unread).toEqual([{ name: 'lost', why: CANT_READ_RECORDING }]);
   });

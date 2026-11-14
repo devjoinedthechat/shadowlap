@@ -634,8 +634,10 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   // Stopped early, or with a payload file its result doesn't keep: it can't run again as it ran, so it asks what to test.
   const ownFile = report.payloads?.some((x) => x.source === 'file');
   const stopped = report.stopReason ? stopWords(report.stopReason) : null;
-  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: injectionPrice(row.runId, f.work?.tools) };
-  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: gateAgainSub(why), price: again };
+  // Only a test session's is the golden's gate, which `shadowlap test` runs again; a golden tested on its own is tested again as its recording.
+  const gate = newest.sessionId !== null && newest.golden !== null ? newest.golden : null;
+  if ((report.stopReason || ownFile) && !gate) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: injectionPrice(row.runId, f.work?.tools) };
+  if (gate) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: gate, command: commandLine(['test', gate]), sub: gateAgainSub(why), price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };
 }

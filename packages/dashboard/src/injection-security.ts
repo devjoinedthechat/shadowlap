@@ -22,7 +22,7 @@ export interface SecurityLast {
   verdict: 'passed' | 'failed' | 'inconclusive';
   /** injectionLine's, as Needs a look and a run's banner word it. */
   line: string;
-  /** It was the golden's gate, run by a test session, not a test of its recording. */
+  /** It was the golden's gate, run by a test session, not a test of the golden or its recording on their own. */
   gate: boolean;
 }
 
@@ -64,12 +64,15 @@ export const RECENT = 200;
 
 export const CANT_READ_RECORDING = 'can’t read its recording';
 
-/** A golden's last test: its newest gate, else its recording's newest test that planted. */
+/**
+ * A golden's last test: its newest that named it, its gate's or one of the golden on its own, else its
+ * recording's newest test that planted. Only a test session's is its gate (`sessionId`).
+ */
 function lastTest(store: Store, path: string, recording: string): SecurityLast | null {
   const ended = (rows: StoredInjectionResult[]) => rows.find((r) => r.mode === 'plant' && r.endedAt !== null && resultGate(r) !== null);
   const r = ended(store.listInjectionResults({ golden: path, limit: 50 })) ?? ended(store.listInjectionResults({ runId: recording, limit: 50 }));
   if (!r) return null;
-  return { resultId: r.resultId, verdict: resultGate(r)!, line: injectionLine(r), gate: r.golden !== null };
+  return { resultId: r.resultId, verdict: resultGate(r)!, line: injectionLine(r), gate: r.sessionId !== null };
 }
 
 /** A recording's untrusted reads a model call reads, where a test plants (one no model call follows is never planted in), and its default plan's price, read from the store that holds it. */

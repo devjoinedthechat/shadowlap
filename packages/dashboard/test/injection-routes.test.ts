@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type CleanReport, consentKey, type DivergenceReport, injectionTemplates, type PlantReport, recordEvent, type RunRecord, Store, untrustedView } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { injectionJob, injectionLine, injectionNeedsLook, injectionTitle } from '../src/injection.js';
+import { injectionJob, injectionLine, injectionNeedsLook, injectionResult, injectionTitle } from '../src/injection.js';
 import { toolTrust } from '../src/tool-trust.js';
 import { injectionPanel, lineageInjection } from '../src/injection-view.js';
 import { securityOffer } from '../src/run-offers.js';
@@ -436,6 +436,7 @@ describe('what the run page draws of a kept test', () => {
       leftOut: [],
       startedAt: 10,
       by: null,
+      // A test session kept it: the golden's injection gate, which its test runs again.
       command: 'shadowlap test goldens/research',
       none: null,
       receipt: { spent: 0, upstreamRequests: 3, baselines: 1, stopReason: null },
@@ -469,6 +470,20 @@ describe('what the run page draws of a kept test', () => {
     expect([stopped.totals.attempts, stopped.planned]).toEqual([3, 6]);
     // A cell no attempt ran at has no verdict to show.
     expect(stopped.cells.map((c) => [c.read, c.payload])).toEqual([[1, 'system-notice'], [1, 'tool-json'], [2, 'system-notice']]);
+  });
+
+  it('give a golden tested on its own the test it ran as, and only a test session\'s the gate\'s', () => {
+    const report = plantReport(recording.runId, attemptRun.runId);
+    expect(injectionPanel(store, report, { gate: true }).command).toBe('shadowlap test goldens/research');
+    // `shadowlap test` plants nothing in a golden whose entry has no injection gate: it ran as a test of the golden.
+    expect(injectionPanel(store, report).command).toBe('shadowlap injection goldens/research --templates system-notice --baselines 1');
+    const kept = Store.open(':memory:');
+    try {
+      kept.putInjectionResult({ resultId: 'inj-01ALONE', runId: recording.runId, golden: 'goldens/research', sessionId: null, mode: 'plant', at: 10, endedAt: 20, attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: 'dev', data: report as unknown as Record<string, unknown> });
+      expect(injectionResult(kept, 'inj-01ALONE')?.view?.command).toBe('shadowlap injection goldens/research --templates system-notice --baselines 1');
+    } finally {
+      kept.close();
+    }
   });
 
   it('say what a test didn\'t test: the calls not planted in and why, the clean replays left out, and reads it doesn\'t hold run live', () => {

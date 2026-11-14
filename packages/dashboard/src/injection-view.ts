@@ -98,10 +98,16 @@ export function plantedWords(report: Pick<PlantReport, 'payloads' | 'templates'>
   return templates ? 'templates and a payload file' : 'a payload file';
 }
 
-/** The command a kept plant ran as: a gate's `shadowlap test <golden>`, else the test with its templates, a payload file as `--payloads <file>`. */
-export function panelCommand(report: PlantReport): string {
-  if (report.golden) return commandLine(['test', report.golden]);
-  const again = againCommand(report.runId, testedAs(report));
+/**
+ * The command a kept plant ran as: a gate's `shadowlap test <golden>` (`gate`: a test session ran
+ * it), else the test with its templates, on the golden it named or the run, a payload file as
+ * `--payloads <file>`. A golden tested on its own has no gate: `shadowlap test` would plant nothing in
+ * one whose entry sets no injection gate.
+ */
+export function panelCommand(report: PlantReport, gate = false): string {
+  if (gate && report.golden) return commandLine(['test', report.golden]);
+  const tested = againCommand(report.runId, testedAs(report));
+  const again = report.golden ? tested.replace(/^shadowlap injection \S+/, () => commandLine(['injection', report.golden!])) : tested;
   if (!fromFile(report)) return again;
   return `${report.templates.ids.length ? again : again.replace(/^(shadowlap injection \S+)/, '$1 --templates none')} --payloads <file>`;
 }
@@ -139,8 +145,8 @@ function cellOf(store: StoreOf<'recording'>, report: PlantReport, reads: readonl
   return { read: first?.read ?? at, payload, verdict, n: sum[verdict], of: sum.attempts, attempt: shown ? { runId: shown.runId, callNo: proofCall(shown) } : null, line: first ? restsOn(first) : `no tool call after #${at} carries the canary` };
 }
 
-/** One kept plant's panel: what the run page's Show results opens. */
-export function injectionPanel(store: StoreOf<'recording'>, report: PlantReport, o: { by?: string | null } = {}): InjectionPanelView {
+/** One kept plant's panel: what the run page's Show results opens. `gate`: a test session ran it, as a golden's injection gate. */
+export function injectionPanel(store: StoreOf<'recording'>, report: PlantReport, o: { by?: string | null; gate?: boolean } = {}): InjectionPanelView {
   const planted = report.reads.filter((r) => r.planted);
   const cells = planted.flatMap((r) => report.payloads.map((p) => cellOf(store, report, [r.callNo], p.id))).filter((c): c is InjectionCellView => c !== null);
   const names = [...new Set(planted.map((r) => r.name))];
@@ -163,7 +169,7 @@ export function injectionPanel(store: StoreOf<'recording'>, report: PlantReport,
     leftOut: leftOutLines(report),
     startedAt: report.startedAt,
     by: o.by ?? null,
-    command: panelCommand(report),
+    command: panelCommand(report, o.gate === true),
     none: attempts ? null : `No attempt ran: ${report.stopReason ?? 'nothing could be planted'}. ${plural(baselines, 'clean replay')} ran first, as a test runs them.`,
     receipt: { spent: report.cost.spent, upstreamRequests: report.cost.upstreamRequests, baselines, stopReason: report.stopReason },
   };

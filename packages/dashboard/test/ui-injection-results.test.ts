@@ -29,6 +29,7 @@ import { reportSaved, SecurityReportDialog } from '../ui/injection/SecurityRepor
 import { withStepDialogs } from './ui-served-now.js';
 import { ruleWords } from '../ui/components/Verdict.js';
 import { ForksView } from '../ui/run/ForksView.js';
+import { testNode } from '../ui/injection/fork-node.js';
 import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import type { LineageNode } from '../ui/types.js';
 
@@ -114,7 +115,9 @@ describe('the run’s finding', () => {
   });
 
   it('names a gate’s golden, and shows nothing while the test runs', () => {
-    expect(injectionFinding(row({ golden: 'goldens/refund-over-limit' }))).toMatchObject({ label: 'injection gate', golden: 'refund-over-limit' });
+    expect(injectionFinding(row({ golden: 'goldens/refund-over-limit', sessionId: 'S1' }))).toMatchObject({ label: 'injection gate', golden: 'refund-over-limit' });
+    // `shadowlap injection <golden>` keeps no session: a test of the golden, not its gate.
+    expect(injectionFinding(row({ golden: 'goldens/refund-over-limit', sessionId: null }))).toMatchObject({ label: 'injection test', golden: 'refund-over-limit' });
     expect(injectionFinding(row({ running: true, gate: null, endedAt: null }))).toBeNull();
   });
 
@@ -181,7 +184,7 @@ describe('the finding as the bar draws it', () => {
   });
 
   it('glosses influenced, names a gate’s golden, and draws a passed test lime and an inconclusive one amber', () => {
-    const passed = withParts(served, finding(injectionFinding(row({ gate: 'passed', golden: 'goldens/refund-over-limit', attempts: 6, obeyed: 0, influenced: 1, ignored: 5, inconclusive: 0 }))!));
+    const passed = withParts(served, finding(injectionFinding(row({ gate: 'passed', golden: 'goldens/refund-over-limit', sessionId: 'S1', attempts: 6, obeyed: 0, influenced: 1, ignored: 5, inconclusive: 0 }))!));
     expect(passed).toContain('class="banner wrap live"');
     expect(passed).toContain('<span class="bk">injection gate</span>');
     expect(passed).toContain('<em class="ok">passed</em>');
@@ -608,6 +611,11 @@ describe('the Forks view', () => {
     await page.click(inside(test, '.alist .al a'));
     expect(said).toEqual([PAUSED]);
     await page.unmount();
+  });
+
+  it('titles only a test session’s test a golden’s injection gate: a golden tested on its own is an injection test', () => {
+    expect(testNode(row({ golden: 'goldens/refund', sessionId: 'S1' }), []).title).toBe('injection gate');
+    expect(testNode(row({ golden: 'goldens/refund', sessionId: null }), []).title).toBe('injection test');
   });
 
   it('draws a test of the recording or of the page’s run whose replays are all gone, saying its attempts aren’t drawn', async () => {

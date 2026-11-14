@@ -65,7 +65,7 @@ function passedTest(parent: string, at: number, revision = 'aaaaaaa'): string {
 const UUID_CHANGE: DiffEntry = { path: '$.metadata.user_id', op: 'changed', before: '3f1c9a2e-5b7d-4e21-9c0a-8d6f2b1e7a43', after: 'b84e07d1-2c9f-4a63-8e15-6f0d3a9c2b78' };
 const RULE: Normalizer = { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
 
-function plant(runId: string, o: { gate: PlantReport['gate']; attempts?: Array<Partial<PlantReport['attempts'][number]>>; stopReason?: string | null; golden?: string | null; at?: number; ended?: boolean; cost?: Partial<PlantReport['cost']>; payloads?: Array<{ id: string; source: string }> }): void {
+function plant(runId: string, o: { gate: PlantReport['gate']; attempts?: Array<Partial<PlantReport['attempts'][number]>>; stopReason?: string | null; golden?: string | null; sessionId?: string | null; at?: number; ended?: boolean; cost?: Partial<PlantReport['cost']>; payloads?: Array<{ id: string; source: string }> }): void {
   const report = {
     resultId: `inj-${String(o.at ?? 0)}`,
     mode: 'plant',
@@ -82,7 +82,7 @@ function plant(runId: string, o: { gate: PlantReport['gate']; attempts?: Array<P
     stopReason: o.stopReason ?? null,
     cost: { spent: 3.11, upstreamRequests: 8, unknownModels: [], ...o.cost },
   };
-  store.putInjectionResult({ resultId: report.resultId, runId, golden: o.golden ?? null, sessionId: null, mode: 'plant', at: o.at ?? T0, endedAt: o.ended === false ? null : (o.at ?? T0) + 1, attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data: report });
+  store.putInjectionResult({ resultId: report.resultId, runId, golden: o.golden ?? null, sessionId: o.sessionId ?? null, mode: 'plant', at: o.at ?? T0, endedAt: o.ended === false ? null : (o.at ?? T0) + 1, attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data: report });
 }
 
 function clean(runId: string, verdict: CleanReport['verdict'], at = T0): void {
@@ -243,14 +243,15 @@ describe('a run’s next step', () => {
     // Any other stop says its own, not advice about a budget that wasn't spent.
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: '1 of the 6 planned attempts ran' }, at: T0 + 2.5, stopReason: 'interrupted' });
     expect(step(rec)).toMatchObject({ key: 'injection-test', sub: 'It stopped early (interrupted): test it again' });
-    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 3 });
+    // One that showed too little runs again as it ran, a golden tested on its own (`shadowlap injection <golden>`) too: it has no gate for its test to run.
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 3, golden: GOLDEN });
     plant(rec, { gate: failed, at: T0 + 10, ended: false });
     expect(step(rec)).toMatchObject({ key: 'injection-again', label: 'Re-run injection test', runId: rec, job: { repeat: 2, templates: ['system-notice'], baselines: 2, liveReads: false }, command: `shadowlap injection ${rec.slice(0, 10)} --templates system-notice --baselines 2 --repeat 2`, sub: 'It showed too little to say: no model read it' });
     // With a payload file its result doesn't keep, it can't run again as it ran: it asks what to test.
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 4, payloads: [{ id: 'mine', source: 'file' }] });
     expect(step(rec)).toMatchObject({ key: 'injection-test', sub: 'It showed too little to say: no model read it' });
-    // A golden's gate runs again in its test.
-    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 5, golden: GOLDEN });
+    // A golden's gate, kept by the test session that ran it, runs again in its test.
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 5, golden: GOLDEN, sessionId: 'S1' });
     expect(step(rec)).toMatchObject({ key: 'gate-again', label: 'Re-run test', golden: GOLDEN, command: `shadowlap test ${GOLDEN}`, sub: 'Its injection gate showed too little to say: no model read it' });
     // One that ignored them leaves the recording to the steps after.
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'passed', reason: null }, at: T0 + 6 });

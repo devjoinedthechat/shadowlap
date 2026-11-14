@@ -138,7 +138,8 @@ export function testNode(row: InjectionRow, runs: readonly LineageNode[]): TestN
   const missing = Math.max(0, row.attempts - own.length);
   const { lines, label, more } = plant ? plantParts(own, replays, missing) : cleanParts(own, missing);
   return {
-    title: plant ? (row.golden ? 'injection gate' : 'injection test') : `injection --clean${row.read !== null ? ` ${row.read}` : ''}`,
+    // Only a test session's is a golden's gate: a golden tested on its own is an injection test.
+    title: plant ? (row.sessionId ? 'injection gate' : 'injection test') : `injection --clean${row.read !== null ? ` ${row.read}` : ''}`,
     glyph: glyphOf(row),
     parts: lineParts(row),
     cells: own.map(plant ? attemptCell : cleanCell),

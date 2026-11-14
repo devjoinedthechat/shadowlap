@@ -20,7 +20,9 @@ import { optionLike, type GoldenSource } from './tests.js';
 export interface InjectionRow {
   resultId: string;
   runId: string;
+  /** The golden it tested, by its path: as its injection gate, or on its own (`shadowlap injection <golden>`). */
   golden: string | null;
+  /** The test session whose injection gate ran it: a gate's always has one, a test on its own none. */
   sessionId: string | null;
   mode: 'plant' | 'clean';
   at: number;
@@ -140,7 +142,8 @@ export function injectionResult(store: StoreOf<'recording' | 'injection'>, resul
   if (!r) return null;
   const report = r.data as unknown as InjectionReport;
   const named = report.mode === 'plant' ? [...report.attempts.map((a) => a.runId), ...report.baselines.flatMap((b) => b.runs)] : (report.attempts ?? []).map((a) => a.runId);
-  const view = report.mode === 'plant' && r.endedAt !== null ? injectionPanel(store, report, { by: o.shared ? r.actor : null }) : null;
+  // A test session's is the golden's injection gate; a golden tested on its own (`shadowlap injection <golden>`) has none.
+  const view = report.mode === 'plant' && r.endedAt !== null ? injectionPanel(store, report, { by: o.shared ? r.actor : null, gate: r.sessionId !== null }) : null;
   return { row: row(r), report, gone: named.filter((id) => !store.getRun(id)), view };
 }
 
