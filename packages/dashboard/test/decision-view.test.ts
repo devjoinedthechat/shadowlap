@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, NO_TOKENS, recordVerdict, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
+import { emptyCounts, NO_TOKENS, recordVerdict, retirementOf, retirementsOf, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
 import { verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { moreOf } from '../src/decision-more.js';
@@ -176,6 +176,17 @@ describe('a preview worded for Changes', () => {
     expect(s.matrix.map((r) => [r.runId, r.inStore, r.toVerify, r.about === null])).toEqual([[a, true, true, false], [GONE, false, true, true]]);
     expect(s.view.next.verify).toEqual({ runs: [a, GONE], every: true, gone: 1 });
     expect(previewSession(store, 'dc-01M5NOTKEPT0000000000000')).toBeNull();
+  });
+});
+
+describe('a preview’s retirement notices', () => {
+  it('says the notices of the models its runs use and the one it switches to, in today’s words, before what it couldn’t ask', () => {
+    // As `decisions` keeps them: the models the runs use and the one the change switches to that retire.
+    const retirements = retirementsOf([{ provider: 'anthropic', model: 'claude-sonnet-4-5-20250929' }, { provider: 'anthropic', model: 'claude-haiku-4-5' }], { now: Date.now() });
+    expect(retirements.length).toBeGreaterThan(0);
+    const id = keep('dc-01M5000000000000000000000R', [runOf(a, null, [step(2, null)])], { retirements, warnings: ['1 step got no answer: rate limited'] });
+    const today = retirements.map((n) => retirementOf(n.provider, n.model)!.text);
+    expect(previewSession(store, id)!.view.warnings).toEqual([...today, '1 step got no answer: rate limited']);
   });
 });
 

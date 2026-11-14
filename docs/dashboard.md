@@ -1258,7 +1258,7 @@ The matrix has a row per run, named by its id and its about line, and a cell per
 
 A cell whose samples decided differently is split, a band a sample, the most consequential first. Past 60 model calls a cell stands for a range, drawn as its most consequential call. Each row is one Tab stop: ← → Home End move along its cells. A row ends on what flags it, else its biggest change, and on what verify found. A run gone from the store keeps its row, its id unlinked, and says *not in the store*.
 
-Under the last row, what couldn't be asked or judged is listed once each. The receipt at the foot gives the cost per run before and after (*per run ≈$0.028 → ≈$0.014 (−50%)*), what the preview spent and its requests to the model. The command that made the preview is under it, to copy.
+Under the last row come the retirement notices of the models the runs use and the one switched to, in today's words, then what couldn't be asked or judged, once each. The receipt at the foot gives the cost per run before and after (*per run ≈$0.028 → ≈$0.014 (−50%)*), what the preview spent and its requests to the model. The command that made the preview is under it, to copy.
 
 `j` and `k` move through the rows, and Enter opens a run's most telling step.
 

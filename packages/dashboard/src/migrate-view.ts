@@ -180,15 +180,22 @@ function applyOf(k: Kept, runs: PassRun[]): MigrateView['apply'] {
   };
 }
 
-/** Each from-model's retirement in today's words (the table's, by the provider and model migrate read), its kept words where the table no longer has it. */
-function retirementsOf(k: Kept, from: string[], now: number): MigrateView['retirements'] {
-  return list<RetirementNotice>(k.retirements)
-    .filter((n) => from.includes(n.model))
+/**
+ * Each retirement notice a report kept, in today's words (the table's, by the provider and model it
+ * read), its kept words where the table no longer has it; `keep` picks which. A preview's and a
+ * migration's say them so.
+ */
+export function retirementWords(kept: unknown, now: number, keep: (n: RetirementNotice) => boolean = () => true): MigrateView['retirements'] {
+  return list<RetirementNotice>(kept)
+    .filter(keep)
     .map((n) => {
       const today = retirementOf(n.provider, n.model, { now });
       return { text: today?.text ?? n.text, source: (today ?? n).source ?? null };
     });
 }
+
+/** Each from-model's retirement in today's words. */
+const retirementsOf = (k: Kept, from: string[], now: number): MigrateView['retirements'] => retirementWords(k.retirements, now, (n) => from.includes(n.model));
 
 /** A kept migration (its report, its decisions' runs filled in) as the page shows it; `verdict`, Verdicts' word for it. */
 export function migrateView(k: Kept & { applied?: AppliedState | null }, sessionId: string, verdict: { word: string; tone: VerdictTone | null }, now = Date.now()): MigrateView {
