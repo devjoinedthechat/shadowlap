@@ -379,9 +379,23 @@ describe('Changes › Migrate', () => {
       expect(p.all('.mgset .mgfield').map((f) => [shown(f.querySelector('b')), f.querySelector('b')!.querySelectorAll('code').map(shown), shown(f.querySelector('p')), f.querySelector('p')!.querySelectorAll('code').map(shown)])).toEqual([['leave temperature out (the requests were sent temperature=1, its default, meanwhile)', ['temperature', 'temperature=1'], `${TO} refuses temperature with thinking on`, ['temperature']]]);
       expect(shown(p.one('.mgset > p.muted'))).toBe('verify takes them as: --set temperature=null');
       expect(shown(p.one('.mgset > p.muted code'))).toBe('--set temperature=null');
-      // The config change: files and places, the patch in its colours, what it takes out, the review, git apply and Copy config change.
+      // The config change: files and places, a row a file with its diff folded, what it takes out, the review, git apply and Copy config change.
       expect(shown(p.one('.mgcfg header .sub'))).toBe('agent.py · 2 places');
-      expect(p.all('.mgcfg .fxpatch span').map((l) => l.className)).toContain('del');
+      const file = () => p.one('.mgcfg .mgfiles > li');
+      const diff = () => p.one('.mgcfg .mgfile button');
+      expect(p.all('.mgcfg .mgfiles > li')).toHaveLength(1);
+      expect([shown(file().querySelector('.mgfile > code')), file().querySelectorAll('.mgstat span').map((x) => [x.className, x.textContent])]).toEqual(['agent.py', [['add', '+1'], ['del', '−1']]]);
+      expect([shown(diff()), diff().getAttribute('aria-label'), diff().getAttribute('aria-expanded'), p.all('.mgcfg .fxpatch').length]).toEqual(['Show diff', 'Show diff of agent.py', 'false', 0]);
+      // Show diff draws the file's hunks under its row, in the patch's colours, without the lines that only name the file.
+      await p.click(diff());
+      expect([shown(diff()), diff().getAttribute('aria-label'), diff().getAttribute('aria-expanded'), diff().getAttribute('aria-controls') === p.one('.mgcfg .mgfiles > li > div[id]').getAttribute('id')]).toEqual(['Hide diff', 'Hide diff of agent.py', 'true', true]);
+      expect(p.all('.mgcfg .mgfiles .fxpatch span').map((l) => [l.className, l.textContent])).toEqual([
+        ['', '  @@ -3 +3 @@'],
+        ['del', `− MODEL = "${FROM}"`],
+        ['add', `+ MODEL = "${TO}"`],
+      ]);
+      await p.click(diff());
+      expect(p.all('.mgcfg .fxpatch')).toHaveLength(0);
       expect(p.all('.mgcfg .mgalso.inpatch')).toHaveLength(1);
       expect(p.all('.mgcfg .mgrev').map(shown)).toEqual([`Left for review: README.md:12 names ${FROM}`]);
       expect(shown(p.one('.mgcfg .mgcmd'))).toContain(`git apply .shadowlap/migrations/${MG}/config.patch`);

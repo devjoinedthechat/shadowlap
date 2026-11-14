@@ -1307,7 +1307,7 @@ The verdict is in Verdicts' words, or *applied* once applied. Under it come the 
 | What still passes | Each run's verdict, a golden the switch leaves behind, the rules, and the runs verified end to end |
 | What it costs | Per run, end to end where verify ran, and what checking it cost |
 | What to set | Each field the model refuses and what it takes instead, the fields given, or *Only the model* |
-| The config change | Its files and places, the patch, what it leaves out or to the hand, `git apply` and **Copy config change** |
+| The config change | Its files and places, each file's diff behind **Show diff**, what it leaves out or to the hand, `git apply` and **Copy config change** |
 | The pull request body | Its title, `gh pr create`, **Copy pull request body**, and **Show body** to read it |
 
 A golden the switch leaves behind replays differently once applied, since its recording names the model it switches from: *diverges at #1 on `$.model` once applied*. A cell opens under What changes as it does on Preview, with no **Verify this run**. The foot gives the report's warnings and the command that made it. An id that is no migration's says *No migration* and its id, with **Open Migrate**.

@@ -366,6 +366,12 @@ const bodyShown = async (page: Page): Promise<void> => {
   const body = 'main#view .mgpr button.linkbtn';
   if ((await page.locator(body).getAttribute('aria-expanded')) !== 'true') await click(page, body, undefined, { shows: 'main#view .mgpr .prbody.md' })();
 };
+/** A migration's config change with each file's diff shown: one shown stays shown on that migration's page. */
+const diffsShown = async (page: Page): Promise<void> => {
+  const shut = page.locator('main#view .mgfile button[aria-expanded="false"]');
+  while (await shut.count()) await shut.first().click();
+  await settled(page, { shows: 'main#view .mgfiles .fxpatch' });
+};
 /**
  * Migrate to's menu on a migration's page, and the dialog its first model asks in. The page a state
  * before opened at the same address isn't loaded anew, so a menu it left open is still open: a press
@@ -534,6 +540,7 @@ export const ROUTES: readonly RouteState[] = [
   // of its matrix, then Migrate to's menu and the dialog a model in it asks in, closed by the next page.
   route('/changes/migrate', `main#view :is(.mgstart, ${MIGRATED})`),
   { name: 'a migration’s report, its pull request body shown', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: bodyShown },
+  { name: 'a migration’s report, each file’s diff of its config change shown', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: diffsShown },
   { name: 'a migration’s opened cell', path: async (p) => (await migrated(p)).cell, drawn: CELL },
   { name: 'Migrate to’s menu on a migration', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateTo },
   { name: 'Migrate’s dialog from Migrate to’s menu', path: async (p) => (await migrated(p)).report, drawn: MIGRATED, then: migrateAsk },
