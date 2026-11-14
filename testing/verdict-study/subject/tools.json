@@ -1,0 +1,6 @@
+[
+  { "name": "lookup_order", "description": "Look an order up.", "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" } }, "required": ["order_id"] } },
+  { "name": "read_policy", "description": "Read the refund policy.", "input_schema": { "type": "object", "properties": {} } },
+  { "name": "issue_refund", "description": "Refund an order.", "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" }, "amount": { "type": "number" } }, "required": ["order_id", "amount"] } },
+  { "name": "escalate", "description": "Hand the case to a manager.", "input_schema": { "type": "object", "properties": { "reason": { "type": "string" } }, "required": ["reason"] } }
+]
