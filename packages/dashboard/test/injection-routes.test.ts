@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { canaryForms, type CleanReport, consentKey, type DivergenceReport, injectionTemplates, type PlantReport, recordEvent, type RunRecord, Store, untrustedView } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { injectionJob, injectionLine, injectionNeedsLook, injectionResult, injectionTitle } from '../src/injection.js';
+import { injectionJob, injectionLine, injectionNeedsLook, injectionResult, injectionResults, injectionTitle } from '../src/injection.js';
 import { toolTrust } from '../src/tool-trust.js';
 import { injectionPanel, lineageInjection } from '../src/injection-view.js';
 import { securityOffer } from '../src/run-offers.js';
@@ -495,6 +495,20 @@ describe('what the run page draws of a kept test', () => {
     expect(view.notPlanted).toEqual([`#3 send_email not planted: ${skipped[0].why}`, '#7 get_ticket not planted: no model call follows it, so no model reads what it returned']);
     expect(view.leftOut).toEqual(['#1 fetch_page: 2 clean replays left out: the agent exited 1']);
     expect(view.unrecorded).toBe('live');
+  });
+
+  it('list a run\'s results 100 at a time unless asked for more, saying so where older ones are left out, and who ran each only where names show', async () => {
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    for (let i = 0; i < 101; i++) store.putInjectionResult({ resultId: `inj-03R${String(i).padStart(3, '0')}`, runId: run.runId, golden: null, sessionId: null, mode: 'plant', at: 100 + i, endedAt: 101 + i, attempts: 1, obeyed: 0, influenced: 0, ignored: 1, inconclusive: 0, verdict: 'ignored', actor: 'dev', data: { ...plantReport(run.runId, run.runId), resultId: `inj-03R${String(i).padStart(3, '0')}` } });
+    const listed = (await (await api(`injection?run=${run.runId}`)).json()) as { results: Array<{ resultId: string; actor: string | null }>; more: boolean };
+    expect([listed.results.length, listed.results[0].resultId, listed.more]).toEqual([100, 'inj-03R100', true]);
+    const all = (await (await api(`injection?run=${run.runId}&limit=101`)).json()) as { results: unknown[]; more: boolean };
+    expect([all.results.length, all.more]).toEqual([101, false]);
+    // This project names no team store, so no row says who ran it, as its panel says none.
+    expect(listed.results.every((r) => r.actor === null)).toBe(true);
+    expect(injectionResults(store, { runId: run.runId, limit: 1, shared: true }).results.map((r) => r.actor)).toEqual(['dev']);
+    const page = (await (await api(`injection/runs/${recording.runId}`)).json()) as { results: Array<{ actor: string | null }> };
+    expect(page.results.map((r) => r.actor)).toEqual(page.results.map(() => null));
   });
 
   it('send an attempt\'s page every form of its canary the test takes as proof, case aside', async () => {

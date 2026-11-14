@@ -126,6 +126,9 @@ function cleanParts(own: readonly Marked[], missing: number) {
   return { lines, label, more };
 }
 
+/** A run whose kept tests the list cut at its newest (`GET /api/injection`'s `more`), never silently: what isn't drawn, and where its replays go. */
+export const olderTestsWords = (runId: string, listed: number): string => `Older injection tests of ${shortId(runId)} aren’t drawn, only its newest ${num(listed)}: their replays show as forks`;
+
 /** The attempts a test ran that the family's list doesn't hold, never left out silently: gc took them, or the list stopped at its first 1,000 runs. */
 const missingWords = (n: number) => (n > 0 ? `${plural(n, 'attempt')} not drawn: gone from the store, or past the family’s first 1,000 runs` : '');
 

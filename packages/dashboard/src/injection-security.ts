@@ -19,6 +19,8 @@ import { toolReads, type ToolReads } from './tool-reads.js';
 /** A golden's last injection test, as Security's row says it. */
 export interface SecurityLast {
   resultId: string;
+  /** The run it tested, whose page opens its results. */
+  runId: string;
   verdict: 'passed' | 'failed' | 'inconclusive';
   /** injectionLine's, as Needs a look and a run's banner word it. */
   line: string;
@@ -72,7 +74,7 @@ function lastTest(store: Store, path: string, recording: string): SecurityLast |
   const ended = (rows: StoredInjectionResult[]) => rows.find((r) => r.mode === 'plant' && r.endedAt !== null && resultGate(r) !== null);
   const r = ended(store.listInjectionResults({ golden: path, limit: 50 })) ?? ended(store.listInjectionResults({ runId: recording, limit: 50 }));
   if (!r) return null;
-  return { resultId: r.resultId, verdict: resultGate(r)!, line: injectionLine(r), gate: r.sessionId !== null };
+  return { resultId: r.resultId, runId: r.runId, verdict: resultGate(r)!, line: injectionLine(r), gate: r.sessionId !== null };
 }
 
 /** A recording's untrusted reads a model call reads, where a test plants (one no model call follows is never planted in), and its default plan's price, read from the store that holds it. */

@@ -219,8 +219,8 @@ export interface Client extends ChangesApi, TestsApi {
    * planted where. It reads every call of the run, so a page asks once and asks `injectionResults` as runs move.
    */
   injectionRun(runId: string): Promise<RunInjection>;
-  /** The results kept for a run, newest first (`GET /api/injection?run=`), from the results alone. */
-  injectionResults(runId: string): Promise<{ results: InjectionRow[] }>;
+  /** The results kept for a run, newest first (`GET /api/injection?run=`), from the results alone: the newest 100, `more` when older ones are left out. */
+  injectionResults(runId: string): Promise<{ results: InjectionRow[]; more: boolean }>;
   /** One kept result (`GET /api/injection/:id`): its row, its report, the runs gc took, and its panel (null for a --clean answer). */
   injectionResult(resultId: string): Promise<{ row: InjectionRow; report: InjectionReport; gone: string[]; view: InjectionPanelView | null }>;
   /** What a result's security report masks and keeps, and the file it saves (`GET /api/injection/:id/report?preview=1`). */
@@ -632,7 +632,7 @@ function injectionReads(request: Request): Pick<Client, InjectionReads> {
   const id = encodeURIComponent;
   return {
     injectionRun: (runId) => request<RunInjection>(`injection/runs/${id(runId)}`),
-    injectionResults: (runId) => request<{ results: InjectionRow[] }>(`injection?run=${id(runId)}`),
+    injectionResults: (runId) => request<{ results: InjectionRow[]; more: boolean }>(`injection?run=${id(runId)}`),
     injectionResult: (resultId) => request(`injection/${id(resultId)}`),
     injectionPreview: (resultId) => request<ReportPreview>(`injection/${id(resultId)}/report?preview=1`),
     injectionTemplates: () => request<TemplateSet>('injection/templates'),
@@ -758,7 +758,7 @@ export function createExportedClient(data: StaticPayload): Client {
     // A copy keeps no injection results: its run's page tags no read and draws no test, and an attempt's
     // page draws what its run's own record says of it (run/model.ts), never what was planted where.
     injectionRun: () => Promise.resolve({ untrusted: [], results: [], rule: null, answers: [], cause: [], attempt: null }),
-    injectionResults: () => Promise.resolve({ results: [] }),
+    injectionResults: () => Promise.resolve({ results: [], more: false }),
     injectionResult: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
     injectionPreview: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
     // A copy runs no test, so nothing in it asks what one would plant or bill.

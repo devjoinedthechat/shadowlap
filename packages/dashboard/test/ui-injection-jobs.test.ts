@@ -624,8 +624,8 @@ describe('Tests → Security', () => {
   const OTHER = '01K5CQ9ZZZ0000000000000000';
   const READ: SecurityRead = {
     goldens: [
-      sec({ last: { resultId: 'i1', verdict: 'failed', line: 'send_email obeyed a planted instruction · 3 of 24', gate: false } }),
-      sec({ path: 'goldens/billing', name: 'billing', runId: null, recording: OTHER, at: 1, reads: readsOf(1), last: { resultId: 'i2', verdict: 'passed', line: 'ignored every planted instruction · 6 attempts', gate: true } }),
+      sec({ last: { resultId: 'i1', runId: RUN, verdict: 'failed', line: 'send_email obeyed a planted instruction · 3 of 24', gate: false } }),
+      sec({ path: 'goldens/billing', name: 'billing', runId: null, recording: OTHER, at: 1, reads: readsOf(1), last: { resultId: 'i2', runId: OTHER, verdict: 'passed', line: 'ignored every planted instruction · 6 attempts', gate: true } }),
       sec({ path: 'goldens/new', name: 'new', at: 0 }),
     ],
     none: ['a', 'b', 'c'],
@@ -645,6 +645,12 @@ describe('Tests → Security', () => {
       ['lost', 'can’t read its recording'],
     ]);
     expect(r.one('.secnone').textContent).toBe('a, b and\u00a0c read nothing untrusted.');
+    // A last test's words open the run it tested with its results.
+    expect(r.all('table.sect a.rsub').map((a) => a.getAttribute('href'))).toEqual([`#/run/${RUN}`, `#/run/${OTHER}`]);
+    resetPanel();
+    await r.click(r.all('table.sect a.rsub')[1]);
+    expect(panelOn(OTHER)).toEqual({ runId: OTHER, kind: 'results', key: 'injection:i2' });
+    resetPanel();
     // Only its pack holds billing's recording, so its test runs on the golden.
     expect(JSON.parse(r.all('table.sect .btn')[1].getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4\u00a0get_ticket of billing’s recording', cmd: '$ shadowlap injection goldens/billing' });
     await r.unmount();
@@ -676,6 +682,22 @@ describe('Tests → Security', () => {
     await r.until('the dialog', () => r!.all('.dialog h3').length === 1);
     expect([r.one('.dialog h3').textContent.replace(/\u00a0/g, ' '), reads]).toEqual(['Run injection test on 01K5CQ4N7G', 1]);
     await act(async () => setJobs([{ job: { id: 'j1', kind: 'injection', done: true } }] as unknown as AppState['jobs']));
+    await r.until('read again', () => reads === 2);
+  });
+
+  it('reads again as a test kept from anywhere lands, the CLI’s too, as the change feed’s injection moves', async () => {
+    let reads = 0;
+    let setFeeds: (feeds: AppState['feeds']) => void = () => undefined;
+    const base = app({}, [], { injectionSecurity: async () => (reads++, READ) });
+    function Host() {
+      const [feeds, set] = useState<AppState['feeds']>({});
+      setFeeds = set;
+      return createElement(AppContext.Provider, { value: { ...base, feeds } }, createElement(SecurityPanel));
+    }
+    r = await render(createElement(Host));
+    await r.until('the section', () => r!.all('table.sect tbody tr').length === 4);
+    expect(reads).toBe(1);
+    await act(async () => setFeeds({ injection: 1 }));
     await r.until('read again', () => reads === 2);
   });
 

@@ -1,4 +1,4 @@
-import { createElement, useState, type ReactNode } from 'react';
+import { act, createElement, useState, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PAUSED } from '../ui/connection.js';
@@ -30,6 +30,7 @@ import { reportSaved, SecurityReportDialog } from '../ui/injection/SecurityRepor
 import { withStepDialogs } from './ui-served-now.js';
 import { ruleWords } from '../ui/components/Verdict.js';
 import { ForksView } from '../ui/run/ForksView.js';
+import { useRunExtras } from '../ui/run/run-extras.js';
 import { testNode } from '../ui/injection/fork-node.js';
 import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import type { LineageNode } from '../ui/types.js';
@@ -199,7 +200,7 @@ describe('an exported copy', () => {
   it('keeps no injection results: its run’s read answers none, and a result’s read and its report’s preview are refused in its words', async () => {
     const client = createExportedClient({ responses: {}, runIds: [] } as never);
     await expect(client.injectionRun(RUN)).resolves.toEqual({ untrusted: [], results: [], rule: null, answers: [], cause: [], attempt: null });
-    await expect(client.injectionResults(RUN)).resolves.toEqual({ results: [] });
+    await expect(client.injectionResults(RUN)).resolves.toEqual({ results: [], more: false });
     await expect(client.injectionResult('inj-01PLANT')).rejects.toMatchObject({ status: 404, message: 'this is an exported copy, and injection tests are not part of it' });
     await expect(client.injectionPreview('inj-01PLANT')).rejects.toMatchObject({ status: 404 });
   });
@@ -244,6 +245,27 @@ const view = (o: Partial<InjectionPanelView> = {}): InjectionPanelView => ({
   none: null,
   receipt: { spent: 3.11, upstreamRequests: 819, baselines: 6, stopReason: null },
   ...o,
+});
+
+describe('a run’s results as tests land', () => {
+  it('reads the run’s results again as the change feed’s injection moves, so a test kept with no run changed shows', async () => {
+    let asked = 0;
+    let setFeeds: (feeds: Record<string, number>) => void = () => undefined;
+    const client = { offers: () => Promise.resolve(null), runChaos: () => Promise.resolve(null), unrecorded: () => Promise.resolve(null), injectionRun: () => Promise.resolve({ untrusted: [], results: [], rule: null, answers: [], cause: [], attempt: null }), injectionResults: () => (asked++, Promise.resolve({ results: [], more: false })) };
+    const run = { run: { runId: RUN, status: 'completed', mode: 'record', meta: {} }, summary: { extraReads: null }, websockets: null } as unknown as Parameters<typeof useRunExtras>[0];
+    const Probe = () => (useRunExtras(run, null, null), null);
+    function Host() {
+      const [feeds, set] = useState<Record<string, number>>({});
+      setFeeds = set;
+      return createElement(AppContext.Provider, { value: { client, exported: false, runsTick: 0, feeds } as never }, createElement(Probe));
+    }
+    const page = await render(createElement(Host));
+    await page.until('the first read', () => asked === 1);
+    await act(async () => setFeeds({ injection: 1 }));
+    await page.until('read again', () => asked === 2);
+    expect(asked).toBe(2);
+    await page.unmount();
+  });
 });
 
 describe('the results panel', () => {
@@ -631,6 +653,14 @@ describe('the Forks view', () => {
   it('titles only a test session’s test a golden’s injection gate: a golden tested on its own is an injection test', () => {
     expect(testNode(row({ golden: 'goldens/refund', sessionId: 'S1' }), []).title).toBe('injection gate');
     expect(testNode(row({ golden: 'goldens/refund', sessionId: null }), []).title).toBe('injection test');
+  });
+
+  it('says under a run’s tests where its list stopped at its newest, never leaving the older ones out silently', async () => {
+    const cut = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]), injectionResults: (runId: string) => Promise.resolve(runId === REC ? { results: [clean, plant], more: true } : { results: [], more: false }) };
+    const page = await render(createElement(AppContext.Provider, { value: { client: cut, runs: [], runsTick: 0, live: [], feeds: {}, conn: 'offline', toast: () => undefined, exported: false } as never }, createElement(ForksView, { runId: REC })));
+    await page.until('the family to load', () => page.all('.fnode.fb').length === 2);
+    expect(page.all('.fam .fnote').map((n) => n.textContent)).toEqual([`Older injection tests of ${REC.slice(0, 10)} aren’t drawn, only its newest 2: their replays show as forks`]);
+    await page.unmount();
   });
 
   it('draws a test of the recording or of the page’s run whose replays are all gone, saying its attempts aren’t drawn', async () => {

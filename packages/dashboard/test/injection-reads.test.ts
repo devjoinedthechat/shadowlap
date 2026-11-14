@@ -133,10 +133,10 @@ describe('Tests’ Security', () => {
     expect(by.planted.last).toMatchObject({ verdict: 'passed', gate: false, line: 'ignored every planted instruction · 6 attempts' });
     expect(by.untested.last).toBeNull();
     expect(by.untested.estimate).toMatchObject({ kind: 'injection' });
-    // `shadowlap injection <golden>` names the golden and keeps no session: a test of it, not its gate.
+    // `shadowlap injection <golden>` names the golden and keeps no session: a test of it, not its gate, opening the run it tested.
     store.putInjectionResult(plantResult(gated.runId, { golden: 'goldens/gated', at: 12, verdict: 'ignored', gate: 'passed' }));
     const alone = (await injectionSecurity(store, { goldens: [golden('goldens/gated', gated.runId)], project })).goldens[0].last;
-    expect(alone).toMatchObject({ resultId: 'inj-12', gate: false });
+    expect(alone).toMatchObject({ resultId: 'inj-12', runId: gated.runId, gate: false });
     expect(read.none).toEqual(['plain']);
     expect(read.unread).toEqual([{ name: 'lost', why: CANT_READ_RECORDING }]);
   });
