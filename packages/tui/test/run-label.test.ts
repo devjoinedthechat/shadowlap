@@ -54,3 +54,32 @@ describe('runLabel', () => {
     }
   });
 });
+
+describe('loadRunTree', () => {
+  it('lists the recordings however many attempts blame and verify made after them', () => {
+    const store = Store.open(':memory:');
+    try {
+      const make = (startedAt: number, parent: string | null = null, meta?: Record<string, unknown>) => {
+        const r = store.createRun({ mode: parent ? 'replay' : 'record', ...(parent ? { parentRunId: parent } : {}), command: { argv: ['node', 'agent.js'], cwd: '/w' }, startedAt, ...(meta ? { meta } : {}) });
+        store.endRun(r.runId, 'completed', startedAt + 1);
+        return r.runId;
+      };
+      const older = make(1);
+      const failing = make(2);
+      // Verify's attempts, newer than both recordings, and more of them than the list takes runs.
+      const attempts = Array.from({ length: 9 }, (_, i) => make(10 + i, failing, { verify: { role: 'target', attempt: i + 1 } }));
+      // An attempt of a run older than every run listed goes with it.
+      const stray = make(30, older, { verify: { role: 'good', attempt: 1 } });
+      const tree = loadRunTree(store, { modelOf: modelResolver(store) }, 1);
+      expect(tree.map((n) => n.run.runId)).toEqual([failing]);
+      expect(tree[0].attempts).not.toBeNull();
+      const both = loadRunTree(store, { modelOf: modelResolver(store) }, 2);
+      expect(both.map((n) => n.run.runId)).toEqual([older, failing]);
+      // With attempts listed, each is under its run.
+      const all = loadRunTree(store, { modelOf: modelResolver(store), attempts: true }, 2);
+      expect(all.filter((n) => n.depth === 1).map((n) => n.run.runId).sort()).toEqual([...attempts, stray].sort());
+    } finally {
+      store.close();
+    }
+  });
+});

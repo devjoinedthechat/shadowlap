@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
-import { connStart, connStep, feedCursor, feedMoves, onTick, PAUSED, secondsLeft, withLiveCalls, type Conn } from './connection.js';
+import { connStart, connStep, feedCursor, feedMoves, feedsMoved, onTick, PAUSED, secondsLeft, withLiveCalls, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
 import { JobStore, type JobWatch, type WatchedJob } from './job-store.js';
 import { jobTitle } from './job-title.js';
@@ -416,7 +416,7 @@ export function AppProvider({ client, jobWords, children }: { client: Client; jo
             if (live) setRuns((list) => withLiveCalls(list, live) as RunListItem[] | null);
             setTick((n) => n + 1);
           }
-          const moved = first ? [] : [...(ch.jobs ? ['jobs'] : []), ...(ch.other ?? [])];
+          const moved = feedsMoved(ch, first);
           if (moved.length) setFeeds((f) => Object.fromEntries([...Object.entries(f), ...moved.map((k) => [k, (f[k] ?? 0) + 1] as const)]));
           // The counts in the status bar and the nav are the server's: they move with the runs.
           if (!first && ch.runs) void client.meta().then((m) => alive && setMeta(m), () => undefined);

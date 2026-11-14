@@ -21,7 +21,7 @@ import { NoRunsSteps } from './no-runs.js';
  * what was spent live, last and quieter), each with its makeup and last week on hover. Needs a look
  * is the page's one list, with Usage under it, folded until asked for; the activity feed is the
  * aside beside them, and goes under them below 1180px. It follows the runs as they change, a
- * recording included. While the server is still adding up the runs' totals (a store no dashboard
+ * recording included, and the feed each entry stored. While the server is still adding up the runs' totals (a store no dashboard
  * has opened yet), it says how far that has got and asks again every second; once it has shown the
  * Overview, it keeps it until a whole one replaces it.
  */
@@ -37,7 +37,8 @@ export function OverviewPage() {
   // It loads again once advice is put away or back (in another tab too), and a fix step's price
   // lasts as long as `version` all the same: a Dismiss asks no step for its price again.
   const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, `${version}:${feeds.dismissals ?? 0}`);
-  const activity = useLoad(() => (exported ? null : client.activity(ACTIVITY_SHOWN)), `activity:${ACTIVITY_SHOWN}`, tick);
+  // The feed also loads again for an entry stored with no run changed: a normalizer added, a golden packed.
+  const activity = useLoad(() => (exported ? null : client.activity(ACTIVITY_SHOWN)), `activity:${ACTIVITY_SHOWN}`, `${tick}:${feeds.events ?? 0}`);
   const store = useTeamStore();
   const name = projectOf(meta)?.name ?? 'this project';
   const answer = summary.data;

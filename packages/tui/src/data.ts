@@ -1,4 +1,4 @@
-import { attemptBundles, withAttempts, kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type StoreOf, type SummaryOptions, type Turn } from '@shadowlap/engine';
+import { attemptBundles, classifyRun, withAttempts, kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type StoreOf, type SummaryOptions, type Turn } from '@shadowlap/engine';
 
 import { attemptTallies, leftRunning, type AttemptTally } from './attempts.js';
 
@@ -47,11 +47,45 @@ export function runCost(store: StoreOf<'recording'>, run: RunRecord, options: Co
 }
 
 /**
+ * The runs the list is made of, newest first: the newest `limit` that aren't attempts, and every
+ * attempt bundled under them. Attempts (blame's probes, verify's, a `--repeat`'s, a golden's repeats)
+ * fold under the run they came from, so they never count against the limit: a store where blame and
+ * verify ran hundreds of times still lists the recordings they ran on. It reads a page at a time, a
+ * larger one each time, until it holds that many or the whole store. An attempt whose run isn't
+ * among them is left out with it.
+ */
+function listedRuns(store: StoreOf<'recording'>, limit: number): RunRecord[] {
+  for (let page = limit * 2; ; page *= 4) {
+    const runs = store.listRuns(page);
+    let shown = 0;
+    let end = runs.length;
+    for (let i = 0; i < runs.length; i++) {
+      if (!classifyRun(runs[i]!).attemptKind && ++shown === limit) {
+        end = i + 1;
+        break;
+      }
+    }
+    if (shown < limit && runs.length === page) continue;
+    let list = runs.slice(0, end);
+    for (;;) {
+      const ids = new Set(list.map((r) => r.runId));
+      const kept = list.filter((r) => {
+        const c = classifyRun(r);
+        return !c.attemptKind || !c.attemptOf || ids.has(c.attemptOf);
+      });
+      if (kept.length === list.length) return kept;
+      list = kept;
+    }
+  }
+}
+
+/**
  * Runs as a tree: roots oldest first, children under their parent, oldest first. The attempts bundled
  * under a run are folded into it, as the dashboard's Runs folds them, unless `attempts` lists them.
+ * `limit` is how many runs it lists besides their attempts (`listedRuns`).
  */
 export function loadRunTree(store: StoreOf<'recording'>, options: CostOptions & { attempts?: boolean }, limit = 500): RunNode[] {
-  const runs = store.listRuns(limit);
+  const runs = listedRuns(store, limit);
   const ids = new Set(runs.map((r) => r.runId));
   const bundles = attemptBundles(runs);
   const folded = options.attempts ? new Set<string>() : new Set([...bundles.values()].flat());
