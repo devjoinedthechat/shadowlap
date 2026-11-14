@@ -550,7 +550,7 @@ To let inconclusive goldens through with a warning instead, add `--inconclusive 
 
 **On the dashboard.** Settings → Gates says under **In CI** what an inconclusive golden does to the step, as your workflow has it. You set that on Settings → CI, in Your workflow: **An inconclusive golden**, where **Warns** writes `inconclusive: warn` and **Fails** leaves the input out ([dashboard](./dashboard.md#ci)).
 
-The Markdown summary counts inconclusive goldens apart (`### Shadowlap: 11 of 12 goldens passed · 1 inconclusive`) and marks them 🟡. It says what CI did with them and what to do:
+The Markdown summary counts inconclusive goldens apart (`### shadowlap: 11 of 12 goldens passed · 1 inconclusive`) and marks them 🟡. It says what CI did with them and what to do:
 
 - the `--inconclusive` given, or with none, the default;
 - for each gate against a short history, whether it only warned or counted, and why;
@@ -660,7 +660,7 @@ The agent's own clock is not the provider's. These count as the agent's:
 
 - a call the agent hung up on (its client's timeout, or an abort);
 - an attempt the test's time limit stopped;
-- failures Shadowlap plays in on purpose (`--fail-at`, `test --chaos`);
+- failures shadowlap plays in on purpose (`--fail-at`, `test --chaos`);
 - the calls it refuses itself (offline, a placeholder key);
 - a judge check's calls, which the judge retries by itself;
 - a replay no preload loaded in, which the [guard](./how-it-works.md#the-network-guard) fails.

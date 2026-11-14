@@ -18,5 +18,5 @@ If the report suggested one (`shadowlap normalize add …`), did it match afterw
 
 **Environment**
 
-- Shadowlap version:
+- shadowlap version:
 - SDK and language:

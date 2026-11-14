@@ -1,8 +1,8 @@
 # Test suites
 
-Tests that call a model are slow, cost tokens, and don't give the same answer twice. Mark a test, and Shadowlap records its model and tool calls the first time it runs and replays them after that: offline, instantly, and with the same answers every time. When a code change makes the test send a different request, the test fails with the diff.
+Tests that call a model are slow, cost tokens, and don't give the same answer twice. Mark a test, and shadowlap records its model and tool calls the first time it runs and replays them after that: offline, instantly, and with the same answers every time. When a code change makes the test send a different request, the test fails with the diff.
 
-It works like vcrpy or Polly.js, with Shadowlap's matching (calls are matched by what they ask, not the order they arrive), its tool effects (a replay never runs a write again) and its reports.
+It works like vcrpy or Polly.js, with shadowlap's matching (calls are matched by what they ask, not the order they arrive), its tool effects (a replay never runs a write again) and its reports.
 
 | Runner | Set up | Mark a test |
 |---|---|---|
@@ -236,11 +236,11 @@ A client built when a module is imported reads its key before any test runs: bui
 
 All of that holds only while a recorded test runs, in both plugins. The base-URL variables and `SHADOWLAP_URL` point at the slot from the start of the recording to its end, and capture is off outside it.
 
-A test without the marker, or not wrapped with `recorded()`, sees the environment it had and calls its model and tools directly, whether or not a recorded test ran before it. A client created while a recorded test runs keeps pointing at Shadowlap afterwards, so don't hand one from a recorded test to a test without a recording.
+A test without the marker, or not wrapped with `recorded()`, sees the environment it had and calls its model and tools directly, whether or not a recorded test ran before it. A client created while a recorded test runs keeps pointing at shadowlap afterwards, so don't hand one from a recorded test to a test without a recording.
 
 ### Tools that aren't recorded
 
-Tool calls go through the Shadowlap SDK as usual, so wrap tools with `tool()` or an [adapter](./frameworks.md). A tool that isn't wrapped runs for real on every replay. So a recording whose model called one that [writes, or may](./how-it-works.md#tools-shadowlap-did-not-record), is refused before its replay starts, as every command that replays a run refuses it. The test fails with the tool named and how to have it recorded.
+Tool calls go through the shadowlap SDK as usual, so wrap tools with `tool()` or an [adapter](./frameworks.md). A tool that isn't wrapped runs for real on every replay. So a recording whose model called one that [writes, or may](./how-it-works.md#tools-shadowlap-did-not-record), is refused before its replay starts, as every command that replays a run refuses it. The test fails with the tool named and how to have it recorded.
 
 If running it again is safe, declare it a read under `tools.unrecorded` in the config, or name it in `SHADOWLAP_ALLOW_UNRECORDED` for the test run. The plugin's `shadowlap serve --recordings` reads that as `--allow-unrecorded`:
 

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800" role="img" aria-labelledby="title desc">
-<title id="title">The Shadowlap dashboard, from a failed run to its fix: the call blame found, the fix and its proof</title>
+<title id="title">The shadowlap dashboard, from a failed run to its fix: the call blame found, the fix and its proof</title>
 <desc id="desc">Runs › Failed lists one issue, issue_refund called with amount 240: three runs, each lost at model call #5. The newest opens at that call, where blame found the run lost, and asked again the model escalates instead. Open fix shows the fix: blame, repair’s prompt change and verify’s verdict, every failing run fixed and every good run kept. Show patch shows the prompt change.</desc>
 <style>
 .r{transform-box:fill-box;transform-origin:center}

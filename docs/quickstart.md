@@ -20,7 +20,7 @@ npm install -g shadowlap
 npx shadowlap demo
 ```
 
-It needs no key and nothing to clone, only git, and takes about half a minute. In a folder of its own, which it removes at the end (`--keep <dir>` keeps it), the demo writes a support agent that refunds $240 orders its refund policy sends to a manager. Then it runs Shadowlap's own commands on it, each printing what it prints in your terminal:
+It needs no key and nothing to clone, only git, and takes about half a minute. In a folder of its own, which it removes at the end (`--keep <dir>` keeps it), the demo writes a support agent that refunds $240 orders its refund policy sends to a manager. Then it runs shadowlap's own commands on it, each printing what it prints in your terminal:
 
 1. `run` records the agent on three such orders and a $60 one.
 2. `replay` answers the first from its recording with 0 upstream requests.
@@ -61,7 +61,7 @@ npm ci
 npm run build
 ```
 
-Start the scripted API, point Shadowlap at it, and record the agent:
+Start the scripted API, point shadowlap at it, and record the agent:
 
 ```sh
 node testing/reference-agent/dist/mock-server.js &        # prints its URL, e.g. http://127.0.0.1:53188
@@ -174,7 +174,7 @@ Found
   Agent command: pnpm agent (package.json scripts.agent: tsx src/agent.ts)
   Tools: 3 found, 1 with an effect
 
-! src/llm.ts:2 sets the model base URL to https://llm-proxy.internal/anthropic. Shadowlap doesn't know that host, so calls through that client would not be recorded.
+! src/llm.ts:2 sets the model base URL to https://llm-proxy.internal/anthropic. shadowlap doesn't know that host, so calls through that client would not be recorded.
   Run with SHADOWLAP_UPSTREAM_ANTHROPIC=https://llm-proxy.internal/anthropic, or read the base URL from ANTHROPIC_BASE_URL.
 
 1. Install
@@ -205,7 +205,7 @@ API calls are captured with no code changes: `shadowlap run` sets `ANTHROPIC_BAS
 
 ## 7. Wrap your tools and replay
 
-Wrap your tools so Shadowlap knows what they do to the world ([SDKs](./sdk.md), [frameworks](./frameworks.md)):
+Wrap your tools so shadowlap knows what they do to the world ([SDKs](./sdk.md), [frameworks](./frameworks.md)):
 
 ```ts
 import { tool } from '@shadowlap/sdk';

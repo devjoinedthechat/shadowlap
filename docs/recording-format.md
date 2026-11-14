@@ -4,22 +4,22 @@ A recording is everything an agent run said to the world and heard back: each mo
 and response, each tool call's arguments and result, each clock read and random value, numbered in
 the order the run made them.
 
-This page specifies recordings as Shadowlap writes and reads them, in two forms:
+This page specifies recordings as shadowlap writes and reads them, in two forms:
 
 - **On disk, as a *pack***: a folder of plain files that can be committed as a [golden](./ci.md),
   attached to an issue or shared.
 - **Over HTTP, as [the recordings protocol](#the-recordings-protocol)**, through which a test runner
   records a test and replays it.
 
-A framework, a tracing tool or a test runner that writes packs gets recordings Shadowlap replays, and
-one that reads them gets every run Shadowlap records.
+A framework, a tracing tool or a test runner that writes packs gets recordings shadowlap replays, and
+one that reads them gets every run shadowlap records.
 
-Version 1. Packs and the protocol are versioned together ([Versions](#versions)), and Shadowlap is
+Version 1. Packs and the protocol are versioned together ([Versions](#versions)), and shadowlap is
 the reference implementation: it replays an agent's real code against a recording, serving every call
 that hasn't changed from it.
 
-**Normative language.** MUST, SHOULD and MAY carry their usual weight. Where this page and Shadowlap
-disagree, Shadowlap is what replays: [open an issue](https://github.com/devjoinedthechat/shadowlap/issues).
+**Normative language.** MUST, SHOULD and MAY carry their usual weight. Where this page and shadowlap
+disagree, shadowlap is what replays: [open an issue](https://github.com/devjoinedthechat/shadowlap/issues).
 
 The reference implementation of packs is `@shadowlap/engine` ([the engine as a library](./engine.md)):
 
@@ -99,7 +99,7 @@ Some fields in more detail:
 
 - **`command`**: `cwd` is for people to read. A reader runs `argv` in its own project folder, never in
   `cwd`, so a producer SHOULD write `.` or a path relative to the project, not an absolute path on its
-  machine. Shadowlap writes the folder `shadowlap run` ran in.
+  machine. shadowlap writes the folder `shadowlap run` ran in.
 - **A run made where nothing knows what started the agent**, such as a capture of production
   traffic, has `["<no-recorded-command>"]` as its `argv`. Replaying it then takes the agent's command
   after `--`.
@@ -150,7 +150,7 @@ Some keys in more detail:
 - **`true`**: the same, but for a path, a ref, a scope, a namespace or an id, which it stored as
   `<CREDENTIAL>` too.
 
-Shadowlap keeps more under `meta` (what a blame found, how a test judged the run, what a replay
+shadowlap keeps more under `meta` (what a blame found, how a test judged the run, what a replay
 changed); a producer leaves those out.
 
 ## calls.jsonl
@@ -248,7 +248,7 @@ What each call's blobs hold:
 | `clock` | `{"label": "…"}` | `{"result": …}`, milliseconds since the epoch |
 | `random` | `{"label": "…"}` | `{"result": …}`: a number from 0 up to 1 for `random`, a UUID for `uuid` |
 
-A model call's answer is JSON, or a stream's events, as the provider sent it or as Shadowlap answered
+A model call's answer is JSON, or a stream's events, as the provider sent it or as shadowlap answered
 in its place (an offline replay's refusal, a failure `--fail-at` plays in). Its headers are in
 `end.meta.headers`. There is none when no answer came: the connection broke first.
 
@@ -261,10 +261,10 @@ with `meta.http` naming the host:
 |----------------------------------------------|---------------------------------------------------------------------|
 | Arguments                                    | `{"method", "url", "body", "encoding"}`                             |
 | Result                                       | `{"status", "headers", "body", "encoding"}`                         |
-| An answer Shadowlap gave in the host's place | `{"error": …, "answer": {"status", "headers", "body", "encoding"}}` |
+| An answer shadowlap gave in the host's place | `{"error": …, "answer": {"status", "headers", "body", "encoding"}}` |
 
 - **`encoding`** is `json`, `text` or `base64`, and the body is left out when there is none.
-- **An answer Shadowlap gave** (a write blocked after a fork, an offline replay's refusal) is kept
+- **An answer shadowlap gave** (a write blocked after a fork, an offline replay's refusal) is kept
   beside its error. A call whose connection closed with no answer keeps its error alone.
 - **Credentials**: a captured call's `url`, `body`, and result `headers` and `body` hold
   `<CREDENTIAL>` where a credential was (`&lt;CREDENTIAL&gt;` in XML text).
@@ -284,7 +284,7 @@ calls share is stored once. A request manifest is one of three kinds:
 | `list` | 2 | A body that is a JSON object whose conversation is Gemini's `contents` or the Responses API's `input` items, an array |
 | `whole` | 1 | Any other body |
 
-Shadowlap writes version 1 for a `messages` body and version 2 for the others. A reader MUST read
+shadowlap writes version 1 for a `messages` body and version 2 for the others. A reader MUST read
 both, and MUST refuse a manifest of a version it doesn't know.
 
 **A *chunked* manifest:**
@@ -491,7 +491,7 @@ which no normalizer or clock changes.
 A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it
 computed that with the engine's `normalizersHash`.
 
-When Shadowlap changes how a fingerprint is computed, it says so with a version of its own:
+When shadowlap changes how a fingerprint is computed, it says so with a version of its own:
 `FINGERPRINT_VERSION` is 9. Fingerprints made under another are computed again, so older packs keep
 replaying.
 
@@ -508,7 +508,7 @@ else saw holds some kinds of call and not others, and MUST say which in `meta.co
 A replay serves the calls a recording covers from it, as strictly as ever, and runs the rest live,
 still blocking writes after a fork.
 
-A recording that leaves `covers` out holds every call the agent makes through Shadowlap, and only
+A recording that leaves `covers` out holds every call the agent makes through shadowlap, and only
 those. A recorded model or tool call the agent never makes is a change too, and its replay
 [ends early](./ci.md#a-replay-that-ends-early), which fails a test.
 
@@ -544,7 +544,7 @@ another recording, with another command or other calls.
 A run brought in carries a command someone else recorded. A reader marks it (`meta.imported`), and
 shows that command and asks before running it.
 [SECURITY.md](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md) lists every check
-Shadowlap makes.
+shadowlap makes.
 
 ## Writing a pack
 
@@ -784,23 +784,23 @@ It prints:
 1 passed, 0 failed · 0 upstream requests
 ```
 
-## Recording through Shadowlap
+## Recording through shadowlap
 
-A producer can leave the files to Shadowlap too:
+A producer can leave the files to shadowlap too:
 
 - **`shadowlap run -- <command>`** records any agent, and `shadowlap pack <run> <dir>` writes its pack
   with the project's redaction rules applied ([CI](./ci.md#make-a-golden)).
-- **An SDK for a language Shadowlap doesn't ship** records tool calls, clock reads and random values
+- **An SDK for a language shadowlap doesn't ship** records tool calls, clock reads and random values
   through [the wire protocol](./protocol.md). Model calls need nothing, as the provider's own SDK is
-  pointed at Shadowlap.
+  pointed at shadowlap.
 - **A test runner** records each test through the recordings protocol, below, which writes the test's
   pack when it passes and replays it offline after.
 
 ## The recordings protocol
 
-Shadowlap's pytest, Vitest, Jest and node:test integrations are clients of one small HTTP API on
+shadowlap's pytest, Vitest, Jest and node:test integrations are clients of one small HTTP API on
 `shadowlap serve --recordings`. It is specified here so that an integration can be written for a test
-runner Shadowlap doesn't ship: JUnit, Go's `testing`, RSpec, Playwright, anything that can spawn a
+runner shadowlap doesn't ship: JUnit, Go's `testing`, RSpec, Playwright, anything that can spawn a
 process and make an HTTP request.
 
 A [recorded test](./testing.md) records its agent's calls the first time it runs, as a pack beside the
@@ -1082,7 +1082,7 @@ What a reader or an integration can ignore comes without another version:
   know it;
 - a field added to a response.
 
-Shadowlap is pre-1.0, and of everything it has, the format is what changes least: build on it where
+shadowlap is pre-1.0, and of everything it has, the format is what changes least: build on it where
 you have the choice.
 
 ## See also

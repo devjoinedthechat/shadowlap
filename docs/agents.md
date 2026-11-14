@@ -1,6 +1,6 @@
 # Coding agents
 
-Claude Code, Codex, Cursor, GitHub Copilot and other coding agents can set Shadowlap up for an agent
+Claude Code, Codex, Cursor, GitHub Copilot and other coding agents can set shadowlap up for an agent
 and debug it the way you would. They record a run, read where it went wrong, change the code, and
 replay to check the change, without paying for the model calls that didn't change.
 
@@ -46,7 +46,7 @@ shadowlap skill install
   with the CLI, so nothing is downloaded and the skills name the commands your CLI takes.
 - **Commit it.** Claude Code loads a plugin there for everyone working on the project, once they
   trust the folder.
-- **After upgrading Shadowlap,** `shadowlap skill install --force` brings it to your CLI's version.
+- **After upgrading shadowlap,** `shadowlap skill install --force` brings it to your CLI's version.
   Without `--force`, the command leaves alone whatever there isn't this version's copy, and says what
   differs ([`skill`](./cli.md#skill)).
 
@@ -118,9 +118,9 @@ For an agent that doesn't read skills, or to keep the instructions in `CLAUDE.md
 paste this into the project's instructions file, and adjust the commands:
 
 ```md
-## Debugging the agent with Shadowlap
+## Debugging the agent with shadowlap
 
-Agent runs are recorded with Shadowlap (`shadowlap run -- <command>`). Check every change to the
+Agent runs are recorded with shadowlap (`shadowlap run -- <command>`). Check every change to the
 agent's prompt, tools, model or code this way before calling it done. To investigate a failing run:
 
 1. `shadowlap ls --json` to find it, `shadowlap show <run> --json` to read it. A call's request and
@@ -172,7 +172,7 @@ The commands a coding agent runs, grouped by what they are for.
 | Find ids and temp paths that change every run | `shadowlap calibrate --json` | Proposed normalizers |
 | Run the recorded tests | `shadowlap test <pack...> --json report.json` | Per recording: result, divergence, checks |
 
-A replay runs the agent's own command, so its output mixes with Shadowlap's on the terminal;
+A replay runs the agent's own command, so its output mixes with shadowlap's on the terminal;
 `--summary-json` writes the outcome to a file instead. Replays make no model calls until the fork, so
 an agent can replay as often as it likes. `decisions` asks each recorded model call again with only
 the change, and runs no tool.
@@ -199,7 +199,7 @@ the change, and runs no tool.
 - **`injection`** also names the tool call that carried the planted canary, and the run's verdict
   against its limits.
 
-Shadowlap never passes credentials to the agent's process beyond what it already had, and a replay
+shadowlap never passes credentials to the agent's process beyond what it already had, and a replay
 reaches a provider only for calls after the fork.
 
 ## Kept in step with the CLI

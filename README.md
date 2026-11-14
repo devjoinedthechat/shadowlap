@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/lockup-dark.svg">
-    <img src=".github/assets/lockup-light.svg" alt="Shadowlap" width="320">
+    <img src=".github/assets/lockup-light.svg" alt="shadowlap" width="320">
   </picture>
 </p>
 
@@ -28,7 +28,7 @@
 
 Your agent refunded $240 it should have escalated. Run it again and it behaves, so you can't make it fail on demand, or prove&nbsp;a&nbsp;fix&nbsp;worked.
 
-Shadowlap records your agent's model calls and the tools you wrap, then replays your real code against the recording. Every call is answered from it, the refund included: nothing goes upstream, and nothing happens twice. Change one thing, and the run forks at the first request&nbsp;that&nbsp;differs.
+shadowlap records your agent's model calls and the tools you wrap, then replays your real code against the recording. Every call is answered from it, the refund included: nothing goes upstream, and nothing happens twice. Change one thing, and the run forks at the first request&nbsp;that&nbsp;differs.
 
 <p align="center">
   <picture>
@@ -89,7 +89,7 @@ cd your-agent
 shadowlap init
 ```
 
-`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Then wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged.
+`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Then wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. Outside shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged.
 
 **TypeScript**
 
@@ -171,7 +171,7 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
     <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fix-phone.png" width="390">
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fix-medium.png" width="640">
     <source media="(prefers-reduced-motion: reduce)" srcset=".github/assets/readme/dashboard-fix.png">
-    <img src=".github/assets/readme/dashboard-walkthrough.svg" alt="The Shadowlap dashboard, from a failed run to its fix: Runs › Failed lists the issue's three runs, the newest opens at model call #5 where blame found it lost, and Open fix shows blame, repair's prompt change and verify's verdict, then the patch.">
+    <img src=".github/assets/readme/dashboard-walkthrough.svg" alt="The shadowlap dashboard, from a failed run to its fix: Runs › Failed lists the issue's three runs, the newest opens at model call #5 where blame found it lost, and Open fix shows blame, repair's prompt change and verify's verdict, then the patch.">
   </picture>
   <br>
   <sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
@@ -236,7 +236,7 @@ $ shadowlap decisions 01M64J4EMP --model claude-haiku-4-5
   <picture>
     <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fork-phone.png" width="390">
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fork-medium.png" width="640">
-    <img src=".github/assets/readme/dashboard-fork.png" alt="The Shadowlap dashboard on a fork of the second agent's refund run: forked at call 17 after lookup_policy's result was overridden with the EU policy, the calls after it escalating with the write blocked, and the request's diff, where refund_limit now reaches the model." width="880">
+    <img src=".github/assets/readme/dashboard-fork.png" alt="The shadowlap dashboard on a fork of the second agent's refund run: forked at call 17 after lookup_policy's result was overridden with the EU policy, the calls after it escalating with the write blocked, and the request's diff, where refund_limit now reaches the model." width="880">
   </picture>
   <br>
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
@@ -251,7 +251,7 @@ $ shadowlap decisions 01M64J4EMP --model claude-haiku-4-5
     <source media="(max-width: 1279px) and (prefers-reduced-motion: reduce)" srcset=".github/assets/readme/tui-medium-static.svg" width="637">
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/tui-medium.svg" width="637">
     <source media="(prefers-reduced-motion: reduce)" srcset=".github/assets/readme/tui-static.svg">
-    <img src=".github/assets/readme/tui.svg" alt="The Shadowlap terminal UI: the newest refund that failed, open at model call #5, where blame found it lost, with its fix applied; the run tree, two refunds marked lost at #5; the fork, open at call 17, where it left its parent, with what it did differently; and the fork menu at lookup_policy's call, Override result first.">
+    <img src=".github/assets/readme/tui.svg" alt="The shadowlap terminal UI: the newest refund that failed, open at model call #5, where blame found it lost, with its fix applied; the run tree, two refunds marked lost at #5; the fork, open at call 17, where it left its parent, with what it did differently; and the fork menu at lookup_policy's call, Override result first.">
   </picture>
   <br>
   <sub>The terminal UI on the same project: the failed run, the fork, and the&nbsp;fork&nbsp;menu&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
@@ -275,7 +275,7 @@ shadowlap run -- node agent.mjs
 ├─ store    .shadowlap/shadowlap.db (SQLite), out of git
 └─ agent    ANTHROPIC_BASE_URL, OPENAI_BASE_URL,
             GOOGLE_GEMINI_BASE_URL for the model SDKs;
-            SHADOWLAP_URL, SHADOWLAP_RUN_ID for Shadowlap's SDKs
+            SHADOWLAP_URL, SHADOWLAP_RUN_ID for shadowlap's SDKs
 ```
 
 - **Matched by request, not order.** A call is identified by its request and by how many identical requests came before it, after your [normalizers](docs/normalizers-and-redaction.md) mask values such as&nbsp;ids. Parallel calls match in whatever order&nbsp;they&nbsp;arrive.
@@ -302,7 +302,7 @@ shadowlap run -- node agent.mjs
 | Turn a run that went wrong in production into a recording | [Production traffic](docs/gateways.md) |
 | Find behaviours no golden covers | [`shadowlap coverage`](docs/coverage.md) |
 | Share runs with your team, in a bucket you own | [The team store](docs/team.md) |
-| Have a coding agent set Shadowlap up and debug with it | [Coding agents](docs/agents.md) |
+| Have a coding agent set shadowlap up and debug with it | [Coding agents](docs/agents.md) |
 | Export preference pairs and tasks for training | [Training](docs/training.md) |
 
 ## Integrations
@@ -317,7 +317,7 @@ shadowlap run -- node agent.mjs
 | [Test suites](docs/testing.md) | pytest, Vitest, Jest and node:test; a test records once, then replays offline |
 | [MCP](docs/mcp.md) | Servers over stdio or Streamable HTTP, recorded through the `shadowlap mcp` proxy, which your client reaches over stdio or, with `--listen`, over HTTP |
 | [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any other CI |
-| [Coding agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot drive the CLI through its JSON output; `skill install` adds skills that set Shadowlap up and check every change |
+| [Coding agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot drive the CLI through its JSON output; `skill install` adds skills that set shadowlap up and check every change |
 | [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith, Arize Phoenix, Logfire; every trace of a window at once from Langfuse, Phoenix and Logfire (`--since 7d`) |
 | [Exports](docs/cli.md#export-html) | Packs (a run as a folder), one&#8209;file HTML reports, HAR, OpenTelemetry, eval datasets and preference pairs |
 
@@ -348,11 +348,11 @@ npm run demo && node scripts/readme-shots.mjs
 - **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token; recordings stay in your project, readable&nbsp;only&nbsp;by&nbsp;you.
 - **Keys never stored.** The API keys your calls send pass through to the provider and are never written; a clean replay needs no&nbsp;real&nbsp;key.
 - **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded, with no&nbsp;rule&nbsp;applied.
-- **Credentials masked in every copy.** Every copy of a run masks each credential whose shape Shadowlap&nbsp;knows.
+- **Credentials masked in every copy.** Every copy of a run masks each credential whose shape shadowlap&nbsp;knows.
 - **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run, and [what&nbsp;is&nbsp;sent](docs/telemetry.md) never includes prompts or tool&nbsp;data. `DO_NOT_TRACK=1` opts&nbsp;out.
 
 [SECURITY.md](SECURITY.md) lists every safeguard and how to report&nbsp;a&nbsp;vulnerability.
 
 ## License
 
-[Apache-2.0](LICENSE). Shadowlap has no accounts to sign&nbsp;up&nbsp;for.
+[Apache-2.0](LICENSE). shadowlap has no accounts to sign&nbsp;up&nbsp;for.

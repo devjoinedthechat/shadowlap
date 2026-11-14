@@ -26,8 +26,8 @@ Put it in front of a local server, started as a command, or a remote one, reache
 }
 ```
 
-Outside Shadowlap the proxy is transparent, so the same client configuration works with and without
-Shadowlap ([outside Shadowlap](#outside-shadowlap)).
+Outside shadowlap the proxy is transparent, so the same client configuration works with and without
+shadowlap ([outside shadowlap](#outside-shadowlap)).
 
 ## How tool calls are recorded
 
@@ -48,7 +48,7 @@ like an SDK tool call:
 - **Everything else** (`initialize`, `tools/list`, resources, prompts, notifications, and the
   server's own requests to the client) is forwarded as-is, in order.
 
-**Batches.** A JSON-RPC batch that carries a `tools/call` is refused under Shadowlap, because a call
+**Batches.** A JSON-RPC batch that carries a `tools/call` is refused under shadowlap, because a call
 inside a batch could be neither recorded nor fenced. Each request in it gets an error (`-32600`), and
 the batch's notifications go on one by one. MCP 2025-06-18 removed batching, and the official clients
 don't send batches.
@@ -183,14 +183,14 @@ How the proxy was started decides which run a session records into:
 
 | Started | A session records into |
 |---|---|
-| By a Shadowlap command, or under one (with `SHADOWLAP_URL` set) | That command's run |
-| On its own, in a terminal beside the agent | The run of the Shadowlap command that started the connecting process or one of its ancestors |
+| By a shadowlap command, or under one (with `SHADOWLAP_URL` set) | That command's run |
+| On its own, in a terminal beside the agent | The run of the shadowlap command that started the connecting process or one of its ancestors |
 | On its own, where the system won't say which process connected | The one run active for you |
 | On its own, with no run found, or several it can't tell apart | None: it can't be recorded |
 
 Started on its own, the proxy serves one run after another. When a session starts, it asks the system
 which process connected: from `/proc` on Linux, `lsof` on macOS, `netstat` on Windows. Every agent a
-Shadowlap command starts is registered so, whatever the command
+shadowlap command starts is registered so, whatever the command
 ([any that starts an agent](#finding-the-run)), the folder it runs in, and however many of its
 attempts run at once.
 
@@ -212,9 +212,9 @@ How the proxy was started decides whose calls it records, and so whose agents it
 
 | Started | Lets through |
 |---|---|
-| On its own | The agents of every Shadowlap command |
-| By a Shadowlap command, or under one (by the agent's own command, say) | That command's agents alone, whose run it records into |
-| Under a Shadowlap command whose run it can't find | None: it doesn't register |
+| On its own | The agents of every shadowlap command |
+| By a shadowlap command, or under one (by the agent's own command, say) | That command's agents alone, whose run it records into |
+| Under a shadowlap command whose run it can't find | None: it doesn't register |
 
 - **The same `SHADOWLAP_HOME`.** A command finds the proxy only when both run with the same one, or
   neither has it.
@@ -320,8 +320,8 @@ only when it:
 
 - is the user's own, owner-only and not a link;
 - names the process it is filed under;
-- names that process's parent, the Shadowlap command, correctly (or, found without the tree, names a
-  Shadowlap command still running).
+- names that process's parent, the shadowlap command, correctly (or, found without the tree, names a
+  shadowlap command still running).
 
 A file left behind by a run that was killed is ignored. When the folder can't be written, the file
 goes in the project's `.shadowlap/agents` instead, and the proxy looks there and in every folder above
@@ -332,21 +332,21 @@ A file in the home folder (or `SHADOWLAP_HOME`) that fails the checks makes the 
 
 ### It fails closed
 
-When the proxy was started under a Shadowlap command but can't record, it fails closed. That happens
+When the proxy was started under a shadowlap command but can't record, it fails closed. That happens
 when no run is registered where it can see, or the sidecar doesn't answer. It then refuses write
 tools, with a tool error the model sees, and passes read tools through unrecorded, saying so on
 stderr: this may be a replay, and a write must not run again.
 
 Where the process tree can't be read, the proxy falls back to `.shadowlap/active.json`, which
 `shadowlap run` and `replay` leave in the working directory while they run. With neither its parent's
-registration nor that file there, it can't tell it runs under Shadowlap, and passes everything
+registration nor that file there, it can't tell it runs under shadowlap, and passes everything
 through, saying why on stderr.
 
-### Outside Shadowlap
+### Outside shadowlap
 
-Outside Shadowlap, the proxy a client starts says so once on stderr and becomes transparent, so the
-same client configuration works with and without Shadowlap. A `--listen` proxy started on its own is
-there for Shadowlap's runs: a session that belongs to none refuses write tools
+Outside shadowlap, the proxy a client starts says so once on stderr and becomes transparent, so the
+same client configuration works with and without shadowlap. A `--listen` proxy started on its own is
+there for shadowlap's runs: a session that belongs to none refuses write tools
 ([above](#served-over-http---listen)).
 
 ## What is not recorded
@@ -382,5 +382,5 @@ The flags this page covers ([`shadowlap mcp`](./cli.md#mcp) has the synopsis and
 
 - [`shadowlap mcp`](./cli.md#mcp): the command's synopsis and exit statuses.
 - [The Claude Agent SDK](./frameworks.md#claude-agent-sdk): MCP servers under its fence.
-- [Prompt injection](./injection.md): what Shadowlap does with untrusted reads.
+- [Prompt injection](./injection.md): what shadowlap does with untrusted reads.
 - [The network guard](./how-it-works.md#the-network-guard): what it watches, and what it can't.

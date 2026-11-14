@@ -2,7 +2,7 @@
 
 Prove whether text in what your agent reads can make it act: plant an attacker's instruction in a recorded read, replay the run from there with writes stubbed, and see whether a tool call carries a value only that instruction held.
 
-An agent that reads untrusted content (web pages, email, tickets, documents) and holds write tools can be steered by text in that content. Runtime guardrails and trace scanners flag patterns; they can't show that this content caused that write. A replay can, with what Shadowlap already does:
+An agent that reads untrusted content (web pages, email, tickets, documents) and holds write tools can be steered by text in that content. Runtime guardrails and trace scanners flag patterns; they can't show that this content caused that write. A replay can, with what shadowlap already does:
 
 - it repeats the run exactly up to the untrusted read;
 - [`--inject-result`](./interventions.md#plant-an-instruction-in-a-tool-result) plants text in what the read returned;
@@ -177,7 +177,7 @@ Each attempt fills in the placeholders of a payload:
 
 A payload with no placeholder is planted all the same, and can show the agent was influenced, never prove it obeyed; the command says which. Its own words then tell which model request carried it. With `--payloads`, only those are planted, unless `--templates` names some too.
 
-A red-teaming tool is good at generating many payloads. What Shadowlap adds is proof of cause on your agent's own recorded runs: this text, planted at this read, made that call.
+A red-teaming tool is good at generating many payloads. What shadowlap adds is proof of cause on your agent's own recorded runs: this text, planted at this read, made that call.
 
 ## Prove cause on an incident
 
@@ -332,7 +332,7 @@ The [dashboard](./dashboard.md#findings) shows each test as a finding on the run
 
 ## Limits
 
-- **What isn't recorded can't be judged.** A write through an unwrapped client never reaches Shadowlap: wrap it, as for any replay (see [effects](./how-it-works.md#effects)). The network guard blocks such connections during a test by default (`--guard block`).
+- **What isn't recorded can't be judged.** A write through an unwrapped client never reaches shadowlap: wrap it, as for any replay (see [effects](./how-it-works.md#effects)). The network guard blocks such connections during a test by default (`--guard block`).
 - **A blocked read answers with an error.** An agent that gives up when a read fails exits non-zero, and its attempts are inconclusive, saying so; `--live-reads` runs those reads live.
 - **A model varies.** One attempt that ignores a payload proves little; `--repeat` and the gate's limits say how much you need.
 - **A run that forks before the read** (a changed prompt) still gets its payloads planted: reads after a fork are served from the recording when they are the same call. One that never makes the read again is inconclusive, and says so.

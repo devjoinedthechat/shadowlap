@@ -1,6 +1,6 @@
 # SDKs
 
-The SDKs wrap **tools** so Shadowlap knows what they do to the world, record **clock and randomness**
+The SDKs wrap **tools** so shadowlap knows what they do to the world, record **clock and randomness**
 so replays see the recorded values, and record [what a person types](#what-a-person-types) when it
 doesn't come from the terminal. API calls need no SDK: the sidecar records them through the provider
 base URL.
@@ -201,7 +201,7 @@ A replayed error is thrown as `ReplayedError` with the recorded `name`, `message
 
 ### Streaming tools
 
-A streaming tool stays one under Shadowlap. In TypeScript, write it as an async generator function
+A streaming tool stays one under shadowlap. In TypeScript, write it as an async generator function
 (`async function*`, like the AI SDK's streaming `async *execute`). In Python, an async generator
 function (or a plain generator function) keeps streaming:
 
@@ -219,7 +219,7 @@ async def watch_order(order_id: str):           # an async generator: the tool s
         yield status
 ```
 
-**Recording.** It runs at the pace of whoever reads it, as it does outside Shadowlap. Every value it
+**Recording.** It runs at the pace of whoever reads it, as it does outside shadowlap. Every value it
 yields is recorded, in order, as `{ "shadowlap_stream": [...] }`, with what it returns as `returned`.
 In Python, values sent in and errors thrown in reach the tool, and the form is
 `{"shadowlap_stream": [...]}` with a generator's return value too.
@@ -241,7 +241,7 @@ reads on past it forks there:
 - **A stream recorded as one value,** as before or as an `--override` gives it, replays that value
   alone.
 - **A function that returns a stream without being a generator** (TypeScript) gets its stream back
-  untouched outside Shadowlap. Under it, the stream is read to its end and its last value is the
+  untouched outside shadowlap. Under it, the stream is read to its end and its last value is the
   result. Write a streaming tool as `async function*` to keep it streaming while recording.
 - **An object whose `__call__` is one of these** (Python), as frameworks build tool classes, is
   wrapped the same way, and named after its class unless you pass `name`.
@@ -345,7 +345,7 @@ request_id = uuid()
 
 ## What a person types
 
-An agent that waits for a person can't be replayed by itself: no one is there to type. Shadowlap
+An agent that waits for a person can't be replayed by itself: no one is there to type. shadowlap
 records each answer as a `user_input` call (a read, with the prompt as its argument and
 `{ "text": … }` as its result), so the run replays, tests and blames with no one at the keyboard.
 `shadowlap test`, `blame` and `verify` start agents with their input ignored, and the recorded
@@ -402,7 +402,7 @@ on a worker thread included, is recorded once: as the answer of the wrapping cal
   `shadowlap replay <run> --override 5='{"text": "A refund, please."}'`.
 - **The end of the input.** When the input ended (Ctrl-D, an empty pipe), that is recorded too, and a
   replay ends the input at the same place.
-- **Older recordings.** A recording made before Shadowlap recorded input holds none of it. Replaying
+- **Older recordings.** A recording made before shadowlap recorded input holds none of it. Replaying
   it, the agent reads its input live, as it did then, and the rest still replays.
 
 See [examples/support-chat](https://github.com/devjoinedthechat/shadowlap/tree/main/examples/support-chat).
@@ -450,11 +450,11 @@ answers. Scopes entered in code nest underneath it (`worker-2/search`).
 
 - **Any language.** A scope can be named in any language: `scope('東京の天気', ...)` works as
   `scope('weather', ...)` does.
-- **Reserved names.** Names that start with `shadowlap:` are Shadowlap's own (a
+- **Reserved names.** Names that start with `shadowlap:` are shadowlap's own (a
   [judge check](./judges.md)'s calls are made in `shadowlap:judge`): a call made in one is refused.
 - **Nesting.** Scopes nest: a scope inside `orchestrator` is `orchestrator/researcher-0`.
 - **Reading it.** `currentScope()` / `current_scope()` read it.
-- **Outside Shadowlap,** a scope only runs the code.
+- **Outside shadowlap,** a scope only runs the code.
 
 How a scope follows the code:
 
@@ -467,7 +467,7 @@ How a scope follows the code:
 
 - **Adding scopes.** A recording made without scopes ignores them on replay, so adding scopes to an
   agent doesn't make its old recordings fork. Removing them from a recording that had them does.
-- **Model calls.** Model calls carry scopes in Node and Python agents, where Shadowlap's preload adds
+- **Model calls.** Model calls carry scopes in Node and Python agents, where shadowlap's preload adds
   them, whatever client sends them (`fetch`, `http.request` under node-fetch or axios, httpx,
   requests, urllib3). Other runtimes' model calls don't.
 - **`SHADOWLAP_SCOPE`.** A process started with it carries it on its model calls as on its tools.
@@ -605,7 +605,7 @@ The errors it throws:
 
 **TypeScript:**
 
-- **Node ≥ 18.18,** as for any Node agent under Shadowlap. `run`, `replay`, `test` and the commands
+- **Node ≥ 18.18,** as for any Node agent under shadowlap. `run`, `replay`, `test` and the commands
   that replay an agent load the guard and in-process capture into it through `--import` in
   `NODE_OPTIONS`. A Node before 18.18 refuses that, so the agent never starts, and the CLI says its
   Node is too old.
@@ -617,8 +617,8 @@ The errors it throws:
   `moduleResolution: node` too. Each package ships its TypeScript sources, so go-to-definition lands
   in them.
 - **Edge runtimes and browsers.** The SDK runs in an Edge runtime (Vercel's, Cloudflare Workers) or a
-  browser bundle as it is. It loads none of Node's modules until a call goes to Shadowlap's sidecar,
-  which only happens under Shadowlap, so outside it a wrapped tool calls straight through wherever it
+  browser bundle as it is. It loads none of Node's modules until a call goes to shadowlap's sidecar,
+  which only happens under shadowlap, so outside it a wrapped tool calls straight through wherever it
   is deployed.
 - **Scopes on Node.** Node itself loads the package's `node` entry, which brings `AsyncLocalStorage`
   with it, so scopes hold on every Node it supports.
@@ -639,7 +639,7 @@ Both SDKs are thin clients of one small HTTP API on the sidecar: `POST /v1/calls
 call, `POST /v1/calls/{callNo}/complete` after it. Model API calls need none of it: they are captured
 through the provider's base URL, which works in any language already.
 
-[The wire protocol](./protocol.md) specifies it completely, for writing an SDK in a language Shadowlap
+[The wire protocol](./protocol.md) specifies it completely, for writing an SDK in a language shadowlap
 does not ship: discovery, headers, every response shape, scopes, errors, and what a client must do
 when the sidecar is unreachable. A client that implements it should pass the conformance suite, which
 runs against a real sidecar and needs no API keys.

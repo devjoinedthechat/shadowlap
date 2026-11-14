@@ -1,6 +1,6 @@
 # @shadowlap/sdk
 
-Wrap your agent's tools once with their effect, so [Shadowlap](https://github.com/devjoinedthechat/shadowlap) records every call and a replay serves it from the recording instead of running it again.
+Wrap your agent's tools once with their effect, so [shadowlap](https://github.com/devjoinedthechat/shadowlap) records every call and a replay serves it from the recording instead of running it again.
 
 ```sh
 npm install @shadowlap/sdk
@@ -17,15 +17,15 @@ export const issueRefund = tool('issue_refund', { effect: 'write' },
     payments.refund(order_id, amount));
 ```
 
-Record and replay with the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap): `shadowlap run -- node agent.mjs`, then `shadowlap replay <run>`. Outside Shadowlap every wrapper is a passthrough, so the code ships unchanged.
+Record and replay with the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap): `shadowlap run -- node agent.mjs`, then `shadowlap replay <run>`. Outside shadowlap every wrapper is a passthrough, so the code ships unchanged.
 
 - `effect` is required: `pure` (depends only on its arguments), `read` (reads outside state) or `write` (changes it). After a fork, `read` tools run live and a `write` throws `ShadowlapWriteBlocked`, unless the replay stubs or allows writes.
 - `now()`, `random()` and `uuid()`, all asynchronous, record the clock and randomness, so a replay sees the values the run saw.
 - `scope()` names branches of the agent that run at once, `userInput()` records what a person types, and `trust: 'untrusted'` marks a read for injection tests.
-- A tool that a replay's `--fail-at` fails throws `ShadowlapInjectedFailure` without running, named `TimeoutError` for a timeout and with `status` for an HTTP status. `isActive()` says whether the agent runs under Shadowlap.
+- A tool that a replay's `--fail-at` fails throws `ShadowlapInjectedFailure` without running, named `TimeoutError` for a timeout and with `status` for an HTTP status. `isActive()` says whether the agent runs under shadowlap.
 
-Node 18.18 or later, no dependencies. Under Shadowlap an agent's Node loads the guard through `--import` in `NODE_OPTIONS`, which a Node before 18.18 refuses. Model calls need no SDK: `shadowlap run` points the provider SDKs at its sidecar through their base URLs.
+Node 18.18 or later, no dependencies. Under shadowlap an agent's Node loads the guard through `--import` in `NODE_OPTIONS`, which a Node before 18.18 refuses. Model calls need no SDK: `shadowlap run` points the provider SDKs at its sidecar through their base URLs.
 
-The package loads in an Edge runtime or a browser bundle as it is: it loads none of Node's modules until a call goes to Shadowlap's sidecar, so outside Shadowlap a wrapped tool calls straight through wherever it is deployed. Beside its ES module it ships a CommonJS copy, which `require()` loads, for a test runner such as Jest.
+The package loads in an Edge runtime or a browser bundle as it is: it loads none of Node's modules until a call goes to shadowlap's sidecar, so outside shadowlap a wrapped tool calls straight through wherever it is deployed. Beside its ES module it ships a CommonJS copy, which `require()` loads, for a test runner such as Jest.
 
 [SDKs](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/sdk.md) · [Frameworks](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/frameworks.md) · [How it works](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/how-it-works.md)

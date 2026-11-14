@@ -1,8 +1,8 @@
 # Telemetry
 
-Shadowlap can send anonymous usage counts to a collector you name. This page is the complete list of what is sent.
+shadowlap can send anonymous usage counts to a collector you name. This page is the complete list of what is sent.
 
-**Nothing is sent by default, and the project collects nothing.** The CLI has no default endpoint and Shadowlap runs no collector. Events go out only when `SHADOWLAP_TELEMETRY_URL` points at one. In practice, that means a collector you host yourself to measure usage inside your own organization.
+**Nothing is sent by default, and the project collects nothing.** The CLI has no default endpoint and shadowlap runs no collector. Events go out only when `SHADOWLAP_TELEMETRY_URL` points at one. In practice, that means a collector you host yourself to measure usage inside your own organization.
 
 ## What is sent
 
@@ -48,9 +48,9 @@ With a collector configured, the first run prints a one-line notice. `SHADOWLAP_
 - why replays forked;
 - the counts by provider, SDK, OS and version.
 
-It installs nothing but Shadowlap's engine, which has no dependencies of its own. The dashboard runs no scripts. Source: `packages/collector` in the repository.
+It installs nothing but shadowlap's engine, which has no dependencies of its own. The dashboard runs no scripts. Source: `packages/collector` in the repository.
 
-It ships so that a team running Shadowlap can see its own numbers; whether the dashboard is public is up to whoever hosts it.
+It ships so that a team running shadowlap can see its own numbers; whether the dashboard is public is up to whoever hosts it.
 
 ## Hosting your own
 
@@ -83,4 +83,4 @@ VOLUME /data
 
 ## See also
 
-- [Security](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md): what the collector accepts, and every other check Shadowlap makes.
+- [Security](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md): what the collector accepts, and every other check shadowlap makes.

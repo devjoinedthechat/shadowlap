@@ -1,6 +1,6 @@
 # @shadowlap/adapters
 
-Declare each tool's effect once, in the framework you already use, so [Shadowlap](https://github.com/devjoinedthechat/shadowlap) records its calls and a replay serves them from the recording.
+Declare each tool's effect once, in the framework you already use, so [shadowlap](https://github.com/devjoinedthechat/shadowlap) records its calls and a replay serves them from the recording.
 
 ```sh
 npm install @shadowlap/sdk @shadowlap/adapters

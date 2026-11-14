@@ -20,7 +20,7 @@ Rules live in `shadowlap.config.json` in the working directory, and the commands
 }
 ```
 
-Credentials need no rule: Shadowlap masks them by itself, as [Credentials](#credentials) lists. This page covers:
+Credentials need no rule: shadowlap masks them by itself, as [Credentials](#credentials) lists. This page covers:
 
 - [Normalizers](#normalizers)
 - [Dates and times](#dates-and-times)
@@ -31,7 +31,7 @@ Credentials need no rule: Shadowlap masks them by itself, as [Credentials](#cred
 
 ## Normalizers
 
-A replay diverges when a request differs from the recording. Some differences are deliberate; some are ambient: a request id, a UUID in tool arguments, a temp path the agent names anew on every run. Normalizers tell Shadowlap which parts of a request are not part of its identity. Today's date needs none: [dates and times](#dates-and-times) near a run's start already match.
+A replay diverges when a request differs from the recording. Some differences are deliberate; some are ambient: a request id, a UUID in tool arguments, a temp path the agent names anew on every run. Normalizers tell shadowlap which parts of a request are not part of its identity. Today's date needs none: [dates and times](#dates-and-times) near a run's start already match.
 
 ```sh
 shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
@@ -140,7 +140,7 @@ The TUI's actions palette adds it with one key.
 
 ## Dates and times
 
-An agent that writes "Today is 2026-09-16" into its prompt sends a different request tomorrow. So before matching, Shadowlap reads every date, timestamp and epoch value within about a day of the run's own start as a placeholder: `<date>`, `<datetime>` or `<epoch>`. The recording's "today" and the replay's "today" then match, however far apart the two runs are, and a golden recorded in June still replays in September.
+An agent that writes "Today is 2026-09-16" into its prompt sends a different request tomorrow. So before matching, shadowlap reads every date, timestamp and epoch value within about a day of the run's own start as a placeholder: `<date>`, `<datetime>` or `<epoch>`. The recording's "today" and the replay's "today" then match, however far apart the two runs are, and a golden recorded in June still replays in September.
 
 It recognizes these, in model requests and tool arguments:
 
@@ -217,7 +217,7 @@ shadowlap pack <run> ./share/run
 
 Rules take the same forms as normalizers, scoped by `--kind api` or `--kind tool`. The replacement is `<REDACTED>` when it is left out, or left empty: a rule never deletes what it matches. `redact ls` and `redact rm` work as they do for normalizers.
 
-Credentials sent the way providers and services take them never need redacting: [Credentials](#credentials) lists what Shadowlap masks by itself.
+Credentials sent the way providers and services take them never need redacting: [Credentials](#credentials) lists what shadowlap masks by itself.
 
 ### What a rule masks in a pack
 
@@ -258,7 +258,7 @@ A Bedrock model's ARN is one such segment (`arn%3Aaws%3Abedrock%3Aus-east-1%3A12
 ### The run's record
 
 - **What the run's record repeats** of that content is masked by the rules without a path too: a fork's flags, the divergence report, the checks' labels and details and a [judge check](./judges.md)'s reason. So is the last blame's: the checks it judged its attempts by, and the request fields its probes changed.
-- **A judge's own request**, which Shadowlap built from what the judge read with the rules already applied, takes the rules without a path and never one with a path. A path names a place in the agent's requests, which in a judge's request would be its instructions or its whole question.
+- **A judge's own request**, which shadowlap built from what the judge read with the rules already applied, takes the rules without a path and never one with a path. A path names a place in the agent's requests, which in a judge's request would be its instructions or its whole question.
 - **The run's command line, labels and notes** are copied as they are, but for the credentials the command line carries ([Command lines](#command-lines)), because a replay of the pack runs that command. `export html`, which is only ever read, masks them too.
 - **The copy records its rules**, and a replay of it applies them as normalizers, so it still replays clean. A rule that lists the values it hides (an alternation of customer names) travels with every copy that way.
 
@@ -309,7 +309,7 @@ Because a replay applies the rules a second time, `redact add` refuses a replace
 
 ### Where the rules apply
 
-Every export, pack and share link applies the rules, and Shadowlap's tests hold each to this table. "The run's details" are its command line, labels and notes.
+Every export, pack and share link applies the rules, and shadowlap's tests hold each to this table. "The run's details" are its command line, labels and notes.
 
 | Copy | Rules it applies | The run's details |
 |---|---|---|
@@ -330,7 +330,7 @@ Every export, pack and share link applies the rules, and Shadowlap's tests hold 
 
 **`shadowlap repair`** applies every rule to the system prompt, tool descriptions, conversation and two answers it shows the repairer. The spans a fix may rewrite are your source, shown as they are. The answers `report.md` (a pull request's body) quotes are the masked ones too.
 
-A push copies runs to your [team store](./team.md) as recorded, so teammates can replay them, but for the credentials Shadowlap masks by itself. The bucket's own permissions decide who reads them.
+A push copies runs to your [team store](./team.md) as recorded, so teammates can replay them, but for the credentials shadowlap masks by itself. The bucket's own permissions decide who reads them.
 
 **An [injection test](./injection.md)'s attempt** keeps its own canary in a pack, an `export html` page, a team share, an `export dataset` row and `export pairs`: the value only its planted text held stays as recorded, the proof that it got out. A HAR file, an OTel trace and repair's copy mask it as any other value. A secret beside it in the same string is masked as ever. `redact preview` counts the canary apart: its first line ends `canaries kept`, and `--json` says how many (`kept`).
 
@@ -435,7 +435,7 @@ The command line is read as one text, its arguments joined by spaces, and every 
 
 ## Credentials
 
-Credentials sent the way providers and services take them never need redacting. Shadowlap keeps them out of what it stores as it records, and every copy masks them again. This section lists each rule.
+Credentials sent the way providers and services take them never need redacting. shadowlap keeps them out of what it stores as it records, and every copy masks them again. This section lists each rule.
 
 ### Model calls
 
@@ -676,7 +676,7 @@ Anywhere else, `-p` is a port or a path, and kept.
 |---|---|
 | A POSIX shell | `-c`: `sh -c 'OPENAI_API_KEY=… node agent.js'`, `bash -lc '…'` |
 | ssh | the remote command |
-| Shadowlap | a `--build` script |
+| shadowlap | a `--build` script |
 | cmd | `/c` |
 | PowerShell | `-Command` |
 | Python | `-c` |
@@ -755,7 +755,7 @@ An edit takes `shadowlap.config.json.lock` beside the file, and waits up to 2 se
 
 A lock can't be checked that way when it was written on another machine, or in a container that shares the folder, or when it doesn't say who holds it. On Windows, which can't tell a running holder from a process given a dead holder's id, neither can one whose process id is in use.
 
-A writer only ever removes its own. An edit refused for the lock names it, to delete if no Shadowlap command is running.
+A writer only ever removes its own. An edit refused for the lock names it, to delete if no shadowlap command is running.
 
 ### Never half written
 
@@ -783,4 +783,4 @@ Adding and removing a rule is recorded in the project's activity with who did it
 - [The CLI reference for `normalize` and `redact`](./cli.md#normalize-redact): every flag, and the preview's JSON fields.
 - [Team store](./team.md): what a push and a share link carry.
 - [Recording format](./recording-format.md): how a pack records the rules it was made with.
-- [Security](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md): what each copy masks, and every other check Shadowlap makes.
+- [Security](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md): what each copy masks, and every other check shadowlap makes.

@@ -1,6 +1,6 @@
 # Providers
 
-Shadowlap records the model calls of every provider below into the same run, so an agent that calls
+shadowlap records the model calls of every provider below into the same run, so an agent that calls
 Anthropic for planning and Bedrock for tools gets one timeline. This page covers how each provider's
 calls reach the sidecar, what a replay needs, and how to send a provider's calls elsewhere.
 
@@ -125,7 +125,7 @@ process on your machine can't use the sidecar to relay requests elsewhere.
 fallback such as `process.env.OPENAI_BASE_URL ?? 'http://localhost:11434/v1'` never runs.
 
 When you set none of your own, the `openai` package's own default reads nothing, as it would without
-Shadowlap. A client built without a `baseURL` calls its own host, which capture sends to the sidecar
+shadowlap. A client built without a `baseURL` calls its own host, which capture sends to the sidecar
 as what it is: `api.openai.com` as OpenAI, an Azure endpoint as Azure OpenAI. So `AzureOpenAI` takes
 its endpoint, which it refuses beside a base URL.
 
@@ -266,10 +266,10 @@ The agent keeps using the `openai` SDK as before. `OPENAI_BASE_URL` routes it th
 which forwards to the upstream you named. `SHADOWLAP_UPSTREAM_OPENAI` is the server's address without
 `/v1`, which the sidecar adds.
 
-If the project already sets `OPENAI_BASE_URL` to the server, Shadowlap uses that and nothing else is
+If the project already sets `OPENAI_BASE_URL` to the server, shadowlap uses that and nothing else is
 needed, whether its API root ends in `/v1` (`http://localhost:11434/v1`) or not (GitHub Models'
 `https://models.github.ai/inference`, Gemini's `https://generativelanguage.googleapis.com/v1beta/openai`).
-Each request goes where the SDK would send it without Shadowlap, and is recorded as
+Each request goes where the SDK would send it without shadowlap, and is recorded as
 `POST /v1/chat/completions` either way, so the recording replays without the variable.
 
 [examples/local-model](https://github.com/devjoinedthechat/shadowlap/tree/main/examples/local-model)
@@ -280,7 +280,7 @@ Ollama server: record, replay with the server unreachable, fork, and replay as a
 
 A host can serve another provider's wire format: an OpenAI-compatible gateway (OpenRouter, a company's
 own LLM proxy), an Anthropic-compatible one, or a service whose base URL is set in code rather than in
-a variable Shadowlap can point. Declare each in `shadowlap.config.json`, with the format it speaks
+a variable shadowlap can point. Declare each in `shadowlap.config.json`, with the format it speaks
 and, when its API sits under a path, the path of the base URL that format's SDK is given there:
 
 ```json
@@ -375,7 +375,7 @@ like the models they name.
   ([state kept on the provider's side](./how-it-works.md#where-forks-happen)).
 
 **Bedrock signing.** Bedrock requests are signed for their exact path and body. So a changed one is
-signed again with the credentials the agent signed with, when Shadowlap can read them: the
+signed again with the credentials the agent signed with, when shadowlap can read them: the
 environment, or the shared credentials and config files.
 
 Credentials an SSO session or an assumed role keeps inside the client can't sign it. The call is then
@@ -408,7 +408,7 @@ intervention (`--set`).
   `@anthropic-ai/sdk` and `openai`, and a declared gateway host by an agent whose `openai` client
   names it in code.
 - **Signatures.** The Bedrock fake verifies every request's SigV4 signature against the host it was
-  signed for, including the requests a fork changed and Shadowlap signed again.
+  signed for, including the requests a fork changed and shadowlap signed again.
 
 None of the fakes is the real service; if a real API behaves differently, please report what you see.
 The OpenAI wire format is also exercised against a real server, Ollama, with the OpenAI Agents SDK
@@ -416,14 +416,14 @@ The OpenAI wire format is also exercised against a real server, Ollama, with the
 
 ## Adding a provider
 
-A host that speaks a format Shadowlap already reads needs no code: declare it under `providers` in
+A host that speaks a format shadowlap already reads needs no code: declare it under `providers` in
 the config ([above](#hosts-of-another-providers-format)).
 
 A provider is one object in `packages/sidecar/src/providers.ts`, with these fields:
 
 - **`id`, `hosts`, `upstream`, `env(baseUrl)`, `fingerprintHeaders` and `credentialHeaders`.**
 - **An optional `apiVersion`:** the fingerprint header every request names the API's version in, and
-  the version to name when Shadowlap sends a recorded request that names none. A recording whose
+  the version to name when shadowlap sends a recorded request that names none. A recording whose
   calls name none is matched whatever version a replay names, and the replay names none either.
 - **An optional `headerParameters`:** the fingerprint headers that are parameters of the call sent
   beside its body, as Bedrock's guardrail is. A recording made before calls kept them, or imported,

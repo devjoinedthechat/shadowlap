@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="637" height="784" viewBox="0 0 637 784" role="img" aria-labelledby="title desc">
-<title id="title">Shadowlap in a terminal: a refund agent recorded, replayed exactly, blamed to the model call that lost the run, and replayed with the fix</title>
+<title id="title">shadowlap in a terminal: a refund agent recorded, replayed exactly, blamed to the model call that lost the run, and replayed with the fix</title>
 <desc id="desc">$ shadowlap run -- node agent.mjs A-1042
 Refunded $240 for A-1042 and emailed the customer.
 

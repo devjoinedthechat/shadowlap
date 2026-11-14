@@ -397,7 +397,7 @@ as free.
 
 ### How the model takes over
 
-For each task, Shadowlap puts a small upstream of its own where the recording's provider would be, on
+For each task, shadowlap puts a small upstream of its own where the recording's provider would be, on
 127.0.0.1:
 
 - **The first request to reach it** is the takeover call itself, whatever the agent asked before (a
@@ -501,7 +501,7 @@ Which model can answer which recording:
 | `--concurrency <n>` | Attempts of one task running at once | 1 |
 | `--budget <usd>` | Start no attempt once this much is spent on live model calls, the judge checks' included | — |
 | `--timeout <seconds>` | Stop an attempt after this long and count it as failed | — |
-| `--guard warn\|block\|off` | The network guard for connections that bypass Shadowlap | — |
+| `--guard warn\|block\|off` | The network guard for connections that bypass shadowlap | — |
 | `-y`, `--yes` | Run the recorded command of a golden from a pack the repository doesn't track without asking | — |
 | `--json` | The scores as JSON on stdout; progress still goes to stderr | — |
 

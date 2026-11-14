@@ -1,14 +1,14 @@
 # Introduction
 
-Shadowlap is change safety for agents: every change to an agent (its code, its prompt, its model, a tool, the route to its provider) is checked against what the agent actually did. It records every model API call and tool call an agent makes, then re-runs the agent's **real code** against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from that point the run continues live as a *fork* of the original, with write tools fenced off.
+shadowlap is change safety for agents: every change to an agent (its code, its prompt, its model, a tool, the route to its provider) is checked against what the agent actually did. It records every model API call and tool call an agent makes, then re-runs the agent's **real code** against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from that point the run continues live as a *fork* of the original, with write tools fenced off.
 
 > Replay your agent, not a trace of it.
 
 ## What it is for
 
-Each job below, done without Shadowlap and with it:
+Each job below, done without shadowlap and with it:
 
-| Job | Without Shadowlap | With Shadowlap |
+| Job | Without shadowlap | With shadowlap |
 |---|---|---|
 | Reproduce a failing run | Re-run and hope; pay for the whole run again | `shadowlap replay <run>`: same run, zero upstream requests |
 | Find where a failed run went wrong | Read the trace and guess | `shadowlap blame <run>`: the model call that lost the run, found with forks that replay everything before it for free |
@@ -30,7 +30,7 @@ Each job below, done without Shadowlap and with it:
 
    Two requests match only if they are identical after the [normalizers](./normalizers-and-redaction.md) you wrote. A false replay hit would be the worst bug this tool could have, so it reports a false divergence instead and shows you how to fix it.
 
-3. **Side effects that don't go through Shadowlap will run again.**
+3. **Side effects that don't go through shadowlap will run again.**
 
    Wrap tools with the [SDK](./sdk.md) or a [framework adapter](./frameworks.md). A tool the model called that the run never recorded is [named](./how-it-works.md#tools-shadowlap-did-not-record), and a replay won't run one that writes until you wrap it, declare it a read or allow it. Anything else, such as a direct database client or an unwrapped HTTP call, is invisible to replay.
 
@@ -41,7 +41,7 @@ Each job below, done without Shadowlap and with it:
 - [Quickstart](./quickstart.md): the whole loop in about half a minute with `npx shadowlap demo`, then record and replay the bundled reference agent in two minutes, and your own.
 - [How it works](./how-it-works.md): the sidecar, fingerprints, matching, effects, thinking blocks, storage.
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
-- [Coding agents](./agents.md): Claude Code, Codex, Cursor, Copilot and others setting Shadowlap up for an agent and debugging it through the CLI, with the skills that tell them how.
+- [Coding agents](./agents.md): Claude Code, Codex, Cursor, Copilot and others setting shadowlap up for an agent and debugging it through the CLI, with the skills that tell them how.
 - [Compared with other tools](./compare.md): cassettes, tracing and eval platforms, replay evals, agent debuggers with cached replay, framework time travel, durable execution.
 
 ### Find and prove a fix
@@ -73,10 +73,10 @@ Each job below, done without Shadowlap and with it:
 - [Dashboard](./dashboard.md): your recordings in a browser. Follow a failed run to the call that lost it, fork it at any call, and take its fix through blame, repair and verify.
 - [Terminal UI](./tui.md): `shadowlap ui` works a run through without leaving the terminal, from why it failed to what each call sent and got back.
 
-### Build on Shadowlap
+### Build on shadowlap
 
 - [The wire protocol](./protocol.md): writing an SDK for another language.
-- [The recording format](./recording-format.md), with the recordings protocol: integrating another test runner, or writing recordings Shadowlap replays.
-- [The engine as a library](./engine.md): building on Shadowlap.
+- [The recording format](./recording-format.md), with the recordings protocol: integrating another test runner, or writing recordings shadowlap replays.
+- [The engine as a library](./engine.md): building on shadowlap.
 
-Shadowlap is open source under Apache-2.0: [github.com/devjoinedthechat/shadowlap](https://github.com/devjoinedthechat/shadowlap).
+shadowlap is open source under Apache-2.0: [github.com/devjoinedthechat/shadowlap](https://github.com/devjoinedthechat/shadowlap).

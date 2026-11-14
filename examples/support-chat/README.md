@@ -5,7 +5,7 @@ the order up, asks whether they want a refund or a replacement, does what they a
 the next message. The model is the repository's mock of the Anthropic API, so nothing here needs an
 API key or a model server.
 
-An agent like this is hard to replay: it stops and waits for someone to type. Shadowlap records what
+An agent like this is hard to replay: it stops and waits for someone to type. shadowlap records what
 the customer typed as `user_input` calls, so the chat replays, forks, tests and blames with no one at
 the keyboard.
 
@@ -16,7 +16,7 @@ build` at the root).
 
 ```sh
 cd examples/support-chat
-pip install -e ../../sdks/python               # the agent's tools use the Shadowlap SDK
+pip install -e ../../sdks/python               # the agent's tools use the shadowlap SDK
 alias shadowlap="node $PWD/../../packages/cli/bin/shadowlap.js"
 node mock_model.mjs &                           # prints the mock's address
 export SHADOWLAP_UPSTREAM_ANTHROPIC=http://127.0.0.1:<port>

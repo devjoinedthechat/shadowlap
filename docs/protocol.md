@@ -1,7 +1,7 @@
 # The SDK wire protocol
 
-Shadowlap's SDKs are thin clients of one small HTTP API on the sidecar. This page specifies it
-completely, so that an SDK can be written for a language Shadowlap does not ship.
+shadowlap's SDKs are thin clients of one small HTTP API on the sidecar. This page specifies it
+completely, so that an SDK can be written for a language shadowlap does not ship.
 
 Model API calls need none of this: they are captured by pointing the provider SDK at the sidecar
 through its base URL, which works in any language already. This protocol is only for the things a
@@ -48,7 +48,7 @@ The same tool during a clean replay is one request, and the tool never runs:
 
 | Variable | What it does | Default |
 |---|---|---|
-| `SHADOWLAP_URL` | Base URL of the sidecar, including a session token path | Absent: Shadowlap is not running |
+| `SHADOWLAP_URL` | Base URL of the sidecar, including a session token path | Absent: shadowlap is not running |
 | `SHADOWLAP_RUN_ID` | The run these calls belong to | MAY be absent when the sidecar serves a single run |
 | `SHADOWLAP_SCOPE` | Optional. The [scope](#scopes) this process starts in | — |
 | `SHADOWLAP_STDIN` | Optional. The input `shadowlap` was given, as `dev:ino` (unsigned) | — |
@@ -72,10 +72,10 @@ it. So a client:
 
 Because the token is a credential, a client MUST NOT log the URL or include it in an error message.
 
-### Outside Shadowlap
+### Outside shadowlap
 
 **When `SHADOWLAP_URL` is unset, the client MUST do nothing**: call the real tool, read the real
-clock, return the real random value. A wrapped tool outside Shadowlap must behave exactly like the
+clock, return the real random value. A wrapped tool outside shadowlap must behave exactly like the
 function it wraps. This is what makes it safe to leave the wrappers in production code.
 
 ## Transport
@@ -127,7 +127,7 @@ busy.
 If the sidecar is unreachable, times out, or answers with a status outside 2xx, the client MUST
 propagate the failure to the caller. It MUST NOT fall back to executing the tool. Falling back would
 run a side effect the run was meant to replay, and would leave a hole in the recording: the two
-failures Shadowlap exists to prevent.
+failures shadowlap exists to prevent.
 
 On a non-2xx response the body is `{"error": {"message": "..."}}`. A client SHOULD surface that
 message.
@@ -140,7 +140,7 @@ The sidecar serves four endpoints:
 |------------------------------------|----------------------------------------------------------|
 | `POST /v1/calls/resolve`           | What to do about a call that is about to happen          |
 | `POST /v1/calls/{callNo}/complete` | What a `live` or `stubbed` tool call did                 |
-| `POST /v1/guard`                   | Optional. An outbound connection that bypassed Shadowlap |
+| `POST /v1/guard`                   | Optional. An outbound connection that bypassed shadowlap |
 | `POST /v1/hello`                   | Optional. A preload says it loaded                       |
 
 ### `POST /v1/calls/resolve`
@@ -308,7 +308,7 @@ what it holds. So an input call a replay of it doesn't find is a change, and the
 recording without the mark and without any input call was made before input was recorded. A replay
 of it answers its input calls `live` and goes on replaying, rather than forking at the first one.
 
-The shipped clients record input without code changes. Shadowlap's preloads record:
+The shipped clients record input without code changes. shadowlap's preloads record:
 
 - in Python, `input()` and reads of `sys.stdin`;
 - in Node, readline's `question` and `for await`.
@@ -344,7 +344,7 @@ The sidecar checks and bounds the object and stores it as `meta.mcp`.
 
 ### `POST /v1/guard`
 
-Optional. Reports an outbound connection that bypassed Shadowlap, for the network guard's summary:
+Optional. Reports an outbound connection that bypassed shadowlap, for the network guard's summary:
 
 ```json
 { "target": "api.example.com:443", "action": "blocked" }
@@ -493,7 +493,7 @@ alike.
 - **Scopes nest** by joining with `/`: `researcher` inside `team` is `team/researcher`.
 - **The sidecar ignores** a scope that is empty, longer than 200 characters, or contains control
   characters. A client SHOULD apply the same limits rather than relying on that.
-- **Outside Shadowlap**, entering a scope MUST still work: it just sets the variable.
+- **Outside shadowlap**, entering a scope MUST still work: it just sets the variable.
 
 **Warning:** A client that skips scopes is not merely less featureful: it is wrong for parallel
 agents, which will swap each other's recorded answers on replay. Implement scopes or document loudly
