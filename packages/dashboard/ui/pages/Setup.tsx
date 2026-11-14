@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { ConfirmDialog } from '../components/Dialog.js';
 import { Eyebrow, PageHeader, StepList } from '../components/bits.js';
 import { Code, Copy, titled } from '../components/Copy.js';
 import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Page } from '../components/Page.js';
-import { RECORD_PART } from '../../../engine/src/cost-words.js';
+import { RecordRunDialog } from '../components/RecordRunDialog.js';
 import { headingRef } from '../focus-manager.js';
-import type { RecordConfirmation, SetupView } from '../projects-api.js';
+import type { SetupView } from '../projects-api.js';
 import { setupPageShows } from '../projects.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useTestsWait, useTreeBusy } from '../fixes/tree.js';
@@ -117,27 +116,6 @@ function SetupWaiting({ failed, retry }: { failed: Error | null; retry: () => vo
         </Skeleton>
       )}
     </Page>
-  );
-}
-
-/** What asks before a command's first run in a folder, or when its model calls moved. */
-export function RecordRunDialog({ confirm, onOk, onClose }: { confirm: RecordConfirmation; onOk: () => unknown; onClose: () => void }) {
-  return (
-    <ConfirmDialog
-      title={confirm.title}
-      lead={confirm.lead}
-      doc="quickstart"
-      warn={confirm.moved ? { text: confirm.moved } : null}
-      facts={[
-        { label: 'Command', value: 'yours, run once', quiet: 'through a local sidecar' },
-        { label: 'Calls', ...confirm.calls },
-      ]}
-      ok={confirm.button}
-      command={confirm.command}
-      cost={{ price: 'Billed by your provider', parts: [RECORD_PART] }}
-      onClose={onClose}
-      onOk={onOk}
-    />
   );
 }
 

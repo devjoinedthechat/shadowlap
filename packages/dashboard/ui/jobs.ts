@@ -193,6 +193,15 @@ function recordedStatus(job: JobLike, lines: readonly string[], code: number): J
 }
 
 /**
+ * The run a recording is making, for its drawer's Watch live while it records (the run's page, where
+ * its calls arrive, as the setup's Record step offers it), once the CLI has named it. Null for any
+ * other job, and once it ended, when Open run takes its place.
+ */
+export function recordingLive(job: Pick<JobLike, 'done' | 'args' | 'kind'> & { newRunId?: string | null }): string | null {
+  return !job.done && ownArgs(job.args)[0] === 'run' && job.newRunId ? job.newRunId : null;
+}
+
+/**
  * How a Training job ended, in the job drawer's status line, from the result it reports: Score a model
  * by the tasks it scored (`scored · mean 0.87`; `3 of 4 tasks scored` when a golden no longer replays
  * up to its takeover or was skipped; `nothing scored`), Export pairs by the pairs it wrote. Null for

@@ -14,12 +14,14 @@ export const PULL_TIP = tipCard(PULL.tip, [], PULL.sub, PULL.command);
 export const PUSH_TIP = tipCard(PUSH.tip, [], PUSH.sub, PUSH.command);
 
 /**
- * Runs' header actions, in this order: Pull with a team store, Import capture…, and Push local runs in
- * lime while runs are only on this machine (the store's own count, which leaves out a run still
- * recording). Push leaving once its runs are in the store hands its focus to Import capture…, never
- * the page's body. On a dashboard that changes nothing each waits, its card saying why.
+ * Runs' header actions, in this order: Pull with a team store, Record run… where the dashboard
+ * records (one started with `shadowlap dashboard` in a project folder, as the setup's Record does),
+ * Import capture…, and Push local runs in lime while runs are only on this machine (the store's own
+ * count, which leaves out a run still recording). Push leaving once its runs are in the store hands
+ * its focus to Import capture…, never the page's body. On a dashboard that changes nothing each
+ * waits, its card saying why.
  */
-export function RunsActions({ store, onImport }: { store: TeamStoreView | null; onImport: () => void }) {
+export function RunsActions({ store, onImport, onRecord }: { store: TeamStoreView | null; onImport: () => void; onRecord: () => void }) {
   const { client, hasKind, guard, watchJob } = useApp();
   const importButton = useRef<HTMLButtonElement>(null);
   const toImport = useCallback(() => importButton.current?.focus(), []);
@@ -28,6 +30,11 @@ export function RunsActions({ store, onImport }: { store: TeamStoreView | null; 
       {store && hasKind(JOB_KINDS.pull) ? (
         <ActionButton className="btn" {...PULL} onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.pull, {})))}>
           Pull
+        </ActionButton>
+      ) : null}
+      {hasKind(JOB_KINDS.record) ? (
+        <ActionButton className="btn" onClick={() => guard(onRecord)}>
+          {ACTIONS.recordRun.label}
         </ActionButton>
       ) : null}
       {hasKind(JOB_KINDS.importCapture) ? (

@@ -131,7 +131,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 
 - **Every page**, with **Add project…**, and **This run's actions**, its next step first.
 - **The other projects**, each as *Switch to support-agent*, its folder as the hint.
-- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, Migrate while a golden's model retires, Rescan coverage, Preview pull request comment once the goldens have a test session, the team store's setup, and Keyboard shortcuts.
+- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Record run…, Import capture…, Calibrate, Rescan coverage, the team store's setup, and Keyboard shortcuts. Export pairs… and Score model… show while there is something to export or score, Migrate while a golden's model retires, and Preview pull request comment once the goldens have a test session.
 - **Preview model switch…** and **Preview changed prompt**, while the project has goldens. Each opens [Preview](#start-a-preview) with its dialog on every golden. The changed prompt waits while a job holds your working tree.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
@@ -408,6 +408,15 @@ What the table shows is in the address: the filter's words, the chip, the sort a
 - `#/runs` alone is every run, as the sidebar's **all** opens it. The nav's **Runs**, the crumbs, `g r`, Search or jump to's Runs and Esc from a run opened cold open the view Runs showed last while the dashboard is open.
 
 The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), and Runs writes it so in its place. It reads keys and a chip's word in any case, and a chip's word in the plural too (`#/runs?TYPES=Forks` is `#/runs?types=fork`). A value it can't read, such as a day there isn't, is left out.
+
+### Record a run
+
+**Record run…** is on Runs, and in Search or jump to, on a dashboard started with `shadowlap dashboard` in a project folder. It records one run of your agent, as `shadowlap run -- <command>` and the setup's [Record](#setting-it-up) step do:
+
+- **Its dialog** starts from the command the setup records with: the one recorded last from the dashboard, else the one `shadowlap init` found. It shows the `shadowlap run` command as you edit it, and that your provider bills its model calls.
+- **A command this folder never ran**, or ran with its model calls going elsewhere, asks first, as the setup does. One it ran before starts at once.
+- **While it records**, its drawer offers **Watch live**, which opens the run as its calls arrive, then **Open run** once it ends.
+- **It waits** while a repair or an apply holds your working tree.
 
 ### Import a capture or a trace
 
@@ -2119,6 +2128,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 
 - When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, **Check again**, then **Record again**. It shows once they are wrapped, also after the replay was made clean, while packing waits.
 - Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
+- [**Record run…**](#record-a-run) on Runs records the same way, from the command recorded last, also once the setup is finished. Until then, its recording becomes the setup's, as one made here does.
 
 **3. Calibrate.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add normalizer** writes them to `shadowlap.config.json`, and **Calibrate again** asks again.
 
@@ -2632,7 +2642,7 @@ How a replay or a fork ended:
 - **A Repeat where a check failed or couldn't be decided** says how many attempts passed: *failed · 3 of 5 attempts passed · exit 1*, or *inconclusive · 4 of 5 attempts passed · exit 3* in amber. An attempt that failed or never ran counts against it.
 - **A command the CLI refused** before it ran, such as a status `--fail-at` doesn't take, ends *Tried forking · exit 2*, its toast giving the CLI's reason.
 
-A recording ends on the calls it holds, *12 calls · exit 0*, or *12 calls · agent exited 1* in amber, as the run holds the failure. One that made no call says *no calls were made*, in amber where the agent exited 0, as `shadowlap run` warns.
+A recording, from **Record run…** or the setup's **Record run**, offers **Watch live** while it records. It ends on the calls it holds, *12 calls · exit 0*, or *12 calls · agent exited 1* in amber, as the run holds the failure. One that made no call says *no calls were made*, in amber where the agent exited 0, as `shadowlap run` warns.
 
 How a preview and its verify ended:
 

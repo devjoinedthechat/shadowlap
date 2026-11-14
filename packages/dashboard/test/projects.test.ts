@@ -539,6 +539,16 @@ describe('setupView', () => {
     expect(terminal.calibrate.state).toBe('current');
     expect(view(entry('triage-bot', { stage: 'done', runId: RUN }), facts({ runs: 4, recordings: [run()] })).shows).toBe('none');
   });
+
+  it('names the command a recording here runs, as a terminal takes it, at every stage: the one recorded with last, else the one init found', () => {
+    const found = findings({ tools: [], wrap: [] });
+    // Before the first recording, and once the setup is finished, where Record's field is gone and Runs' Record run… starts from it.
+    expect(view(entry('research-agent', { stage: 'inspected', findings: found }), facts()).command).toBe("uv run research-agent 'Summarize Northwind’s Q3 10-Q'");
+    const done = view(entry('research-agent', { stage: 'done', runId: RUN, findings: found, command: ['node', 'agent.mjs'] }), facts({ runs: 4, recordings: [run()] }));
+    expect([done.shows, done.record.command, done.command]).toEqual(['none', null, 'node agent.mjs']);
+    // A recording made in a terminal, the folder never inspected: none known.
+    expect(view(entry('triage-bot', { stage: 'done', runId: RUN }), facts({ runs: 1, recordings: [run()] })).command).toBeNull();
+  });
 });
 
 describe('removeDialog', () => {

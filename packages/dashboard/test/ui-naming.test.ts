@@ -391,14 +391,14 @@ describe('one name for each action, and its forms', () => {
         expect(label, key).not.toMatch(/\b(the|a|an)\b/i);
       }
     }
-    expect([ACTIONS.findBreakingCommit, ACTIONS.importCapture, ACTIONS.exportPairs, ACTIONS.scoreModel, ACTIONS.runBlameStronger].map((a) => a.label)).toEqual(['Find breaking commit…', 'Import capture…', 'Export pairs…', 'Score model…', 'Run blame with stronger model…']);
+    expect([ACTIONS.findBreakingCommit, ACTIONS.recordRun, ACTIONS.importCapture, ACTIONS.exportPairs, ACTIONS.scoreModel, ACTIONS.runBlameStronger].map((a) => a.label)).toEqual(['Find breaking commit…', 'Record run…', 'Import capture…', 'Export pairs…', 'Score model…', 'Run blame with stronger model…']);
     // "Run <command>" where the bare command reads wrong; nothing to ask, no ellipsis.
     expect([ACTIONS.runRepair, ACTIONS.applyFix, ACTIONS.runBlameAgain, ACTIONS.runTests].map((a) => a.label)).toEqual(['Run repair', 'Apply fix', 'Run blame again', 'Run tests']);
   });
 
   it('titles and confirms a dialog with the name, its drawer in the -ing form and its toast in the past', () => {
     expect([confirmWords(ACTIONS.findBreakingCommit.label), dialogName(ACTIONS.runLive.label, 17), dialogName(ACTIONS.switchModel.label, 3)]).toEqual(['Find breaking commit', 'Run live from #17', 'Switch model from #3']);
-    expect([ACTIONS.runRepair, ACTIONS.applyFix, ACTIONS.findBreakingCommit, ACTIONS.importCapture, ACTIONS.exportPairs, ACTIONS.scoreModel].map((a) => a.doing)).toEqual(['Repairing', 'Applying fix', 'Finding breaking commit', 'Importing capture', 'Exporting pairs', 'Scoring model']);
+    expect([ACTIONS.runRepair, ACTIONS.applyFix, ACTIONS.findBreakingCommit, ACTIONS.recordRun, ACTIONS.importCapture, ACTIONS.exportPairs, ACTIONS.scoreModel].map((a) => a.doing)).toEqual(['Repairing', 'Applying fix', 'Finding breaking commit', 'Recording', 'Importing capture', 'Exporting pairs', 'Scoring model']);
     expect(doneWords(ACTIONS.runTests.doing, 'ok')).toBe('Ran tests');
     expect(doneWords(ACTIONS.addNormalizerAndUpdate.doing, 'ok')).toBe('Added normalizer and updated golden');
     expect(doneWords(ACTIONS.findBreakingCommit.doing, 'ok')).toBe('Found breaking commit');
@@ -412,7 +412,7 @@ describe('one name for each action, and its forms', () => {
   });
 
   it('is the name each place offers it by: the palette, Share, the drawer and the server’s job titles', () => {
-    expect(ACTION_ORDER).toEqual(['Update goldens', 'Export pairs…', 'Score model…', 'Run tests', 'Import capture…', 'Calibrate', 'Preview model switch…', 'Preview changed prompt']);
+    expect(ACTION_ORDER).toEqual(['Update goldens', 'Export pairs…', 'Score model…', 'Run tests', 'Record run…', 'Import capture…', 'Calibrate', 'Preview model switch…', 'Preview changed prompt']);
     expect(runTestsJob([{ path: 'goldens/a' } as GoldenSource], {})).toMatchObject({ title: ACTIONS.runTests.doing });
     expect(shareItems({ can: () => true, team: null }).map((i) => i.label)).toEqual([ACTIONS.exportHtml.label, ACTIONS.pack.label, ACTIONS.exportDataset.label, ACTIONS.exportTrace.label, ACTIONS.exportHar.label]);
     expect(jobTitle({ args: ['bisect', 'R', '--good', 'x'], done: false, code: null })).toBe('Finding breaking commit');

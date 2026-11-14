@@ -367,6 +367,12 @@ export interface SetupView {
   done: { word: string; title: string; text: string; button: { label: string; action: 'finishsetup' } } | null;
   /** Where the setup shows: with no runs, the Overview and `#/setup`; the Overview while it is set up; nowhere once it is. */
   shows: EffectiveSetup['shows'];
+  /**
+   * The command a recording here runs, as a terminal takes it: the one the setup recorded with
+   * last, else the one `init` found; null when neither is known. Runs' Record run… starts from it,
+   * at every stage, where Record's own field is gone once the setup has recorded.
+   */
+  command: string | null;
 }
 
 /** Why Pack as golden waits: the write tools, not wrapped yet or (`since`) wrapped since the recording, and the sentence. */
@@ -495,6 +501,7 @@ export function setupView(input: SetupInput): SetupView {
     // "Exactly" is the promise the lead makes; what replays save is the line beside it.
     done: f.tested ? { word: 'set up', title: `${project.name} replays exactly.`, text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to Overview', action: 'finishsetup' } } : null,
     shows: setup.shows,
+    command: f.argv ? quoteArgv(f.argv) : null,
   };
 }
 

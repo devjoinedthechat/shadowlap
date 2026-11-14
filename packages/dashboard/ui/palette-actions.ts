@@ -6,7 +6,7 @@ import { addPaletteSource, type PaletteContext, paletteSourcesChanged } from './
 import { href } from './route.js';
 import { lastRunsHref } from './runs-view.js';
 import { migratePaletteRows } from './migrate-command.js';
-import { APPLY_ASK, IMPORT_ASK, MIGRATE_ASK, NORMALIZER_ASK, PREVIEW_ASK, PR_COMMENT_ASK, REDACTION_ASK, SECURITY_TEST_ASK, type PageAsk } from './page-ask.js';
+import { APPLY_ASK, IMPORT_ASK, MIGRATE_ASK, NORMALIZER_ASK, PREVIEW_ASK, PR_COMMENT_ASK, RECORD_ASK, REDACTION_ASK, SECURITY_TEST_ASK, type PageAsk } from './page-ask.js';
 import { SETTINGS_TABS, type SettingsTab } from './pages/settings/tabs.js';
 import type { StoreSetupView } from './store-api.js';
 import type { MigrateRetiring } from './types.js';
@@ -19,12 +19,12 @@ import { shortId } from './format.js';
 /**
  * The palette's Actions and Tests that belong to pages, listed on a fresh dashboard before any of
  * those pages has opened: the Tests group and Update goldens…, Migrate <a> to <b> while a model
- * retires, Rescan coverage, Preview pull request comment, Import capture…, Export pairs… and Score
- * model…, Calibrate, Preview model switch… and Preview changed prompt, the team store's setup, the
- * Settings tabs by what they hold, Apply fix, Add normalizer… and Add redaction rule…, and Run
- * injection test… on goldens' recordings. They load with the palette, so a page's code waits for
- * its page. A row whose dialog lives on its page opens the page and asks there (`page-ask.ts`).
- * Each answers nothing in an exported copy, which runs nothing.
+ * retires, Rescan coverage, Preview pull request comment, Record run…, Import capture…, Export
+ * pairs… and Score model…, Calibrate, Preview model switch… and Preview changed prompt, the team
+ * store's setup, the Settings tabs by what they hold, Apply fix, Add normalizer… and Add redaction
+ * rule…, and Run injection test… on goldens' recordings. They load with the palette, so a page's
+ * code waits for its page. A row whose dialog lives on its page opens the page and asks there
+ * (`page-ask.ts`). Each answers nothing in an exported copy, which runs nothing.
  */
 
 // Tests, with Update goldens… while goldens diverged: an open palette reads it again once the goldens land.
@@ -115,6 +115,20 @@ addPaletteSource(({ app, go }) => prCommentPaletteCommands(app, go, () => PR_COM
 // Export pairs… and Score model…, while there are pairs and a task is ready.
 addPaletteSource((ctx) => trainingPalette(ctx, JOB_KINDS));
 onTrainingCountsChange(paletteSourcesChanged);
+
+// Record run…: Runs opens its dialog when it next shows, where the dashboard records (a project
+// folder's). Like Calibrate, it runs the agent from the working tree, so it waits while a repair or an
+// apply holds the tree, dimmed, saying why.
+addPaletteSource(({ app, go }) => {
+  if (app.exported || !app.hasKind(JOB_KINDS.record)) return [];
+  const held = treeWait(app, 'reads', 'record');
+  const run = () =>
+    app.guard(() => {
+      RECORD_ASK.ask();
+      go(lastRunsHref());
+    });
+  return [{ group: 'Actions', label: ACTIONS.recordRun.label, hint: held ?? 'shadowlap run -- <command>', match: 'recording', job: true, ...(held ? { wait: held } : {}), run }];
+});
 
 // Import capture…: Runs opens its dialog when it next shows.
 addPaletteSource(({ app, go }) =>

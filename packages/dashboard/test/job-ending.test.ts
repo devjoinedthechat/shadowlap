@@ -3,7 +3,7 @@ import { CHECK_MARKS, checkOutcome, checkWords, formatDivergence, formatRepeats,
 import { reportError } from '../../cli/src/exit-codes.js';
 import { UNJUDGED_PLANT } from '../../cli/src/interventions.js';
 import { parseFailures } from '../../cli/src/run-agent.js';
-import { endToast, jobHeader, jobStatus, lastLine, lineTone } from '../ui/jobs.js';
+import { endToast, jobHeader, jobStatus, lastLine, lineTone, recordingLive } from '../ui/jobs.js';
 
 const done = (o: Partial<Parameters<typeof jobStatus>[0]> & { code: number | null }) => ({ args: ['x'], done: true, ...o });
 
@@ -290,6 +290,15 @@ describe('a recording’s end, read from what `shadowlap run` prints', () => {
     expect(none.join('\n')).toContain(': no calls were made.');
     expect(jobStatus(recording(0), none)).toEqual({ text: 'no calls were made · exit 0', tone: 'warn' });
     expect(endToast(recording(0), none)).toBe('Recorded · no calls were made · exit 0');
+  });
+
+  it('offers Watch live while it records, once the CLI named its run, and Open run in its place once it ended', () => {
+    const running = { kind: 'record', args: ARGS, done: false };
+    expect(recordingLive({ ...running, newRunId: null })).toBeNull();
+    expect(recordingLive({ ...running, newRunId: RECORDING })).toBe(RECORDING);
+    expect(recordingLive({ ...running, done: true, newRunId: RECORDING })).toBeNull();
+    // A replay's run is no recording to watch.
+    expect(recordingLive({ kind: 'action', args: ['replay', RECORDING], done: false, newRunId: '01M53NKBCHNWFMBS9RFZHCREE4' })).toBeNull();
   });
 });
 

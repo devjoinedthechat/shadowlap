@@ -7,7 +7,7 @@ import { useLatest } from '../hooks.js';
 import { jobFooter } from '../job-actions.js';
 import { drawnJob } from '../job-store.js';
 import { drawerCost } from '../../../engine/src/estimates/spending.js';
-import { calibrationTarget, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
+import { calibrationTarget, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, recordingLive, replayDivergence, stopAsk } from '../jobs.js';
 import { InSlot, usePanel } from '../overlays/slots.js';
 import { href, parseRoute, samePage } from '../route.js';
 import { currentRoute } from '../router.js';
@@ -157,9 +157,10 @@ function StopButton({ job, title }: { job: WatchedJob['job']; title: string }) {
 
 /**
  * Its way on, in the header line: the links beside it, what it wrote, what its kind adds, Calibrate,
- * then the one that leads. Never a link to the page on the screen, and plain while the page leads
- * with a lime step of its own. A job of another project than the page shows (the dashboard switched
- * since it started) has links that switch to that project first, and nothing that acts on this one.
+ * then the one that leads; while a recording records, Watch live, to its run's page. Never a link to
+ * the page on the screen, and plain while the page leads with a lime step of its own. A job of
+ * another project than the page shows (the dashboard switched since it started) has links that
+ * switch to that project first, and nothing that acts on this one.
  */
 function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () => void; elsewhere: { id: string; name: string } | null }) {
   const app = useApp();
@@ -178,6 +179,7 @@ function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () =
   const primary = links.filter((l) => !l.secondary && here(l));
   const beside = links.filter((l) => l.secondary && here(l));
   const opens = job.done && job.newRunId && (job.opensRun || links.length === 0) && !links.some((l) => l.href.includes(job.newRunId!)) && !linksHere(href.run(job.newRunId)) ? job.newRunId : null;
+  const live = lost ? null : recordingLive(job);
   // What the job's own feature adds: calibrate's "Add normalizer", a clean-up's "Delete N runs".
   const Footer = elsewhere ? null : jobFooter(job.kind);
   // A Replay whose request differed from its recording, or a fork that left it before the call its
@@ -226,6 +228,11 @@ function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () =
       {opens ? (
         <a className={lime} href={href.run(opens)} title={there} onClick={follow(href.run(opens))}>
           {openRunWords(job)}
+        </a>
+      ) : null}
+      {live && !linksHere(href.run(live)) ? (
+        <a className={lime} href={href.run(live)} title={there} onClick={follow(href.run(live))}>
+          Watch live
         </a>
       ) : null}
     </>
