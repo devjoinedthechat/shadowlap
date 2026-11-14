@@ -449,14 +449,15 @@ function VerifiedButtons({ fix, prices, lime, why, ask }: ButtonsProps) {
 }
 
 /**
- * Record pull request…, on an applied fix no merged pull request holds: the one opened for it by hand
- * recorded on it, as `shadowlap fix pr` records it, for Fixes to read where it stands and say merged
- * once it is. It writes the store alone, so it waits for no other job.
+ * Record pull request…, on an applied fix no merged pull request holds, where the dashboard records
+ * them: the one opened for it by hand recorded on it, as `shadowlap fix pr` records it, for Fixes to
+ * read where it stands and say merged once it is. It writes the store alone, so it waits for no other job.
  */
 function RecordPrButton({ fix, ask }: Pick<ButtonsProps, 'fix' | 'ask'>) {
   const app = useApp();
-  if (fix.rung === 'merged') return null;
-  const why = app.actionsOff ?? (app.hasKind(JOB_KINDS.fixPr) ? null : 'This dashboard doesn’t record pull requests: run the command in a terminal.');
+  // A dashboard that doesn't record them offers nothing to.
+  if (fix.rung === 'merged' || !app.hasKind(JOB_KINDS.fixPr)) return null;
+  const why = app.actionsOff;
   const command = `$ shadowlap fix pr ${shortFixId(fix.fixId)} <url>`;
   return (
     <ActionButton className="btn" why={why} tip={ACTIONS.recordPullRequest.confirm} sub={fix.pr ? 'Record the pull request opened for this fix in place of the one it has' : 'Record the pull request you opened for this fix'} command={command} onClick={() => ask('pr')}>

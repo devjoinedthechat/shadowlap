@@ -466,6 +466,11 @@ describe('Apply fix', () => {
     expect(text(r!.one('.dialog .cmdline'))).toContain(`shadowlap fix pr ${fixId.slice(0, 13)} ${url}`);
     await r!.click(r!.one('.dialog .dlg-ok'));
     expect(started).toEqual([['fix-pr', { fixId, url }]]);
+    // A dashboard that doesn't record pull requests offers nothing to.
+    await r!.unmount();
+    r = await render(createElement(AppContext.Provider, { value: { ...app(), hasKind: (k: string) => k !== JOB_KINDS.fixPr } }, createElement(FixPage, { id: fixId, step: null, sub: null })));
+    await r.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
+    expect(buttons()).toEqual(['Show patch']);
   });
 });
 
