@@ -168,8 +168,8 @@ describe('the decision read models', () => {
     ]);
     // Its view lists its ranked steps, most consequential first, each worded on the server.
     expect(runDecisions(store, refunded).sessions[1].steps).toEqual([
-      { callNo: 5, rank: 1, within: null, detail: 'issue_refund is no longer called', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
-      { callNo: 3, rank: 4, within: null, detail: 'a read asked differently', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
+      { callNo: 5, rank: 1, within: null, unsettled: null, detail: 'issue_refund is no longer called', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
+      { callNo: 3, rank: 4, within: null, unsettled: null, detail: 'a read asked differently', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
     ]);
     expect(runDecisions(store, failed).sessions.map((s) => s.href)).toEqual([`#/run/${failed}/5/decisions`]);
     expect(decisionSession(store, 'dc-nope')).toBeNull();

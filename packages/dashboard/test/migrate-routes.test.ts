@@ -188,7 +188,7 @@ describe('a migration’s applied state', () => {
     const tally = { passes: 0, attempts: 4, bound: null, rule: '4 of 4 attempts must pass', undecided: null };
     const pass = (golden: string, verdict: string, outcome: string, verified: boolean) => ({ runId, golden, verdict, outcome, verified, tally: verified ? tally : null, diverges: null });
     const runs = [pass('goldens/a', 'failed', 'not-fixed', true), pass('goldens/b', 'inconclusive', 'unsettled', true), pass('goldens/c', 'inconclusive', 'not-asked', false), pass('goldens/d', 'inconclusive', 'unsettled', false), pass('goldens/e', 'inconclusive', 'not-judged', false)];
-    const m = migrateView({ from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', passes: { verdict: 'rejected', runs } }, CLEAR, { word: 'rejected', tone: 'err' });
+    const m = migrateView({ from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', passes: { verdict: 'rejected', runs } }, CLEAR, { word: 'rejected', tone: 'no' });
     expect(m.passes.runs.map((x) => x.words)).toEqual(['not fixed, verified · 0 of 4 passed', 'verified · 0 of 4 passed', 'a step not asked', 'not verified', 'a step waits on a judge']);
   });
 
