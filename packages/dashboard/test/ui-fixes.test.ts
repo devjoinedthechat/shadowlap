@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySteps, markLead, updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
-import { appliedButton, attemptMark, blameNextStep, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, keepAt, laterStamp, mergeTreeJobs, moreLine, otherBlameWords, outcomeTone, outdatedOf, parseCheck, patchLines, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleStatuses, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, attemptMark, blameNextStep, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, keepAt, laterStamp, mergeTreeJobs, moreLine, otherBlameWords, outcomeTone, outdatedOf, parseCheck, patchFiles, patchLines, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleStatuses, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { breakPoints, cellKeepsWhole, inlineParts, parseMarkdown, plainCell } from '../ui/components/Markdown.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
@@ -134,6 +134,33 @@ describe('a fix', () => {
       { op: ' ', text: 'context' },
       // A removed line that starts with dashes is still a removed line.
       { op: '-', text: '-- removed dashes' },
+    ]);
+  });
+
+  it('splits a patch a file at a time, each with its path, its lines added and taken out, and its hunks', () => {
+    const agent = 'diff --git a/agent.mjs b/agent.mjs\nindex 1a2b3c4..5d6e7f8 100644\n--- a/agent.mjs\n+++ b/agent.mjs\n@@ -1,3 +1,3 @@\n context\n-old\n+new\n\n@@ -9 +9,2 @@\n-gone\n+here\n+and here\n';
+    const sql = 'diff --git a/db/seed.sql b/db/seed.sql\n--- a/db/seed.sql\n+++ b/db/seed.sql\n@@ -4,2 +4,1 @@\n--- a comment taken out\n select 1;\n\\ No newline at end of file\n';
+    expect(patchFiles(agent + sql)).toEqual([
+      // The lines over the hunks only name the file, which its row says: the part is its hunks, a blank kept line and all.
+      { path: 'agent.mjs', added: 3, removed: 2, text: '@@ -1,3 +1,3 @@\n context\n-old\n+new\n\n@@ -9 +9,2 @@\n-gone\n+here\n+and here' },
+      // A line taken out that starts `-- ` is the hunk's, read to the length its @@ line gives: never the next file's `---`.
+      { path: 'db/seed.sql', added: 0, removed: 1, text: '@@ -4,2 +4,1 @@\n--- a comment taken out\n select 1;\n\\ No newline at end of file' },
+    ]);
+    // A patch with no diff line: a file's part starts at its `---`, after the hunks of the one before.
+    expect(patchFiles('--- a/agent.py\n+++ b/agent.py\n@@ -3 +3 @@\n-MODEL = "a"\n+MODEL = "b"\n--- a/eval.py\n+++ b/eval.py\n@@ -1 +1 @@\n-x\n+y\n').map((f) => [f.path, f.added, f.removed, f.text.split('\n')[0]])).toEqual([
+      ['agent.py', 1, 1, '@@ -3 +3 @@'],
+      ['eval.py', 1, 1, '@@ -1 +1 @@'],
+    ]);
+    // A file taken away is named by its old path; a rename's lines say more than its name, so they stay.
+    expect(patchFiles('diff --git a/old.py b/old.py\ndeleted file mode 100644\n--- a/old.py\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n').map((f) => [f.path, f.removed, f.text.split('\n')[0]])).toEqual([['old.py', 1, 'diff --git a/old.py b/old.py']]);
+    expect(patchFiles('diff --git a/a.py b/b.py\nsimilarity index 100%\nrename from a.py\nrename to b.py\n')).toEqual([{ path: 'b.py', added: 0, removed: 0, text: 'diff --git a/a.py b/b.py\nsimilarity index 100%\nrename from a.py\nrename to b.py' }]);
+    expect(patchFiles('\n')).toEqual([]);
+    // What a box of marked lines makes of a part: its hunk's head a kept line, each line of it without its sign.
+    expect(patchLines(patchFiles(agent)[0].text).slice(0, 4)).toEqual([
+      { op: ' ', text: '@@ -1,3 +1,3 @@' },
+      { op: ' ', text: 'context' },
+      { op: '-', text: 'old' },
+      { op: '+', text: 'new' },
     ]);
   });
 

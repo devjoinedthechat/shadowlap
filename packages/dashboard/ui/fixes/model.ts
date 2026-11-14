@@ -207,6 +207,66 @@ export function patchLines(diff: string): Array<{ op: ' ' | '+' | '-'; text: str
     });
 }
 
+/** A file's part of a patch: its path, the lines the part adds and takes out, and the part as a box of marked lines takes it. */
+export interface PatchFile {
+  path: string;
+  added: number;
+  removed: number;
+  text: string;
+}
+
+const HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+/** The lines over a file's hunks that only name it, which a row that names the file says already. */
+const NAMES_FILE = /^(?:diff |index |--- |\+\+\+ )/;
+
+/**
+ * A patch a file at a time, as a migration's config change lists it. A file's part starts at its
+ * `diff` line, or at its `---` where the patch has none, and a hunk is read to the length its `@@`
+ * line gives, so a line it takes out that starts `-- ` is never taken for the next file. The part
+ * is its hunks alone where the lines over them only name the file; one that says more (a rename, a
+ * mode) keeps them. The path is the file's new one, its old one for a file taken away.
+ */
+export function patchFiles(diff: string): PatchFile[] {
+  if (!diff.trim()) return [];
+  const parts: Array<{ lines: string[]; hunk: number; added: number; removed: number }> = [];
+  // The lines the hunk being read still has to come, of the old file and of the new.
+  let old = 0;
+  let now = 0;
+  for (const line of diff.replace(/\n$/, '').split('\n')) {
+    const last = parts.at(-1);
+    if (last && (old > 0 || now > 0)) {
+      if (line.startsWith('+')) {
+        now--;
+        last.added++;
+      } else if (line.startsWith('-')) {
+        old--;
+        last.removed++;
+      } else if (!line.startsWith('\\')) {
+        old--;
+        now--;
+      }
+      last.lines.push(line);
+      continue;
+    }
+    if (!last || line.startsWith('diff ') || (line.startsWith('--- ') && last.hunk >= 0)) parts.push({ lines: [], hunk: -1, added: 0, removed: 0 });
+    const part = parts.at(-1)!;
+    const hunk = HUNK.exec(line);
+    if (hunk) {
+      if (part.hunk < 0) part.hunk = part.lines.length;
+      old = Number(hunk[1] ?? 1);
+      now = Number(hunk[2] ?? 1);
+    }
+    part.lines.push(line);
+  }
+  return parts.map((p) => {
+    const head = p.hunk < 0 ? p.lines : p.lines.slice(0, p.hunk);
+    const named = head.find((l) => l.startsWith('+++ ') && l !== '+++ /dev/null') ?? head.find((l) => l.startsWith('--- ') && l !== '--- /dev/null');
+    const path = named ? named.slice(4).replace(/\t.*$/, '').replace(/^[ab]\//, '') : (/^diff --git a\/.* b\/(.*)$/.exec(head[0] ?? '')?.[1] ?? 'the patch');
+    const hunksOnly = p.hunk >= 0 && head.every((l) => NAMES_FILE.test(l));
+    return { path, added: p.added, removed: p.removed, text: (hunksOnly ? p.lines.slice(p.hunk) : p.lines).join('\n') };
+  });
+}
+
 /**
  * Why Run repair isn't the page's lead action, or null when it is: the repair would end "No
  * fix to try" without running the agent, since the blame of every failing run rescued it from no

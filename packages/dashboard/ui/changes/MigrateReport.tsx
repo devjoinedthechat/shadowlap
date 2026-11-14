@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { JOB_KINDS, type JobView } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
-import { asWords, CodeText, Copy } from '../components/Copy.js';
+import { asWords, Code, CodeText, Copy } from '../components/Copy.js';
 import { codeWords, inCode } from '../components/DialogFacts.js';
 import { DotNodes } from '../components/DotParts.js';
 import { tipCard } from '../components/HoverCard.js';
@@ -18,7 +18,7 @@ import { glossed } from '../components/Term.js';
 import { UpdateOutdated } from '../components/UpdateOutdated.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { useConsentStart } from '../fixes/FixJobButton.js';
-import { outdatedOf } from '../fixes/model.js';
+import { outdatedOf, patchFiles } from '../fixes/model.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { goldenName, shortId } from '../format.js';
 import { addJobFooter } from '../job-actions.js';
@@ -38,8 +38,8 @@ import { SessionPicker } from './SessionPicker.js';
  * A migration's page, worded on the server (src/migrate-view.ts): the migrations picker and Migrate
  * to…, the verdict with its one next step, What changes (the compact matrix, a cell opening under
  * it), What still passes with the goldens the switch leaves behind, What it costs, What to set, the
- * config change, the pull request body, and the command that made it. Words that name code come
- * between backticks and are set as code here.
+ * config change a file a row with its diff behind Show diff, the pull request body behind Show body,
+ * and the command that made it. Words that name code come between backticks and are set as code here.
  */
 export function MigrateReport({ session, sessions, retiring, use, run, call }: { session: PreviewSession; sessions: readonly DecisionSessionView[]; retiring: readonly MigrateRetiring[]; use: readonly MigrateUse[]; run: string | null; call: number | null }) {
   const m = session.migration;
@@ -253,12 +253,51 @@ function ToSet({ m }: { m: MigrateView }) {
   );
 }
 
-/** The config change: its files and places, the patch, what it leaves out and leaves for the hand, the review, `git apply`, and Copy config change. */
+/**
+ * The patch a file a row: its path, the lines its part adds (in ink) and takes out (in red), and
+ * Show diff, which draws the file's hunks under its row. Folded at first: the rows say what changes
+ * where, and Copy config change has the whole patch either way.
+ */
+function PatchFiles({ patch }: { patch: string }) {
+  const files = useMemo(() => patchFiles(patch), [patch]);
+  const [open, setOpen] = useState<readonly number[]>([]);
+  const id = useId();
+  return (
+    <ul className="mgfiles">
+      {files.map((f, i) => {
+        const shown = open.includes(i);
+        return (
+          <li key={`${i}:${f.path}`}>
+            <div className="mgfile">
+              <Code>{f.path}</Code>
+              <span className="mgstat">
+                {f.added ? <span className="add">{`+${f.added}`}</span> : null}
+                {f.added && f.removed ? ' ' : null}
+                {f.removed ? <span className="del">{`−${f.removed}`}</span> : null}
+              </span>
+              <button type="button" className="linkbtn" aria-expanded={shown} aria-controls={shown ? `${id}-${i}` : undefined} aria-label={`${shown ? 'Hide' : 'Show'} diff of ${f.path}`} onClick={() => setOpen(shown ? open.filter((x) => x !== i) : [...open, i])}>
+                {shown ? 'Hide diff' : 'Show diff'}
+                <Icon name="caret" />
+              </button>
+            </div>
+            {shown ? (
+              <div id={`${id}-${i}`}>
+                <Patch text={f.text} />
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** The config change: its files and places, a row a file with its diff behind Show diff, what it leaves out and leaves for the hand, the review, `git apply`, and Copy config change. */
 function ConfigChange({ m }: { m: MigrateView }) {
   const c = m.config;
   return (
     <Section title="The config change" sub={inCode(c.sub)} className="mgcfg">
-      {c.patch ? <Patch text={c.patch} /> : null}
+      {c.patch ? <PatchFiles patch={c.patch} /> : null}
       {c.leftOut ? <p className="mgalso inpatch">{inCode(c.leftOut)}</p> : null}
       {c.byHand ? <p className="mgalso">{inCode(c.byHand)}</p> : null}
       {c.noFile ? <p>{inCode(c.noFile)}</p> : null}
