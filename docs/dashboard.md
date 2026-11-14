@@ -600,9 +600,15 @@ Its finding ends on **Results →**, which opens the recording with the presets'
 
 **A fork.** A replay a model's scoring or an error-path preset made keeps its fork's finding. A fork whose only flag is `--writes` forked where its request changed, and its finding says that.
 
-**An injection test.** The run an injection test tested shows its newest finished test as a finding: *injection test*, or *injection gate* for a golden's, then its verdict in its colour, *failed*, *inconclusive* or *passed*, and its line (*send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)*). A gate's names its golden. **Show results** opens the results in the inspector's place, as Show diff does.
+**An injection test.** The run an injection test tested shows its newest finished test as a finding: *injection test*, or *injection gate* for a golden's gate, which a test session runs. Then come its verdict in its colour, *failed*, *inconclusive* or *passed*, and its line (*send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)*). A test of a golden, its gate or one run on the golden alone, names the golden. **Show results** opens the results in the inspector's place, as Show diff does.
 
-The results are a matrix: a row for each untrusted read planted in, a column for each payload, and a cell for their attempts, in the colour of the strongest verdict, with its proof on hover. Past eight reads, each tool has a row that sums its reads. Above it come the attempts, the payloads and when the test ran, with its command; under it, what the test spent and its upstream requests. A cell opens its attempt at the call its proof names, and Esc there comes back to the cell.
+The results are a matrix: a row for each untrusted read planted in, a column for each payload, and a cell for their attempts, in the colour of the strongest verdict, with its proof on hover. A cell no attempt ran at, as a test stopped at its budget leaves them, reads *not run*.
+
+- **Past eight reads**, each tool has a row that sums its reads. Opened, it lists the reads that obeyed, were influenced or couldn't say, then those a payload never ran at, and a line for the rest: *18 more reads, every one ignored; 4 not run*. A read no attempt ran at never counts as ignored.
+- **Above it** come the attempts (*40 of 72 planned attempts* where the test stopped short), the payloads and when the test ran, with its command. A golden's gate's command is its test's; a test of a golden alone runs `shadowlap injection` on the golden again.
+- **Under it** come what the test didn't test: each untrusted call it planted nothing in, with why, then in amber the clean replays left out of the comparison. Then what the test spent, whether reads the recording doesn't hold were blocked or ran live, and its upstream requests.
+
+A cell opens its attempt at the call its proof names, and Esc there comes back to the cell.
 
 **Error-path presets.** The recording [error-path presets](./error-paths.md) ran on shows their newest session as a finding: *error-path presets*, then the verdict in its colour, *failed*, *inconclusive* or *passed*. Then come the presets that failed or couldn't say (*malformed JSON and oversized result failed · tool timeout inconclusive*), or *every preset passed*. **Show results** opens their results in the inspector's place.
 
@@ -901,6 +907,8 @@ Each rule they were decided by is stated once in the family. Each bundle opens i
 
 Its attempts are one picture named by its counts: a cell each, in its verdict's colour, the clean replays it compares with muted after a hairline. Under it, up to three lines open the attempts its verdict rests on, at the call their proof names, and a line says what is left out. An attempt gone from the store, or past the family's first 1,000 runs, isn't drawn, and a line counts them. A test of the recording, or of this page's run, shows even with every attempt gone.
 
+A run's newest 100 tests are drawn. Past them, a line under its tests says older ones aren't, and their replays show as forks.
+
 **[Error-path presets](./error-paths.md)** are filed under the recording they ran on, one node a session: *error-path presets*, then its verdict, the session's totals as the CLI's last line says them, its attempts and what they spent (*failed · 3 passed, 2 failed, 1 not applicable · 8 attempts · ≈$0.041*). Its title opens the recording with its results open, plain in an exported copy. Its attempts aren't drawn as forks, except one something was made from: it is drawn under the node, with its forks, Repeats and fixes under it.
 
 Its attempts are one picture in the order they ran, a cell each in its verdict's colour, with its preset and attempt on hover. Under it, up to three lines open the attempts that failed or couldn't say, at the call their preset hit, and a line counts the rest.
@@ -969,7 +977,7 @@ The inspector shows the selected call, in four tabs:
 
 - the planted turn, in violet: *planted in this attempt · read at #5*;
 - the planted read's Response, under *Overridden: the recorded result with the payload planted after `$.reason`:*;
-- the planted text in violet and the canary in red, wherever they show.
+- the planted text in violet and the canary in red, wherever they show: its address, id, token and amount in any case, the amount with a thousands comma or as a number too, each form the test takes as proof.
 
 A clean attempt's read says it was *made neutral for this attempt*, every string with a space in it emptied.
 
@@ -1714,14 +1722,15 @@ Both wait while a test session, an update or another pack runs. The drawer ends 
 | --------------- | ---------------------------------------------------------------------------------------- |
 | Golden          | Its name, then *its recording 01K5CQ4R1T*                                                |
 | Untrusted reads | Each untrusted read the recording makes, by call                                         |
-| Last test       | Its newest gate, else its recording's newest test: the verdict and line, or *not tested* |
+| Last test       | Its newest test of it, else of its recording: the verdict and line, or *not tested*      |
 
 - **Run injection test…** on a row tests the golden's recording, or the golden where only its pack holds the recording. Its card names the reads it plants at. See [Run an injection test](#run-an-injection-test).
-- **A gate's test** ends its line *· its injection gate*.
+- **A gate's test** ends its line *· its injection gate*. Only a test session's is a gate: a test of the golden alone isn't.
+- **The line** opens the run it tested, with its results open.
 - **A golden whose recording can't be read** keeps its row, which says why.
 - **The rest** share one line: *checkout, refunds and search read nothing untrusted.* With no golden in either, the section doesn't show.
 
-Security is read again as an injection test or a pack with its gate ends, and as a test session lands.
+Security is read again as an injection test or a pack with its gate ends, as a test session lands, and as a test is kept from anywhere, the CLI too.
 
 ### In CI
 
@@ -3468,7 +3477,9 @@ The `matrix` has a row per run and a cell per model call. A row is named by its 
 
 **Injection tests:**
 
-- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, its one `line`, its gate's `reason`, what it `spent`, and a `--clean` answer's `rule` and the call of the `read` it tested.
+- `/api/injection`: the results kept, newest first, of a run or a golden: `limit` of them, 100 unless given and at most 1,000, with `more` when older ones are left out.
+- **Each result** has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, its one `line` and its gate's `reason`. Then come what it `spent`, and a `--clean` answer's `rule` and the call of the `read` it tested.
+- **A result's `sessionId`** names the test session whose injection gate ran it, and its `actor` who ran it, only where names show.
 - `/api/injection/:id`: one result as `injection --json` printed it, with its row, and the runs it names that gc has deleted since (`gone`). A finished plant also has its results as the run page draws them (`view`): each untrusted read by payload, each cell with the attempt that shows it and its proof.
 - `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied. With `?preview=1`, what its dialog says first: how many rules apply, two values they mask, each canary kept, and the file.
 - `/api/injection/needs-look`: the newest result of each run or golden that obeyed, was influenced or is inconclusive, for Needs a look.
