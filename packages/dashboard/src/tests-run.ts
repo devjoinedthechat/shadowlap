@@ -1,5 +1,6 @@
 import { ACTIONS, GATE_MAX_ATTEMPTS } from '@shadowlap/engine';
-import { knownGolden, testPatterns, type GoldenSource, type TestsJob, type TestsOptions } from './tests.js';
+import type { GoldenSource, TestsJob, TestsOptions } from './tests.js';
+import { knownGolden, testPatterns } from './tests-paths.js';
 
 /**
  * The jobs that run the goldens again (Run tests, Run tests on…, Run more attempts) and re-record

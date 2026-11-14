@@ -9,6 +9,7 @@ import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
 import { bisectAnswers, bisectBlock, committed, standingAnswer, type BisectMiss, type FoundCommit } from './tests-bisect.js';
+import { knownGolden, optionLike, testPatterns } from './tests-paths.js';
 import { shortReason } from './tests-why.js';
 
 /**
@@ -49,7 +50,7 @@ export interface GoldenSource {
 /** How a golden came out: passed, failed, or inconclusive (its gate ran out of attempts between its bounds, or a check couldn't be judged). */
 export type GoldenVerdict = 'passed' | 'failed' | 'inconclusive';
 
-export { shortReason };
+export { knownGolden, optionLike, shortReason, testPatterns };
 export { runTestsJob, updateGoldensJob } from './tests-run.js';
 
 /** A result's verdict: as kept, or for one kept before verdicts were, as its `ok` says (the engine's, which Training's tasks read too). */
@@ -429,23 +430,7 @@ export interface TestsView {
 
 const RECORDINGS_NOTE = 'Recordings that pytest and Vitest keep in __recordings__/ run under their own test runner, not here.';
 
-/**
- * A golden whose path starts with `-` (a key under the config's `tests`) would reach the CLI as an
- * option, so no command is ever built with it: it is listed as one that can't be read.
- */
-export const optionLike = (path: string): boolean => path.startsWith('-');
 const OPTION_LIKE = 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json';
-
-/**
- * What `shadowlap test` is given to run every golden: the goldens folder's pattern, which the CLI
- * expands itself without a shell, and each golden kept elsewhere (a pack the config's `tests` names)
- * by its path. A path that would read as an option is left out.
- */
-export function testPatterns(goldens: readonly GoldenSource[], folder = 'goldens'): string[] {
-  const inFolder = (path: string) => path.startsWith(`${folder}/`) && !path.slice(folder.length + 1).includes('/');
-  const elsewhere = goldens.filter((g) => !inFolder(g.path) && !optionLike(g.path)).map((g) => g.path);
-  return [...(goldens.some((g) => inFolder(g.path)) || !elsewhere.length ? [`${folder}/*`] : []), ...elsewhere];
-}
 
 /** Why a golden can't be read: a path that would read as an option (whatever is there), or its pack. */
 export const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
@@ -1374,12 +1359,6 @@ export function bisectArgs(ref: string, good: string, bad: string | null, fork: 
  * like one. `steps` run one after the other, each only when the one before it succeeded.
  */
 export type TestsJob = { title: string; args: string[]; runId?: string } | { title: string; steps: string[][]; runId?: string } | { error: string };
-
-/** The golden a request names, as listed on disk, or null; never a path the CLI would read as an option. */
-export function knownGolden(goldens: readonly GoldenSource[], raw: unknown): string | null {
-  const path = typeof raw === 'string' ? (goldens.find((g) => g.path === raw)?.path ?? null) : null;
-  return path !== null && !optionLike(path) ? path : null;
-}
 
 /** A sha, a tag or a branch, possibly with `~n` or `^`; never an option or a range. A tested `+dirty` revision is its commit. */
 const REVISION = /^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/;
