@@ -62,7 +62,8 @@ const FIX = { fixId: 'fx-01K8RG0000000000000000000A', title: 'Refunds above the 
 describe('an issue’s title, icon and line', () => {
   it('goes to its fix, to Tests for a golden’s, else to its newest run', () => {
     expect(issueHref(issue({ fix: FIX }))).toBe('#/fixes/fx-01K8RG0000000000000000000A');
-    expect(issueHref(issue({ golden: { path: 'goldens/refund-in-limit', name: 'refund-in-limit', did: 'diverged at call 1', passed: false } }))).toBe('#/tests');
+    // A golden's opens Tests with its report open, as Needs a look's golden does.
+    expect(issueHref(issue({ golden: { path: 'goldens/refund-in-limit', name: 'refund-in-limit', did: 'diverged at call 1', passed: false } }))).toBe('#/tests?report=refund-in-limit');
     expect(issueHref(issue())).toBe('#/run/01K8RG000000000000000000A2');
   });
 

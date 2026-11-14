@@ -11,10 +11,10 @@ import type { Issue, IssueRun, IssuesPage } from '../types.js';
  * delete waits to take. The server groups them (src/issues.ts). No DOM here: the tests import it.
  */
 
-/** Where an issue's title goes: its fix, Tests for a golden's, else its newest run. */
+/** Where an issue's title goes: its fix, Tests with a golden's report open, as Needs a look's golden goes, else its newest run. */
 export function issueHref(i: Pick<Issue, 'fix' | 'golden' | 'newest'>): string {
   if (i.fix) return href.fixes(i.fix.fixId);
-  if (i.golden) return href.tests();
+  if (i.golden) return href.tests({ report: i.golden.name });
   return href.run(i.newest.runId);
 }
 

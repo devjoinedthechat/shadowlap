@@ -16,7 +16,7 @@ import { TwelveWeeks } from '../runspage/DaysRow.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
 import { RunsActions } from '../runspage/RunsActions.js';
 import { RunsFilterField } from '../runspage/FilterField.js';
-import { FindCommitDialog } from '../runspage/FindCommit.js';
+import { FindCommitDialog, type DaysFailure } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
 import { ALL_RUNS, dayTimes, runsHref } from '../runspage/query.js';
 import { commitRuns, replaceRuns, useRunsAddress } from '../runspage/history.js';
@@ -390,7 +390,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const shownKey = runsHref({ ...f, q });
   const [limit, setLimit] = useReadTo(shownKey);
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
-  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (IMPORT_ASK.take() ? 'import' : null));
+  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; failure: DaysFailure; earlier: { runId: string; why: string } | null }>(() => (IMPORT_ASK.take() ? 'import' : null));
   const now = Date.now();
   useImportAsked(useCallback(() => setDialog('import'), []));
 
@@ -498,7 +498,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
     if (!t) return;
     guard(() =>
       void client.daysBisect({ ...t, types, q }).then(
-        (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices, earlier: out.earlier ?? null })),
+        (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices, failure: { label: out.label, command: out.command, startedAt: out.startedAt }, earlier: out.earlier ?? null })),
         (err: unknown) => toast(errorText(err), 'error'),
       ),
     );
@@ -543,7 +543,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         </>
       ) : null}
       {dialog === 'import' ? <ImportDialog onClose={() => setDialog(null)} /> : null}
-      {dialog && dialog !== 'import' ? <FindCommitDialog runId={dialog.runId} choices={dialog.choices} earlier={dialog.earlier} onClose={() => setDialog(null)} /> : null}
+      {dialog && dialog !== 'import' ? <FindCommitDialog runId={dialog.runId} choices={dialog.choices} failure={dialog.failure} earlier={dialog.earlier} onClose={() => setDialog(null)} /> : null}
     </Page>
   );
 }

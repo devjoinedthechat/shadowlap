@@ -348,7 +348,7 @@ Each issue's row shows:
 - **First seen** and **Last seen**: when the oldest and the newest of them started.
 - **Fix**: the fix's place on the ladder, as on Fixes, with *· 1 not blamed* for its runs nobody has blamed, or *passed* for a golden whose last result passed. At its end is the issue's next step.
 
-The next step starts from the row, as on [Needs a look](#needs-a-look): **Run blame** for the newest run nobody has blamed, or the golden's step, such as **Add normalizer and re-run**, **Find breaking commit**, or **Revert** once that names the commit, which always asks first. **Open fix** opens the fix, and a capture's **Run blame** opens its page, which asks for your command first. An issue with no step links to its newest run, or to Tests.
+The next step starts from the row, as on [Needs a look](#needs-a-look): **Run blame** for the newest run nobody has blamed, or the golden's step, such as **Add normalizer and re-run**, **Find breaking commit**, or **Revert** once that names the commit, which always asks first. **Open fix** opens the fix, and a capture's **Run blame** opens its page, which asks for your command first. An issue with no step links to its newest run, or to Tests with the golden's report open.
 
 The days and the filter's words narrow the issues as they narrow the table: an issue counts only the runs they keep. While the verdicts Failed counts by are worked out, the line above says so, as it does for `status:`. On a phone, each issue is a block.
 
@@ -366,9 +366,11 @@ One line beside the bars says what they count: *207 runs in 12 weeks, on this ma
 
 With **Failed** picked and days chosen, **Find breaking commit…** bisects from the first failure of those days, between a commit where it still worked and its own:
 
+- **Its dialog** names that failure on its first row: its id, a link to the run, what it is, its command and when it ran. Each commit to start from is named by its subject, with how the runs there went.
 - It offers only commits this checkout has. A teammate's runs can name commits of theirs, and a failure whose own commit isn't here is bisected up to HEAD.
 - Days whose only failures fail their family's checks have nothing to start from. Find breaking commit says so and opens no dialog: *…needs a run that failed on its own.*
-- A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search. The dialog says so, and bisects from the first failure of those days that started later, or offers no search when none did.
+- A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search. The dialog says so, its id a link to the run, and bisects from the first failure of those days that started later, or offers no search when none did.
+- **A replay it can't start from**, one cut short or of a session its golden came out inconclusive in, says why, with **Open Tests**, which finds the commit from the golden or says what settles it.
 
 ### Act on several runs
 
