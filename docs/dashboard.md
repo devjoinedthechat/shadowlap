@@ -1228,6 +1228,16 @@ A way opens its dialog. It says what the preview asks and that no tool runs, pri
 - **Preview changed prompt** first reads what your working tree sends each run, offline, with nothing sent (`decisions --from-code --dry-run`). It shows the system prompt, named by the scope of the first call it changes (*The agent's system prompt*), its change marked, and the tool definitions. It then prices the calls the read found changed. Where nothing changed, its confirm waits: *Nothing to ask: the change leaves every request as recorded*.
 - **Preview field change** asks for a request field and its value: a number, a word or JSON. For `max_tokens` it says how long the recorded answers ran, and how many it would cut off. It refuses `model`. A field the provider's own page says the model refuses gets a warning, *…: its steps would get no answer*, and the preview can still start.
 
+Under its fields, a dialog narrows what the preview asks, each as the command's flag:
+
+- **Switch from**, on a switch, picks the recorded model it switches from, where the runs use more than one (`--from`). On a field change it reads **Calls made with**, every model unless one is picked.
+- **Scope** keeps it to the calls of one scope, where the runs called in more than one, such as the agent's and not a simulated user's (`--scope`).
+- **Goldens**, on every golden, is a chip for each, with **All** and **None**.
+- **Stop at $** sends no request past that much (`--budget`). Under the price, the cost line says *Stops at* and that the steps past it aren't asked.
+- **Then verify what it can't clear** runs verify, live, on the runs the preview can't clear (`--then-verify`). What that bills is known once the preview has asked, so the dialog has no estimate.
+
+Preview changed prompt has Stop at $ and Then verify.
+
 The same menu is on a run's [Decisions view](#decisions-view), on that run alone, and **Preview change** on Runs' [bulk bar](#act-on-several-runs). An exported copy offers none of them.
 
 #### The verdict and the next step
@@ -1307,6 +1317,8 @@ With no model retiring and no migration yet, it offers **Switch from**, the mode
 **Migrate to** asks first, in one dialog wherever it is pressed: the start page, a retiring model's row on [Needs a look](#needs-a-look), Preview's next step, the report's **Migrate to** menu, and the palette's **Migrate claude-sonnet-4-5 to claude-sonnet-5-5**.
 
 The dialog says what it asks again and verifies, and that it writes a config change and a pull request body beside the store, your files left as they are. It names a preview that asked these calls already, and shows the command and what your provider bills at most. Its confirm starts the migration as a [job](#jobs), whose drawer ends on **Open migration report**.
+
+Where the goldens called in more than one scope, its **Scope** keeps the migration to one (`--scope`). **Stop at $** stops it there (`--budget`): no request is sent and no attempt starts past it. The price is read again for both.
 
 The button waits, saying why, while the field names no model, names the model it switches from, or holds no model's name.
 
@@ -3443,7 +3455,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | Score model's picker: each model's price per attempt and last score, those left out and why, and the tokens an attempt is priced from |
 | `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `POST /api/decisions/estimates`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions, the retirement notices |
-| `GET /api/migrate/start`, `GET /api/migrate/estimate?to=&from=&golden=&run=` | Migrate's start page: retiring models with their goldens, scopes and checking migration, and the models in use; Migrate to's price on what its job asks |
+| `GET /api/migrate/start`, `GET /api/migrate/estimate?to=&from=&golden=&run=&scope=&budget=` | Migrate's start page: retiring models with their goldens, scopes and checking migration, and the models in use; Migrate to's price on what its job asks |
 | `GET /api/model-choices` | The models a preview's switch can take, beside the ones its runs use |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
@@ -3464,8 +3476,10 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or those the `runId` parameters name (up to 500), is priced in the role its checks give it as recorded, at what it costs under the change. Preview names the runs no verify took yet. `verify` is `null` when there is nothing to verify, as for a named run the session cleared.
 - A migration's `/api/decisions/:id/estimates` answers `verify: null` while its code must change first: the model it switches to refuses a field the agent's code sends.
 - Its `runs` give each run priced and its `role`: `target` for one that fails its checks as recorded, else `good`. `max` and `keptMax` price Run more attempts at the limits its job raises, refused in the job's words.
-- `POST /api/decisions/estimates`: what a preview would ask and cost, from the targets and the change its job takes (`runs`, `goldens` or `goldens: "all"`, `model`, `set`, `from`, `scope`, `samples`, `fromCode`), read beside the server. It changes nothing: a POST, so the 500 runs one preview takes fit in its body. With `fromCode`, `changed` names each run's changed calls, as the working tree's read found them, and prices those alone.
-- Its answer: the price (`preview`), the calls it `asks` and of which models, the models the runs use (`recorded`), what their answers show of `max_tokens` (`answers`), and a field the model refuses (`refused`). With no change named, `ways` prices each way's card.
+- `POST /api/decisions/estimates`: what a preview would ask and cost, from the targets and the change its job takes (`runs`, `goldens` or `goldens: "all"`, `model`, `set`, `from`, `scope`, `samples`, `fromCode`, `budget`, `thenVerify`), read beside the server. It changes nothing: a POST, so the 500 runs one preview takes fit in its body. With `fromCode`, `changed` names each run's changed calls, as the working tree's read found them, and prices those alone.
+- Its answer: the price (`preview`), the calls it `asks` and of which models, the models the runs use (`recorded`), the scopes their calls were made in (`scopes`), what their answers show of `max_tokens` (`answers`), and a field the model refuses (`refused`). With no change named, `ways` prices each way's card.
+- A `budget` under the price stops it there, as `stops`. With `thenVerify` the preview has no estimate: what verify runs is known once it has asked.
+- `/api/migrate/estimate` keeps to a `scope` and is held to a `budget` the same way. It answers the scopes its runs' calls were made in (`scopes`).
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first, read on a thread of its own. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
 
@@ -3602,6 +3616,7 @@ What some of them do:
 - **`coverage-pack`'s `expect`** is checked as the CLI checks `--expect`: a check it would refuse is a 400 in its words.
 - **`decisions`** that runs your agent (with `fromCode` or `thenVerify`), and **`migrate`**, take `yes`: the `confirm` of the 409 that named the command a golden or a run from elsewhere was recorded with.
 - **`decisions`**: `samples` as [`--samples`](./cli.md#decisions) takes it, 1 included. Without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step.
+- **`decisions` and `migrate`** also take `budget`, Stop at $ (`--budget`): an amount in USD above 0, to the cent.
 - **`decisions-verify`** verifies each run the session could not clear under its own checks (its golden's, or for a run named by id, those of the recording it comes from). It runs one verify per set of checks, in the role its recording plays under them, and keeps the result in the session.
 - **`decisions-verify` with `runIds`** (at most 500, an empty list naming none) verifies only those runs, as Preview's Verify does once verify took some. A run the session cleared is refused with a 409, and one it never asked with a 404, each named.
 - **`decisions-verify` with `max` or `keptMax`** is Run more attempts: `max` raises a failing run's attempts, as `--gate` with the figures the session's verify was decided by, and `keptMax` a good run's pairs, as `--kept-max`. Each is a whole number up to 1000.

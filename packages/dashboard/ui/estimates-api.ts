@@ -14,7 +14,8 @@ export type { PreviewEstimates } from '../src/preview-estimate.js';
 
 /** A new preview as its dialogs name it: its targets (every golden, or runs by id) and its change, or none for each way's card. */
 export interface PreviewQuery {
-  goldens?: 'all';
+  /** Every golden, or those named by their pack folder. */
+  goldens?: 'all' | readonly string[];
   runs?: readonly string[];
   model?: string | null;
   /** Each field to set and its value as typed: sent as JSON where it parses, as the job takes it. */
@@ -25,6 +26,16 @@ export interface PreviewQuery {
   fromCode?: boolean;
   /** With `fromCode`: each run's calls the working tree changes, by its id, as the dialog's read of it named them; priced once named. */
   changed?: Readonly<Record<string, readonly number[]>>;
+  /** Stop at $: what the preview is held to. */
+  budget?: number | null;
+  /** It then verifies the runs it can't clear: no estimate until it has asked. */
+  thenVerify?: boolean;
+}
+
+/** What else a migration keeps to: the scope of the calls it switches, and its Stop at $. */
+export interface MigrateNarrow {
+  scope?: string | null;
+  budget?: number | null;
 }
 
 /** Run more attempts' raised limits: a failing run's attempts (the gate's max) and a good run's pairs. */
@@ -70,8 +81,8 @@ export interface EstimatesApi {
   /** The models a preview's field offers beside the runs' own (`GET /api/model-choices`). It asks providers, so it can take a second. */
   modelChoices(): Promise<ModelChoicesView>;
   bisectEstimate(q: BisectQuery): Promise<Estimate>;
-  /** What Migrate to `to` bills on the goldens and runs named, as its job asks them (every golden for none), switching from `from`, and the newest preview of that switch. */
-  migrateEstimate(to: string, from: readonly string[], goldens: readonly string[], runs?: readonly string[]): Promise<MigrateEstimateView>;
+  /** What Migrate to `to` bills on the goldens and runs named, as its job asks them (every golden for none), switching from `from` in the scope it keeps to, held to its Stop at $, and the newest preview of that switch. */
+  migrateEstimate(to: string, from: readonly string[], goldens: readonly string[], runs?: readonly string[], narrow?: MigrateNarrow): Promise<MigrateEstimateView>;
 }
 
 export function estimatesApi(request: Request): EstimatesApi {
@@ -91,7 +102,8 @@ export function estimatesApi(request: Request): EstimatesApi {
       return request(`decisions/${q(sessionId)}/estimates${parts.length ? `?${parts.join('&')}` : ''}`);
     },
     previewEstimates: (p) => request('decisions/estimates', { method: 'POST', body: JSON.stringify(previewBody(p)) }),
-    migrateEstimate: (to, from, goldens, runs = []) => request(`migrate/estimate?${[`to=${q(to)}`, ...from.map((m) => `from=${q(m)}`), ...goldens.map((g) => `golden=${q(g)}`), ...runs.map((id) => `run=${q(id)}`)].join('&')}`),
+    migrateEstimate: (to, from, goldens, runs = [], narrow = {}) =>
+      request(`migrate/estimate?${[`to=${q(to)}`, ...from.map((m) => `from=${q(m)}`), ...goldens.map((g) => `golden=${q(g)}`), ...runs.map((id) => `run=${q(id)}`), ...(narrow.scope ? [`scope=${q(narrow.scope)}`] : []), ...(narrow.budget ? [`budget=${narrow.budget}`] : [])].join('&')}`),
     modelChoices: () => request('model-choices'),
     bisectEstimate: (b) => request<{ estimate: Estimate }>(`estimates/bisect${query({ runId: b.runId, golden: b.golden, good: b.good, bad: b.bad })}`).then((r) => r.estimate),
   };
@@ -104,7 +116,7 @@ export function estimatesApi(request: Request): EstimatesApi {
  */
 export function previewBody(p: PreviewQuery): Record<string, unknown> {
   return {
-    ...(p.goldens === 'all' ? { goldens: 'all' } : {}),
+    ...(p.goldens === 'all' ? { goldens: 'all' } : p.goldens ? { goldens: [...p.goldens] } : {}),
     ...(p.runs ? { runs: [...p.runs] } : {}),
     ...(p.model ? { model: p.model } : {}),
     ...(p.set?.length ? { set: Object.fromEntries(p.set.map(([field, value]) => [field, typedValue(value)])) } : {}),
@@ -113,6 +125,8 @@ export function previewBody(p: PreviewQuery): Record<string, unknown> {
     ...(typeof p.samples === 'number' ? { samples: p.samples } : {}),
     ...(p.fromCode ? { fromCode: true } : {}),
     ...(p.fromCode && p.changed ? { changed: p.changed } : {}),
+    ...(p.budget ? { budget: p.budget } : {}),
+    ...(p.thenVerify ? { thenVerify: true } : {}),
   };
 }
 

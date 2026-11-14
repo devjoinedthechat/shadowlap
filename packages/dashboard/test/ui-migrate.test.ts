@@ -169,7 +169,7 @@ describe('Changes › Migrate', () => {
   const listed = (id: string): DecisionSessionView => ({ sessionId: id, kind: 'migrate', at: AT, change: `the model ${TO}`, name: `Migration to ${TO}`, runs: 2, goldens: 2, unit: 'run', samples: 2, flagged: 1, actor: null, revision: null, href: `#/changes/migrate/${id}` });
   const started: Array<[string, Record<string, unknown>]> = [];
   const choices = { choices: [{ id: 'claude-opus-5', family: 'claude', group: 'Anthropic' }, { id: 'gpt-5', family: 'openai', group: 'OpenAI' }], notes: [], priced: [] };
-  const estimates = { decisionEstimates: () => Promise.resolve({ verify: null, runs: [] }), previewEstimates: () => Promise.resolve({ ways: null }), modelChoices: () => Promise.resolve(choices), migrateEstimate: () => Promise.resolve({ estimate: null, preview: null }), testsEstimates: () => Promise.resolve({ run: null, goldens: {} }) };
+  const estimates = { decisionEstimates: () => Promise.resolve({ verify: null, runs: [] }), previewEstimates: () => Promise.resolve({ ways: null }), modelChoices: () => Promise.resolve(choices), migrateEstimate: () => Promise.resolve({ estimate: null, preview: null, scopes: [{ scope: null, calls: 6 }] }), testsEstimates: () => Promise.resolve({ run: null, goldens: {} }) };
   const app = (client: Partial<Client>, o: Partial<AppState> = {}): AppState =>
     ({
       client: {
@@ -252,7 +252,7 @@ describe('Changes › Migrate', () => {
       const why = 'goldens/refund came from a pack: its command runs on your machine';
       const preview = { sessionId: 'dc-01M5000000000000000000000P', verified: true };
       const startJob = (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), fields.yes === undefined ? Promise.reject(new ApiError(409, why, 'c1')) : Promise.resolve({ id: 'j1', kind, title: '', args: [], done: false, code: null }));
-      const p = await open(unchecked, [], { client: { startJob, estimates: { ...estimates, migrateEstimate: () => Promise.resolve({ estimate: null, preview }) } } as unknown as Partial<Client> });
+      const p = await open(unchecked, [], { client: { startJob, estimates: { ...estimates, migrateEstimate: () => Promise.resolve({ estimate: null, preview, scopes: [{ scope: null, calls: 6 }] }) } } as unknown as Partial<Client> });
       await p.until('the start page', () => !!p.one('.mgstart .actions button'));
       await p.click(p.byText('.mgstart .actions button', `Migrate to ${TO}`));
       await p.until('the dialog', () => p.all('.dialog').length === 1 && facts(p).length === 2);
@@ -267,6 +267,29 @@ describe('Changes › Migrate', () => {
         ['migrate', TO, [FROM], ['goldens/refund', 'goldens/lookup'], null],
         ['migrate', TO, [FROM], ['goldens/refund', 'goldens/lookup'], 'c1'],
       ]);
+    });
+
+    it('keeps Migrate to the scope picked where its goldens called in two, holds it to its Stop at $, prices that, and sends both', async () => {
+      const asked: Array<Record<string, unknown> | undefined> = [];
+      const ceiling = { kind: 'migrate', usd: 1.8, ceiling: true, always: 'it writes a config change and a pull request body', parts: ['6 calls asked again'] };
+      const migrateEstimate = (_to: string, _from: string[], _goldens: string[], _runs: string[], narrow?: Record<string, unknown>) => {
+        asked.push(narrow);
+        const stops = typeof narrow?.budget === 'number' ? narrow.budget : null;
+        return Promise.resolve({ estimate: stops ? { ...ceiling, stops, parts: [...ceiling.parts, 'nothing asked or verified past it'] } : ceiling, preview: null, scopes: [{ scope: 'support-agent', calls: 4 }, { scope: 'customer', calls: 2 }] });
+      };
+      const startJob = (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ id: 'j1', kind, title: '', args: [], done: false, code: null }));
+      const p = await open(unchecked, [], { client: { startJob, estimates: { ...estimates, migrateEstimate } } as unknown as Partial<Client> });
+      await p.until('the start page', () => !!p.one('.mgstart .actions button'));
+      await p.click(p.byText('.mgstart .actions button', `Migrate to ${TO}`));
+      await p.until('its scopes', () => p.all('.dialog select option').length === 3);
+      expect(p.all('.dialog select option').map(shown)).toEqual(['every scope', 'support-agent', 'customer']);
+      await p.type(p.one('.dialog select'), 'support-agent');
+      await p.type(p.one('.dialog input[type="number"]'), '1');
+      await p.until('its narrowed price', () => asked.some((n) => n?.budget === 1) && shown(p.one('.dialog .dcost')).includes('nothing asked or verified past it'));
+      expect(asked.find((n) => n?.budget === 1)).toEqual({ scope: 'support-agent', budget: 1 });
+      expect(shown(p.one('.dialog .cmdline'))).toContain(`shadowlap migrate --to ${TO} goldens/refund goldens/lookup --from ${FROM} --scope support-agent --budget 1.00`);
+      await p.click(p.one('.dialog .dlg-ok'));
+      expect(started.map(([k, f]) => [k, f.scope, f.budget, f.estimate])).toEqual([['migrate', 'support-agent', 1, { usd: 1.8, ceiling: true, stops: 1 }]]);
     });
 
     it('opens Switch from and To where no model the goldens call retires and no migration was made, To never the model switched from', async () => {

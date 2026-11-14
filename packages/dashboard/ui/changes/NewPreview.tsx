@@ -11,6 +11,7 @@ import { failedRead } from '../components/States.js';
 import { NO_GOLDENS, noTargets, type PreviewTarget, type PreviewWay } from '../components/NewPreviewMenu.js';
 import { previewBody, type PreviewEstimates, type PreviewQuery } from '../estimates-api.js';
 import { useConsentStart } from '../fixes/FixJobButton.js';
+import { narrowed, NarrowFields, narrowWhy, WHOLE, type Narrow } from './narrow.js';
 import { pickSession } from '../run/decisions-pick.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { useLoad, useSettled } from '../hooks.js';
@@ -45,9 +46,10 @@ const readFailed = (why: string) => `What it asks didn’t load: ${why}`;
 const CUT = 6;
 const SHOWN = 3;
 
-const targetFields = (t: PreviewTarget): Record<string, unknown> => ('goldens' in t ? { goldens: 'all' } : { runs: [...t.runs] });
-const targetQuery = (t: PreviewTarget): PreviewQuery => ('goldens' in t ? { goldens: 'all' } : { runs: t.runs });
-/** The targets a command names before the read answers with the goldens' paths: the runs, else `…`. */
+/** The targets as the job and its estimate take them: every golden, those picked of them (`picked`), or the runs. */
+const targetFields = (t: PreviewTarget, picked: readonly string[] | null = null): Record<string, unknown> => ('goldens' in t ? { goldens: picked ? [...picked] : 'all' } : { runs: [...t.runs] });
+const targetQuery = (t: PreviewTarget, picked: readonly string[] | null = null): PreviewQuery => ('goldens' in t ? { goldens: picked ?? 'all' } : { runs: t.runs });
+/** The targets a command names: the goldens picked, else as the read answers with the goldens' paths, else the runs, else `…`. */
 const shownTargets = (t: PreviewTarget, read: readonly string[] | undefined): readonly string[] => read ?? ('runs' in t ? t.runs : ['']);
 const plural = (n: number, one: string) => `${n.toLocaleString('en-US')} ${one}${n === 1 ? '' : 's'}`;
 
@@ -60,10 +62,14 @@ export function previewCommand(o: DecisionsArgs): CommandRowProps {
   return { command: `${draftCommand(['decisions', ...o.targets.slice(0, SHOWN)])} … and ${o.targets.length - SHOWN} more ${flags}`.trimEnd(), full };
 }
 
-/** What the change would ask and bill, read again as the form settles: `est` undefined while it is read, `failed` why it couldn't be, in the line every page says (`failedRead`). `off` reads nothing. */
-function usePreviewRead(target: PreviewTarget, change: Omit<PreviewQuery, 'goldens' | 'runs'>, off = false): { est: PreviewEstimates | undefined; failed: string | null } {
+/**
+ * What the change would ask and bill, read again as the form settles: `est` undefined while it is
+ * read, `failed` why it couldn't be, in the line every page says (`failedRead`). `off` reads nothing;
+ * `picked`, the goldens picked of every golden.
+ */
+function usePreviewRead(target: PreviewTarget, change: Omit<PreviewQuery, 'goldens' | 'runs'>, off = false, picked: readonly string[] | null = null): { est: PreviewEstimates | undefined; failed: string | null } {
   const { client } = useApp();
-  const q = { ...targetQuery(target), ...change };
+  const q = { ...targetQuery(target, picked), ...change };
   const key = useSettled(off ? '' : JSON.stringify(previewBody(q)));
   const read = useLoad(() => (off ? null : (client.estimates?.previewEstimates(q) ?? null)), `preview-estimate:${key}`);
   return { est: read.data ?? undefined, failed: !off && read.error ? failedRead(read.error) : null };
@@ -74,10 +80,10 @@ function usePreviewRead(target: PreviewTarget, change: Omit<PreviewQuery, 'golde
  * unless its read of the working tree was given the yes (`yes`), which the same commands carry. A
  * preview of one run is picked in that run's Decisions view once it ends with its session.
  */
-function usePreviewStart(target: PreviewTarget, change: Record<string, unknown>, shown: PreviewEstimates | null | undefined, onClose: () => void, yes: string | null = null) {
+function usePreviewStart(target: PreviewTarget, change: Record<string, unknown>, shown: PreviewEstimates | null | undefined, onClose: () => void, yes: string | null = null, picked: readonly string[] | null = null) {
   const app = useApp();
   const one = 'runs' in target && target.runs.length === 1 ? target.runs[0]! : null;
-  const { start, consent } = useConsentStart('decisions', { ...targetFields(target), ...change, ...(yes ? { yes } : {}) }, {
+  const { start, consent } = useConsentStart('decisions', { ...targetFields(target, picked), ...change, ...(yes ? { yes } : {}) }, {
     started: (job) => {
       if (one) void untilDone(job, (id, since) => app.client.job(id, since), { ms: 2000 }).then((done) => pickEnded(one, done));
       onClose();
@@ -90,6 +96,19 @@ function usePreviewStart(target: PreviewTarget, change: Record<string, unknown>,
 function pickEnded(runId: string, done: JobView | null): void {
   const id = (done?.result as { decisionsId?: unknown } | null | undefined)?.decisionsId;
   if (typeof id === 'string') pickSession(runId, id);
+}
+
+/**
+ * Every golden it opened on, as the first read with none picked named them, kept as goldens are
+ * picked, for the narrowing's chips; null where it opened on runs.
+ */
+function useAllGoldens(target: PreviewTarget, est: PreviewEstimates | undefined, n: Narrow): readonly string[] | null {
+  const [all, setAll] = useState<readonly string[] | null>(null);
+  const read = 'goldens' in target && n.goldens === null ? est?.targets : undefined;
+  useEffect(() => {
+    if (read) setAll(read);
+  }, [read]);
+  return 'goldens' in target ? all : null;
 }
 
 export function NewPreview(props: NewPreviewProps) {
@@ -136,24 +155,36 @@ function switchAsks(asks: PreviewEstimates['asks'] | undefined, samples: number)
   };
 }
 
+/** Why a switch's confirm waits, the first that holds: what the dialog warns of, a model to name, the narrowing, a read that failed or is still out. */
+function switchWhy(o: { warn: string | null; named: boolean; n: Narrow; failed: string | null; read: boolean }): string | null {
+  if (o.warn) return o.warn;
+  if (!o.named) return 'Give a model’s name';
+  return narrowWhy(o.n) ?? (o.failed ? readFailed(o.failed) : o.read ? null : READING);
+}
+
+/** Every golden a read of the whole target named, for the narrowing's chips; null where it opened on runs. */
+const wholeGoldens = (target: PreviewTarget, est: PreviewEstimates | undefined): readonly string[] | null => ('goldens' in target ? (est?.targets ?? null) : null);
+
 function ModelSwitchDialog({ target, onClose }: NewPreviewProps) {
   const listing = useModelChoices();
   const none = noTargets(target);
   const ways = usePreviewRead(target, {}, none);
   const [picked, setModel] = useState<string | null>(null);
   const [samples, setSamples] = useState(3);
+  const [n, setNarrow] = useState<Narrow>(WHOLE);
   const recorded = ways.est?.recorded ?? [];
   const model = picked ?? firstModel(ways.est, listing);
   const named = MODEL_NAME.test(model);
-  const change = { model, ...(samples !== 3 ? { samples } : {}) };
-  const read = usePreviewRead(target, change, none || !named);
+  const sampled = samples !== 3 ? { samples } : {};
+  const change = { model, ...sampled, ...narrowed(n) };
+  const read = usePreviewRead(target, change, none || !named, n.goldens);
   const est = named ? read.est : undefined;
   // Another family's model asks nothing: the engine's words are the warning and why the confirm waits.
   const warn = none ? NO_GOLDENS : (est?.asks.otherFamily ?? null);
   const failed = read.failed ?? (named ? null : ways.failed);
-  const why = warn ?? (!named ? 'Give a model’s name' : failed ? readFailed(failed) : !est ? READING : null);
+  const why = switchWhy({ warn, named, n, failed, read: !!est });
   const facts: DialogFactRows = [switchAsks(est?.asks, samples), TOOLS_FACT];
-  const start = usePreviewStart(target, change, est, onClose);
+  const start = usePreviewStart(target, change, est, onClose, null, n.goldens);
   const label = confirmWords(ACTIONS.previewModelSwitch.label);
   return (
     <>
@@ -163,7 +194,7 @@ function ModelSwitchDialog({ target, onClose }: NewPreviewProps) {
         doc="decisions"
         warn={warn ? { text: warn, tone: 'amber' } : null}
         facts={facts}
-        command={none ? null : previewCommand({ targets: shownTargets(target, est?.targets ?? ways.est?.targets), model: model || '<model>', ...(samples !== 3 ? { samples } : {}) })}
+        command={none ? null : previewCommand({ targets: shownTargets(target, n.goldens ?? est?.targets ?? ways.est?.targets), model: model || '<model>', ...sampled, ...narrowed(n) })}
         cost={warn ? null : { price: 'Billed by your provider', estimate: est?.preview }}
         ok={label}
         okWhy={why}
@@ -175,14 +206,15 @@ function ModelSwitchDialog({ target, onClose }: NewPreviewProps) {
           <label>
             Samples a call
             <select value={samples} onChange={(e) => setSamples(Number(e.currentTarget.value))}>
-              {[1, 3, 5].map((n) => (
-                <option key={n} value={n}>
-                  {n}
+              {[1, 3, 5].map((k) => (
+                <option key={k} value={k}>
+                  {k}
                 </option>
               ))}
             </select>
           </label>
         </div>
+        {none ? null : <NarrowFields n={n} onChange={setNarrow} est={ways.est} goldens={wholeGoldens(target, ways.est)} way="model" />}
         {failed && !warn ? <p className="muted dlgest">{readFailed(failed)}</p> : null}
       </Dialog>
       {start.consent}
@@ -285,26 +317,27 @@ function PromptChange({ read }: { read: TreeRead }) {
   );
 }
 
-/** A changed prompt's dialog state: the working tree's read, its price once read, and why the confirm waits. */
-function useChangedPrompt(target: PreviewTarget) {
+/** A changed prompt's dialog state: the working tree's read, its price once read (with its Stop at $ and Then verify, `n`), and why the confirm waits. */
+function useChangedPrompt(target: PreviewTarget, n: Narrow) {
   const none = noTargets(target);
   const tree = useTreeRead(target, none);
   const read = tree.read && 'fromCode' in tree.read ? tree.read : null;
   const failed = tree.read && 'failed' in tree.read ? tree.read.failed : null;
   // Priced once the read has named the calls the working tree changes: asked once, never while it reads.
   const changed = read ? Object.fromEntries(read.runs.map((r) => [r.runId, r.changed])) : undefined;
-  const priced = usePreviewRead(target, { fromCode: true, samples: 1, ...(changed ? { changed } : {}) }, none || !read || !!read.nothing);
+  const priced = usePreviewRead(target, { fromCode: true, samples: 1, ...narrowed(n), ...(changed ? { changed } : {}) }, none || !read || !!read.nothing);
   const busy = useTreeBusy('reads', 'preview the change');
   const nothing = (none ? NO_GOLDENS : null) ?? read?.nothing ?? null;
   const facts: DialogFactRows = [{ label: 'Reads', value: 'each run, replayed offline', quiet: 'nothing sent, no tool runs' }, read && !nothing ? treeAsks(read, 'goldens' in target ? 'golden' : 'run') : null];
-  const why = nothing ?? failed ?? busy ?? (read ? null : 'Reading what your working tree sends');
+  const why = nothing ?? failed ?? busy ?? (read ? narrowWhy(n) : 'Reading what your working tree sends');
   const line = failed ?? (priced.failed && read && !nothing ? readFailed(priced.failed) : null);
   return { none, tree, read, priced, nothing, facts, why, line };
 }
 
 function ChangedPromptDialog({ target, onClose }: NewPreviewProps) {
-  const { none, tree, read, priced, nothing, facts, why, line } = useChangedPrompt(target);
-  const start = usePreviewStart(target, { fromCode: true, samples: 1 }, priced.est, onClose, tree.yes);
+  const [n, setNarrow] = useState<Narrow>(WHOLE);
+  const { none, tree, read, priced, nothing, facts, why, line } = useChangedPrompt(target, n);
+  const start = usePreviewStart(target, { fromCode: true, samples: 1, ...narrowed(n) }, priced.est, onClose, tree.yes);
   const label = ACTIONS.previewChangedPrompt.label;
   return (
     <>
@@ -314,7 +347,7 @@ function ChangedPromptDialog({ target, onClose }: NewPreviewProps) {
         doc="decisions"
         warn={nothing ? { text: nothing, tone: 'amber' } : null}
         facts={facts}
-        command={none ? null : previewCommand({ targets: shownTargets(target, priced.est?.targets), fromCode: true, samples: 1 })}
+        command={none ? null : previewCommand({ targets: shownTargets(target, priced.est?.targets), fromCode: true, samples: 1, ...narrowed(n) })}
         cost={nothing ? null : { price: 'Billed by your provider', estimate: priced.est?.preview ?? null }}
         ok={label}
         okWhy={why}
@@ -323,6 +356,7 @@ function ChangedPromptDialog({ target, onClose }: NewPreviewProps) {
       >
         <TreeLines reading={tree.read === null && !none} failed={line} />
         {read && !nothing ? <PromptChange read={read} /> : null}
+        {read && !nothing ? <NarrowFields n={n} onChange={setNarrow} est={priced.est} goldens={null} way="code" /> : null}
       </Dialog>
       {tree.consent}
       {start.consent}
@@ -348,13 +382,15 @@ function FieldChangeDialog({ target, onClose }: NewPreviewProps) {
   const value = typed.trim();
   const bad = !FIELD_NAME.test(field) || field === 'model' || value === '';
   const none = noTargets(target);
-  const read = usePreviewRead(target, bad ? {} : { set: [[field, value]], samples: 1 }, none || bad);
+  const [n, setNarrow] = useState<Narrow>(WHOLE);
+  const read = usePreviewRead(target, bad ? {} : { set: [[field, value]], samples: 1, ...narrowed(n) }, none || bad, n.goldens);
   const shown = bad ? undefined : read.est;
+  const goldens = useAllGoldens(target, read.est, n);
   const text = fieldValue(typedValue(value));
-  const start = usePreviewStart(target, { set: { [field]: typedValue(value) }, samples: 1 }, shown, onClose);
+  const start = usePreviewStart(target, { set: { [field]: typedValue(value) }, samples: 1, ...narrowed(n) }, shown, onClose, null, n.goldens);
   const label = confirmWords(ACTIONS.previewFieldChange.label);
   const line = read.failed ? readFailed(read.failed) : fieldLine(field, value, shown);
-  const why = none ? NO_GOLDENS : bad ? line : read.failed ? line : !shown ? READING : null;
+  const why = none ? NO_GOLDENS : bad ? line : (narrowWhy(n) ?? (read.failed ? line : !shown ? READING : null));
   return (
     <>
       <Dialog
@@ -363,7 +399,7 @@ function FieldChangeDialog({ target, onClose }: NewPreviewProps) {
         doc="decisions"
         warn={none ? { text: NO_GOLDENS, tone: 'amber' } : null}
         facts={[TOOLS_FACT]}
-        command={none ? null : previewCommand({ targets: shownTargets(target, read.est?.targets), set: [[field || '<key>', value ? text : '<value>']], samples: 1 })}
+        command={none ? null : previewCommand({ targets: shownTargets(target, n.goldens ?? read.est?.targets), set: [[field || '<key>', value ? text : '<value>']], samples: 1, ...narrowed(n) })}
         cost={bad || none ? null : { price: 'Billed by your provider', estimate: shown?.preview }}
         ok={label}
         okWhy={why}
@@ -383,6 +419,7 @@ function FieldChangeDialog({ target, onClose }: NewPreviewProps) {
           </label>
         </div>
         {none ? null : <p className="muted dlgest">{line ?? ' '}</p>}
+        {none ? null : <NarrowFields n={n} onChange={setNarrow} est={read.est} goldens={goldens} way="field" />}
       </Dialog>
       {start.consent}
     </>

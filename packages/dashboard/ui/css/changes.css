@@ -207,6 +207,13 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 .dprompt ins { text-decoration: none; color: var(--add); background: var(--add-bg); }
 .dprompt del { color: var(--del); }
 .dlgest { margin: 10px 0 0; }
+/* a new preview's narrowing, under its change: Switch from, Scope and Stop at $, the goldens it asks as chips, and Then verify */
+.dialog .form.narrow { margin-top: 12px; }
+.dialog .nsec { display: flex; align-items: center; gap: 10px; margin: 14px 0 8px; }
+.dialog .nsec .k { font-size: 12px; color: var(--dim); }
+.dialog .nsec .n { font: 12px var(--mono); color: var(--faint); }
+.dialog .nsec .sp { flex: 1; }
+.dialog .nverify { margin-top: 14px; }
 @media (forced-colors: active) {
   .dside, .dside.q1, .dside.q2, .dside.q3, .dside.q4 { border-top-color: CanvasText; }
   .drk.q1, .drk.q2 { color: CanvasText; }
