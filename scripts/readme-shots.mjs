@@ -28,6 +28,15 @@
 //   dashboard-walkthrough.svg  the whole window, from Runs › Failed to the newest failed run at the call
 //                              blame found, its fix with verify's verdict, and the patch: four pages
 //                              and a pointer that presses through them, looping (walkthrough-svg.mjs)
+//   tui.svg                    the terminal UI on the same runs, in a terminal 128 columns wide: the
+//                              newest failed run where blame found it lost, the run tree, the fork
+//                              where it left its parent, and the fork menu at the call the fork
+//                              overrode; each screen as its key left it, looping (tui-svg.mjs)
+//   tui-static.svg             the fork's screen alone, for where motion is unwanted
+//   tui-medium.svg             the same in 75 columns, for the README's column on a tablet or in a
+//   tui-medium-static.svg      narrow window
+//   tui-narrow.svg             and in 60, the narrowest terminal the UI opens in, for a phone
+//   tui-narrow-static.svg
 //
 // and what each command of the story printed into <folder>/samples/, where the README's console
 // examples come from: blame, repair, fix apply, decisions and the override. Without a folder the
@@ -47,11 +56,19 @@
 // of the page, never through one, or at the status bar. It is in the README terminal's frame (rounded corners,
 // transparent outside them, and a hairline edge). The dashboard is dark only. Run ids, dates and
 // durations differ from run to run; the rest comes out the same.
+//
+// The terminal UI's screens are the ones `shadowlap ui` draws: its own app, opened on the story's
+// store in a terminal of each size, with the keys a session presses written to it. It runs here,
+// with no terminal of this machine's behind it, so its colours are the dark palette's on the
+// README terminal's background, as a terminal that reports that background gets them.
 import { execFileSync, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { devNull, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tuiSvg } from './tui-svg.mjs';
 import { walkthroughSvg } from './walkthrough-svg.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -65,6 +82,11 @@ const MAX_BYTES = 450 * 1024;
  * pages in one picture weigh more than one, and no more than this.
  */
 const WALK = { width: 1280, height: 800, scale: 1.5, quality: 75, maxBytes: 600 * 1024 };
+/**
+ * The terminal UI's recording: a terminal 26 rows tall, as wide as the README terminal's three
+ * pictures are, but never under the 60 columns the UI opens in. Text weighs little: no more than this.
+ */
+const TUI = { rows: 26, background: '#0e0f0b', maxBytes: 150 * 1024, sizes: [{ name: 'tui', columns: 128 }, { name: 'tui-medium', columns: 75 }, { name: 'tui-narrow', columns: 60 }] };
 
 if (process.env.CHROME && !existsSync(process.env.CHROME)) {
   console.error(`readme-shots: CHROME names ${process.env.CHROME}, which isn't there`);
@@ -469,6 +491,150 @@ try {
   const walkBytes = Buffer.byteLength(svg);
   console.log(`wrote ${relative(root, walkFile)}: 4 pages at ${WALK.width * WALK.scale}×${WALK.height * WALK.scale}, ${(walkBytes / 1024).toFixed(0)} KB`);
   if (walkBytes > WALK.maxBytes) throw new Error(`readme-shots: dashboard-walkthrough.svg is ${(walkBytes / 1024).toFixed(0)} KB, over the ${WALK.maxBytes / 1024} KB it may weigh`);
+
+  // ---- the terminal UI: the same runs, as `shadowlap ui` draws them ----
+  // The UI's own app, here in this process. What Shadowlap keeps for a machine is the story's folder's,
+  // as it is for the story's commands; and the colours are the ones it asks for, whatever this
+  // process's own terminal can show: Ink colours through the chalk it loads, set here to 24 bits.
+  const { App } = await import('@shadowlap/tui');
+  const { Store } = await import('@shadowlap/engine');
+  const { render } = await import('ink');
+  const { createElement } = await import('react');
+  const { default: chalk } = await import(pathToFileURL(createRequire(fileURLToPath(import.meta.resolve('ink'))).resolve('chalk')).href);
+  chalk.level = 3;
+  const homeWas = process.env.SHADOWLAP_HOME;
+  process.env.SHADOWLAP_HOME = join(folder, 'home');
+  // The clock stands still while the screens are taken, at the moment the first session starts: a
+  // run's age reads the same on every screen and in every width, though the sessions take seconds.
+  const clock = Date.now;
+  const stopped = clock();
+  Date.now = () => stopped;
+  const unstyled = (screen) => screen.replace(/\x1b\[[0-9;]*m/g, '');
+  const short = (id) => id.slice(0, 10);
+  /**
+   * A session in a terminal `columns` wide: each screen it shows, as the UI wrote it, and how long
+   * the picture holds it. A key is written to the UI as a terminal writes one, and the screen it
+   * leaves is taken once it shows what the key leads to and has stayed as it is for a moment.
+   */
+  async function session(columns) {
+    const store = Store.open(join(folder, 'support-agent', '.shadowlap', 'shadowlap.db'));
+    let screen = '';
+    const stdout = Object.assign(new EventEmitter(), { columns, rows: TUI.rows, isTTY: true, write: (frame) => ((screen = frame), true) });
+    const stderr = Object.assign(new EventEmitter(), { write: () => true });
+    const stdin = Object.assign(new EventEmitter(), {
+      isTTY: true,
+      held: null,
+      setEncoding() {},
+      setRawMode() {},
+      resume() {},
+      pause() {},
+      ref() {},
+      unref() {},
+      read() {
+        const data = this.held;
+        this.held = null;
+        return data;
+      },
+      write(data) {
+        this.held = data;
+        this.emit('readable');
+        this.emit('data', data);
+      },
+    });
+    // As `shadowlap ui` opens it in the project: its commands and the dashboard there to run, though the session runs none.
+    const ui = render(createElement(App, { store, columns, rows: TUI.rows, theme: 'dark', background: TUI.background, spawnCli: () => fail('the terminal UI’s session runs no command'), openDashboard: () => fail('the terminal UI’s session opens no dashboard') }), {
+      stdout,
+      stderr,
+      stdin,
+      debug: true,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    });
+    async function shows(ok, what) {
+      const end = performance.now() + 20_000;
+      let seen = null;
+      let since = 0;
+      while (performance.now() < end) {
+        if (screen !== seen) [seen, since] = [screen, performance.now()];
+        else if (ok(unstyled(screen)) && performance.now() - since >= 300) {
+          // Nothing of this machine's own: no path under a home or a temporary folder.
+          if (/\/(Users|home|private|tmp|var)\//.test(unstyled(screen))) fail(`the terminal UI shows a path of this machine’s:\n${unstyled(screen)}`);
+          return screen;
+        }
+        await wait(25);
+      }
+      return fail(`the terminal UI, ${columns} columns wide, never showed ${what}:\n${unstyled(screen)}`);
+    }
+    const press = (key, ok, what) => (stdin.write(key), shows(ok, what));
+    const selected = (id) => (text) => new RegExp(`^> (?:\\\\_ )?${id}\\b`, 'm').test(text);
+    const scenes = [];
+    try {
+      const fork = short(runs.override);
+      const failed = short(runs.refundBug.at(-1));
+      // The run tree, the newest run selected: the fork.
+      let at = await shows(selected(fork), 'the runs with the fork selected');
+      scenes.push({ screen: at, hold: 1.2 });
+      // Up to the newest of the runs blame placed, a row a key.
+      for (let n = 0; !selected(failed)(unstyled(at)); n++) {
+        if (n > 20) fail(`the terminal UI has no way up from the fork to ${failed}:\n${unstyled(at)}`);
+        const was = unstyled(at);
+        at = await press('k', (text) => text !== was, 'the run above selected');
+        scenes.push({ screen: at, hold: 0.3 });
+      }
+      scenes.at(-1).hold = 1.5;
+      // It opens where blame found it lost, on how it stands: the check it failed, the call, and its fix.
+      at = await press('\r', (text) => text.includes('How this run stands') && text.includes('── lost here'), 'the failed run where blame found it lost');
+      const first = scenes.push({ screen: at, hold: 6.5 }) - 1;
+      at = await press('\x1b', selected(fork), 'the runs again, the fork selected');
+      scenes.push({ screen: at, hold: 1.6 });
+      // The fork opens where it left its parent, on what it did differently: the screen held where motion is unwanted.
+      at = await press('\r', (text) => /── forked at #\d+/.test(text) && text.includes('✗ Diverged'), 'the fork where it left its parent');
+      const still = scenes.push({ screen: at, hold: 6.5 }) - 1;
+      // The call before it, whose result the fork overrode, and the fork menu there.
+      const call = Number(/── forked at #(\d+)/.exec(unstyled(at))[1]) - 1;
+      const onCall = (text) => new RegExp(`^│> #${call} `, 'm').test(text);
+      at = await press('k', onCall, `call #${call} selected`);
+      scenes.push({ screen: at, hold: 1.8 });
+      at = await press(':', (text) => text.includes('Fork menu') && text.includes('Override result'), 'the fork menu');
+      scenes.push({ screen: at, hold: 6 });
+      at = await press('\x1b', (text) => !text.includes('Fork menu') && onCall(text), 'the fork again');
+      scenes.push({ screen: at, hold: 1.4 });
+      // Back on the runs, as the session started, so the screens go round. The picture starts on the
+      // failed run, a screen full of what the UI says of it, where the run tree is mostly empty rows.
+      at = await press('\x1b', selected(fork), 'the runs again');
+      scenes.push({ screen: at, hold: 1.4 });
+      return { scenes: [...scenes.slice(first), ...scenes.slice(0, first)], still: still - first };
+    } finally {
+      ui.unmount();
+      store.close();
+    }
+  }
+  try {
+    for (const { name, columns } of TUI.sizes) {
+      const { scenes, still } = await session(columns);
+      const drawn = {
+        columns,
+        rows: TUI.rows,
+        scenes,
+        still,
+        title: 'The Shadowlap terminal UI: a failed run where blame found it lost, the runs, and a fork with what it did differently',
+        desc: 'The newest refund that failed is open at model call #5, where blame found it lost, and says how it stands: blame confirmed it fails, and its fix is applied. The run tree lists the recordings and their forks; two refunds read lost at #5. The fork of the ticket run opens where it left its parent, at call 17, with what it did differently: send_email is called with other arguments, and issue_refund is no longer called. At call 16, lookup_policy, whose result the fork overrode, the fork menu offers Override result first, then to fail the call, force it live or run live from there, and to blame, repair or verify the run.',
+      };
+      for (const { file, svg } of [
+        { file: `${name}.svg`, svg: tuiSvg(drawn) },
+        { file: `${name}-static.svg`, svg: tuiSvg({ ...drawn, animated: false }) },
+      ]) {
+        writeFileSync(join(outDir, file), svg);
+        const bytes = Buffer.byteLength(svg);
+        console.log(`wrote ${relative(root, join(outDir, file))}: ${columns} columns by ${TUI.rows} rows${file.includes('static') ? ', one screen' : `, ${scenes.length} screens in ${scenes.reduce((n, x) => n + x.hold, 0).toFixed(1)} s`}, ${(bytes / 1024).toFixed(0)} KB`);
+        if (bytes > TUI.maxBytes) throw new Error(`readme-shots: ${file} is ${(bytes / 1024).toFixed(0)} KB, over the ${TUI.maxBytes / 1024} KB it may weigh`);
+      }
+    }
+  } finally {
+    Date.now = clock;
+    if (homeWas === undefined) delete process.env.SHADOWLAP_HOME;
+    else process.env.SHADOWLAP_HOME = homeWas;
+  }
 
   /**
    * The picture in the terminal picture's frame: corners rounded, transparent outside them, and a

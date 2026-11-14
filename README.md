@@ -273,31 +273,18 @@ Each task, with the command or page that does it:
 
 `shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background. It shows why a run failed, where blame found it lost and whether its fix held, and where a fork left its parent and what it then did differently. Each call has conversation, request, response and meta tabs. Press&nbsp;`:` for the what&#8209;ifs at the selected call, and to blame, repair or verify the&nbsp;run:
 
-```text
- 01M64J4H6F fork @17 of 01M64J4EMP · 32 calls · 15 replayed · …
- override #16
-╭──────────────────────────────────────────────────────────────╮
-│ Fork menu                                                    │
-│ At #16 · lookup_policy · pure tool                           │
-│ > o  Override result…                        --override 16=… │
-│   t  Fail with tool error…              --fail-at 16=timeout │
-│   l  Force lookup_policy live      --live-tool lookup_policy │
-│   a  Run live from here                      --diverge-at 16 │
-│ The whole run                                                │
-│   e  Repeat 5 times                               --repeat 5 │
-│   s  Replay with writes stubbed                --writes stub │
-│   b  Find commit that changed i…             bisect --good … │
-│ Fixes                                                        │
-│   B  Run blame                                         blame │
-│   R  Run repair                                       repair │
-│   V  Run verify                                       verify │
-│ ────────────────────────                                     │
-│   r  Replay                                           replay │
-│   p  Pack run…                                          pack │
-│ The agent gets this instead of the recorded result. Calls b… │
-╰──────────────────────────────────────────────────────────────╯
- a letter runs its action  enter run  j/k move  esc close
-```
+<p align="center">
+  <picture>
+    <source media="(max-width: 600px) and (prefers-reduced-motion: reduce)" srcset=".github/assets/readme/tui-narrow-static.svg" width="520">
+    <source media="(max-width: 600px)" srcset=".github/assets/readme/tui-narrow.svg" width="520">
+    <source media="(max-width: 1279px) and (prefers-reduced-motion: reduce)" srcset=".github/assets/readme/tui-medium-static.svg" width="637">
+    <source media="(max-width: 1279px)" srcset=".github/assets/readme/tui-medium.svg" width="637">
+    <source media="(prefers-reduced-motion: reduce)" srcset=".github/assets/readme/tui-static.svg">
+    <img src=".github/assets/readme/tui.svg" alt="The Shadowlap terminal UI: the newest refund that failed, open at model call #5, where blame found it lost, with its fix applied; the run tree, two refunds marked lost at #5; the fork, open at call 17, where it left its parent, with what it did differently; and the fork menu at lookup_policy's call, Override result first.">
+  </picture>
+  <br>
+  <sub>The terminal UI on the same project: the failed run, the fork, and the&nbsp;fork&nbsp;menu&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
+</p>
 
 The [dashboard](docs/dashboard.md) and [terminal UI](docs/tui.md) pages cover every&nbsp;view&nbsp;and&nbsp;key.
 
