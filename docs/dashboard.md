@@ -413,7 +413,7 @@ The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), 
 
 **Record run…** is on Runs, and in Search or jump to, on a dashboard started with `shadowlap dashboard` in a project folder. It records one run of your agent, as `shadowlap run -- <command>` and the setup's [Record](#setting-it-up) step do:
 
-- **Its dialog** starts from the command the setup records with: the one recorded last from the dashboard, else the one `shadowlap init` found. It shows the `shadowlap run` command as you edit it, and that your provider bills its model calls.
+- **Its dialog** starts from the command the setup records with: the one it last recorded from the dashboard, else the one `shadowlap init` found. It shows the `shadowlap run` command as you edit it, and that your provider bills its model calls.
 - **A command this folder never ran**, or ran with its model calls going elsewhere, asks first, as the setup does. One it ran before starts at once.
 - **While it records**, its drawer offers **Watch live**, which opens the run as its calls arrive, then **Open run** once it ends.
 - **It waits** while a repair or an apply holds your working tree.
@@ -2128,7 +2128,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 
 - When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, **Check again**, then **Record again**. It shows once they are wrapped, also after the replay was made clean, while packing waits.
 - Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
-- [**Record run…**](#record-a-run) on Runs records the same way, from the command recorded last, also once the setup is finished. Until then, its recording becomes the setup's, as one made here does.
+- [**Record run…**](#record-a-run) on Runs records the same way, from the setup's command, also once the setup is finished. Until then, its recording becomes the setup's, as one made here does.
 
 **3. Calibrate.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add normalizer** writes them to `shadowlap.config.json`, and **Calibrate again** asks again.
 
