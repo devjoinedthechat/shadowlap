@@ -130,7 +130,7 @@ describe('a kept preview’s verify', () => {
   const listed = (): DecisionSessionView => ({ sessionId: ID, kind: 'decisions', at: AT, change: 'the model claude-haiku-4-5', name: 'Model switch to claude-haiku-4-5', runs: 2, goldens: 1, unit: 'run', samples: 2, flagged: 1, actor: null, revision: null, href: `#/changes/decisions/${ID}` });
   const started: Array<[string, Record<string, unknown>]> = [];
   const client = (session: PreviewSession, more: Partial<Client> = {}): Partial<Client> => ({
-    decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }),
+    decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }),
     decisionSession: () => Promise.resolve(session),
     // An opened cell's conversation, which these tests don't read.
     call: () => new Promise(() => undefined),
