@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
 import { ACCEPTED_FILE, acceptanceLine, addedSentences, readAcceptances, sentences, takenOut, type Acceptance } from '../src/golden-accepted.js';
 
@@ -103,6 +104,13 @@ describe('shadowlap test --update --reason', () => {
     expect(r.out).toContain(`by dev@example.com: ${REASON}`);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as { results: Array<{ takesOut?: Array<{ sentence: string; by: string | null; reason: string }> }> };
     expect(report.results[0].takesOut).toMatchObject([{ sentence: RULE, by: 'dev@example.com', reason: REASON }]);
+    // The result the store keeps holds it too, for the dashboard's report of the golden.
+    const store = Store.open(db);
+    try {
+      expect(store.listTestResults({ golden: 'goldens/refund', limit: 1 })[0].data?.takesOut).toMatchObject([{ sentence: RULE, by: 'dev@example.com', reason: REASON }]);
+    } finally {
+      store.close();
+    }
     // The Markdown report, a job summary in CI, says it where the pull request is reviewed.
     const markdown = readFileSync(join(work, 'report.md'), 'utf8');
     expect(markdown).toContain('This change takes out what an accepted change put in:');

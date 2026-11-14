@@ -1,10 +1,12 @@
 import type { ComponentProps } from 'react';
 import type { RunOffers } from '../api.js';
-import { ConfirmDialog, ConsentDialog, PromptDialog, type WayOn } from '../components/Dialog.js';
+import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog, type WayOn } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
+import { ReasonField, useUpdateReason } from '../components/UpdateReason.js';
 import { goldenName, shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import type { NextStep } from '../types.js';
+import { withReason } from '../update-reason.js';
 import { stepCostLine } from './next-step.js';
 import { PACK_HOLDS, packTestCommands, redactsFact } from './share-facts.js';
 import '../injection/job-footer.js';
@@ -21,7 +23,7 @@ type Run = ComponentProps<typeof PromptDialog>['onRun'];
 
 /** What a step asks, with what its answer runs. */
 export type StepAsk =
-  | { kind: 'update'; step: Step<'normalizer' | 'update-golden'>; onOk: WayOn }
+  | { kind: 'update'; step: Step<'normalizer' | 'update-golden'>; onOk: (reason: string) => ReturnType<WayOn> }
   | { kind: 'injection'; step: Step<'injection-again'>; onOk: WayOn }
   | { kind: 'pack'; runId: string; dir: string; refused: string | null; offers: RunOffers | null; onRun: Run }
   | { kind: 'consent'; why: string; ok: string; onOk: WayOn };
@@ -34,23 +36,36 @@ export interface StepDialogProps {
 const CHANGES = { label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' };
 const packRules = (offers: RunOffers | null) => redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null);
 
+/**
+ * Update golden from a run's step: what it re-records, and optionally why the change is meant
+ * (UpdateReason.tsx), which goes with the update and into the command shown. A normalizer's step
+ * asks no reason, as its re-run updates nothing, and nor does a golden that only lacks a judge's
+ * verdict (no `test`): nothing diverged.
+ */
+function UpdateStep({ step, onOk, onClose }: { step: Step<'normalizer' | 'update-golden'>; onOk: (reason: string) => ReturnType<WayOn>; onClose: () => void }) {
+  const why = useUpdateReason();
+  return (
+    <Dialog
+      title={`Update ${goldenName(step.golden)}?`}
+      lead={step.sub ? `${step.sub}.` : `Re-records ${goldenName(step.golden)}, for a change you meant.`}
+      doc="goldenUpdates"
+      command={step.command ? withReason(step.command, why.reason) : null}
+      cost={stepCostLine(step)}
+      ok={step.label}
+      tone="lime"
+      startFocus=".dlg-ok"
+      onClose={onClose}
+      onOk={() => onOk(why.reason)}
+    >
+      {step.key === 'update-golden' && step.test ? <ReasonField reason={why} /> : null}
+    </Dialog>
+  );
+}
+
 export function StepDialog({ ask, onClose }: StepDialogProps) {
   switch (ask.kind) {
-    case 'update': {
-      const { step } = ask;
-      return (
-        <ConfirmDialog
-          title={`Update ${goldenName(step.golden)}?`}
-          lead={step.sub ? `${step.sub}.` : `Re-records ${goldenName(step.golden)}, for a change you meant.`}
-          doc="goldenUpdates"
-          command={step.command ?? null}
-          cost={stepCostLine(step)}
-          ok={step.label}
-          onClose={onClose}
-          onOk={ask.onOk}
-        />
-      );
-    }
+    case 'update':
+      return <UpdateStep step={ask.step} onOk={ask.onOk} onClose={onClose} />;
     case 'injection': {
       const { step } = ask;
       const id = shortId(step.runId);

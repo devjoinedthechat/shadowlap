@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { InvalidArgumentError, type Command } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { ACTIONS, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, outputTail, noVerdicts, proofCall, proofLine, proofOf, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type AttemptReport, type InjectionGateData, type PlantReport, type Normalizer, type RunRecord, type StoreOf, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
+import { ACTIONS, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, outputTail, noVerdicts, proofCall, proofLine, proofOf, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, TAKEN_OUT_HEAD, volatileValues, wholeInput, type AttemptReport, type InjectionGateData, type PlantReport, type Normalizer, type RunRecord, type StoreOf, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { sessionPullRequest, sessionSource } from '../baseline-branch.js';
 import { testChaos } from '../chaos-session.js';
@@ -494,7 +494,7 @@ class Session {
     if (o.kind !== 'diverged') return undefined;
     const found = takenOut(o.result?.shown.ended.summary.divergence, readAcceptances(packDir));
     if (!found.length) return undefined;
-    process.stdout.write(p.yellow(`    ! this change takes out what an accepted change put in:\n`));
+    process.stdout.write(p.yellow(`    ! ${TAKEN_OUT_HEAD}\n`));
     for (const t of found) process.stdout.write(`        ${safe(JSON.stringify(t.sentence))}\n        ${p.dim(safe(acceptanceLine(t.acceptance)))}\n`);
     return found.map((t) => ({ sentence: t.sentence, at: t.acceptance.at, by: t.acceptance.by, reason: t.acceptance.reason, ...(t.acceptance.fix ? { fix: t.acceptance.fix } : {}) }));
   }
@@ -626,7 +626,7 @@ class Session {
       runId: outcome.result?.shown.ended.summary.runId ?? null,
       goldenRunId: outcome.parent?.runId ?? null,
       revision: this.revision,
-      data: { ...resultData(this.store, outcome), ...(updated ? { updated } : {}), ...(injection ? { injection } : {}), ...this.ran },
+      data: { ...resultData(this.store, outcome), ...(updated ? { updated } : {}), ...(takesOut ? { takesOut } : {}), ...(injection ? { injection } : {}), ...this.ran },
     });
     const decided = this.inconclusiveOf(golden, outcome);
     this.cases.push(junitCase(outcome, decided.mode));

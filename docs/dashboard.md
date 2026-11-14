@@ -1537,7 +1537,7 @@ Each check reads as `shadowlap test` labels it, such as `escalate called 1 time`
 
 **An [injection gate](./injection.md#gate-ci-on-it)** draws under the checks, a hairline above it, marked as a check is and worded by its limit: *injection: no attempt obeys a planted instruction*. Under it comes its last test's tally (*6 attempts · 0 obeyed · 0 influenced · 6 ignored*), or *runs once its replay passes*. Its hover says what it plants where, with its tests entry as the config holds it. Its words open the results of the run it tested. The entry sets it, so it has no edit or remove.
 
-**By revision** draws each result in its colour: a dot for one attempt, or a bar filled to the share that passed for several. An ink ring marks where the golden was updated, and a red one a drop against its own history. Each cell is named by its card's words, which say on hover why it failed. A key under the table says what each shape means.
+**By revision** draws each result in its colour: a dot for one attempt, or a bar filled to the share that passed for several. An ink ring marks where the golden was updated, its card saying why where the update kept a reason, and a red one a drop against its own history. Each cell is named by its card's words, which say on hover why it failed. A key under the table says what each shape means.
 
 Each revision's header gives its commit's subject on hover, and its author where names show. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
 
@@ -1604,6 +1604,8 @@ A divergence's report offers:
 - **Find breaking commit**, whose answer then shows as the report's last part, above its steps, while the golden keeps failing as it did when the search started.
 
 **A golden a migration left behind.** Once a migration's [config change](#apply-config-change) is applied, a golden recorded under the old model diverges on `$.model` at the call it was left at, until it is updated. Its report says the cause once, on its **Request** line: *The config change of migration `mg-01M58W9A7S` switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.* The id opens the migration's report. **Update golden** leads, and the hint says why: *A golden recorded before the switch diverges on it: update it once the switch is what you meant.*
+
+**A change that takes out an accepted one.** Where the diverging request lacks a sentence an [accepted change](./ci.md#say-why) added, the report says so under its **Request** diff, a line for each sentence: *This change takes out what an accepted change put in: `Escalate refunds above $100.`, accepted 2026-11-14: refunds above the limit go to a manager*. Who accepted it shows only where a team store is configured. **Show as printed** carries the same lines.
 
 Find breaking commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find breaking commit…** to search from an older one.
 
@@ -2484,6 +2486,8 @@ The dialog says how many goldens go live and why, and shows the commands. Its Co
 Setup's **Pack as golden** and a run's **Pack as golden…** ask every time their test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
 
 **Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
+
+**Why, optional.** Where a golden diverged, the dialog has one field for why the change is meant, and the command follows what you type: `--update --reason '<why>'`. The update [keeps the reason beside the golden](./ci.md#say-why), whichever way on updates it. The dialog still opens on its button, so Enter updates with no reason. A golden that only lacks a judge's verdict asks none, as nothing diverged.
 
 For several goldens that diverged on values that change every run, **Update goldens** offers **Add normalizer and update** as its way on: one job that adds each rule the server names for them, once, then re-records them all. Its line and **Update anyway**'s say it bills the same either way.
 

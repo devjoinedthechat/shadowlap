@@ -43,7 +43,7 @@ export interface CellNote {
 /**
  * How a golden did at one revision, in its cell's hover and name: run again with changes on top of
  * that commit; for several attempts, how many passed and the bound its gate put on the pass rate; a
- * drop's baseline; an update there; and why it failed, or a connection the network guard blocked in
+ * drop's baseline; an update there, with the reason it kept; and why it failed, or a connection the network guard blocked in
  * a replay that passed.
  */
 export function cellNote(cell: HistoryCell, name: string): CellNote {
@@ -55,6 +55,8 @@ export function cellNote(cell: HistoryCell, name: string): CellNote {
   if (cell.rate && (cell.rate.attempts > 1 || cell.verdict === 'inconclusive')) parts.push(`${cell.rate.passes} of ${cell.rate.attempts} attempts passed${cell.bound ? ` · ${cell.bound}` : ''}`);
   if (cell.drop) parts.push(dropWords(cell.drop));
   if (cell.updated) parts.push(cell.result === 'pass' ? 'updated here: re-recorded, its checks passed' : `updated here, then ${cell.note ?? 'failed'}`);
+  // Why, where the update kept a reason (`test --update --reason`).
+  if (cell.updated && cell.reason) parts.push(`why: ${cell.reason}`);
   if (cell.note && !(cell.updated && cell.result !== 'pass')) parts.push(cell.note);
   // A judge's why keeps "no recorded verdict" whole, as its check's line does.
   const note = parts.join(' · ').replace(/\bno recorded verdict\b/g, nb('no recorded verdict'));

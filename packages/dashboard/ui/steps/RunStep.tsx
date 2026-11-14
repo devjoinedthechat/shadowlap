@@ -1,3 +1,4 @@
+import { reasonField } from '../update-reason.js';
 import { type ReactNode, useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS } from '../api.js';
@@ -93,8 +94,8 @@ export function usePost(kind: string, ok: string): [(fields: Record<string, unkn
 export function updateAsk(app: ReturnType<typeof useApp>, golden: string, estimate: Price): (close: () => void) => Promise<ReactNode> {
   return async (close) => {
     const [view, m] = await Promise.all([app.client.tests(), import('../components/UpdateGolden.js')]);
-    const update = () => {
-      const went = startTestsJob(app, JOB_KINDS.testUpdate, { golden, ...sentEstimate(estimate) });
+    const update = (reason: string) => {
+      const went = startTestsJob(app, JOB_KINDS.testUpdate, { golden, ...reasonField(reason), ...sentEstimate(estimate) });
       if (went) close();
       return went;
     };

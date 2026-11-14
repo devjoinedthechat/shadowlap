@@ -67,6 +67,7 @@
     // These render the shell's dialogs and palette, or ask through the page's client.
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-dialog-anatomy.test.ts",
+    "packages/dashboard/test/ui-update-reason.test.ts",
     "packages/dashboard/test/ui-job-end.test.ts",
     "packages/dashboard/test/ui-route-helpers.ts",
     "packages/dashboard/test/ui-served-now.ts",

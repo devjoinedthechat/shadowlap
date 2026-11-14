@@ -13,6 +13,7 @@ import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { goldenExpect } from '../run-offers.js';
+import { withReason } from '../tests-reason.js';
 import { namesTeamStore } from './verdicts.js';
 import { writtenEntries } from '../config-tests.js';
 import { withInjectionGates } from '../injection-gates.js';
@@ -271,7 +272,7 @@ export function register(router: Router, ctx: RouteContext): void {
   const withSteps = async (view: TestsView): Promise<TestsAnswer> => {
     const listed = [...view.divergences, ...view.failures, ...view.inconclusive];
     if (!listed.length) return view;
-    const reports = goldenReports(view, { store: ctx.store, goldens: goldens(), normalizers: normalizers(), project: ctx.project?.path ?? null });
+    const reports = goldenReports(view, { store: ctx.store, goldens: goldens(), normalizers: normalizers(), project: ctx.project?.path ?? null, names: ctx.project?.path ? namesTeamStore(ctx.project.path) : false });
     const named = Object.values(reports).map((x) => x.golden);
     const [steps, runs] = await Promise.all([
       pooled<Record<string, NextStep>>(() => ctx.reads.run({ kind: 'tests-steps', goldens: listed.map((d) => d.golden), next: nextStepWork(ctx) })),
@@ -373,7 +374,7 @@ export function register(router: Router, ctx: RouteContext): void {
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.update, {
     title: () => ACTIONS.updateGoldens.doing,
     build: (req, { store, projectId }) =>
-      req.normalize === true ? testsBuild(normalizeAndUpdateJob(store, goldens(), req, normalizers()), busy(store, projectId, 'update them')) : testsBuild(updateGoldensJob(goldens(), req), busy(store, projectId, 'update it')),
+      req.normalize === true ? testsBuild(withReason(normalizeAndUpdateJob(store, goldens(), req, normalizers()), req.reason), busy(store, projectId, 'update them')) : testsBuild(withReason(updateGoldensJob(goldens(), req), req.reason), busy(store, projectId, 'update it')),
   });
   // A golden's search waits for the tests, and they for it; a run's searches nothing on disk.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {
@@ -400,7 +401,7 @@ export function register(router: Router, ctx: RouteContext): void {
     title: () => ACTIONS.addNormalizerAndRerun.doing,
     build: (req, { store, projectId }) => {
       const list = goldens();
-      const job = normalizeAndTestJob(store, list, req);
+      const job = withReason(normalizeAndTestJob(store, list, req), req.reason);
       return testsBuild(job, busy(store, projectId, 'add the normalizer'), liveAsk(list, job, req.yes));
     },
   });

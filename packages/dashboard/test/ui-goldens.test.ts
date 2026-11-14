@@ -203,6 +203,9 @@ describe('the goldens table', () => {
   it('says on hover how a golden did at each revision, and why it failed, in the verdict\'s colour, and names the cell so', () => {
     expect(tip({ revision: 'b7e40c2', tested: 'b7e40c2', result: 'fail', verdict: 'failed', note: 'input tokens 71,940, over the 60,000 budget' }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', word: 'failed', note: 'input tokens 71,940, over the 60,000 budget', color: 'var(--cq-red)', label: 'b7e40c2: failed, input tokens 71,940, over the 60,000 budget' });
     expect(tip({ updated: true })).toMatchObject({ word: 'passed', note: 'updated here: re-recorded, its checks passed', color: 'var(--cq-lime)' });
+    // With the reason the update kept, where it kept one.
+    expect(tip({ updated: true, reason: 'refunds above the limit go to a manager' }).note).toBe('updated here: re-recorded, its checks passed · why: refunds above the limit go to a manager');
+    expect(tip({ reason: 'never said without an update' }).note).toBe('');
     expect(tip({ revision: null, tested: null, result: null, verdict: null, at: null })).toEqual({ title: 'no revision · x', word: 'not tested here', note: '', color: 'var(--line2)', label: 'no revision: not tested here' });
     // Updated, and its new recording failed the replay after it: both are said.
     expect(tip({ result: 'fail', verdict: 'failed', note: 'diverged at call 8', updated: true }).note).toBe('updated here, then diverged at call 8');

@@ -15,6 +15,6 @@ export type DivergedAsk = ({ kind: 'update'; test: TestBannerOffer; callNo: numb
  * normalizer instead, and Add normalizer and update's, with both commands. Rarely opened, so a part
  * of its own (`onShow`), out of the run page's script.
  */
-export function DivergedDialogs({ ask, onNormalize, onUpdate, onClose }: { ask: DivergedAsk; onNormalize: () => unknown; onUpdate: () => unknown; onClose: () => void }) {
-  return ask.kind === 'update' ? <UpdateGoldenDialog plan={updateGoldenCopy(ask.test, ask.callNo, ask.canNormalize, ask.replayChecks)} estimate={ask.estimate} onInstead={onNormalize} onClose={onClose} onUpdate={onUpdate} /> : <NormalizeUpdateDialog name={ask.name} steps={ask.steps} estimate={ask.estimate} onClose={onClose} onRun={onNormalize} />;
+export function DivergedDialogs({ ask, onNormalize, onUpdate, onClose }: { ask: DivergedAsk; onNormalize: (reason?: string) => unknown; onUpdate: (reason: string) => unknown; onClose: () => void }) {
+  return ask.kind === 'update' ? <UpdateGoldenDialog plan={updateGoldenCopy(ask.test, ask.callNo, ask.canNormalize, ask.replayChecks)} estimate={ask.estimate} onInstead={onNormalize} onClose={onClose} onUpdate={onUpdate} /> : <NormalizeUpdateDialog name={ask.name} steps={ask.steps} estimate={ask.estimate} onClose={onClose} onRun={() => onNormalize()} />;
 }

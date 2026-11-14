@@ -734,6 +734,8 @@ describe('Update’s estimates: the apply drawer’s and a task’s', () => {
     // It asks whatever Spending says, Never ask included, since it replaces goldens.
     await r.click(r.one('button'));
     expect(started).toEqual([]);
+    // Its dialog is a part of its own, which loads the first time it is asked for.
+    await r.until('Update goldens’ dialog', () => r!.all('.dialog').length === 1);
     expect(text(r.one('.dialog .dcost'))).toBe('≈$0.400 · 2 goldens · live, as their recordings cost');
     await r.click(r.one('.dialog .dlg-ok'));
     expect(started).toEqual([[JOB_KINDS.testUpdate, { goldens: ['goldens/refund', 'goldens/cancel'], estimate: { usd: 0.4, ceiling: false } }]]);

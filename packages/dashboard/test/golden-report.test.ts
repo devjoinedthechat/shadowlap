@@ -16,7 +16,7 @@ const TWICE = 'send_email called at most 1 time';
 const check = (label: string, status: StoredCheck['status'], detail?: string, extra: Partial<StoredCheck> = {}): StoredCheck => ({ label, ok: status === 'passed', status, ...(detail ? { detail } : {}), ...extra }) as StoredCheck;
 
 /** A store with one recording packed as `goldens/<name>`, and a replay of it that came out as `result` says. */
-function world(name: string, result: (replay: string, session: string, store: Store) => Omit<Parameters<Store['addTestResult']>[0], 'sessionId' | 'golden' | 'runId'>, o: { checks?: string[]; mode?: 'replay' | 'fork'; divergence?: Parameters<Store['setDivergence']>[1]; calls?: string; view?: (view: ReturnType<typeof testsView>) => void } = {}) {
+function world(name: string, result: (replay: string, session: string, store: Store) => Omit<Parameters<Store['addTestResult']>[0], 'sessionId' | 'golden' | 'runId'>, o: { checks?: string[]; mode?: 'replay' | 'fork'; divergence?: Parameters<Store['setDivergence']>[1]; names?: boolean; calls?: string; view?: (view: ReturnType<typeof testsView>) => void } = {}) {
   const store = Store.open(':memory:');
   const recording = o.calls ? { runId: addRun(store, { startedAt: 1, calls: o.calls }) } : store.createRun({ mode: 'record', command: { argv: ['python', 'refund_agent.py'], cwd: '/work/shop' } });
   const s = store.startTestSession({ command: ['shadowlap', 'test', `goldens/${name}`], revision: 'abc1234' });
@@ -26,7 +26,7 @@ function world(name: string, result: (replay: string, session: string, store: St
   const goldens: GoldenSource[] = [{ path: `goldens/${name}`, runId: recording.runId, packedAt: 1, mode: o.mode ?? 'replay', repeat: 1, passes: 1, checks: o.checks ?? [] }];
   const view = testsView(store, goldens, { folder: 'goldens' });
   o.view?.(view);
-  const reports = goldenReports(view, { store, goldens, normalizers: [], project: '/work/shop' });
+  const reports = goldenReports(view, { store, goldens, normalizers: [], project: '/work/shop', ...(o.names === undefined ? {} : { names: o.names }) });
   return { store, recording: recording.runId, replay: replay.runId, report: reports[`goldens/${name}`], reports };
 }
 
@@ -58,6 +58,25 @@ describe('a divergence', () => {
     expect(report.parts).toEqual([{ kind: 'request', runId: replay, callNo: 1, against: { runId: recording, callNo: 1 }, bodies: null, followed: null }]);
     expect(report.sub).toEqual(['0 upstream requests']);
     expect(report.hint).toEqual({ key: 'normalizer' });
+  });
+
+  it('says under its request what the change takes out of an accepted one, with who accepted it only where names show', () => {
+    const takesOut = [{ sentence: 'Escalate refunds above $100.', at: '2026-11-14T10:00:00.000Z', by: 'dev@example.com', reason: 'a $240 refund went out against policy', fix: 'fx-01M3RXQ4VB' }];
+    const result = () => ({ ...diverged(1), data: { ...diverged(1).data, takesOut } });
+    const at = { divergence: { type: 'request_changed' as const, callNo: 1, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 0, recorded: 30 } };
+    const request = (names: boolean) => world('refund', result, { ...at, names }).report.parts.find((p) => p.kind === 'request') as Extract<GoldenReport['parts'][number], { kind: 'request' }>;
+    expect(request(false).takenOut!.map(text)).toEqual(['This change takes out what an accepted change put in: `Escalate refunds above $100.`, accepted 2026-11-14: a $240 refund went out against policy (fix fx-01M3RXQ4VB)']);
+    expect(request(true).takenOut!.map(text)).toEqual(['This change takes out what an accepted change put in: `Escalate refunds above $100.`, accepted 2026-11-14 by dev@example.com: a $240 refund went out against policy (fix fx-01M3RXQ4VB)']);
+    // As printed, after the report's lines, as the CLI prints it under the golden.
+    const printed = world('refund', result, { ...at, names: true }).report.printed.slice(-3);
+    expect(printed).toEqual([
+      { text: '    ! this change takes out what an accepted change put in:', tone: 'y' },
+      { text: '        "Escalate refunds above $100."', tone: '' },
+      { text: '        accepted 2026-11-14 by dev@example.com: a $240 refund went out against policy (fix fx-01M3RXQ4VB)', tone: 'dim' },
+    ]);
+    expect(world('refund', result, at).report.printed.at(-1)!.text).toBe('        accepted 2026-11-14: a $240 refund went out against policy (fix fx-01M3RXQ4VB)');
+    // A divergence that takes nothing out has no such line.
+    expect(world('refund', () => diverged(1), at).report.parts.find((p) => p.kind === 'request')).not.toHaveProperty('takenOut');
   });
 
   it('draws its replay up to the call that diverged past call 1', () => {

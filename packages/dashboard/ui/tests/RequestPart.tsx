@@ -16,7 +16,8 @@ import { Pieces } from './Pieces.js';
  * never reads as a second fault: the offline 503 the agent exited on, Show message opening its body.
  * A divergence that kept no changes, as a run offers no Show diff for it, draws what followed alone.
  * Where an applied migration left the golden waiting, its cause under the diff, in the server's words:
- * the migration whose config change switched its model, its id opening its report.
+ * the migration whose config change switched its model, its id opening its report. Where the request
+ * takes out what an accepted change put in, a line for each sentence, with when and why it was accepted.
  */
 export function RequestPart({ p, open, id }: { p: Extract<ReportPart, { kind: 'request' }>; open: boolean; id: string }) {
   const diff = p.runId ? <Asked runId={p.runId} callNo={p.callNo} /> : p.bodies ? <Kept p={p} bodies={p.bodies} /> : null;
@@ -28,6 +29,11 @@ export function RequestPart({ p, open, id }: { p: Extract<ReportPart, { kind: 'r
           <Pieces pieces={p.cause} />
         </p>
       ) : null}
+      {p.takenOut?.map((line, i) => (
+        <p key={i} className="rpc rpcause">
+          <Pieces pieces={line} />
+        </p>
+      ))}
       {p.followed ? <FollowedLine f={p.followed} id={id} /> : null}
     </>
   );

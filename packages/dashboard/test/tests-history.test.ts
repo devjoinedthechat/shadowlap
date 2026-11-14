@@ -106,6 +106,24 @@ describe('a golden\'s history', () => {
   });
 });
 
+describe('a golden updated at a revision', () => {
+  it('keeps the reason its update kept in the cell, the latest where two updates there kept one, and none where none did', () => {
+    const s = Store.open(':memory:');
+    const at = (revision: string, updated: NonNullable<TestResultData['updated']> | null) => {
+      const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/plain'], revision });
+      s.addTestResult({ sessionId: session.sessionId, golden: 'goldens/plain', runId: null, ok: true, failure: null, reason: null, revision, data: { ...PLAIN, ...(updated ? { updated } : {}) } });
+    };
+    at('aaa1111', { from: 'A', to: 'B', calls: 8 });
+    at('bbb2222', { from: 'B', to: 'C', calls: 8, reason: 'refunds above the limit go to a manager' });
+    at('bbb2222', { from: 'C', to: 'D', calls: 8, reason: 'answers ran long' });
+    at('ccc3333', null);
+    const results = s.listTestResults({ golden: 'goldens/plain', limit: 10 });
+    const cells = historyCells(s, results, ['aaa1111', 'bbb2222', 'ccc3333'], { columnOf: (r) => r.revision, columns: new Set(results.map((r) => r.sessionId)), note: () => null, runId: () => null });
+    expect(cells.map((c) => [c.updated, c.reason])).toEqual([[true, undefined], [true, 'answers ran long'], [false, undefined]]);
+    s.close();
+  });
+});
+
 describe('the revisions as git has them', () => {
   it('names each revision\'s commit by its subject, a tested-dirty one by the commit under it, and its author only where names show', () => {
     const view = { revisions: ['a1b2c3d', 'b2c3d4e+dirty', null] };

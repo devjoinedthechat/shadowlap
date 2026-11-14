@@ -11,7 +11,11 @@ import { useTestsEstimates, type Price } from '../tests-estimates.js';
 import { updatesPrice } from '../tests-prices.js';
 import { maskFirst } from '../update-plan.js';
 import { JobButton } from './JobButton.js';
-import { UpdateGoldenDialog } from './UpdateGolden.js';
+import { onShow } from './OnShow.js';
+import { reasonField } from '../update-reason.js';
+
+/** The dialog, in the script Tests' own Update golden loads: it comes when Update goldens is first pressed. */
+const UpdateGoldenDialog = onShow(() => import('./UpdateGolden.js').then((m) => m.UpdateGoldenDialog));
 
 /**
  * Update goldens on the goldens an apply left behind (Apply fix's and Apply config change's drawer, a
@@ -52,8 +56,8 @@ export function UpdateOutdated({ outdated, id, lime, sub }: { outdated: readonly
           plan={asking.ask}
           estimate={asking.estimate}
           onClose={() => setAsking(null)}
-          onUpdate={() => start(asking.ask.fields, asking.estimate)}
-          {...(instead?.run === 'normalize-update-all' ? { onInstead: () => start({ goldens: instead.goldens, normalize: true }, asking.estimate) } : {})}
+          onUpdate={(reason) => start({ ...asking.ask.fields, ...reasonField(reason) }, asking.estimate)}
+          {...(instead?.run === 'normalize-update-all' ? { onInstead: (reason: string) => start({ goldens: instead.goldens, normalize: true, ...reasonField(reason) }, asking.estimate) } : {})}
         />
       ) : null}
     </>
