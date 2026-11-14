@@ -674,9 +674,34 @@ export function otherBlameWords(o: FixDetail['blames'][number]): string {
 // ---------------------------------------------------------------------------------------------- the job drawer
 
 /**
+ * Why a blame refused to search, by the reason its error gives (the CLI's BlameError), in a few words
+ * after "refused": the run passes when replayed, its replay isn't the recording's, and so on. A check
+ * no probe could decide is amber, as an inconclusive job is.
+ */
+const BLAME_REFUSED: Readonly<Record<string, { why: string; tone: 'warn' | 'err' }>> = {
+  passes: { why: 'passes when replayed', tone: 'err' },
+  diverged: { why: 'doesn’t replay as recorded', tone: 'err' },
+  bypassed: { why: 'replay went around Shadowlap', tone: 'err' },
+  prefix: { why: 'replays aren’t clean', tone: 'err' },
+  'no-model-calls': { why: 'no model calls to probe', tone: 'err' },
+  unpriced: { why: 'no price for its model', tone: 'err' },
+  inconclusive: { why: 'a check can’t be decided', tone: 'warn' },
+};
+
+/** A blame that ended on an error (`outcome: 'error'`), as the drawer says it: stopped before it began, or refused, and why. */
+function blameErrorStatus(r: Record<string, unknown>, exit: string): { text: string; tone: 'warn' | 'err' } {
+  const reason = isObject(r.error) && typeof r.error.reason === 'string' ? r.error.reason : null;
+  if (reason === 'interrupted') return { text: `interrupted · ${exit}`, tone: 'warn' };
+  const refused = reason ? BLAME_REFUSED[reason] : undefined;
+  return refused ? { text: `refused · ${refused.why} · ${exit}`, tone: refused.tone } : { text: `refused · ${exit}`, tone: 'err' };
+}
+
+/**
  * How a blame, a repair or a fix apply ended, as the drawer's status says it, from the result the
  * command reported: "lost at #5 · exit 0" (or "lost between #7 and #9 · exit 0"), "no fix
- * found · exit 1", "applied · tests passed · exit 0".
+ * found · exit 1", "applied · tests passed · exit 0". A blame that found no call rescues the run is
+ * red, as the run page draws it, and one inconclusive at its first model call (exit 3) amber; one
+ * that refused to search says why ("refused · passes when replayed · exit 1").
  * A repair whose repairer was never asked (claude was not found, none is configured, it had nothing
  * to rewrite) and that tried nothing else looked for no fix: "repairer not asked", in amber. Null
  * for any other job, or a result this doesn't know, so the drawer reads the output instead.
@@ -694,9 +719,10 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
       // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): inconclusive, never "not rescued".
       const first = Array.isArray(r.probes) && isObject(r.probes[0]) ? r.probes[0] : null;
       const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
-      return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+      return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: unsettled ? 'warn' : 'err' };
     }
     if (r.outcome === 'stopped') return { text: `${blameStateWord('stopped', false)} · ${exit}`, tone: 'warn' };
+    if (r.outcome === 'error') return blameErrorStatus(r, exit);
     return null;
   }
   if (job.kind === 'repair') {

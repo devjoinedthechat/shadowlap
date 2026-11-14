@@ -88,13 +88,18 @@ beforeEach(() => {
   hold = null;
 });
 
-/** `interrupt`: Ctrl-C once what it printed says so; `afterInterrupt` is how long it ran on after that, ms. */
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { interrupt?: (out: string) => boolean } = {}): Promise<{ code: number | null; out: string; stdout: string; afterInterrupt: number | null }> {
+/**
+ * `interrupt`: Ctrl-C once what it printed says so; `afterInterrupt` is how long it ran on after that, ms.
+ * With `events`, it runs as a dashboard job does, and `events` are the job events it reported on fd 3.
+ */
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { interrupt?: (out: string) => boolean; events?: boolean } = {}): Promise<{ code: number | null; out: string; stdout: string; afterInterrupt: number | null; events: Array<Record<string, unknown>> }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd: work, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AGENT_OUTBOX: join(work, 'outbox.jsonl'), ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd: work, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AGENT_OUTBOX: join(work, 'outbox.jsonl'), ...(o.events ? { SHADOWLAP_EVENTS_FD: '3' } : {}), ...env }, stdio: ['ignore', 'pipe', 'pipe', o.events ? 'pipe' : 'ignore'] });
     let out = '';
     watch(child, `shadowlap ${args.join(' ')}`, () => out, reject);
     let stdout = '';
+    let events = '';
+    (child.stdio[3] as NodeJS.ReadableStream | null)?.on('data', (d: Buffer) => (events += d.toString()));
     let interruptedAt: number | null = null;
     const interrupt = () => {
       if (interruptedAt !== null || !o.interrupt?.(out)) return;
@@ -110,7 +115,8 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { interrupt?:
       out += d.toString();
       interrupt();
     });
-    child.on('exit', (code) => resolve({ code, out, stdout, afterInterrupt: interruptedAt === null ? null : Date.now() - interruptedAt }));
+    // Its job events are all read once their pipe has closed too.
+    child.on(o.events ? 'close' : 'exit', (code) => resolve({ code, out, stdout, afterInterrupt: interruptedAt === null ? null : Date.now() - interruptedAt, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) }));
   });
 }
 
@@ -224,9 +230,12 @@ describe('shadowlap blame', () => {
 
   it('refuses a run that passes its oracle, and one that does not replay as recorded', async () => {
     const runId = await record();
-    const passes = await shadowlap(['blame', runId]);
+    // Run as a dashboard job, it reports why as its result, which its drawer says, as --json prints it.
+    const passes = await shadowlap(['blame', runId], {}, { events: true });
     expect(passes.code).toBe(1);
     expect(passes.out).toContain('passes its oracle when replayed (the agent exits 0), so there is no failure to blame');
+    const result = passes.events.find((e) => e.type === 'result');
+    expect(result?.data).toMatchObject({ runId, outcome: 'error', error: { reason: 'passes', message: expect.stringContaining('so there is no failure to blame') as unknown } });
 
     const drifted = await shadowlap(['blame', runId, '--expect', ORACLE, '--json'], { AGENT_SYSTEM: 'A different prompt.' });
     expect(drifted.code).toBe(1);

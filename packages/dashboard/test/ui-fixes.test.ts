@@ -585,12 +585,14 @@ describe('the job drawer', () => {
     expect(otherBlameWords({ ...other, range: { from: 5, to: 7, gradual: true } })).toBe('lost gradually around #5 and #7');
     expect(otherBlameWords({ ...other, outcome: 'unrescuable', lostAt: null, unsettled: true })).toBe('inconclusive');
     expect(otherBlameWords({ ...other, outcome: 'stopped', lostAt: null })).toBe('stopped');
-    expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    // Its first probe couldn't tell, and nothing else was found: inconclusive, never "not rescued".
+    // No call rescues the run, a finding blame exits 0 on: red, as the run page's banner draws it.
+    expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'err' });
+    // Its first probe couldn't tell, and nothing else was found: inconclusive, never "not rescued", which
+    // blame exits 3 on, in amber as the run page and Activity draw it.
     const unsettled = { outcome: 'unrescuable', blamed: null, sameAnswer: null, failedWrite: null, probes: [{ callNo: 1, decision: 'inconclusive' }] };
-    expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'inconclusive · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 3, unsettled), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'err' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'err' });
     expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'warn' });
     expect(jobStatus(job('repair', 3, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 3', tone: 'warn' });
     expect(jobStatus(job('repair', 1, { outcome: 'no-diagnosis' }), [])).toEqual({ text: 'no fix to try · exit 1', tone: 'warn' });
@@ -621,6 +623,22 @@ describe('the job drawer', () => {
     expect(ask).toMatchObject({ title: 'Update 2 diverged goldens?', lead: 'Re-records the 2 goldens, for a change you meant.', ok: 'Update 2 goldens', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
     expect(ask.goldens[0]).toMatchObject({ name: 'refund-in-limit', where: '#1 ~ $.tools[4].description' });
     expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', ok: 'Update golden', fields: { golden: 'goldens/01M53A4MZS' } });
+  });
+
+  it('ends a blame that could not search on why, as its error says it', () => {
+    // As `shadowlap blame` reports one (fix-blame.ts), with the status blameErrorStatus gives it.
+    const refused = (reason: string, code: number) => jobStatus(job('blame', code, { runId: '01M5', outcome: 'error', error: { reason, message: '…' }, judge: null }), []);
+    expect(refused('passes', 1)).toEqual({ text: 'refused · passes when replayed · exit 1', tone: 'err' });
+    expect(refused('diverged', 1)).toEqual({ text: 'refused · doesn’t replay as recorded · exit 1', tone: 'err' });
+    expect(refused('bypassed', 1)).toEqual({ text: 'refused · replay went around Shadowlap · exit 1', tone: 'err' });
+    expect(refused('prefix', 1)).toEqual({ text: 'refused · replays aren’t clean · exit 1', tone: 'err' });
+    expect(refused('no-model-calls', 2)).toEqual({ text: 'refused · no model calls to probe · exit 2', tone: 'err' });
+    expect(refused('unpriced', 2)).toEqual({ text: 'refused · no price for its model · exit 2', tone: 'err' });
+    // A check no probe could decide, and a stop, are amber, as every inconclusive or stopped job is.
+    expect(refused('inconclusive', 3)).toEqual({ text: 'refused · a check can’t be decided · exit 3', tone: 'warn' });
+    expect(refused('interrupted', 130)).toEqual({ text: 'interrupted · exit 130', tone: 'warn' });
+    // A reason this doesn't know reads as a refusal all the same.
+    expect(refused('elsewhere', 1)).toEqual({ text: 'refused · exit 1', tone: 'err' });
   });
 
   it('leaves other jobs, and a result it does not know, to the output', () => {
