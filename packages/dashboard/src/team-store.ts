@@ -5,11 +5,12 @@ import { CREDENTIAL_HINTS, credentialsHere, formatStoreUrl, lastCheck, parseStor
 
 /**
  * The team store as `/api/meta` reports it: the bucket and folder shadowlap.config.json names, when
- * this machine last pushed and pulled, how many runs are in the store and which are only here (the
- * Runs page's `local` tag), the last `shadowlap store check`, and whose credentials this machine
- * would use. teamStoreStatus is pure (the store and what readTeamStoreInput gathered in, JSON out);
- * readTeamStoreInput does the reading: the config, and the environment and files the clouds' own
- * tools keep credentials in. Nothing here makes a request: the bucket is the CLI's to talk to.
+ * this machine last pushed and pulled, how many runs are in the store and only here (which ones,
+ * the Runs page's `local` tag, `localRunSet` says), the last `shadowlap store check`, and whose
+ * credentials this machine would use. teamStoreStatus is pure (the store and what
+ * readTeamStoreInput gathered in, JSON out); readTeamStoreInput does the reading: the config, and
+ * the environment and files the clouds' own tools keep credentials in. Nothing here makes a
+ * request: the bucket is the CLI's to talk to.
  */
 
 export interface TeamStoreInput {
@@ -50,8 +51,6 @@ export interface TeamStoreStatus {
    * Runs page's `local` tag). Runs still recording and runs pulled from a pull request's folder aren't counted.
    */
   onlyLocal: number;
-  /** Ids of those runs, newest first (at most 500). */
-  localRuns: string[];
   /** Attempts only here, filed under runs here: a push of their runs sends them. */
   localAttempts: number;
   /** Runs queued while recording, pushed when they end. */
@@ -62,14 +61,9 @@ export interface TeamStoreStatus {
   access: string;
   /** Settings → Store's "Push from CI" switch: `test --push` in CI pushes, unless the config's `ciPush` is false. */
   ciPush: boolean;
-  /** The CI providers whose runs are in the store (github, gitlab…), for "ci (GitHub Actions)". */
-  ciProviders: string[];
   /** A setup of the store started on the setup page and not finished: the status bar says "setting up", as the design's does. */
   settingUp: boolean;
 }
-
-/** Runs whose ids the `local` tag needs at most: the newest only-local runs. */
-const LOCAL_IDS = 500;
 
 /**
  * The store's write counters for runs and for what it knows of the team store (change_counts, kept
@@ -80,10 +74,8 @@ const COUNTERS_SQL = `SELECT name, n FROM change_counts WHERE name IN ('runs', '
 const VERSION_SQL = `SELECT (SELECT data_version FROM pragma_data_version()) AS dv, total_changes() AS tc`;
 
 interface TeamFacts {
-  /** Every run only here among `localRuns`, however many: the status names the first LOCAL_IDS. */
+  /** Every run only here among `localRuns`, however many. */
   counts: TeamRunCounts;
-  /** The CI providers whose runs the store's index lists, for "ci (GitHub Actions)". */
-  ciProviders: string[];
   /** Those runs as a set, made when the Runs page's Local chip first asks. */
   local?: ReadonlySet<string>;
 }
@@ -103,16 +95,16 @@ function versionOf(store: StoreOf<'readModels'>, ended: ReadonlySet<string>): st
 }
 
 /**
- * The by-run counts and the CI providers in the store, read again only when runs or what this
- * machine knows of the store changed, or a recording's recorder went away: the status bar, the
- * Overview and the Runs page ask on every reload, and a recording appends calls all the while.
+ * The by-run counts, read again only when runs or what this machine knows of the store changed, or
+ * a recording's recorder went away: the status bar, the Overview and the Runs page ask on every
+ * reload, and a recording appends calls all the while.
  */
 function teamFacts(store: StoreOf<'recording' | 'readModels' | 'team'>, key: string): TeamFacts {
   const ended = abandonedRuns(store);
   const version = versionOf(store, ended);
   const hit = kept.get(store);
   if (hit && hit.key === key && hit.version === version) return hit.facts;
-  const facts: TeamFacts = { counts: teamRunCounts(store, key, Number.MAX_SAFE_INTEGER, ended), ciProviders: store.teamSummary(key).ciProviders };
+  const facts: TeamFacts = { counts: teamRunCounts(store, key, Number.MAX_SAFE_INTEGER, ended) };
   kept.set(store, { key, version, facts });
   return facts;
 }
@@ -153,7 +145,7 @@ export function teamStoreStatus(store: StoreOf<'recording' | 'readModels' | 'tea
   // In the store means listed in its index, where teammates find it: a run whose upload was cut
   // short before its index segment is still only here. Counted by run, as the Runs page and the
   // status bar count runs; read again only once runs or the store's rows have changed.
-  const { counts, ciProviders } = teamFacts(store, key);
+  const { counts } = teamFacts(store, key);
   const pushedAt = sync?.pushedAt ?? null;
   const pulledAt = sync?.pulledAt ?? null;
   const check = lastCheck(store, key);
@@ -175,13 +167,11 @@ export function teamStoreStatus(store: StoreOf<'recording' | 'readModels' | 'tea
     syncedAt: pushedAt === null && pulledAt === null ? null : Math.max(pushedAt ?? 0, pulledAt ?? 0),
     inStore: counts.inStore,
     onlyLocal: counts.onlyLocal,
-    localRuns: counts.localRuns.slice(0, LOCAL_IDS),
     localAttempts: counts.localAttempts,
     queued: counts.queued,
     check,
     access: check?.credentials ?? (here ? `${here.uses}, ${here.from}` : `${hint.uses}: ${hint.from}`),
     ciPush: input.ciPush !== false,
-    ciProviders,
     settingUp: settingUp(sync?.data.setup),
   };
 }
