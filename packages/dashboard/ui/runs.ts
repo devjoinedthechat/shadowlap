@@ -476,15 +476,38 @@ export function sortRuns<R extends RunLike>(list: readonly R[], by: RunSort): R[
   return out;
 }
 
+/**
+ * The listed run each run hangs under: its parent where listed; else, where the server nests it under
+ * a run past attempts the list leaves out (a fork made from a blame probe, under the run it probed:
+ * runs-list.ts `recentRuns`), the run before it a level up, in the server's order (`depth`).
+ */
+function anchorsOf(runs: ReadonlyArray<RunLike & { depth?: number }>, ids: ReadonlySet<string>): Map<string, string> {
+  const out = new Map<string, string>();
+  // The last run listed at each level, as the server walks each family.
+  const at: string[] = [];
+  for (const r of runs) {
+    const depth = typeof r.depth === 'number' && Number.isInteger(r.depth) && r.depth >= 0 ? r.depth : null;
+    if (r.parentRunId && ids.has(r.parentRunId)) out.set(r.runId, r.parentRunId);
+    else if (depth && at[depth - 1]) out.set(r.runId, at[depth - 1]!);
+    if (depth !== null) {
+      at.length = depth;
+      at[depth] = r.runId;
+    }
+  }
+  return out;
+}
+
 /** Recordings with their replays and forks under them: newest family first, children oldest first. */
-export function runTree<R extends RunLike>(runs: readonly R[]): Array<{ run: R; depth: number }> {
+export function runTree<R extends RunLike & { depth?: number }>(runs: readonly R[]): Array<{ run: R; depth: number }> {
   const ids = new Set(runs.map((r) => r.runId));
+  const anchors = anchorsOf(runs, ids);
   const kids = new Map<string, R[]>();
   for (const r of runs) {
-    if (!r.parentRunId || !ids.has(r.parentRunId)) continue;
-    const list = kids.get(r.parentRunId) ?? [];
+    const anchor = anchors.get(r.runId);
+    if (!anchor) continue;
+    const list = kids.get(anchor) ?? [];
     list.push(r);
-    kids.set(r.parentRunId, list);
+    kids.set(anchor, list);
   }
   const out: Array<{ run: R; depth: number }> = [];
   const walk = (r: R, depth: number) => {
@@ -492,7 +515,7 @@ export function runTree<R extends RunLike>(runs: readonly R[]): Array<{ run: R; 
     if (out.length > 5000) return;
     for (const k of [...(kids.get(r.runId) ?? [])].sort((a, b) => a.startedAt - b.startedAt)) walk(k, depth + 1);
   };
-  const roots = runs.filter((r) => !r.parentRunId || !ids.has(r.parentRunId));
+  const roots = runs.filter((r) => !anchors.has(r.runId));
   // A family is as new as its newest member, so a fresh fork brings its recording up.
   const newest = new Map<string, number>();
   const familyTime = (r: R): number => {

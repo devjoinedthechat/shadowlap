@@ -11,6 +11,9 @@ import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns
 import { callTotals } from '../src/run-stats.js';
 import { addDays, dayIndex, daysFrom, isTimeZone, localDay } from '../src/local-days.js';
 import { addRun, blameOf, capture, DAY, HOUR, OFFLINE } from './read-model-store.js';
+import { normalizeRuns } from '../ui/normalize.js';
+import { runTree } from '../ui/runs.js';
+import type { RunListItem } from '../ui/types.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC: 12:15 in Berlin.
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
@@ -520,6 +523,17 @@ describe('the sidebar’s recent runs', () => {
         [forkOfAttempt, 1],
       ]);
       expect(recentRuns(local, { includeAttempts: true }).map((r) => [r.runId, r.depth])).toEqual([
+        [rec, 0],
+        [attempt, 1],
+        [forkOfAttempt, 2],
+      ]);
+      // The sidebar draws it there too, under the recording, though its parent isn't listed.
+      const drawn = (rows: RunRow[]) => runTree(normalizeRuns(rows as unknown as RunListItem[])).map((x) => [x.run.runId, x.depth]);
+      expect(drawn(recentRuns(local))).toEqual([
+        [rec, 0],
+        [forkOfAttempt, 1],
+      ]);
+      expect(drawn(recentRuns(local, { includeAttempts: true }))).toEqual([
         [rec, 0],
         [attempt, 1],
         [forkOfAttempt, 2],
