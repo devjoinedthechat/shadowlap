@@ -941,7 +941,7 @@ Decisions shows what a [previewed change](./decisions.md) decides differently at
 
 It shows:
 
-- **The preview**: its name, when it ran and its samples a step, with **Preview in Changes →** to its cell on [Preview](#preview), or **Migration in Changes →**.
+- **The preview**: its name, when it ran, its samples a step and how many of the run's steps changed (*2 steps changed, most rank 1*), with **Preview in Changes →** to its cell on [Preview](#preview), or **Migration in Changes →**.
 - `New preview`, after it, previews another change on this run alone. It waits while the run records: *Preview once the recording finishes*.
 - **The run's cells**, a cell per model call in the colours of [Preview's matrix](#the-matrix). A cell selects its call, so the inspector shows that call's conversation.
 - **What verify found** of the run, with the rule that decided it.
@@ -1092,8 +1092,8 @@ The page keeps its chip, and how far it read, for each project while it stays op
 A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, its pull request, who made it and when, with the amber flag where it merged though it didn't pass, and **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide, and **Preview pull request comment** before it opens the comment's preview, as on [Settings → CI](#ci). Under them:
 
 - **Goldens**, worst first, as that session judged them, each with its note (*4/4 replayed*). A golden opens the replay that judged it while the store holds it, else Tests.
-- **Decisions**: what its prompt and tools decide differently, as its pull request comment carried them: each golden's steps at rank 1 and 2, what changed, the call recorded and the call made, then that later steps are judged in the recorded run's state. With none flagged, it gives the decisions' sentence (*The same decisions at every step asked.*).
-- **On the pull request**, for a session that ran for one: what else its comment carried, a run's cost before and after (*≈$0.041 → ≈$0.043 +5%*) and each injection gate's verdict and tally.
+- **Decisions**: what its prompt and tools decide differently, as its pull request comment carried them: each golden's steps at rank 1 and 2, what changed, the call recorded and the call made, then that later steps are judged in the recorded run's state. With none flagged, it gives the decisions' sentence (*The same decisions at every step asked.*). **Open preview** opens the preview they came from.
+- **On the pull request**, for a session that ran for one: what else its comment carried, a run's cost before and after (*≈$0.041 → ≈$0.043 +5%*) and each injection gate's verdict and tally. A gate's golden opens its result on the run it tested.
 - **The command** that gave the verdict.
 
 A session that kept no decisions lists under Decisions the previews and migrations asked at that revision, a preview opening on [Preview](#preview) and a migration on [Migrate](#migrate), else says CI runs one on each pull request with the Action's `decisions: true`.
@@ -1203,7 +1203,7 @@ An exported copy compares the runs it holds: every pair up to six runs, and beyo
 
 Preview shows what a change of model, prompt or tools decides differently at each model call of your recorded runs, before it ships (`shadowlap decisions`, see [the decision diff](./decisions.md)). Each recorded model call is asked again with only the change swapped in, and its decision compared with the recorded one. No tool runs, so nothing reaches the world.
 
-It opens the newest preview (`#/changes/decisions/<id>`). The picker names the one shown by its change (*Model switch to claude-haiku-4-5*), then its goldens or runs, its samples a step and when. It lists up to 200, newest first, with a filter.
+It opens the newest preview (`#/changes/decisions/<id>`). The picker names the one shown by its change (*Model switch to claude-haiku-4-5*), then its goldens or runs, its samples a step and when. It lists up to 200, newest first, with a filter, and says so under the list when older ones are kept.
 
 #### Start a preview
 
@@ -1330,7 +1330,7 @@ A golden the switch leaves behind replays differently once applied, since its re
 
 **Apply config change** asks first. Its dialog says what happens: the patch applied with `git apply`, the goldens replayed offline, and **Update goldens** next where the switch leaves a golden behind. It names the fields the patch leaves out, the patch, the goldens left behind (or, with none, why none diverges) and `shadowlap migrate apply <id>`. Its confirm starts the `migrate-apply` [job](#jobs), which waits while another job holds your working tree. Its drawer ends on **Update goldens** for the goldens left behind.
 
-Once applied, the verdict says *applied* and names the goldens to update under the model, the config change says *applied*, and What still passes says *until updated*. The model's row on [Needs a look](#needs-a-look) follows. Where `migrate apply` would refuse, as where What to set leaves a field for the hand, it isn't offered.
+Once applied, the verdict says *applied*, when (*applied Nov 6, 14:05*, and by whom where names show), and names the goldens to update under the model, the config change says *applied*, and What still passes says *until updated*. The model's row on [Needs a look](#needs-a-look) follows. Where `migrate apply` would refuse, as where What to set leaves a field for the hand, it isn't offered.
 
 ## Fixes
 
@@ -3443,7 +3443,8 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 
 **The decision diff:**
 
-- `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), and the project's `goldens` count. The models the goldens use that retire are `/api/retirements`'. Each session gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Migrate (`#/changes/migrate/<id>`).
+- `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), `more` where older ones are left out, and the project's `goldens` count. The models the goldens use that retire are `/api/retirements`'.
+- **Each session** gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `actor` names who ran it only where names show. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Migrate (`#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix` and its `view`, read on a thread of its own. The `view` holds Preview's words, worked out on the server: the verdict as Verdicts gives it, what was asked, verify's verdict and what it verified end to end, the next step's facts, the key, the warnings and the receipt.
 - A migration's `/api/decisions/:id` adds its `applied` state, each golden it left behind with whether it still `waits`, and its `migration`: Migrate's report, worded on the server.
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or those the `runId` parameters name (up to 500), is priced in the role its checks give it as recorded, at what it costs under the change. Preview names the runs no verify took yet. `verify` is `null` when there is nothing to verify, as for a named run the session cleared.

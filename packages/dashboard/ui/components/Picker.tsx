@@ -64,7 +64,8 @@ const Rows = memo(function Rows({ shown, optionIds }: { shown: readonly PickerIt
   );
 });
 
-export function Picker({ anchor, label, placeholder, items, onPick, onClose, className }: { anchor: HTMLElement; label: string; placeholder: string; items: readonly PickerItem[]; onPick: (id: string) => void; onClose: () => void; className?: string }) {
+/** `foot`: a quiet line under the list, such as where a list stops at its newest. */
+export function Picker({ anchor, label, placeholder, items, onPick, onClose, className, foot = null }: { anchor: HTMLElement; label: string; placeholder: string; items: readonly PickerItem[]; onPick: (id: string) => void; onClose: () => void; className?: string; foot?: string | null }) {
   const base = useId();
   const listId = `${base}list`;
   // An option's id stays as the filter narrows the list: the one the arrows light is named by it.
@@ -163,6 +164,7 @@ export function Picker({ anchor, label, placeholder, items, onPick, onClose, cla
           {NOTHING}
         </p>
       )}
+      {foot ? <p className="pfoot">{foot}</p> : null}
       <Said words={shown.length ? null : NOTHING} />
     </Popover>
   );

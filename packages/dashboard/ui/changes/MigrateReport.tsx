@@ -20,9 +20,10 @@ import { VerdictLine } from '../components/VerdictLine.js';
 import { useConsentStart } from '../fixes/FixJobButton.js';
 import { outdatedOf, patchFiles } from '../fixes/model.js';
 import { useTreeBusy } from '../fixes/tree.js';
-import { goldenName, shortId } from '../format.js';
+import { goldenName, minuteStamp, shortId } from '../format.js';
 import { addJobFooter } from '../job-actions.js';
 import { ACTIONS } from '../labels.js';
+import { personName } from '../person.js';
 import { href } from '../route.js';
 import { useServedParts } from '../served-parts.js';
 import { tipEst } from '../spending.js';
@@ -41,14 +42,14 @@ import { SessionPicker } from './SessionPicker.js';
  * config change a file a row with its diff behind Show diff, the pull request body behind Show body,
  * and the command that made it. Words that name code come between backticks and are set as code here.
  */
-export function MigrateReport({ session, sessions, retiring, use, run, call }: { session: PreviewSession; sessions: readonly DecisionSessionView[]; retiring: readonly MigrateRetiring[]; use: readonly MigrateUse[]; run: string | null; call: number | null }) {
+export function MigrateReport({ session, sessions, more = false, retiring, use, run, call }: { session: PreviewSession; sessions: readonly DecisionSessionView[]; more?: boolean; retiring: readonly MigrateRetiring[]; use: readonly MigrateUse[]; run: string | null; call: number | null }) {
   const m = session.migration;
   if (!m) return null;
   const opened = openedCell(session, run, call);
   return (
     <>
       <div className="chbar">
-        <SessionPicker kind="migrate" sessions={sessions} shown={session} />
+        <SessionPicker kind="migrate" sessions={sessions} shown={session} more={more} />
         <span className="sp" />
         <MigrateToMenu m={m} retiring={retiring} use={use} goldens={goldensOf(session)} />
       </div>
@@ -82,7 +83,10 @@ export function MigrateReport({ session, sessions, retiring, use, run, call }: {
 /** The goldens a migration asked, by path, for Migrate to another model on the same goldens. */
 const goldensOf = (session: PreviewSession): string[] => [...new Set(session.matrix.flatMap((r) => (r.golden ? [r.golden] : [])))];
 
-/** The verdict: its word (applied, else Verdicts'), the headline, the switch and retirement lines, the goldens left to update, and the one next step. */
+/** When a migration's config change went into the working tree, and who put it there where names show: `applied Nov 6, 14:05 by Ana`. */
+export const appliedWhen = (a: NonNullable<MigrateView['applied']>): string => `applied ${minuteStamp(a.at)}${a.by ? ` by ${personName(a.by)}` : ''}`;
+
+/** The verdict: its word (applied, else Verdicts'), the headline, the switch and retirement lines, when it was applied and by whom, the goldens left to update, and the one next step. */
 function MigrateVerdict({ session, m }: { session: PreviewSession; m: MigrateView }) {
   const facts = (
     <>
@@ -92,6 +96,7 @@ function MigrateVerdict({ session, m }: { session: PreviewSession; m: MigrateVie
           {asWords(r.text)}
         </span>
       ))}
+      {m.applied ? <span className="pline">{appliedWhen(m.applied)}</span> : null}
       {m.appliedLine ? <span className="pline">{codeWords(m.appliedLine)}</span> : null}
     </>
   );

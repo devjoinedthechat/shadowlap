@@ -16,7 +16,7 @@ import { namesTeamStore } from './verdicts.js';
 /**
  * The decision diff (`shadowlap decisions`, `migrate`), for the Changes page and a run's Decisions view:
  *
- *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), and how many goldens the project has
+ *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), `more` where older ones are left out, and how many goldens the project has
  *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, its `view` (decision-view.ts), and a migration's `migration` (migrate-view.ts) with its applied state, beside the server
  *   GET /api/decisions/:id/estimates[?runId=…][&max=&keptMax=]   what its Verify bills (estimates.ts), on every run it could not clear or those the runIds name, at Run more attempts' limits where given
  *   POST /api/decisions/estimates { runs?, goldens?, model?, set?, from?, scope?, samples?, fromCode?, changed? }   what a new preview asks and bills (preview-estimate.ts), each way's card while no change is named; changes nothing
@@ -94,7 +94,9 @@ export function register(router: Router, ctx: RouteContext): void {
     const kind = r.query.get('kind');
     if (kind !== null && !KINDS.has(kind)) throw new HttpError(400, 'kind is decisions or migrate');
     const limit = Math.max(1, Math.min(200, Number(r.query.get('limit') ?? 50) || 50));
-    r.tagged({ sessions: decisionSessions(ctx.store, { limit, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}) }), goldens: goldens().length });
+    // One past the limit, to say whether older sessions are left out.
+    const sessions = decisionSessions(ctx.store, { limit: limit + 1, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}), shared: namesTeamStore(ctx.project?.path) });
+    r.tagged({ sessions: sessions.slice(0, limit), goldens: goldens().length, more: sessions.length > limit });
   });
 
   // A session's runs hold every step's two decisions, and their about lines read requests: worked out beside the server.

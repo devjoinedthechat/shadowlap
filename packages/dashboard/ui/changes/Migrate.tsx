@@ -103,7 +103,7 @@ function MigrateBody({ id, run, call, onMissing, start }: MigrateTabProps & { st
   if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedRead(detail.error)}</ErrorState>;
   if (list.error && !sessions) return <ErrorState retry={list.reload}>{failedRead(list.error)}</ErrorState>;
   if (!session || !sessions) return <Skeleton what="this migration" lines={8} />;
-  return <MigrateReport session={session} sessions={sessions} retiring={start.data?.retiring ?? []} use={start.data?.use ?? []} run={run} call={call} />;
+  return <MigrateReport session={session} sessions={sessions} more={list.data?.more === true} retiring={start.data?.retiring ?? []} use={start.data?.use ?? []} run={run} call={call} />;
 }
 
 /** What the bare tab shows before a migration's page: its reads' wait or failure, no goldens, a retiring model, or Switch from and To; null once it opens a migration. */

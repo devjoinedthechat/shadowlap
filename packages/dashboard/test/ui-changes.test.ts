@@ -6,6 +6,7 @@ import { changesHref, comparePairHref, forgetComparePair, forgetPreviewSession, 
 import { ChangesHead } from '../ui/changes/Head.js';
 import { chipEmpty, flagLine, kindLine, moreLimit, rowTone, verdictHref, VERDICTS_MAX, VERDICTS_STEP } from '../ui/changes/model.js';
 import { RevisionPage } from '../ui/changes/RevisionPage.js';
+import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import { tipCard } from '../ui/components/HoverCard.js';
 import { forgetVerdictsKept, VerdictsTab } from '../ui/changes/Verdicts.js';
 import { rememberList } from '../ui/fixes/data.js';
@@ -703,6 +704,21 @@ describe('a revision’s page', () => {
     expect(injection.querySelector('.rsub')!.querySelectorAll('span.nw').map((x) => shown(x))).toEqual(['6 attempts ·', '0 influenced ·', '6 ignored']);
     expect(injection.querySelector('.rsub')!.querySelectorAll('span.kc').map((x) => shown(x))).toEqual(['0 obeyed (at most 0 allowed) ·']);
     expect(injection.querySelector('code')!.className).toBe('ts-code');
+  });
+
+  it('opens the preview its comment’s decisions came from, and each injection gate’s result on the run it tested', async () => {
+    const linked = parts({ injection: [{ ...parts().injection[0], runId: REC }] });
+    await openRevision(() => Promise.resolve(revision({ latest: false, row: session({ pullRequest: PR }), comment: linked })));
+    await page!.until('the page', () => page!.all('.verdict').length === 1);
+    const [, decisions, more] = page!.all('section.panel.sec');
+    const open = decisions.querySelector('header a.more')!;
+    expect([shown(open), open.getAttribute('href')]).toEqual(['Open preview', '#/changes/decisions/dc-01M5000000000000000000000B']);
+    const gate = more.querySelector('dl dd a')!;
+    expect([gate.getAttribute('href'), shown(gate)]).toEqual([`#/run/${REC}`, 'refund-in-limit']);
+    resetPanel();
+    await page!.click(gate);
+    expect(panelOn(REC)).toEqual({ runId: REC, kind: 'results', key: 'injection:tr-01M5000000000000000000000F' });
+    resetPanel();
   });
 
   it('says a kept preview that flagged nothing in the engine’s words, and leaves On the pull request out for a session that ran for none', async () => {

@@ -132,6 +132,8 @@ export interface KeptInjection {
   verdict: string;
   golden: string;
   resultId: string | null;
+  /** The run its result tested, whose page opens the result, as a revision's page links it; null where the store keeps no such result. */
+  runId?: string | null;
   /** `passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored` */
   line: string;
   /** The line after its verdict; null for a gate with no attempts, whose verdict says it all. */
@@ -167,7 +169,8 @@ export function costPart(cost: TestSessionComment['costPerRun'] | undefined): Ke
  * part its job kept, its cost per run, and the injection gate of each result. Null when it carried
  * none of them.
  */
-export function sessionCommentParts(store: Store, session: Pick<TestSession, 'comment'>, results: readonly CommentResult[]): SessionCommentParts | null {
-  const parts: SessionCommentParts = { decisions: decisionsPart(keptDecisions(store, session.comment?.decisions)), cost: costPart(session.comment?.costPerRun), injection: commentInjection(results) };
+export function sessionCommentParts(store: Store & StoreOf<'injection'>, session: Pick<TestSession, 'comment'>, results: readonly CommentResult[]): SessionCommentParts | null {
+  const injection = commentInjection(results).map((i) => ({ ...i, runId: (i.resultId && store.getInjectionResult(i.resultId)?.runId) || null }));
+  const parts: SessionCommentParts = { decisions: decisionsPart(keptDecisions(store, session.comment?.decisions)), cost: costPart(session.comment?.costPerRun), injection };
   return parts.decisions || parts.cost || parts.injection.length ? parts : null;
 }

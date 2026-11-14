@@ -213,6 +213,19 @@ describe('the Preview page', () => {
     expect(shown(p.one('.cmdline'))).toContain('shadowlap decisions goldens/* --model claude-haiku-4-5');
   });
 
+  it('says under the picker’s list where it stops, where older previews are kept than it lists', async () => {
+    Object.assign(globalThis, { innerWidth: 1440, innerHeight: 900 });
+    for (const more of [true, false]) {
+      const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more }), decisionSession: () => Promise.resolve(flagged) });
+      await p.until('the picker', () => p.all('.rpick.dpick').length === 1);
+      await p.click(p.one('.rpick.dpick'));
+      await p.until('the list', () => p.all('.pop.picker').length === 1);
+      expect(p.all('.pop.picker .pfoot').map(shown)).toEqual(more ? ['The newest 1 previews; older ones open from their runs’ Decisions views'] : []);
+      await p.unmount();
+      page = null;
+    }
+  });
+
   it('ends a verified run’s row on its outcome and tally, its bound kept whole, and a run it cleared as not run end to end', async () => {
     const verified: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], verified: { outcome: 'kept', tally: ' · 4 of 4 · rate >= 0.6 (95%)', count: '4 of 4' } }, { ...flagged.matrix[1], cleared: true }] };
     const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.resolve(verified) });
@@ -470,7 +483,7 @@ describe('the Preview page', () => {
     it('shows the preview that asked the run, its cells, its ranked steps worded and the line about later steps; a step or a cell picks its call', async () => {
       const { p, picked } = await view(runDecisions(store, a));
       await p.until('the steps', () => p.all('.dvstep').length === 1);
-      expect(shown(p.one('.dvhead p'))).toBe(`Model switch to claude-haiku-4-5 · ${minuteStamp(AT)} · 2 samples a step`);
+      expect(shown(p.one('.dvhead p'))).toBe(`Model switch to claude-haiku-4-5 · ${minuteStamp(AT)} · 2 samples a step · 1 step changed, most rank 1`);
       expect([shown(p.one('.dvhead a.more')), p.one('.dvhead a.more').getAttribute('href')]).toEqual(['Preview in Changes →', `#/changes/decisions/${ID}/${a}/3`]);
       expect(p.all('.dvstrip button.dc').map((c) => [c.getAttribute('tabindex'), c.getAttribute('aria-current')])).toEqual([['-1', 'false'], ['0', 'true']]);
       expect([p.one('.dvstep').className, shown(p.one('.dvs1'))]).toEqual(['dvstep sel', '#3 rank 1 issue_refund is no longer called · in 2 of 2']);

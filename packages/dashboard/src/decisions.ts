@@ -37,6 +37,7 @@ export interface DecisionSessionView {
   unit: 'golden' | 'run';
   samples: number | null;
   flagged: number;
+  /** Who ran it, only where names show (a team store); null otherwise. */
   actor: string | null;
   revision: string | null;
   href: string;
@@ -46,6 +47,8 @@ export interface DecisionsListView {
   sessions: DecisionSessionView[];
   /** The project's goldens: with none, a page waits for one before it offers a preview on every golden. */
   goldens: number;
+  /** Older sessions are kept than the list holds: it stopped at its limit. */
+  more: boolean;
 }
 
 export interface RetirementsView {
@@ -60,14 +63,18 @@ export function telling(row: Pick<DecisionRow, 'cells'>): number | null {
   return ranked?.callNo ?? null;
 }
 
-/** The sessions the store keeps, newest first, each opening at its own page under Changes (a preview's tab, a migration's). */
-export function decisionSessions(store: StoreOf<'decisions'> & Store, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
-  const rows = store.listDecisionSessions(o);
+/**
+ * The sessions the store keeps, newest first, each opening at its own page under Changes (a
+ * preview's tab, a migration's). `shared`: names show (a team store), so each says who ran it.
+ */
+export function decisionSessions(store: StoreOf<'decisions'> & Store, o: { limit?: number; kind?: 'decisions' | 'migrate'; shared?: boolean } = {}): DecisionSessionView[] {
+  const { shared = false, ...which } = o;
+  const rows = store.listDecisionSessions(which);
   const facts = sessionFacts(store, rows.map((s) => s.sessionId));
   // A migration's applied state names who applied it: its page reads it from the session, which names them only where shared.
   return rows.map(({ applied, ...s }) => {
     const f = facts.get(s.sessionId);
-    return { ...s, name: f?.name ?? s.change, goldens: f?.goldens ?? 0, unit: f?.unit ?? 'run', samples: f?.samples ?? null, href: links.changeSession(s.kind, s.sessionId) };
+    return { ...s, actor: shared ? s.actor : null, name: f?.name ?? s.change, goldens: f?.goldens ?? 0, unit: f?.unit ?? 'run', samples: f?.samples ?? null, href: links.changeSession(s.kind, s.sessionId) };
   });
 }
 
@@ -98,10 +105,10 @@ export interface RunDecisionsSession {
   change: string;
   name: string;
   samples: number | null;
+  /** The rank most of its samples show at the run's most consequential step, and how many of its steps changed: the view's head says them. */
   rank: number | null;
   changed: number;
-  /** Its Decisions view at the run's most consequential call; `changes`, its cell on Changes. */
-  href: string;
+  /** Its cell on Changes, at the run's most consequential call. */
   changes: string;
   row: DecisionRow;
   /** The steps its view lists, ranked first, each worded (`viewSteps`). */
@@ -138,7 +145,6 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
         samples: f?.samples ?? null,
         rank: r.rank,
         changed: r.changed,
-        href: links.run(runId, call, 'decisions'),
         changes: links.changeSession(r.kind, r.sessionId, runId, call),
         row,
         steps: viewSteps(run),

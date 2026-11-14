@@ -129,7 +129,7 @@ describe('Migrate’s start read', () => {
     expect(res.status).toBe(200);
     const start = (await res.json()) as MigrateStartView;
     expect([start.goldens, start.use.map((u) => [u.model, u.goldens])]).toEqual([1, [['claude-sonnet-4-5', 1]]]);
-    expect(start.retiring.map((n) => [n.model, n.goldens, n.scopes, n.owner, n.replacements[0], n.checked])).toEqual([['claude-sonnet-4-5', ['goldens/refund'], [], 'Anthropic', 'claude-sonnet-5-5', { sessionId: BLOCKED, words: 'checked · the config change is ready' }]]);
+    expect(start.retiring.map((n) => [n.model, n.goldens, n.scopes, n.owner, n.replacements[0], n.checked])).toEqual([['claude-sonnet-4-5', ['goldens/refund'], [], 'Anthropic', 'claude-sonnet-5-5', { sessionId: BLOCKED }]]);
   });
 });
 

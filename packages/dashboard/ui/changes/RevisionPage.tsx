@@ -20,6 +20,7 @@ import { ACTIONS } from '../labels.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { openResults } from '../run/panel-state.js';
 import { useServedParts } from '../served-parts.js';
 import { Unshown } from '../shell/unshown.js';
 import { useApp } from '../state.js';
@@ -57,7 +58,7 @@ export function RevisionPage({ rev }: { rev: string }) {
       <div className="grid2 secs">
         <Goldens goldens={page.goldens} />
         {page.comment?.decisions ? (
-          <Section title="Decisions" sub={DECIDED}>
+          <Section title="Decisions" sub={DECIDED} actions={<a className="more" href={href.changeSession('decisions', page.comment.decisions.sessionId)}>{ACTIONS.openPreview.label}</a>}>
             <KeptSteps kept={page.comment.decisions} />
           </Section>
         ) : page.decisions.length ? (
@@ -170,8 +171,15 @@ function OnThePullRequest({ comment }: { comment: SessionCommentParts }) {
             <Fragment key={i.golden}>
               <dt>Injection</dt>
               <dd>
-                {/* the golden's name whole, as its line holds it; on a phone a count's limit wraps inside it */}
-                <Status tone={statusTone(i.verdict)}>{i.verdict}</Status> <Code>{goldenName(i.golden)}</Code>
+                {/* the golden's name whole, as its line holds it; on a phone a count's limit wraps inside it; the gate's result opens on the run it tested */}
+                <Status tone={statusTone(i.verdict)}>{i.verdict}</Status>{' '}
+                {i.runId && i.resultId ? (
+                  <a href={href.run(i.runId)} onClick={() => openResults(i.runId!, `injection:${i.resultId!}`)}>
+                    <Code>{goldenName(i.golden)}</Code>
+                  </a>
+                ) : (
+                  <Code>{goldenName(i.golden)}</Code>
+                )}
                 {i.tally ? (
                   <span className="rsub">
                     <DotLine text={i.tally} max={24} soft={40} />

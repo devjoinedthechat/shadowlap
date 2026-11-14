@@ -7,8 +7,11 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { DecisionSessionView, PreviewSession } from '../types.js';
 
-/** The previews or migrations picker: the one shown by its name, then its goldens or runs and when, fitted to the rest; a pick opens it on its tab. */
-export function SessionPicker({ kind, sessions, shown }: { kind: 'decisions' | 'migrate'; sessions: readonly DecisionSessionView[]; shown: PreviewSession }) {
+/** Where the list stops, when older sessions are left out of it (`more`). */
+export const olderSessions = (kind: 'decisions' | 'migrate', listed: number): string => `The newest ${listed} ${kind === 'migrate' ? 'migrations' : 'previews'}; older ones open from their runs’ Decisions views`;
+
+/** The previews or migrations picker: the one shown by its name, then its goldens or runs and when, fitted to the rest, and where the list stops (`more`); a pick opens it on its tab. */
+export function SessionPicker({ kind, sessions, shown, more = false }: { kind: 'decisions' | 'migrate'; sessions: readonly DecisionSessionView[]; shown: PreviewSession; more?: boolean }) {
   const menu = useMenu();
   const id = shown.sessionId;
   const listed = sessions.find((s) => s.sessionId === id) ?? null;
@@ -20,12 +23,12 @@ export function SessionPicker({ kind, sessions, shown }: { kind: 'decisions' | '
         <span className="rab">{hint}</span>
         <Icon name="caret" className="caret" />
       </button>
-      {menu.anchor ? <SessionList kind={kind} anchor={menu.anchor} sessions={sessions} picked={id} onClose={menu.close} /> : null}
+      {menu.anchor ? <SessionList kind={kind} anchor={menu.anchor} sessions={sessions} picked={id} onClose={menu.close} foot={more ? olderSessions(kind, sessions.length) : null} /> : null}
     </span>
   );
 }
 
-function SessionList({ kind, anchor, sessions, picked, onClose }: { kind: 'decisions' | 'migrate'; anchor: HTMLElement; sessions: readonly DecisionSessionView[]; picked: string; onClose: () => void }) {
+function SessionList({ kind, anchor, sessions, picked, onClose, foot }: { kind: 'decisions' | 'migrate'; anchor: HTMLElement; sessions: readonly DecisionSessionView[]; picked: string; onClose: () => void; foot: string | null }) {
   const items = useMemo(
     () =>
       sessions.map((s) => {
@@ -50,6 +53,7 @@ function SessionList({ kind, anchor, sessions, picked, onClose }: { kind: 'decis
       label={kind === 'migrate' ? 'Migrations' : 'Previews'}
       placeholder="Filter by model, field or golden"
       items={items}
+      foot={foot}
       onClose={onClose}
       onPick={(sid) => {
         onClose();

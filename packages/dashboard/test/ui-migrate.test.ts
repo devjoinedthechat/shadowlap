@@ -6,6 +6,8 @@ import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { migrateStart } from '../src/migrate-start.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { MigrateTab } from '../ui/changes/Migrate.js';
+import { appliedWhen } from '../ui/changes/MigrateReport.js';
+import { minuteStamp } from '../ui/format.js';
 import { inlineParts, Markdown, parseMarkdown } from '../ui/components/Markdown.js';
 import { NO_GOLDENS } from '../ui/components/NewPreviewMenu.js';
 import { migratePaletteRows } from '../ui/migrate-command.js';
@@ -488,6 +490,9 @@ describe('Changes › Migrate', () => {
     it('says applied once applied, with the golden left waiting where What still passes names it', async () => {
       const p = await report(WAITS);
       expect(shown(p.one('.mgverdict .vw'))).toBe('applied');
+      // When, and who only where names show: this store names none.
+      expect(p.all('.mgverdict .pline').map(shown)).toContain(`applied ${minuteStamp(AT + 1_000)}`);
+      expect(appliedWhen(previewSession(store, WAITS, { shared: true })!.migration!.applied!)).toBe(`applied ${minuteStamp(AT + 1_000)} by dev`);
       expect(shown(p.one('.mgcfg header .sub'))).toBe('agent.py · 2 places · applied');
       expect(p.all('.mgpass .mgleft').map(shown)).toEqual(['diverges at #1 on $.model until updated']);
     });

@@ -1,5 +1,5 @@
 import { andList, longDate, modelFamily, retirementTable, type Store } from '@shadowlap/engine';
-import { checkedWords, newestMigrationsFrom } from './migrate-applied.js';
+import { newestMigrationsFrom } from './migrate-applied.js';
 import { when } from './needs-look/retire.js';
 import { goldenName, plural } from './needs-look/row.js';
 import { answer, type ReadTable } from './read-registry.js';
@@ -16,11 +16,11 @@ import type { GoldenSource } from './tests.js';
 
 export type MigrateStartJob = { kind: 'migrate-start'; goldens: GoldenSource[] };
 
-/** A retiring model as the start page shows it. `checked`: the newest migration from it, and how it came out (null once applied with none waiting). */
+/** A retiring model as the start page shows it. `checked`: the newest migration from it, which the page opens once every retiring model has one. */
 export type MigrateRetiring = RetiringModel & {
   platformName: string | null;
   owner: string | null;
-  checked: { sessionId: string; words: string | null } | null;
+  checked: { sessionId: string } | null;
   /** `claude-sonnet-4-5 retires on November 30, 2026`, by the notice's state. */
   heading: string;
   /** When, where, who recommends what, and the goldens and scopes that call it; code between backticks. */
@@ -78,7 +78,7 @@ export function migrateStart(store: Store, goldens: readonly GoldenSource[], now
       const platform = platforms[n.platform];
       const platformName = platform?.name ?? null;
       const owner = platform?.owner ?? null;
-      return { ...n, platformName, owner, checked: m ? { sessionId: m.sessionId, words: checkedWords(store, m) } : null, heading: `${n.model} ${when(n, longDate)}`, facts: factsOf(n, platformName, owner) };
+      return { ...n, platformName, owner, checked: m ? { sessionId: m.sessionId } : null, heading: `${n.model} ${when(n, longDate)}`, facts: factsOf(n, platformName, owner) };
     }),
     use: [...use.values()].sort((a, b) => b.calls - a.calls || b.goldens - a.goldens || a.model.localeCompare(b.model)),
   };

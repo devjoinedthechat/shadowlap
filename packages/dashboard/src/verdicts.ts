@@ -173,7 +173,7 @@ export interface VerdictsOptions {
   normalizers?: readonly Normalizer[];
 }
 
-type Store = StoreOf<'readModels' | 'tests' | 'fixes'>;
+type Store = StoreOf<'readModels' | 'tests' | 'fixes' | 'injection'>;
 /** What the sessions' reads take, which Settings → CI and the comment's preview share: the tests, never the fixes. */
 type TestsStore = StoreOf<'readModels' | 'tests'>;
 
