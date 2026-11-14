@@ -1071,7 +1071,7 @@ Verdicts lists every change checked, newest first, one row each. A change is one
 
 - **A test session** that ran every golden at a revision. Its row opens [the revision's page](#a-revisions-page).
 - **A preview or a migration**: what a change of model, prompt or tools decides differently. A preview's row opens it on [Preview](#preview), a migration's on [Migrate](#migrate).
-- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
+- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify. One that doesn't count for the fix is muted, as its Verify step draws it, and says why under its verdict.
 
 Each row gives the change and how it was checked (*test session · d2e8a1f · PR #142 open*), what it was checked on (*7 goldens*), what moved (*2 goldens failed*, and *1 write changed* where its comment kept the decisions) and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
 

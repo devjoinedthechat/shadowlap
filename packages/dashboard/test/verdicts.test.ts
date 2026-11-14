@@ -189,6 +189,8 @@ describe('every change checked', () => {
     expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000C')).toMatchObject({ moved: ['1 fixed', '2 inconclusive'], word: 'inconclusive', tone: 'y', verdict: 'incomplete', line: 'Not every run settled' });
     // A repair's candidate: what it verified, by the repair and the candidate, apart from the code it ran at.
     expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000D')).toMatchObject({ code: 'repair candidate 3', repairId: 'repair-munzln2i', candidate: 3, codeVersion: '370712a+dirty', counts: false, line: "Doesn't count for this fix: its check leaves out send_email called 0 times" });
+    // It accepted the change, but counts for nothing on the fix: muted, as its Verify step draws it, never lime.
+    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000D')).toMatchObject({ word: 'accepted', tone: null });
     expect(rows.map((r) => r.id)).not.toContain('vf-01M5FROMPREVIEW0000000000');
     expect(rows.map((r) => r.id)).not.toContain('vf-01M5NOFIX000000000000000');
   });

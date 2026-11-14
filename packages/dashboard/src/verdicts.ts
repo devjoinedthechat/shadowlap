@@ -55,7 +55,7 @@ interface VerdictRowBase {
   /** What moved, each part kept whole: `2 goldens failed`, `2 writes changed`, `2 fixed`. */
   moved: string[];
   word: VerdictWord;
-  /** The word's colour: `ok` held, `no` didn't, `y` open; null for none (a preview with nothing to verify). */
+  /** The word's colour: `ok` held, `no` didn't, `y` open; null for none (a preview with nothing to verify, a verify that doesn't count for its fix). */
   tone: VerdictTone | null;
   /** Under the word: a session's tally; verify's head on a preview, the Verify step's on a fix; the runs left to verify; why it settled nothing; a preview's headline. */
   line: string;
@@ -695,7 +695,8 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
         checked: plural(runs.length, 'run'),
         moved: [...outcomes].map(([outcome, n]) => `${n} ${outcome}`),
         word,
-        tone: TONES[word],
+        // A verdict that doesn't count for the fix is no verdict on it: muted, as its Verify step draws it.
+        tone: fix.standing.counts ? TONES[word] : null,
         line: uncountedHead(fix.standing) ?? fixVerifyHead(verdict, checked.map((x) => ({ runId: String(x.runId), role: x.role, verdict: String(x.verdict) })), fix.failing),
         code: changeName(shape),
         repairId: str(r.repair_id),
