@@ -453,9 +453,9 @@ export function probeVerdictWords(verdict: BlameStep['probes'][number]['verdict'
 
 // ---------------------------------------------------------------------------------------------- repair
 
-/** A candidate's verdict as a status: accepted in lime, rejected and build failed in red, anything else muted (never red for what didn't fail). */
-export function candidateTone(v: CandidateVerdict): 'ok' | 'err' | 'mu' {
-  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'err' : 'mu';
+/** A candidate's verdict as a status: accepted in lime, rejected and build failed in red, inconclusive in amber as it is everywhere, anything else muted (never red for what didn't fail). */
+export function candidateTone(v: CandidateVerdict): 'ok' | 'err' | 'warn' | 'mu' {
+  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'err' : v === 'inconclusive' ? 'warn' : 'mu';
 }
 
 /**
@@ -632,6 +632,16 @@ export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | '
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
   return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
+}
+
+/**
+ * A verify bundle's hover: the change it checked, how that came out in the word every page says a
+ * verdict in (inconclusive, never verify's incomplete), and "doesn't count" for a verdict that
+ * doesn't count for the fix. None for blame's attempts, or a verify's no report names.
+ */
+export function bundleHover(b: Pick<FixBundle, 'kind' | 'change' | 'verdict' | 'counts'>): string | undefined {
+  if (b.kind !== 'verify' || !b.change) return undefined;
+  return `${b.change}${b.verdict ? ` · ${verdictWord(b.verdict)}` : ''}${b.counts === false ? " · doesn't count" : ''}`;
 }
 
 /**

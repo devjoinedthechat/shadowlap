@@ -1,4 +1,4 @@
-import { INCONCLUSIVE_FIRST_HEAD } from './blame-words.js';
+import { INCONCLUSIVE_FIRST_HEAD, unrescuedWords } from './blame-words.js';
 import type { Block } from './deltas.js';
 import { fisherGreater } from './exact-tests.js';
 import { antitonic } from './isotonic.js';
@@ -760,8 +760,15 @@ export function blameSpan(r: Pick<BlameReport, 'blamed' | 'probes'> & { range?: 
  */
 export function unrescuedHead(r: Pick<BlameReport, 'outcome' | 'probes' | 'sameAnswer' | 'failedWrite' | 'confidence'> & { errorBound?: number | null }, p: Palette = plain): string {
   if (unsettledFirst(r)) return `${p.yellow('?')} ${p.bold(INCONCLUSIVE_FIRST_HEAD)}`;
-  const supported = r.sameAnswer || r.failedWrite || r.errorBound === undefined || r.confidence === 'high';
-  return `${p.red('✗')} ${p.bold(supported ? 'Not rescued from any model call' : 'Not rescued from the first model call')}`;
+  return `${p.red('✗')} ${p.bold(rescuedByNone(r) ? 'Not rescued from any model call' : 'Not rescued from the first model call')}`;
+}
+
+/** Whether a blame's bound bears out that no model call rescues the run (`unrescuedHead`): its findings say so, its error is within the search's risk, or it was made before blame bounded its error. */
+const rescuedByNone = (r: Pick<BlameReport, 'sameAnswer' | 'failedWrite' | 'confidence'> & { errorBound?: number | null }): boolean => !!(r.sameAnswer || r.failedWrite || r.errorBound === undefined || r.confidence === 'high');
+
+/** A blame that placed the failure on no call, in a few words, as `unrescuedHead` heads it: wherever a page or a list sums the blame up. */
+export function unrescuedSaid(r: Pick<BlameReport, 'outcome' | 'probes' | 'sameAnswer' | 'failedWrite' | 'confidence'> & { errorBound?: number | null }): string {
+  return unrescuedWords(unsettledFirst(r), rescuedByNone(r));
 }
 
 /**

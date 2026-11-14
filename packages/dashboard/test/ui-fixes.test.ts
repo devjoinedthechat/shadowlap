@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySteps, markLead, updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
-import { appliedButton, attemptMark, blameNextStep, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, keepAt, laterStamp, mergeTreeJobs, moreLine, otherBlameWords, outcomeTone, outdatedOf, parseCheck, patchFiles, patchLines, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleStatuses, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, attemptMark, blameNextStep, bundledRuns, bundleGlyph, bundleHover, bundleLine, bundleSource, callRowCells, candidateTone, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, keepAt, laterStamp, mergeTreeJobs, moreLine, otherBlameWords, outcomeTone, outdatedOf, parseCheck, patchFiles, patchLines, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleStatuses, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { breakPoints, cellKeepsWhole, inlineParts, parseMarkdown, plainCell } from '../ui/components/Markdown.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
@@ -360,7 +360,8 @@ describe('the Repair step’s candidates', () => {
   });
 
   it('gives candidates and roles their status words, never red for what didn’t fail', () => {
-    expect((['accepted', 'rejected', 'set aside', 'build failed', 'not tried', 'unsettled'] as const).map(candidateTone)).toEqual(['ok', 'err', 'mu', 'err', 'mu', 'mu']);
+    // One whose verification left it open is inconclusive, in amber, as an inconclusive verdict is everywhere.
+    expect((['accepted', 'rejected', 'set aside', 'build failed', 'not tried', 'inconclusive'] as const).map(candidateTone)).toEqual(['ok', 'err', 'mu', 'err', 'mu', 'warn']);
     expect(roleStatuses([{ role: 'target', held: 1, of: 1 }, { role: 'good', held: 0, of: 1 }])).toEqual([
       { text: 'target 1 of 1', tone: 'ok' },
       { text: 'good 0 of 1', tone: 'err' },
@@ -464,6 +465,12 @@ describe('the Forks view’s bundles', () => {
     const money = (usd: number) => `≈$${usd.toFixed(3)}`;
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1, spent: 0.032 }), money)).toBe('2 attempts, 1 passed · ≈$0.032');
     expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 · accepted');
+  });
+
+  it('names on a verify bundle’s hover the change and how it came out in a page’s word, never verify’s own', () => {
+    expect(bundleHover({ kind: 'verify', change: 'repair candidate 3', verdict: 'incomplete', counts: true })).toBe('repair candidate 3 · inconclusive');
+    expect(bundleHover({ kind: 'verify', change: 'working tree', verdict: 'accepted', counts: false })).toBe("working tree · accepted · doesn't count");
+    expect(bundleHover({ kind: 'blame', change: null, verdict: null, counts: null })).toBeUndefined();
   });
 
   it('says a verdict that doesn’t count for the fix doesn’t, as the Verify step’s switch does, and keeps a revision with its “at”', () => {

@@ -161,7 +161,7 @@ export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat }
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
 export { formatRepeats, pathOf, summarizeRepeats } from './repeat.js';
-export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeInterval, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
+export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeInterval, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedSaid, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
 // The blame a repair reuses on a failing run rather than search again, as the CLI and Run repair's estimate read it.
 export { reusedBlame, type ReusedBlame } from './blame-reuse.js';

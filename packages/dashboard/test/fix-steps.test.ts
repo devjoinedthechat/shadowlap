@@ -331,6 +331,25 @@ describe('the Repair step’s candidates', () => {
     // A why that names no run of the repair's links none.
     expect(detail(repaired().fixId).repair!.named).toEqual([]);
   });
+
+  it('say a candidate whose verification didn’t finish is inconclusive, and where each run was lost in the words the rest of Fixes uses', () => {
+    const stopped = makeRun(store, { labels: ['refund-bug'] });
+    const loose = makeRun(store, { labels: ['refund-bug'] });
+    const record = (runId: string, report: BlameReport) => recordBlame(store, { runId, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
+    const { fix } = record(stopped, blameReport(stopped, 'stopped'));
+    // Its first probe found the run lost, with an error past what bears out a claim about every call.
+    record(loose, { ...blameReport(loose, 'unrescuable'), confidence: 'low', errorBound: 0.3 });
+    const report = repairReport({ targets: [stopped, loose], accepted: false });
+    // As repair reports them (repair-run.ts): a blame the budget stopped, with no note, and one that rescued the run from no call.
+    report.outcome = 'stopped';
+    report.why = 'the budget of $0.50 is spent';
+    report.targets = report.targets.map((t) => ({ ...t, outcome: t.runId === stopped ? 'stopped' : 'unrescuable', callNo: null, step: null, recorded: null, rescued: null }));
+    report.candidates[1] = { ...report.candidates[1], state: 'incomplete', reason: 'the provider was unavailable' };
+    recordRepair(store, { repairId: 'repair-words', dir: '.shadowlap/repairs/repair-words', report, expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
+    const r = detail(fix.fixId).repair!;
+    expect(r.candidates[1]).toMatchObject({ verdict: 'inconclusive', why: 'the provider was unavailable' });
+    expect(r.lost.map((x) => x.at)).toEqual(['blame stopped part way', 'not rescued from the first model call']);
+  });
 });
 
 describe('the Verify step’s runs', () => {

@@ -1,4 +1,4 @@
-import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, labelledFixes, lostRange, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, labelledFixes, lostRange, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedSaid, unsettledFirst } from '@shadowlap/engine';
 import { fixHref, isUnblamedFailure, runHref, toolsCalled } from './fix-shared.js';
 import type { RunIndex } from './run-index.js';
 
@@ -70,7 +70,7 @@ function askedInstead(recorded: readonly Block[], rescued: readonly Block[]): st
 
 function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   const r = b.report;
-  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(r)) : 'blame stopped early';
+  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? unrescuedSaid(r) : 'blame stopped early';
   return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, range: lostRange(r.range), step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
 

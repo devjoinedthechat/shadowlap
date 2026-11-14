@@ -1,11 +1,12 @@
-import { commitTitle, eachRun, fixVerifyHead, noRepairerOf, patchFiles, repairMarkdown, repairOutcomeWord, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type RepairReport, type StoreOf, type StoredRepair, unrescuedWords } from '@shadowlap/engine';
+import { commitTitle, eachRun, fixVerifyHead, noRepairerOf, patchFiles, repairMarkdown, repairOutcomeWord, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type RepairReport, type RepairTarget, type StoreOf, type StoredRepair, unrescuedSaid, unrescuedWords } from '@shadowlap/engine';
 import { repairSpent } from './fix-lead.js';
 import { acceptedCandidate, fixHref, repairerLabel, ROLE, runHref, s, short, sprtGate, type StepLine } from './fix-shared.js';
 import { verdictHeadline } from './fix-verify-step.js';
 
 /** A fix's Repair step: the change repair proposed, every candidate it tried, and why each was kept or dropped. */
 
-export type CandidateVerdict = 'accepted' | 'rejected' | 'set aside' | 'not tried' | 'build failed' | 'unsettled';
+/** A candidate's verdict, in the words a verdict is said in everywhere: one whose verification didn't finish is inconclusive. */
+export type CandidateVerdict = 'accepted' | 'rejected' | 'set aside' | 'not tried' | 'build failed' | 'inconclusive';
 
 export interface RepairStep {
   repairId: string;
@@ -105,10 +106,27 @@ function candidateVerdict(c: RepairCandidate, r: StoredRepair): { verdict: Candi
     case 'build-failed':
       return { verdict: 'build failed', why: c.reason ?? 'the build failed' };
     case 'incomplete':
-      return { verdict: 'unsettled', why: c.reason ?? 'its verification did not finish' };
+      return { verdict: 'inconclusive', why: c.reason ?? 'its verification did not finish' };
     default:
       return { verdict: 'not tried', why: r.accepted ? 'a smaller candidate was accepted first' : r.outcome === 'stopped' ? `the repair stopped first${r.report.why ? `: ${r.report.why}` : ''}` : 'not tried' };
   }
+}
+
+/** How a run's blame ended where it found no call, in the words the rest of Fixes says it in, for a target whose note says nothing more. */
+const TARGET_WORDS: Readonly<Record<Exclude<RepairTarget['outcome'], 'unrescuable'>, string>> = { blamed: 'blamed', stopped: 'blame stopped part way', passes: 'passes when replayed', error: 'blame couldn’t run' };
+
+/**
+ * Where a failing run was lost, as repair's report and its pull request say it: at a model call, or
+ * gradually around (or between) two. One no call rescued is said as its blame's head says it, "any
+ * model call" only where the bound of the blame the repair kept for it bears that out.
+ */
+function lostAt(store: StoreOf<'fixes'>, r: StoredRepair, t: RepairTarget): string {
+  if (t.outcome === 'blamed' && t.callNo !== null) return `${targetWhere(t)}${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}`;
+  if (t.outcome === 'unrescuable') {
+    const kept = store.blamesOfRun(t.runId).filter((b) => b.at <= r.at).at(-1);
+    return kept?.outcome === 'unrescuable' ? unrescuedSaid(kept.report) : unrescuedWords(t.unsettled === true);
+  }
+  return t.note ?? TARGET_WORDS[t.outcome];
 }
 
 /** The runs the candidates' whys name (`RepairStep['named']`): any failing run it blamed or run a candidate was verified on, the first of any two that share a short id. */
@@ -222,12 +240,7 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
     needed: v?.needed ?? null,
     attemptsPerRun: v?.attemptsPerRun ?? null,
     rule: repairRule(rep.candidates, v),
-    lost: rep.targets.map((t) => ({
-      runId: t.runId,
-      // As repair's report and its pull request say it: at a model call, or gradually around (or between) two.
-      at: t.outcome === 'blamed' && t.callNo !== null ? `${targetWhere(t)}${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : (t.note ?? t.outcome),
-      href: fixHref(fixId, 'blame'),
-    })),
+    lost: rep.targets.map((t) => ({ runId: t.runId, at: lostAt(store, r, t), href: fixHref(fixId, 'blame') })),
     diagnosis: rep.diagnosis,
     candidates,
     named: namedRuns(rep, candidates.map((x) => x.why)),

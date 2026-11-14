@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { recordBlame, recordVerdict, Store, type BlameReport, type VerifiedRun } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixBundles, fixDetail, fixList } from '../src/fixes.js';
+import { fixBundles, fixDetail, fixForRun, fixList, needsLookFixes } from '../src/fixes.js';
 import { runsRule, verifiedLine } from '../src/verdict.js';
 import { bundleLine } from '../ui/fixes/model.js';
 
@@ -118,5 +118,9 @@ describe('a blame that rescued the run from no call', () => {
     // Its fix's Blame step heads it the same way, from blame's own headline.
     const step = (label: string) => fixDetail(store, fixList(store).fixes.find((f) => f.label === label)!.fixId)!.blame!.title;
     expect([step('a'), step('b')]).toEqual(['Not rescued from the first model call', 'Not rescued from any model call']);
+    // So do the run's page and Needs a look, wherever they sum the blame up.
+    expect([fixForRun(store, a)?.blame?.short, fixForRun(store, b)?.blame?.short]).toEqual(['not rescued from the first model call', 'not rescued from any model call']);
+    const look = (runId: string) => needsLookFixes(store).find((x) => x.fixId === fixForRun(store, runId)?.fix?.fixId)?.detail;
+    expect([look(a), look(b)]).toEqual(['not rescued from the first model call · no change yet', 'not rescued from any model call · no change yet']);
   });
 });

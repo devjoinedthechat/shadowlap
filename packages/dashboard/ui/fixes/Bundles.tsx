@@ -6,7 +6,7 @@ import { approx, shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import type { FixBundle } from '../types.js';
-import { attemptMark, bundledRuns, bundleGlyph, bundleLine } from './model.js';
+import { attemptMark, bundledRuns, bundleGlyph, bundleHover, bundleLine } from './model.js';
 
 /**
  * The Forks view's blame and verify bundles: the attempts each made, under the run they replayed,
@@ -40,7 +40,7 @@ export function FixBundleNode({ bundle: b, current, rule = null }: { bundle: Fix
   const g = bundleGlyph(b);
   const here = b.attempts.some((a) => a.runId === current);
   return (
-    <a className={`fnode${here ? ' here' : ''}`} href={b.href} title={b.kind === 'verify' && b.change ? `${b.change}${b.verdict ? ` · ${b.verdict}` : ''}${b.counts === false ? " · doesn't count" : ''}` : undefined}>
+    <a className={`fnode${here ? ' here' : ''}`} href={b.href} title={bundleHover(b)}>
       <Glyph kind={g.kind} label={g.label} className={g.plain ? 'plain' : ''} />
       <span>
         <span className="f1">
