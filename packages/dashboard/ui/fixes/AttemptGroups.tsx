@@ -21,14 +21,18 @@ export function useAttemptGroups(fixId: string): FixAttemptGroups | null {
 
 const VERDICT: Record<AttemptGroup['verdict'], { tone: 'ok' | 'no' | 'y'; word: string }> = { passed: { tone: 'ok', word: 'passed' }, failed: { tone: 'no', word: 'failed' }, inconclusive: { tone: 'y', word: 'not judged' } };
 
-/** One probe's or one run's attempts, a line per group: how many, what they did, how they came out, why, and one to open. */
-export function AttemptGroups({ groups, attempts, label }: { groups: readonly AttemptGroup[]; attempts: number; label: string }) {
+/**
+ * One probe's or one run's attempts, a line per group: how many, what they did, how they came out,
+ * why, and one to open. Of more attempts than the server reads, the first it read (`read`), which the
+ * heading says.
+ */
+export function AttemptGroups({ groups, attempts, read = attempts, label }: { groups: readonly AttemptGroup[]; attempts: number; read?: number; label: string }) {
   const attemptLink = useOfflineLink();
   // One path for all of them says nothing a list of attempts doesn't.
   if (groups.length < 2) return null;
   return (
     <div className="agroups">
-      <span className="k">what {plural(attempts, 'attempt')} did</span>
+      <span className="k">{read < attempts ? `what the first ${read} of ${plural(attempts, 'attempt')} did` : `what ${plural(attempts, 'attempt')} did`}</span>
       <ul aria-label={`What ${label}’s attempts did`}>
         {groups.map((g) => (
           // Spaces between the parts, so the line reads and copies as words, not only as a layout.

@@ -260,7 +260,8 @@ describe('the Forks view’s bundles', () => {
       ['blame · probe #7', false, '0 of 4', `#/fixes/${fixId}/blame`],
     ]);
     const rescued = report.contrast!.rescuedRunId;
-    expect(blames[1].attempts[0]).toEqual({ runId: rescued, passed: true, verdict: 'passed', note: 'passed · called escalate', href: `#/run/${rescued}`, rescued: true });
+    // The bundle opens the fix's step, which lists each attempt: an attempt has no link of its own here.
+    expect(blames[1].attempts[0]).toEqual({ runId: rescued, passed: true, verdict: 'passed', note: 'passed · called escalate', rescued: true });
     expect(blames[1].attempts[1].note).toBe('issue_refund called');
     expect(blames.every((b) => b.parentRunId === failing)).toBe(true);
 

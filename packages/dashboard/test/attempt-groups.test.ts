@@ -71,10 +71,10 @@ afterAll(() => store.close());
 describe('a fix’s attempts grouped by what each did', () => {
   it('groups a blame probe’s attempts by the tools each called from the probed call and how it came out', () => {
     const g = fixAttemptGroups(store, fixId)!;
-    expect(g.cut).toBe(false);
     expect(g.blame!.probes.map((p) => p.callNo)).toEqual([3]);
     const [probe] = g.blame!.probes;
-    expect(probe.attempts).toBe(5);
+    // Every one of its attempts read.
+    expect([probe.attempts, probe.read]).toEqual([5, 5]);
     expect(probe.groups.map((x) => [x.count, x.verdict, x.path, x.why])).toEqual([
       [3, 'passed', ['escalate (stubbed)'], null],
       [2, 'failed', ['issue_refund (blocked)'], FAILURE],
@@ -101,7 +101,7 @@ describe('a fix’s attempts grouped by what each did', () => {
     ]);
     expect(g.groups.map((x) => x.verdict)).toEqual(['failed', 'passed']);
     const many = groupAttempts(store, Array.from({ length: MAX_ATTEMPTS + 1 }, () => ({ runId: ids[0], passed: false, failures: [] })));
-    expect(many.cut).toBe(true);
+    expect(many.read).toBe(MAX_ATTEMPTS);
     expect(many.groups[0].count).toBe(MAX_ATTEMPTS);
     // An attempt gc deleted since is passed over.
     expect(groupAttempts(store, [{ runId: '01GONE0000000000000000000A', passed: true, failures: [] }]).groups).toEqual([]);

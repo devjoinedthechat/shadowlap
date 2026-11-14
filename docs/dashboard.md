@@ -1361,7 +1361,17 @@ The header counts what the fixes came to: *1 fix verified · 2 open · 1 failing
 
 A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link that opens its issue on Runs › Failed, its good runs, and when it was opened, verified and applied. Where its status names no pull request, the line then gives the fix's source (*from CI · PR #138*, *PR #138 closed*). **Rename** ends it.
 
-Under the about line: what failed and its check, as the list says them. A check with a judge has the judge's card on the check, on the page and its Fixes row alike: what it asks, what it reads and the model, asked live in each attempt that exits 0.
+Each part of the line has a card where it holds more:
+
+- **Its name**: every label it groups runs by, where it has more than one.
+- **Its good runs**: each by id, which a change must keep passing.
+- **Left out by its check**: the runs a check given since judged otherwise, where there are any.
+- **Opened** and **applied**: who did each, where checks are shared (a [team store](./team.md)), as Changes names who made a change. Applied's card says how: with `fix apply` or `repair --apply`, its patch, the goldens it copied and their test.
+- **Spent**: what its blames, repairs and verifies ran live, and the repairer, in attempts, upstream requests and dollars.
+
+A pull request it names is a link to its page, here, on its Fixes row and in Changes › Verdicts.
+
+Under the about line: what failed and its check, as the list says them. A check with a judge has the judge's card on the check, on the page and its Fixes row alike: what it asks, what it reads and the model, asked live in each attempt that exits 0. A check changed since the fix opened says when (*changed Nov 3, 10:12*), its card listing each check it had and who gave it, where named.
 
 The check ends on the way to change it. On an open fix, **Edit check…** opens the [check builder](#making-a-check) on the fix's own check. A verified or applied fix keeps the check its verdict was given under, so it offers **Add check to *golden*…**, for the golden that guards it, or **Add check…** where none does. A verified fix no golden guards is usually one to apply first.
 
@@ -1386,7 +1396,7 @@ Its sections:
 - **The probes**, headed by the gate's rule, each row opening the run at its call, `j` and `k` walking them. One cell holds the tally, its bound and a bar of the interval against the gate's two marks. The verdict is a dot and a word.
 - **Every attempt** of a probe, under its row on request, grouped by what each did. A group shows the tool calls its attempts made from the probed call on and how they came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
 
-Each group of attempts shows how many took that path, why the first of a failing group failed, and one of them to open.
+Each group of attempts shows how many took that path, why the first of a failing group failed, and one of them to open. Of more than 200 attempts, the groups are of the first 200, and say so (*what the first 200 of 812 attempts did*).
 
 A blame with no probe says *No attempt ran:* and why, in the probes' place.
 
@@ -1420,6 +1430,8 @@ The Repair step opens on its verdict line:
 
 - **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
 - **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
+
+A fix repaired more than once says so beside when the shown one ran (*1 other repair*), its card listing each: when, how it ended and its change.
 
 A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the check, or change the prompt yourself and verify it.
 

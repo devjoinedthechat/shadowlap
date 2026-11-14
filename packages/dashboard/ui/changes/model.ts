@@ -48,10 +48,11 @@ export function verdictHref(row: VerdictRow): string | null {
 /** A session titled by its revision, git having no subject for it: the title is drawn as code, and its kind line leaves the revision out. */
 export const titledByRevision = (row: VerdictRow): boolean => row.kind === 'session' && row.subject === null && row.revision !== null;
 
-/** A part of a line, kept whole: words, then a revision or a command in the code face (`on d2e8a1f`), or either alone. */
+/** A part of a line, kept whole: words, then a revision or a command in the code face (`on d2e8a1f`), or either alone; the words a link to `href`, a page apart from the dashboard, where one is given. */
 export interface LinePart {
   words?: string;
   code?: string;
+  href?: string;
 }
 
 /** Who made a change, only where the API names them (a team store): their name, an address's part before the @. */
@@ -63,10 +64,11 @@ export function prWords(pr: VerdictPullRequest | null): string | null {
   return pr.state ? `PR #${pr.number} ${pr.state}` : `PR #${pr.number}`;
 }
 
-/** A session's pull request in a line, kept whole. */
+/** A session's pull request in a line, kept whole, a link to its page where CI named one that is a web page. */
 const pullRequest = (row: SessionVerdict): LinePart[] => {
   const words = prWords(row.pullRequest);
-  return words ? [{ words }] : [];
+  const url = row.pullRequest?.url;
+  return words ? [{ words, ...(url && /^https?:\/\/\S+$/.test(url) ? { href: url } : {}) }] : [];
 };
 
 /**

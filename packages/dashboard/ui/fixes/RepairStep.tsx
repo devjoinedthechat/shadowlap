@@ -10,6 +10,7 @@ import { plural, shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
 import { candidateTone, changeParts, fixStamp, footWarnings, repairBy, repairReceipt, roleStatuses } from './model.js';
 import { Markdown } from '../components/Markdown.js';
+import { OtherRepairs } from './HeadFacts.js';
 import { Flagged } from './parts.js';
 import { StepLead } from './StepLead.js';
 
@@ -34,7 +35,9 @@ export function RepairStepView({ fix }: { fix: FixDetail }) {
         command={fix.commands.repair}
       />
     );
-  return r.accepted && r.change ? <Accepted r={r} change={r.change} /> : <NothingAccepted r={r} />;
+  // The fix's other repairs, which the step doesn't show: in its facts, each on their card.
+  const others = fix.repairs.filter((x) => x.repairId !== r.repairId);
+  return r.accepted && r.change ? <Accepted r={r} change={r.change} others={others} /> : <NothingAccepted r={r} others={others} />;
 }
 
 /** Who proposed the candidates, or why no repairer did; nothing when nothing called for one. */
@@ -55,13 +58,14 @@ function by(r: RepairStep) {
  * change, `Repaired`, and under it the gate's rule and that it was verified twice. One that accepted
  * nothing never reads as repaired: `Ran`.
  */
-function RepairFacts({ r }: { r: RepairStep }) {
+function RepairFacts({ r, others }: { r: RepairStep; others: FixDetail['repairs'] }) {
   const who = by(r);
   const rule = [r.rule, r.again].filter(Boolean).join(' · ');
   return (
     <>
       {r.accepted ? 'Repaired' : 'Ran'} {fixStamp(r.at)}
       {who ? <> · {who}</> : null}
+      <OtherRepairs repairs={others} />
       {r.verify && !r.verify.counts ? ` · verified under ${r.verify.oldCheck ? 'its old check' : 'another check'}, so it doesn’t count for this fix` : ''}
       {r.accepted && rule ? (
         <span className="pline">
@@ -72,10 +76,10 @@ function RepairFacts({ r }: { r: RepairStep }) {
   );
 }
 
-function Accepted({ r, change }: { r: RepairStep; change: NonNullable<RepairStep['change']> }) {
+function Accepted({ r, change, others }: { r: RepairStep; change: NonNullable<RepairStep['change']>; others: FixDetail['repairs'] }) {
   return (
     <>
-      <StepLead line={r.line} facts={<RepairFacts r={r} />} />
+      <StepLead line={r.line} facts={<RepairFacts r={r} others={others} />} />
       <div className="grid2 fxg secs">
         <Change r={r} change={change} />
         <Why r={r} />
@@ -92,10 +96,10 @@ function Accepted({ r, change }: { r: RepairStep; change: NonNullable<RepairStep
 }
 
 /** A repair that accepted nothing: why, the candidates it tried under the gate's rule, said once, and what it found. */
-function NothingAccepted({ r }: { r: RepairStep }) {
+function NothingAccepted({ r, others }: { r: RepairStep; others: FixDetail['repairs'] }) {
   return (
     <>
-      <StepLead line={r.line} facts={<RepairFacts r={r} />} />
+      <StepLead line={r.line} facts={<RepairFacts r={r} others={others} />} />
       {r.candidates.length ? (
         <Candidates
           r={r}

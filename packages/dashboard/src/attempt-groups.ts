@@ -27,6 +27,8 @@ export interface AttemptGroup {
 export interface ProbeGroups {
   callNo: number;
   attempts: number;
+  /** How many of them the groups read: the first `MAX_ATTEMPTS` of more. */
+  read: number;
   groups: AttemptGroup[];
 }
 
@@ -34,6 +36,8 @@ export interface VerifiedRunGroups {
   runId: string;
   role: 'target' | 'held-out' | 'good';
   attempts: number;
+  /** How many of them the groups read: the first `MAX_ATTEMPTS` of more. */
+  read: number;
   groups: AttemptGroup[];
 }
 
@@ -43,8 +47,6 @@ export interface FixAttemptGroups {
   blame: { blameId: string; probes: ProbeGroups[] } | null;
   /** Every change verified, as the Verify step lists them: each run with its attempts grouped. */
   verify: Array<{ verifyId: string; runs: VerifiedRunGroups[] }>;
-  /** True when a probe or a run had more attempts than are read (`MAX_ATTEMPTS`). */
-  cut: boolean;
 }
 
 /** The attempts read for one probe or one run: enough to see how they differ. */
@@ -63,8 +65,8 @@ interface Attempt {
 
 const verdictOf = (a: Attempt): AttemptVerdict => a.verdict ?? (a.passed ? 'passed' : 'failed');
 
-/** Attempts grouped by their path and how they came out, the biggest group first, a failing one first among equals. */
-export function groupAttempts(store: StoreOf<'recording'>, attempts: readonly Attempt[]): { groups: AttemptGroup[]; cut: boolean } {
+/** Attempts grouped by their path and how they came out, the biggest group first, a failing one first among equals; `read`, how many of them were. */
+export function groupAttempts(store: StoreOf<'recording'>, attempts: readonly Attempt[]): { groups: AttemptGroup[]; read: number } {
   const groups = new Map<string, AttemptGroup>();
   for (const a of attempts.slice(0, MAX_ATTEMPTS)) {
     const run = store.getRun(a.runId);
@@ -78,7 +80,7 @@ export function groupAttempts(store: StoreOf<'recording'>, attempts: readonly At
     if (g) g.count++;
     else groups.set(key, { path, verdict, count: 1, why: verdict === 'passed' ? null : (a.failures[0] ?? null), example: { runId: a.runId, href: links.run(a.runId, from) } });
   }
-  return { groups: [...groups.values()].sort((x, y) => y.count - x.count || ORDER[x.verdict] - ORDER[y.verdict]), cut: attempts.length > MAX_ATTEMPTS };
+  return { groups: [...groups.values()].sort((x, y) => y.count - x.count || ORDER[x.verdict] - ORDER[y.verdict]), read: Math.min(attempts.length, MAX_ATTEMPTS) };
 }
 
 /** The attempts of a fix's blame and verifies, grouped by what each did; null for no such fix. */
@@ -92,17 +94,11 @@ export function fixAttemptGroups(store: StoreOf<'recording' | 'fixes'>, idOrPref
   }
   if (!fix) return null;
   const rec = fixRecords(store, fix);
-  let cut = false;
-  const grouped = (attempts: readonly Attempt[]) => {
-    const g = groupAttempts(store, attempts);
-    cut ||= g.cut;
-    return g.groups;
-  };
   const b = shownBlame(rec);
-  const blame = b ? { blameId: b.blameId, probes: b.report.probes.map((p) => ({ callNo: p.callNo, attempts: p.attempts.length, groups: grouped(p.attempts.map((a) => ({ ...a, forkedAt: p.callNo }))) })) } : null;
+  const blame = b ? { blameId: b.blameId, probes: b.report.probes.map((p) => ({ callNo: p.callNo, attempts: p.attempts.length, ...groupAttempts(store, p.attempts.map((a) => ({ ...a, forkedAt: p.callNo }))) })) } : null;
   const verify = [...rec.verdicts].reverse().map((v) => ({
     verifyId: v.verifyId,
-    runs: v.report.runs.map((x) => ({ runId: x.runId, role: ROLE[x.role], attempts: x.attempts.length, groups: grouped(x.attempts) })),
+    runs: v.report.runs.map((x) => ({ runId: x.runId, role: ROLE[x.role], attempts: x.attempts.length, ...groupAttempts(store, x.attempts) })),
   }));
-  return { fixId: fix.fixId, blame, verify, cut };
+  return { fixId: fix.fixId, blame, verify };
 }

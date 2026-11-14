@@ -143,11 +143,17 @@ function Rows({ view, chip, limit, moreFailed, onMore }: { view: VerdictsView; c
   );
 }
 
-/** A part of a line: its words, then its code in the code face. */
+/** A part of a line: its words, a link to a page apart from the dashboard where it has one, then its code in the code face. */
 function Part({ part }: { part: LinePart }) {
   return (
     <>
-      {part.words ?? null}
+      {part.words && part.href ? (
+        <a href={part.href} target="_blank" rel="noopener noreferrer">
+          {part.words}
+        </a>
+      ) : (
+        (part.words ?? null)
+      )}
       {part.words && part.code ? ' ' : null}
       {part.code ? <code>{part.code}</code> : null}
     </>

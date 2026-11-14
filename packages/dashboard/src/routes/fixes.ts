@@ -19,6 +19,7 @@ import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
 import { MODEL, modelParam, verifyRule } from './estimates.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * Fixes: the list (`GET /api/fixes`: every fix in to-do order, with the counts per chip, what they
@@ -95,6 +96,7 @@ async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes' | 'team'>, fi
     // A crash's way on is its run's next step (fix-crash.ts), and its first bad commit is served as every route serves one.
     next: nextStepWork(ctx),
     serving: await foundServing(project),
+    names: namesTeamStore(project),
   });
 }
 

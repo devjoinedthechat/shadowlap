@@ -36,7 +36,7 @@ function app(groups: FixAttemptGroups | null = null): AppState {
   const client = {
     fix: (id: string) => Promise.resolve(fixDetail(store, id)),
     fixes: () => Promise.resolve(fixesView(store)),
-    attemptGroups: (id: string) => Promise.resolve(groups ?? { fixId: id, blame: null, verify: [], cut: false }),
+    attemptGroups: (id: string) => Promise.resolve(groups ?? { fixId: id, blame: null, verify: [] }),
     jobs: () => Promise.resolve([]),
   } as unknown as Client;
   return { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined } as unknown as AppState;
@@ -177,6 +177,7 @@ describe('a fix’s attempts grouped by what each did', () => {
           {
             callNo: 5,
             attempts: 4,
+            read: 4,
             groups: [
               { path: ['escalate (stubbed)'], verdict: 'passed', count: 2, why: null, example: example('01M3RZ0011AAAAAAAAAAAAAAAA') },
               { path: ['issue_refund (blocked)'], verdict: 'failed', count: 2, why: 'issue_refund called 1 time', example: example('01M3RZ0012AAAAAAAAAAAAAAAA') },
@@ -184,8 +185,8 @@ describe('a fix’s attempts grouped by what each did', () => {
           },
         ],
       },
-      verify: [{ verifyId: detail.verify[0].verifyId, runs: [{ runId: run, role: 'target', attempts: 4, groups: [{ path: [], verdict: 'failed', count: 1, why: 'the agent exited with code 1', example: example('01M3RZ0013AAAAAAAAAAAAAAAA') }, { path: ['escalate (stubbed)'], verdict: 'passed', count: 3, why: null, example: example('01M3RZ0014AAAAAAAAAAAAAAAA') }] }] }],
-      cut: false,
+      // A run of more attempts than the server reads: its groups are of the first it read.
+      verify: [{ verifyId: detail.verify[0].verifyId, runs: [{ runId: run, role: 'target', attempts: 812, read: 200, groups: [{ path: [], verdict: 'failed', count: 1, why: 'the agent exited with code 1', example: example('01M3RZ0013AAAAAAAAAAAAAAAA') }, { path: ['escalate (stubbed)'], verdict: 'passed', count: 3, why: null, example: example('01M3RZ0014AAAAAAAAAAAAAAAA') }] }] }],
     };
     const blamePage = await open(fixId, 'blame', groups);
     // A probe's groups show with its attempts, under its row once it is opened.
@@ -204,5 +205,6 @@ describe('a fix’s attempts grouped by what each did', () => {
     await verifyPage.click(row.querySelector('button.xbtn')!);
     await verifyPage.until('the groups', () => verifyPage.all('tr.sub .agroups').length > 0);
     expect(verifyPage.all('.agroups li').map(text)).toEqual(['1× no tool call failed the agent exited with code 1 01M3RZ0013 →', '3× escalate (stubbed) passed 01M3RZ0014 →']);
+    expect(text(verifyPage.one('.agroups .k'))).toBe('what the first 200 of 812 attempts did');
   });
 });

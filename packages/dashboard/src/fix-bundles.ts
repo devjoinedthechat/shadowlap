@@ -11,7 +11,6 @@ export interface FixBundleAttempt {
   verdict: AttemptVerdict;
   /** "passed", "issue_refund called", "passed · called escalate". */
   note: string;
-  href: string;
   /** The fork blame rescued its run with: it shows as a fork of its own as well. */
   rescued: boolean;
   /** An attempt the provider was unavailable for: retried, never counted, so its probe's tally leaves it out. Absent otherwise. */
@@ -194,7 +193,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
       role: ROLE[x.role],
       counts,
       passes: attempts.filter((a) => a.passed).length,
-      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
+      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), rescued: false })),
       spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
       at: startedAt(attempts.map((a) => a.runId), at),
       verdictLine: v.line,
@@ -264,7 +263,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
       role: g.role,
       counts: null,
       passes: g.runs.filter(passed).length,
-      attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), verdict: verdict(r), note: attemptNote(passed(r), undefined, r, verdict(r)), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
+      attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), verdict: verdict(r), note: attemptNote(passed(r), undefined, r, verdict(r)), rescued: r.runId === rescuedRunId })),
       spent: 0,
       at: Math.min(...g.runs.map((r) => r.startedAt)),
       verdictLine: null,
@@ -316,7 +315,7 @@ function blameBundles(store: StoreOf<'recording' | 'fixes'>, family: ReadonlyMap
           role: null,
           counts: null,
           passes: attempts.filter((a) => a.passed).length,
-          attempts: [...attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })), ...down.map(unavailableAttempt)],
+          attempts: [...attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), rescued: a.runId === rescuedRunId })), ...down.map(unavailableAttempt)],
           spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
           at: startedAt([...attempts, ...down].map((a) => a.runId), b.at),
           verdictLine: v.line,
@@ -352,7 +351,7 @@ function pinBundle(b: StoredBlame, runId: string, family: ReadonlyMap<string, Ru
     role: null,
     counts: null,
     passes: checked.filter((a) => a.passed).length,
-    attempts: checked.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
+    attempts: checked.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), rescued: false })),
     spent: checked.reduce((s2, a) => s2 + a.spent, 0),
     at: Math.min(...checked.map((a) => family.get(a.runId)?.startedAt ?? b.at), b.at),
     verdictLine: pinWords(check),
@@ -376,7 +375,7 @@ function unavailableProbes(family: ReadonlyMap<string, RunRecord>): Map<string, 
 }
 
 /** An attempt the provider was unavailable for, as its probe's bundle lists it: marked apart, its note saying it never counted. */
-const unavailableAttempt = (r: RunRecord): FixBundleAttempt => ({ runId: r.runId, passed: false, verdict: 'inconclusive', note: 'the provider was unavailable: retried, never counted', href: runHref(r.runId), rescued: false, unavailable: true });
+const unavailableAttempt = (r: RunRecord): FixBundleAttempt => ({ runId: r.runId, passed: false, verdict: 'inconclusive', note: 'the provider was unavailable: retried, never counted', rescued: false, unavailable: true });
 
 /**
  * A good run's baseline attempts, as the Forks view bundles them beside the change's: named as the
@@ -399,7 +398,7 @@ function baselineBundle(key: string, x: VerifiedRun, base: VerifiedRun['attempts
     role: ROLE[x.role],
     counts: o.counts,
     passes,
-    attempts: base.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
+    attempts: base.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), rescued: false })),
     spent: base.reduce((n, a) => n + a.spent, 0),
     at: Math.min(...base.map((a) => family.get(a.runId)?.startedAt ?? o.at), o.at),
     verdictLine: `baseline · ${passes} of ${base.length} passed`,

@@ -211,7 +211,7 @@ function RunRow({ v, x, focus, open, onToggle, groups }: { v: VerifyStep; x: Ver
         <tr className="sub">
           <td colSpan={5}>
             <div id={listId}>
-              {groups && groups.groups.length > 1 ? <AttemptGroups groups={groups.groups} attempts={groups.attempts} label={`${x.role} run ${shortId(x.runId)}`} /> : null}
+              {groups && groups.groups.length > 1 ? <AttemptGroups groups={groups.groups} attempts={groups.attempts} read={groups.read} label={`${x.role} run ${shortId(x.runId)}`} /> : null}
               <AttemptList attempts={attempts} />
             </div>
           </td>
