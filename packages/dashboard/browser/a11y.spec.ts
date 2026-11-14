@@ -77,6 +77,16 @@ test('an activity entry whose reference is longer than any line breaks inside it
   }
 });
 
+test('a replay the feed lists that made no calls is named Replay on hover and to a screen reader, never Recorded', async ({ page }) => {
+  // As the server words a replay that made no calls (activity.ts): a plain replay's icon.
+  const id = demoId('clean');
+  await page.route('**/api/activity*', (route) => patched<{ items: object[] }>(route, (feed) => ({ ...feed, items: [{ id: 'no-calls-replay', at: Date.now(), kind: 'replay', text: 'Replay finished · no calls', runId: id, href: `#/run/${id}`, ref: id.slice(0, 10) }, ...feed.items] })));
+  await openPage(page, '/', 'main#view .ovg');
+  const icon = page.locator('main#view .feed a', { hasText: 'Replay finished · no calls' }).locator('.glyph').first();
+  await expect(icon).toHaveAttribute('aria-label', 'Replay');
+  await expect(icon).toHaveClass(/\breplay\b/);
+});
+
 /** The run's findings bar opened, as `N findings` (or `Details`) opens it: the findings it folds, a note's tools and hint, and the fork's changes show. */
 async function openFindings(page: Page) {
   const more = page.locator('main#view .findings .fmore');
