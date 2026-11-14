@@ -170,7 +170,8 @@ npm install -g @anthropic-ai/sdk
   <picture>
     <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fix-phone.png" width="390">
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fix-medium.png" width="640">
-    <img src=".github/assets/readme/dashboard-fix.png" alt="The Shadowlap Fixes page for the applied fix 'issue_refund called with amount 240': blame found the runs were lost at model call #5, repair proposed the prompt change, and verify accepted it, with every failing run fixed and every good run kept against its baseline." width="880">
+    <source media="(prefers-reduced-motion: reduce)" srcset=".github/assets/readme/dashboard-fix.png">
+    <img src=".github/assets/readme/dashboard-walkthrough.svg" alt="The Shadowlap dashboard, from a failed run to its fix: Runs › Failed lists the issue's three runs, the newest opens at model call #5 where blame found it lost, and Open fix shows blame, repair's prompt change and verify's verdict, then the patch.">
   </picture>
   <br>
   <sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
