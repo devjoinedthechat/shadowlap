@@ -1,4 +1,4 @@
-import { Fragment, useId, useState } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
 import { Icon } from '../../components/Icon.js';
 import type { CiListRow } from '../../types.js';
 
@@ -35,11 +35,15 @@ function CiList({ rows, tone = '', id, hidden }: { rows: readonly CiListRow[]; t
  * A CI panel's list behind its name and how many rows it holds (`It needs 9`): what a part needs,
  * what it never does and what fails a golden are read once, so each opens on request and the panel
  * keeps to its settings and what lands. The rows are drawn either way, hidden while folded, as Your
- * workflow's file is.
+ * workflow's file is. A list with a row that asks for a look (`look`) starts open, and opens when
+ * one comes.
  */
-export function ListFold({ name, rows, tone = '' }: { name: string; rows: readonly CiListRow[]; tone?: '' | 'err' }) {
-  const [open, setOpen] = useState(false);
+export function ListFold({ name, rows, tone = '', look = false }: { name: string; rows: readonly CiListRow[]; tone?: '' | 'err'; look?: boolean }) {
+  const [open, setOpen] = useState(look);
   const id = useId();
+  useEffect(() => {
+    if (look) setOpen(true);
+  }, [look]);
   return (
     <div className="cifold">
       <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
@@ -50,6 +54,14 @@ export function ListFold({ name, rows, tone = '' }: { name: string; rows: readon
       <CiList rows={rows} tone={tone} id={id} hidden={!open} />
     </div>
   );
+}
+
+/**
+ * What a part needs. An amber row says what the workflow leaves out until something is fixed
+ * (shadowlap.config.json can't be read), which is not for a fold to hide: its list is open.
+ */
+export function Needs({ rows }: { rows: readonly CiListRow[] }) {
+  return <ListFold name="it needs" rows={rows} look={rows.some((r) => r.tone === 'warn')} />;
 }
 
 /**

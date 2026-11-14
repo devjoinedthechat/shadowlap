@@ -1810,7 +1810,7 @@ The workflow has the checkout, Node 22 and a line for the agent's dependencies b
 
 **Copy workflow** has the whole file whichever. A file over 256 KB, or one whose link leads out of the project folder, is left as it is.
 
-**Lists.** A panel's lists open from their name and count, as *It needs 9*: what the part needs, what Fix on failure never does (*It never*), and what fails a golden (*A golden fails when*).
+**Lists.** A panel's lists open from their name and count, as *It needs 9*: what the part needs, what Fix on failure never does (*It never*), and what fails a golden (*A golden fails when*). What a part needs is open already while a row of it is amber.
 
 **Keys.** Each panel lists what it needs (*It needs*). The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
 
@@ -1848,7 +1848,7 @@ A gate's figures, and the odds of an inconclusive verdict, are on [Gates](#gates
 
 Its preview says what the gate tells apart, what it takes for a golden on its own, and the odds of each verdict at six pass rates (seven against history), behind **Show odds of each verdict**. It says how often 100 such goldens of an agent that passes 95% of the time turn a CI run red for nothing, as `shadowlap test` plans the session. Figures the config would refuse say so, as *the config refuses it*. Under it, the figures come as the golden's entry in `shadowlap.config.json`, to copy.
 
-Under **in CI**, it says what an inconclusive golden does to the step as your workflow has it, with what you changed on the CI tab and haven't written. It has no switch of its own: **Settings → CI** leads to [CI](#ci), where Your workflow sets it.
+Under **In CI**, it says what an inconclusive golden does to the step as your workflow has it, with what you changed on the CI tab and haven't written. It has no switch of its own: **Settings → CI** leads to [CI](#ci), where Your workflow sets it.
 
 ### Coding agents
 
@@ -1942,10 +1942,10 @@ While a tab loads, its section shows as quiet bars. A tab whose read fails says 
 
 While `shadowlap.config.json` can't be read:
 
-- Matching, Redaction, CI and Store lead with *can’t read*: *Fix shadowlap.config.json to change these settings*, and why;
+- Matching, Redaction, CI, Gates and Store lead with *can’t read*: *Fix shadowlap.config.json to change these settings*, and why;
 - the tabs say so where their rules would be;
 - they offer neither **Calibrate** nor **Set up team store**, which would read or write the same file;
-- *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does;
+- *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does, its list open;
 - no clock mode shows as chosen.
 
 When the project's folder is gone, Settings says so in its header, with **Remove project…**. It says its rules, store, instruction files, recorded tool calls and MCP configs can't be read, and shows no clock mode as chosen. It changes nothing until the folder is back.
