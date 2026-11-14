@@ -242,6 +242,31 @@ describe('a replay’s end, read from what the CLI prints and reports', () => {
   });
 });
 
+describe('a job that ended with nobody asking it to stop, or that was stopped', () => {
+  it('says a job killed from outside (no exit code, never stopped) was interrupted, in amber, as a run its recorder left is', () => {
+    const killed = done({ title: 'Replaying', args: ['replay', RECORDING], code: null });
+    expect(jobStatus(killed, [])).toEqual({ text: 'interrupted', tone: 'warn' });
+    expect(jobHeader(killed, [])).toEqual({ title: 'Tried replaying', text: 'interrupted', tone: 'warn' });
+    expect(endToast(killed, [])).toBe('Tried replaying · interrupted');
+    // Stopped by hand, it says so, and keeps its -ing title.
+    expect(jobHeader({ ...killed, stopped: true }, [])).toEqual({ title: 'Replaying', text: 'stopped', tone: 'warn' });
+  });
+
+  it('says a Revert stopped once git had reverted the commit left the revert in your working tree, and what git left otherwise', () => {
+    const revert = (code: number | null, git: 'done' | 'untouched' | 'conflicts') => done({ kind: 'revert', title: 'Reverting 9a3c5e0', args: ['test', 'goldens/a'], code, git, stopped: true });
+    expect(jobStatus(revert(143, 'done'), ['1 passed, 0 failed, 1 not run: interrupted'])).toEqual({ text: 'reverted · test stopped · exit 143', tone: 'warn' });
+    expect(jobHeader(revert(143, 'done'), [])).toEqual({ title: 'Reverted 9a3c5e0', text: 'test stopped · exit 143', tone: 'warn' });
+    expect(endToast(revert(143, 'done'), [])).toBe('Reverted 9a3c5e0 · test stopped · exit 143');
+    // Stopped between git and the test, which never started.
+    expect(jobStatus(revert(null, 'done'), ['(stopped before shadowlap test goldens/a)'])).toEqual({ text: 'reverted · test stopped', tone: 'warn' });
+    expect(jobStatus(revert(null, 'conflicts'), [])).toEqual({ text: 'conflicts left in your working tree · stopped', tone: 'err' });
+    expect(endToast(revert(null, 'conflicts'), [])).toBe('Tried reverting 9a3c5e0 · conflicts left in your working tree · stopped');
+    // One stopped before git did anything left nothing: stopped, as any job.
+    expect(jobStatus(revert(null, 'untouched'), [])).toEqual({ text: 'stopped', tone: 'warn' });
+    expect(endToast(revert(null, 'untouched'), [])).toBe('Reverting 9a3c5e0 stopped');
+  });
+});
+
 describe('an injection job’s end', () => {
   const plant = (code: number, verdict: string) => jobStatus(done({ kind: 'injection', title: 'Running injection test', args: ['injection', 'X'], code, result: { results: [{ mode: 'plant' }], verdict } }), []);
   const clean = (code: number, verdict: string) => jobStatus(done({ kind: 'injection', title: 'Finding cause: testing #4', args: ['injection', 'X', '--clean', '4'], code, result: { results: [{ mode: 'clean', verdict }], verdict: 'passed' } }), []);

@@ -2577,6 +2577,7 @@ Its drawer reads *Reverting 9a3c5e0*. It shows `$ git revert --no-commit 9a3c5e0
 | *Reverted 9a3c5e0 · test failed · exit 1* | The revert stays in your tree, and the golden still fails |
 | *Reverted 9a3c5e0 · inconclusive · exit 3* | The revert stays in your tree, and the test couldn't say whether the golden passes |
 | *Reverted 9a3c5e0 · test interrupted · exit 130* | The revert stays in your tree, and a signal stopped the test |
+| *Reverted 9a3c5e0 · test stopped · exit 143* | The revert stays in your tree, and you stopped the test with **Stop** |
 | *Tried reverting 9a3c5e0 · not reverted · exit 128* | git refused, with changes to the commit's files in your tree; the test didn't run |
 | *Tried reverting 9a3c5e0 · conflicts left in your working tree · exit 1* | git left conflicts for you to resolve; the test didn't run |
 
@@ -2640,6 +2641,8 @@ Closing and stopping:
 - **Esc or Close** closes a drawer that has ended, and so does leaving the page.
 - **A hidden job that ends** says so in a toast, its title in the past tense with how it came out (*Ran tests · failed · 2 of 7 goldens passed · exit 1*), and offers its way on, or **Show**. Where the past tense would claim more than happened, it says what ran instead (*Tried repairing · no fix found · exit 1*).
 - **Stop**, in the drawer while its job runs, stops the command and the agent it started, as Ctrl-C would, even an agent that ignores the signal (it is killed after five seconds); the drawer then says *stopped*. It asks first while the job holds your working tree: a repair verifying candidates made from it, a patch being applied.
+- **A Revert stopped** once git had reverted the commit says so, as the table under [Revert](#revert) has it: *Reverted 9a3c5e0 · test stopped*, the revert staying in your tree.
+- **A job killed from outside**, by a signal it never got to answer, ends with no exit code. It reads *interrupted* in amber, as a run its recorder left does: *Tried replaying · interrupted*.
 - **A run the stopped job left recording** is marked as interrupted, so it no longer shows as live and can be deleted.
 
 Stopping the dashboard (Ctrl-C, a kill, or closing the terminal it runs in) stops its running jobs the same way, and waits for them. Stopping it again while it waits kills them at once. The dashboard the terminal UI opens (`o` in `shadowlap ui`) does the same when you quit the terminal UI or it is killed, and kills its jobs at once when the terminal it runs in closes.

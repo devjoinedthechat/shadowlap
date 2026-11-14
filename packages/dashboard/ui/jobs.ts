@@ -196,14 +196,27 @@ export function trainingJobStatus(job: { kind?: string; code: number | null; res
 }
 
 /**
+ * A Revert stopped on request once git had reverted the commit, or left conflicts: its status says
+ * what is in your working tree, as one that ended on its own does, never only that it stopped.
+ */
+const leftInTree = (job: JobLike): boolean => job.kind === 'revert' && (job.git === 'done' || job.git === 'conflicts');
+
+/** Stopped on request: that is how it ended, whatever its exit code says, after what a Revert left in your working tree. */
+function stoppedStatus(job: JobLike): JobWords {
+  const exit = job.code === null ? '' : ` · exit ${job.code}`;
+  if (job.kind === 'revert' && job.git === 'done') return { text: `reverted · test stopped${exit}`, tone: 'warn' };
+  if (job.kind === 'revert' && job.git === 'conflicts') return { text: `conflicts left in your working tree · stopped${exit}`, tone: 'err' };
+  return { text: `stopped${exit}`, tone: 'warn' };
+}
+
+/**
  * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
  * from the CLI's own words when the server sends no structured result.
  */
 export function jobStatus(job: JobLike, lines: readonly string[], lost = false): JobWords {
   if (lost && !job.done) return { text: 'lost · the dashboard server no longer has this job', tone: 'err' };
   if (!job.done) return { text: job.stopped ? 'stopping' : 'running', tone: '' };
-  // Stopped on request: that is how it ended, whatever its exit code says.
-  if (job.stopped) return { text: job.code === null ? 'stopped' : `stopped · exit ${job.code}`, tone: 'warn' };
+  if (job.stopped) return stoppedStatus(job);
   // Blame, repair and fix apply say how they came out in their result.
   const fixes = fixJobStatus(job);
   if (fixes) return fixes;
@@ -212,7 +225,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   if (training) return training;
   const all = lines.join('\n');
   const code = job.code;
-  if (code === null) return { text: 'stopped', tone: 'err' };
+  // Killed from outside, by a signal it never got to answer: it stopped before it ended, as a run its
+  // recorder left is interrupted, though nobody asked it to.
+  if (code === null) return { text: 'interrupted', tone: 'warn' };
   const exit = `exit ${code}`;
   // A Replay that didn't reproduce the run, or a fork that left it before its flag acted, whatever the agent did after (leftStatus).
   const left = leftStatus(job, lines, code);
@@ -254,7 +269,7 @@ export function lastLine(lines: readonly string[]): string {
  */
 export function jobEnd(status: { text: string; tone: string }): JobEnd {
   if (status.tone === 'ok') return 'ok';
-  return /^(refused\b|stopped$|lost\b|exit \d+$)/.test(status.text) ? 'not' : 'ran';
+  return /^(refused\b|stopped$|interrupted$|lost\b|exit \d+$)/.test(status.text) ? 'not' : 'ran';
 }
 
 /**
@@ -263,10 +278,11 @@ export function jobEnd(status: { text: string; tone: string }): JobEnd {
  * · 2 of 7 goldens passed · exit 1", "Tried repairing · no fix found · exit 1", "Tried importing
  * capture · shadowlap: x.har is not a HAR file"), a status that only repeats the verb left out
  * ("Forked · exit 0"). When those say no more than the exit code, the last line the job printed says
- * it instead. One stopped says so ("Running tests stopped"): it ended on no outcome to say in the past.
+ * it instead. One stopped says so ("Running tests stopped"): it ended on no outcome to say in the past,
+ * unless it left something in your working tree (a Revert's revert), which it says as one that ended does.
  */
 export function endToast(job: JobLike, lines: readonly string[]): string {
-  if (job.stopped) return `${jobTitle(job)} stopped`;
+  if (job.stopped && !leftInTree(job)) return `${jobTitle(job)} stopped`;
   const st = jobStatus(job, lines);
   const status = st.text;
   const done = doneWords(jobTitle(job), jobEnd(st), status);
@@ -292,12 +308,13 @@ function withoutRepeat(done: string, said: string): string {
  * The drawer's header and the status bar's chip: what it does or did, how that stands and in what
  * colour. Running, its -ing title. Ended, its past tense, where that claims no more than happened,
  * the same words its toast leads with, and a status that doesn't repeat them. A job stopped by hand
- * or lost keeps its -ing title: it ended on no outcome to say in the past.
+ * or lost keeps its -ing title: it ended on no outcome to say in the past, unless it left something
+ * in your working tree (`leftInTree`).
  */
 export function jobHeader(job: JobLike, lines: readonly string[], lost = false): JobWords & { title: string } {
   const title = jobTitle(job);
   const st = jobStatus(job, lines, lost);
-  if (!job.done || job.stopped) return { title, ...st };
+  if (!job.done || (job.stopped && !leftInTree(job))) return { title, ...st };
   const done = doneWords(title, jobEnd(st), st.text);
   return { title: done, text: withoutRepeat(done, st.text), tone: st.tone };
 }

@@ -661,7 +661,8 @@ describe('job drawer', () => {
     // A replay's checks as the CLI prints them: their tally, then each.
     expect(jobStatus(done(1), ['✗ 1 of 2 checks failed (--expect)', '  ✓ escalate called 1 time', '  ✗ issue_refund called 0 times, but called 1 time'])).toEqual({ text: 'check failed · exit 1', tone: 'err' });
     expect(jobStatus({ ...done(1), args: ['replay', 'X', '--fail-at', '19=529'] }, ['⑂ Forked at call 19', '  the agent process exited with an error'])).toEqual({ text: 'agent exited 1', tone: 'warn' });
-    expect(jobStatus(done(null), [])).toEqual({ text: 'stopped', tone: 'err' });
+    // Killed from outside, by a signal: no exit code, and nobody asked it to stop.
+    expect(jobStatus(done(null), [])).toEqual({ text: 'interrupted', tone: 'warn' });
     expect(lastLine(['a', '✓ Forked at call 17 · ran to the end', '  '])).toBe('Forked at call 17 · ran to the end');
   });
 
