@@ -1781,7 +1781,7 @@ For values a pack leaves as they are, the lines then give:
 | **Fix on failure** | Its budget and repairer, what it needs, and the pull request it opens |
 | **Alerts** | Its branch and webhook secret, what it needs, the Slack message, and what fails a golden |
 
-Each part has its switch in its panel's header: **Pull request comment**, **Fix on failure** and **Alerts**. A panel that is off says what happens without it (*Off: the verdict stays in the job summary.*), and only Fix on failure's pull request preview goes quiet. A switch's toast says whether your workflow changes with it, or is your repository's again. A switch changes only what **Write file** would write.
+Each part has its switch in its panel's header: **Pull request comment**, **Fix on failure** and **Alerts**. A panel that is off folds to its header and what happens without it (*Off: the verdict stays in the job summary.*). **Show settings** opens it for a look, where only Fix on failure's pull request preview goes quiet, and its switch opens it too. A switch's toast says whether your workflow changes with it, or is your repository's again. A switch changes only what **Write file** would write.
 
 **Where the switches start.** The tab reads `.github/workflows/agent.yml`, else the first other workflow there whose step uses the action. It reads that step's inputs line by line, with no YAML library, and the switches start as the file sets them. A value the panels don't offer is left out, as a budget over $1,000. Your changes are kept for each project while the dashboard is open, and the tab asks again when the window comes back.
 
@@ -1810,7 +1810,9 @@ The workflow has the checkout, Node 22 and a line for the agent's dependencies b
 
 **Copy workflow** has the whole file whichever. A file over 256 KB, or one whose link leads out of the project folder, is left as it is.
 
-**Keys.** Each panel lists what it needs (*it needs*). The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
+**Lists.** A panel's lists open from their name and count, as *It needs 9*: what the part needs, what Fix on failure never does (*It never*), and what fails a golden (*A golden fails when*).
+
+**Keys.** Each panel lists what it needs (*It needs*). The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
 
 - With Fix on failure or the comment's decisions on, every golden's keys, since blame and verify run the agent live and decisions asks its models.
 - Otherwise, those of the goldens that run live: one marked `fork`, or with an injection gate, and a forking golden's judges.

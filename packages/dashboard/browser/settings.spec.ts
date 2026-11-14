@@ -7,10 +7,11 @@ import { dash, openPage, sideways } from './dashboard.js';
  * Settings and Training on a phone, 390 px: no tab scrolls the page sideways (a table scrolls in a
  * box of its own), the tabs keep one row with the one shown in view, a row's label and line sit
  * over its control, a rule removed comes back from its toast's Undo, the file as it was, and
- * Settings → CI's workflow and, on Gates, a gate's odds, shown, scroll nothing sideways.
+ * Settings → CI's workflow and, on Gates, a gate's odds, shown, scroll nothing sideways; nor does
+ * the CI tab with the part and the lists it folds opened.
  */
 
-const TABS = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
+const TABS = ['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store'];
 
 test('no Settings tab scrolls the page sideways on a phone, and the tab shown stays in view in one row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -66,7 +67,7 @@ test('a redaction rule removed on a phone comes back from its toast’s Undo, sh
 
 test('Settings → CI on a phone: Write file in Your workflow’s header, and the file shown scrolls nothing sideways; on Gates, neither do a gate’s odds', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await openPage(page, '/settings/ci', 'main#view #alerts .cilist');
+  await openPage(page, '/settings/ci', 'main#view #alerts .cifold');
   // The demo's repository has no workflow yet: Write file asks to add it.
   await expect(page.locator('#workflow header button', { hasText: 'Write file' })).toBeVisible();
   await page.locator('#workflow .wftog button[aria-controls="wfBox"]').click();
@@ -78,6 +79,39 @@ test('Settings → CI on a phone: Write file in Your workflow’s header, and th
   await page.locator('#gates .xbtn').click();
   await expect(page.locator('#gates table.godds')).toBeVisible();
   expect(await sideways(page), 'the odds shown').toBe(0);
+});
+
+test('Settings → CI folds a part that is off to one line and each list behind its count, and opens them on a phone with nothing scrolling sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, '/settings/ci', 'main#view #alerts .cifold');
+  // The demo's workflow has Fix on failure off: its header, what happens without it, and Show settings.
+  const fix = page.locator('#fix-on-failure');
+  await expect(fix.locator('.cioff .offnote')).toHaveText('Off: a failed check fails the build, and nobody opens a fix.');
+  await expect(fix.locator('.alertgrid')).toBeHidden();
+  const folded = await fix.evaluate((el) => el.getBoundingClientRect().height);
+  await fix.getByRole('button', { name: 'Show settings' }).click();
+  await expect(fix.locator('.alertgrid .prcard')).toBeVisible();
+  await expect(fix.getByRole('button', { name: 'Hide settings' })).toHaveAttribute('aria-expanded', 'true');
+  expect(await fix.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(folded * 3);
+  // Each list opens from its name and count, the keyboard's Enter too.
+  await expect(page.locator('main#view .cilist:visible')).toHaveCount(0);
+  const needs = page.locator('#alerts .cimain .cifold > button');
+  await expect(needs).toHaveText(/^It needs\s*\d+$/i);
+  await needs.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#alerts .cimain .cilist')).toBeVisible();
+  const shut = page.locator('main#view .cifold > button[aria-expanded="false"]');
+  while (await shut.count()) await shut.first().click();
+  await expect(page.locator('main#view .cilist:visible')).toHaveCount(5);
+  expect(await sideways(page), 'every fold open').toBe(0);
+  // Its switch opens a part too, with no line; off again, it folds.
+  await fix.getByRole('button', { name: 'Hide settings' }).click();
+  await expect(fix.locator('.alertgrid')).toBeHidden();
+  await fix.locator('header .switch').click();
+  await expect(fix.locator('.alertgrid .prcard')).toBeVisible();
+  await expect(fix.locator('.cioff')).toHaveCount(0);
+  await fix.locator('header .switch').click();
+  await expect(fix.locator('.alertgrid')).toBeHidden();
 });
 
 test('a link to a gate’s kind opens Gates on it, the one CI’s address had too, and Gates leads to where an inconclusive golden is set', async ({ page }) => {

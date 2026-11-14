@@ -187,7 +187,7 @@ function Gates({ view, inc }: { view: CiWorkflowsView; inc: 'fail' | 'warn' }) {
               {uses.length ? <>, as {andList(uses.map((u) => <code key={u}>{u}</code>))} {uses.length === 1 ? 'uses it' : 'use it'}</> : null}.
             </Copy>
           )}
-          <span className="k cineeds">in CI</span>
+          <span className="k gci">in CI</span>
           <InconclusiveLine inc={inc} />
         </div>
         {answer.refused ? (

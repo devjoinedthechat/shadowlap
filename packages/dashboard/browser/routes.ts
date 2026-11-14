@@ -261,6 +261,13 @@ const VIEWED = ['ticket', 'override', 'batch'];
 const SETTINGS = ['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store'];
 /** A Settings tab, drawn past its loading shape. */
 const SETTAB = 'main#view .settab > :not(.skel)';
+/** Settings → CI with what it folds shown: a part that is off opened by Show settings, then each list by its name. One a state before opened stays open. */
+const ciFolds = async (page: Page): Promise<void> => {
+  for (const shut of ['main#view .cioff button[aria-expanded="false"]', 'main#view .cifold > button[aria-expanded="false"]']) {
+    while (await page.locator(shut).count()) await page.locator(shut).first().click();
+  }
+  await settled(page, { shows: 'main#view #alerts .cilist' });
+};
 
 const route = (path: string, drawn = 'main#view'): RouteState => ({ name: path, path: () => path, drawn });
 
@@ -558,6 +565,7 @@ export const ROUTES: readonly RouteState[] = [
   // The check builder's Judge beside a check of a golden that may fork (port/judges-e34), from Tests, closed by the next page.
   { name: 'the check builder’s Judge beside a fork golden’s check, its cost line and judges note', path: () => '/tests', drawn: 'main#view table.gt', then: judgeOnFork },
   ...SETTINGS.map((t): RouteState => ({ name: `Settings → ${t}`, path: () => `/settings/${t}`, drawn: SETTAB })),
+  { name: 'Settings → ci with every fold open', path: () => '/settings/ci', drawn: SETTAB, then: ciFolds },
   route('/new'),
   route('/setup'),
   route('/setup/store'),
