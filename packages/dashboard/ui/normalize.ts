@@ -123,10 +123,12 @@ function normalizeBlame(v: unknown): BlameView | null {
 
 const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];
 
-/** How a fix stands, as the server's FixRef says it: its rung, its pull request's number, why an applied one doesn't hold, what changed for an open one. */
-function fixStanding(f: Record<string, unknown>): Pick<FixView, 'rung' | 'pr' | 'broken' | 'change'> {
-  const pr = isObject(f.pr) ? { number: int(f.pr.number) } : null;
-  return { rung: str(f.rung), pr, broken: str(f.broken), change: str(f.change) };
+/** How a fix stands, as the server's FixRef says it: the words its link says (`said`), and its finding's (`state`). */
+function fixStanding(f: Record<string, unknown>): Pick<FixView, 'said' | 'state'> {
+  const s = f.said;
+  const tone = isObject(s) ? (['warn', 'ok', 'err'] as const).find((t) => t === s.tone) : undefined;
+  const said = isObject(s) && tone && typeof s.text === 'string' && typeof s.why === 'string' ? { tone, text: s.text, why: s.why } : null;
+  return { said, state: str(f.state) };
 }
 
 /**

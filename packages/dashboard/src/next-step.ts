@@ -167,7 +167,7 @@ export type NextStep = StepWords &
     | { key: 'replay'; runId: string; action?: ActionItem }
     | { key: 'passing' | 'injection-proof' | 'preset-proof'; runId: string }
     | { key: 'compare'; parent: string }
-    | { key: 'fix'; fixId: string; status: FixStatus; /** The fix's check, as its page states it. */ check: string; /** How it stands, as Fixes says it (fix-for-run.ts `FixRef`), where the step was read from the run's fix. */ standing?: Pick<FixRef, 'rung' | 'pr' | 'broken' | 'change'> }
+    | { key: 'fix'; fixId: string; status: FixStatus; /** The fix's check, as its page states it. */ check: string; /** How it stands, as Fixes says it (fix-for-run.ts `fixSaid`), where the step was read from the run's fix. */ said?: FixRef['said'] }
     | { key: 'blame'; offer: BlameOffer }
     | { key: 'normalizer' | 'update-golden'; golden: string; test: TestOffer | null }
     | { key: 'rerun-test' | 'gate-again'; golden: string }
@@ -317,9 +317,8 @@ function compareStep(parent: string, runId: string): Decided {
   return { key: 'compare', label: ACTIONS.compareWithParent.label, parent, href: links.compare(parent, runId), title: `Against ${short(parent)}`, about: parent, command: commandLine(['diff', short(parent), short(runId)]) };
 }
 
-function fixStep(fix: { fixId: string; title: string; status: FixStatus } & Partial<Pick<FixRef, 'rung' | 'pr' | 'broken' | 'change'>>, check: string, href = links.fixes(fix.fixId)): Decided {
-  const standing = fix.rung ? { standing: { rung: fix.rung, pr: fix.pr ?? null, broken: fix.broken ?? null, change: fix.change ?? null } } : {};
-  return { key: 'fix', label: ACTIONS.openFix.label, fixId: fix.fixId, status: fix.status, check, href, title: `“${fix.title}”`, ...standing };
+function fixStep(fix: { fixId: string; title: string; status: FixStatus } & Partial<Pick<FixRef, 'said'>>, check: string, href = links.fixes(fix.fixId)): Decided {
+  return { key: 'fix', label: ACTIONS.openFix.label, fixId: fix.fixId, status: fix.status, check, href, title: `“${fix.title}”`, ...(fix.said ? { said: fix.said } : {}) };
 }
 
 function blameCommand(runId: string, offer: BlameOffer, capture: boolean): string {

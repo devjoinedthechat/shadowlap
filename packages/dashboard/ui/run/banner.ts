@@ -57,8 +57,8 @@ export interface BannerInput {
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
   checks: ReadonlyArray<JudgedCheck & { label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
-  /** The fix the run fails in, or keeps passing for (`fixRole` `good`), with how it stands where the server says (FixView). */
-  fix: { id: string; status: string; title: string; rung?: string | null; broken?: string | null; change?: string | null } | null;
+  /** The fix the run fails in, or keeps passing for (`fixRole` `good`), with what its finding says of it where the server says (FixView `state`). */
+  fix: { id: string; status: string; title: string; state?: string | null } | null;
   /** How the run takes part in its fix (`RunDetail.fixRole`): `good`, a run a repair or a verify of it kept. */
   fixRole?: string | null;
   upstreamRequests: number;
@@ -745,20 +745,17 @@ function fixedBanner(i: BannerInput, by: string): Banner | null {
 }
 
 /**
- * How the fix that lists a failed run stands, in the finding's words, as Fixes says it: open with
- * what changed (or no change yet), fixed and how far (verified, applied, merged), or applied and
- * broken since. Null when none lists it.
+ * How the fix that lists a failed run stands, in the finding's words: as the server says it, as Fixes
+ * says it (fix-for-run.ts `fixStateWords`: what changed for an open one, merged, broken since), else
+ * no change yet, or fixed and its status. Null when none lists it.
  */
 function fixState(fix: BannerInput['fix']): string | null {
-  if (!fix) return null;
-  if (fix.status === 'open') return fix.change ? `“${fix.title}”: ${fix.change}` : `no change yet for “${fix.title}”`;
-  if (fix.status === 'applied' && fix.broken) return `“${fix.title}” is applied but doesn’t hold · ${fix.broken}`;
-  return `fixed: “${fix.title}”, ${fix.rung === 'merged' ? 'merged' : fix.status}`;
+  return fix ? (fix.state ?? (fix.status === 'open' ? `no change yet for “${fix.title}”` : `fixed: “${fix.title}”, ${fix.status}`)) : null;
 }
 
-/** A run that passed which a fix keeps passing (a good run of it), when nothing else is found: it says so, with the way to the fix. */
+/** A run that passed which a fix keeps passing (a good run of it), when nothing else is found: it says so, in the server's words (`state`), with the way to the fix. */
 function keptBanner(i: BannerInput): Banner | null {
-  return i.fixRole === 'good' && i.fix ? { kind: 'kept', fix: { id: i.fix.id, status: i.fix.status, title: i.fix.title }, why: `a good run of “${i.fix.title}”: a change for it must keep this run passing` } : null;
+  return i.fixRole === 'good' && i.fix ? { kind: 'kept', fix: i.fix, why: i.fix.state ?? '' } : null;
 }
 
 /**

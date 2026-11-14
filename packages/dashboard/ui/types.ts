@@ -294,11 +294,10 @@ export interface FixView {
   href?: string | null;
   /** The check its failures failed, in words (`send_email never called`), when the server says. */
   check?: string | null;
-  /** Where it stands on Fixes' ladder, its pull request, why an applied one doesn't hold, and what changed for an open one, when the server says (fix-for-run.ts `FixRef`). */
-  rung?: string | null;
-  pr?: { number: number | null } | null;
-  broken?: string | null;
-  change?: string | null;
+  /** How it stands, as Fixes says it, in the words its link says, when the server says (fix-for-run.ts `fixSaid`). */
+  said?: { tone: 'warn' | 'ok' | 'err'; text: string; why: string } | null;
+  /** What the run's finding says of it, when the server says: how it stands, for a run that fails in it (fix-for-run.ts `fixStateWords`); what a good run of it is for. */
+  state?: string | null;
 }
 /**
  * The server's run with the fields above as the views read them. The run page's read model sends

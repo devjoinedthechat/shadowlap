@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { Icon } from '../components/Icon.js';
@@ -159,4 +159,14 @@ export function RunBlameButton({
       {asking && Asks ? <Asks runId={runId} asking={asking} estimate={estimate} form={form} line={line} failed={failed} offer={offer} scope={scope} start={start} onClose={() => setAsking(null)} /> : null}
     </>
   );
+}
+
+/**
+ * The Agents bar's Run blame (run/parts.tsx `ScopeBar`), where the run's page offers Run blame:
+ * within the agent the bar's hint names, asking first with that agent picked. Null where it isn't
+ * offered. Handed in by the page, so the bar's module loads no part of Fixes.
+ */
+export function scopeBlame(runId: string, offers: { blame?: BlameOffer | null } | null | undefined): ((scope: string) => ReactNode) | null {
+  const offer = offers?.blame;
+  return offer ? (scope) => <RunBlameButton runId={runId} offer={offer} scope={scope} /> : null;
 }

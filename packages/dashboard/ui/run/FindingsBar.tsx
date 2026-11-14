@@ -251,7 +251,7 @@ function fixLink(x: Draw, step?: string): ReactNode {
   const fix = x.run.fix;
   if (!fix) return null;
   if (x.leads('fix')) {
-    const st = fixStatusWords(fix);
+    const st = fixStatusWords(fix.status, fix.said);
     return (
       <span className={`st ${st.tone}`} title={`“${fix.title}” is ${st.why}`}>
         <i />

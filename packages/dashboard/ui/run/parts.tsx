@@ -1,10 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
 import { injectionFactOf } from '../injection/model.js';
-import type { RunInjection, RunOffers } from '../types.js';
-import { RunBlameButton } from '../fixes/RunBlame.js';
+import type { RunInjection } from '../types.js';
 import { num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
@@ -200,8 +199,7 @@ function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
  * its own (`scopes` empty); a judge's calls (`judge`, how many) follow the agents' after a hairline,
  * under a chip of their own, as the design draws them.
  */
-export function ScopeBar({ run, scopes, scope, judge, onScope, offers }: { run: RunDetail; scopes: string[]; scope: string; judge: number; onScope: (s: string) => void; /** The run's offers: where Run blame is one, the hint runs it, within the agent it names. */ offers?: Pick<RunOffers, 'blame'> | null | undefined }) {
-  const blame = offers?.blame ?? null;
+export function ScopeBar({ run, scopes, scope, judge, onScope, blame = null }: { run: RunDetail; scopes: string[]; scope: string; judge: number; onScope: (s: string) => void; /** Run blame within the agent the hint names, where the run can be blamed (RunBlame.tsx `scopeBlame`): the page hands it in, so a page that shows only the bar's parts loads none of it. */ blame?: ((scope: string) => ReactNode) | null }) {
   // Blame the agent, not the model that plays its user: the scope picked, else the one that acts.
   // Blame is scoped by the scopes the author gave, so a run with none gets no hint: a judged one says
   // what its judge's calls count towards.
@@ -230,7 +228,7 @@ export function ScopeBar({ run, scopes, scope, judge, onScope, offers }: { run: 
           {blame ? (
             <>
               {' '}
-              <RunBlameButton runId={run.run.runId} offer={blame} scope={hint.scope} title={`Find the model call where this run was lost, within ${hint.scope}`} />
+              {blame(hint.scope)}
             </>
           ) : null}
         </span>

@@ -36,6 +36,7 @@ import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import type { UntrustedView } from '../types.js';
 import { RunHead, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
+import { scopeBlame } from '../fixes/RunBlame.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages } from '../run/paging.js';
@@ -378,7 +379,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       <RunHeader run={run} call={detail.data} selected={selected} forkWait={forkWait} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} onTest={tests.menu} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
       <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} presets={presets} injection={injection.finding} cause={injection.cause} attempt={injection.attempt} onPick={pickProof} />
       <StripBar strip={{ calls: strip.calls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: strip.inScope, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
-      {bar ? <ScopeBar run={run} scopes={scopeTree} scope={scope} judge={judge.size} onScope={setScope} offers={offers} /> : null}
+      {bar ? <ScopeBar run={run} scopes={scopeTree} scope={scope} judge={judge.size} onScope={setScope} blame={scopeBlame(run.run.runId, offers)} /> : null}
       <div className="work">
         <section className="views" aria-label="Views of the run">
           <Tabs label="Views" idPrefix="vtab" panelId="vbody" items={tabs} value={v} onChange={setView} listRef={useActiveTabInView<HTMLDivElement>(v)} onPointerEnter={warmViews} onFocus={warmViews} />

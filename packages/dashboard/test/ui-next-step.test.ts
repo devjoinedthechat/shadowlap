@@ -7,6 +7,7 @@ import { Banner } from '../ui/run/FindingsBar.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { ScopeBar } from '../ui/run/parts.js';
+import { scopeBlame } from '../ui/fixes/RunBlame.js';
 import { SERVED_PARTS } from '../ui/pages/served.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -131,8 +132,10 @@ describe('the run page’s next step', () => {
   });
 
   it('says on the run page a fix applied whose goldens failed since is broken, in red, never applied in lime', async () => {
-    const broken = { ...verified, status: 'applied', rung: 'applied', broken: 'shadowlap test failed on its goldens' };
-    const run = detail({ state: failedState, fix: broken, blame: lost, next: { ...FIX, status: 'applied', standing: { rung: 'applied', pr: null, broken: broken.broken, change: null } } });
+    // As the server says it (fix-for-run.ts `fixSaid`), on the run's fix and its Open fix alike.
+    const said = { tone: 'err', text: 'fix broken', why: 'applied, but it doesn’t hold: shadowlap test failed on its goldens' } as const;
+    const broken = { ...verified, status: 'applied', said };
+    const run = detail({ state: failedState, fix: broken, blame: lost, next: { ...FIX, status: 'applied', said } });
     page = await render(both(run));
     expect(tip(page.byText('.rhead .actions a', 'Open fix'))).toMatchObject({ s: 'applied, but it doesn’t hold: shadowlap test failed on its goldens' });
     expect(page.one('.banner .st').className).toBe('st err');
@@ -152,18 +155,16 @@ describe('the run page’s next step', () => {
     expect(selected).toEqual([7]);
   });
 
-  it('says an open fix is open, in amber, and how a fix stands as Fixes says it', () => {
-    expect(fixStatusWords({ status: 'open' })).toEqual({ tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' });
-    expect(fixStatusWords({ status: 'open', change: 'prompt change, not verified yet' }).why).toBe('open: prompt change, not verified yet');
-    expect(fixStatusWords({ status: 'applied' }).text).toBe('fix applied');
-    // Applied, but its goldens failed since: broken, in red, never "applied" in lime.
-    expect(fixStatusWords({ status: 'applied', rung: 'applied', broken: 'shadowlap test failed on its goldens' })).toEqual({ tone: 'err', text: 'fix broken', why: 'applied, but it doesn’t hold: shadowlap test failed on its goldens' });
-    // Merged with its pull request: it shipped, and nothing waits to apply.
-    expect(fixStatusWords({ status: 'verified', rung: 'merged', pr: { number: 42 } })).toEqual({ tone: 'ok', text: 'fix merged · PR #42', why: 'merged: its change shipped with its pull request' });
+  it('says an open fix is open, in amber, and how a fix stands as the server says it', () => {
+    expect(fixStatusWords('open')).toEqual({ tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' });
+    expect(fixStatusWords('applied').text).toBe('fix applied');
     // Verified, not applied: never "ready to apply", which a patch in the working tree already isn't.
-    expect(fixStatusWords({ status: 'verified', rung: 'verified' })).toEqual({ tone: 'ok', text: 'fix verified', why: 'verified: a change fixed its failing runs, not applied yet' });
+    expect(fixStatusWords('verified')).toEqual({ tone: 'ok', text: 'fix verified', why: 'verified: a change fixed its failing runs, not applied yet' });
+    // As Fixes says it, where the server says it: merged with its pull request.
+    const merged = { tone: 'ok', text: 'fix merged · PR #42', why: 'merged: its change shipped with its pull request' } as const;
+    expect(fixStatusWords('verified', merged)).toEqual(merged);
     // Open fix's card on the header says the same.
-    expect(stepCard({ ...FIX, status: 'applied', standing: { rung: 'applied', pr: null, broken: 'shadowlap test failed on its goldens', change: null } }).sub).toBe('applied, but it doesn’t hold: shadowlap test failed on its goldens');
+    expect(stepCard({ ...FIX, status: 'verified', said: merged }).sub).toBe('merged: its change shipped with its pull request');
   });
 
   it('blames a failure nobody blamed, with what it bills on its hover, and the banner doesn’t offer it again', async () => {
@@ -681,7 +682,7 @@ describe('the Agents bar’s Run blame', () => {
     const call = (callNo: number, kind: 'api' | 'tool', scope: string) => ({ callNo, kind, name: kind === 'api' ? 'POST /v1/messages' : 'send_email', origin: 'live', scope, agent: scope });
     const run = { ...detail({ status: 'failed', state: failedState }), calls: [call(1, 'api', 'agent'), call(2, 'tool', 'agent'), call(3, 'api', 'customer')] } as unknown as RunDetail;
     const blame: BlameOffer = { from: 'exit', expect: null, failed: [], scopes: ['agent', 'customer'] } as unknown as BlameOffer;
-    const bar = (a: AppState, offer: BlameOffer | null) => createElement(AppContext.Provider, { value: a }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, createElement(ScopeBar, { run, scopes: ['agent', 'customer'], scope: 'all', judge: 0, onScope: () => undefined, offers: { blame: offer } })));
+    const bar = (a: AppState, offer: BlameOffer | null) => createElement(AppContext.Provider, { value: a }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, createElement(ScopeBar, { run, scopes: ['agent', 'customer'], scope: 'all', judge: 0, onScope: () => undefined, blame: scopeBlame(REC, { blame: offer }) })));
     // Where it can't be blamed, the hint says the command alone.
     page = await render(bar(app(), null));
     expect(page.one('.shint').textContent).toBe(`Blame only the agent, not the customer it answers: shadowlap blame ${REC.slice(0, 10)} --scope agent`);
