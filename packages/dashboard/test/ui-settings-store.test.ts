@@ -31,7 +31,7 @@ function store(onlyLocal: number, sync = synced()): StoreSettings {
 /** A setup under way at its second step, or none (finished). */
 const setupView = (underWay: boolean) => ({ active: underWay, next: underWay ? { step: 2, title: 'Push your runs' } : null, ci: [], setup: { ciProvider: null } }) as unknown as StoreSetupView;
 
-function app(onlyLocal: number, underWay: boolean, started: Array<[string, unknown]> = [], sync = synced()): AppState {
+function app(onlyLocal: number, underWay: boolean, started: Array<[string, unknown]> = [], sync = synced(), off: { actionsOff?: string; kinds?: string[] } = {}): AppState {
   const never = () => new Promise<never>(() => undefined);
   const settings = { store: async () => store(onlyLocal, sync), matching: never, project: never, redaction: never, codingAgents: never, tools: never, spending: never };
   return {
@@ -40,8 +40,8 @@ function app(onlyLocal: number, underWay: boolean, started: Array<[string, unkno
     runs: [],
     feeds: {},
     jobs: [],
-    actionsOff: null,
-    hasKind: () => true,
+    actionsOff: off.actionsOff ?? null,
+    hasKind: (kind: string) => off.kinds?.includes(kind) ?? true,
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
@@ -140,5 +140,14 @@ describe('Settings → Store’s last sync', () => {
     await r.click(r.one('[role="dialog"] .dlg-ok'));
     await r.until('the job', () => started.length > 0);
     expect(started).toEqual([['pull', { runIds: ['01K5CQ4N7G', '01K5CR'], includePr: true }]]);
+  });
+
+  it('offers no Pull runs… on a read-only dashboard, nor where the server runs no pulls', async () => {
+    for (const off of [{ actionsOff: 'This dashboard is read-only' }, { kinds: ['push', 'store-check'] }]) {
+      r = await storeTab(app(0, false, [], synced(), off));
+      expect(r.all('.settab dl.kvs dd button').map((b) => b.textContent)).not.toContain('Pull runs…');
+      await r.unmount();
+      r = null;
+    }
   });
 });

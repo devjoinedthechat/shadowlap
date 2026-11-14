@@ -1988,7 +1988,7 @@ Beside Push from CI, **Open Your workflow** leads to Settings → CI, which writ
 
 One button is lime, the next step: **Push local runs** while finished runs are only on this machine, else **Continue setup** while a setup is under way.
 
-**Pull runs…** pulls only the runs you name, by id or their first 4 characters or more, as the store lists them. Its switch brings the runs pull requests' CI jobs pushed to their own folders too, as `shadowlap pull --include-pr` does, and they stay on this machine. The dialog shows the command as you type.
+**Pull runs…** pulls only the runs you name, by id or their first 4 characters or more, as the store lists them. Its switch brings the runs pull requests' CI jobs pushed to their own folders too, as `shadowlap pull --include-pr` does, and they stay on this machine. The dialog shows the command as you type. A read-only dashboard has no Pull runs….
 
 **Check again** runs [`shadowlap store check`](./team.md#check-access) as a job. It writes nothing to `shadowlap.config.json`, and a finished setup stays finished. Its result shows as the last check, and in the [activity feed](#activity).
 

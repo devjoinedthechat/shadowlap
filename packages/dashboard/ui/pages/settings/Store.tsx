@@ -188,13 +188,17 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
   );
 }
 
-/** Pull runs…: its dialog names the runs to pull, or takes pull requests' runs too. */
+/**
+ * Pull runs…: its dialog names the runs to pull, or takes pull requests' runs too. None on a
+ * read-only dashboard, or on one whose server doesn't run pulls.
+ */
 function PullRuns() {
   const app = useApp();
   const [open, setOpen] = useState(false);
+  if (app.actionsOff || !app.hasKind(JOB_KINDS.pull)) return null;
   return (
     <>
-      <ActionButton className="btn sm" why={jobButton(app, JOB_KINDS.pull, 'shadowlap pull <run…>')} tip="Pull runs…" sub="The runs you name, or pull requests’ runs too" command="$ shadowlap pull <run…>" onClick={() => setOpen(true)}>
+      <ActionButton className="btn sm" tip="Pull runs…" sub="The runs you name, or pull requests’ runs too" command="$ shadowlap pull <run…>" onClick={() => setOpen(true)}>
         Pull runs…
       </ActionButton>
       {open ? <PullRunsDialog onClose={() => setOpen(false)} /> : null}
