@@ -1684,13 +1684,15 @@ For a verdict given on other material, it says first that a value that changes e
 
 Each behaviour is a row of two lines, which a screen reader hears as one sentence:
 
-1. What production did from where it parts from its nearest golden: the tools it called, a write in teal and reads in a row folded into one, then how it ended, in red where it failed.
+1. What production did from where it parts from its nearest golden: the tools it called, a write in teal and reads in a row folded into one, then how it ended, in red where it failed. A tool whose effect nothing names counts as a write, its hover saying *effect unknown: counted as a write*.
 2. Where the two part: *after `lookup_order`*, then what the golden does there, such as *`refund-in-limit` calls `send_email` here* or *has stopped here*. A behaviour may also part at the golden's first step, take its steps and end another way, or start as no golden does.
 
 At the row's end come how many runs took it, which opens its details, when the newest was seen, and **Pack as golden**.
 
 - **The agent no longer does this**, in amber on the second line, marks a behaviour the last pack couldn't reproduce. Its hover says when that pack ran, who ran it where names show, and why. Its button is **Pack with checks…**.
 - **Its details** hold the whole path, the runs that took it, its nearest golden, what the last pack made of it, and the behaviour's key. For a behaviour the agent no longer does, *Last tried* there shows the last pack's command, with a plain **Pack as golden** beside the row's **Pack with checks…**.
+- **A tool of unknown effect** is named after the writes under its path, as `shadowlap coverage` names it: *writes lookup_kb and issue_refund (effect unknown: lookup_kb)*. A screen reader hears the same.
+- **Goldens the scan couldn't read** cover nothing, so what they would cover reads as not covered. A line in amber above the foot names each and why: *1 golden can’t be read, so it covers nothing here: refund-legacy (no run.json: not a pack)*.
 - **The foot** says when the scan ran, how many imported runs and behaviours it read, and how many have a golden, which on hover. Then it counts the runs imported since.
 
 What it shows before a scan, and after one:

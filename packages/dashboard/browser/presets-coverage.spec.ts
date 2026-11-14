@@ -1,11 +1,12 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
-import { dash, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
+import type { CoverageView } from '../ui/types.js';
+import { dash, openPage, patched, RESET_RETRY, seriousViolations } from './dashboard.js';
 
 /**
  * Error-path presets and production coverage in Chromium over the demo store: Tests › Not covered's
  * rows in the keys' reach (j walks into them after the goldens, Enter opens a row's details, Tab goes
  * to its count and then its pack, the cards in its lines taking no focus) with their actions as wide
- * as the widest, and the presets' results
+ * as the widest, the goldens its scan couldn't read and a step of unknown effect said, and the presets' results
  * on their recording's page at a desk's widths and a phone's, every cell holding its words and the
  * page never scrolling sideways.
  */
@@ -59,6 +60,24 @@ test('Not covered’s rows: j walks into them after the goldens, Enter opens a r
   const edges = await page.locator(`${ROWS} > .cvacts`).evaluateAll((acts) => acts.map((a) => Math.round(a.getBoundingClientRect().left)));
   expect(new Set(edges).size).toBe(1);
   expect(await seriousViolations(page)).toEqual([]);
+});
+
+test('Not covered says the goldens its scan couldn’t read, in amber, and a step of unknown effect as one, with no serious axe violation', async ({ page }) => {
+  // The demo's scan, with a golden it couldn't read and its first behaviour's first write of unknown effect.
+  let unknown = '';
+  await page.route((url) => url.pathname === '/api/coverage', (route) =>
+    patched<CoverageView>(route, (v) => {
+      const first = v.groups.find((g) => !g.covered && g.writes.length);
+      unknown = first?.writes[0] ?? '';
+      return { ...v, scan: v.scan && { ...v.scan, data: { ...v.scan.data, unreadable: [{ golden: 'goldens/refund-legacy', error: 'no run.json: not a pack' }] } }, groups: v.groups.map((g) => (g === first ? { ...g, unknown: [unknown] } : g)) };
+    }),
+  );
+  await openPage(page, '/tests', ROWS);
+  await expect(page.locator('main#view #notcovered .cvunread')).toHaveText('1 golden can’t be read, so it covers nothing here: refund-legacy (no run.json: not a pack)');
+  expect(unknown).not.toBe('');
+  await expect(page.locator(`${ROWS} code.wr[title="effect unknown: counted as a write"]`, { hasText: unknown }).first()).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
 /** The recording the demo's error-path presets ran on: the in-limit refund golden's, else the first the API gives. */

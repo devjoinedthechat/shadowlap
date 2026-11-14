@@ -4,7 +4,7 @@ import { quoteArgv } from '../../../engine/src/text.js';
 import { JOB_KINDS } from '../api.js';
 import { useFitAbouts } from '../components/About.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { Words } from '../components/Copy.js';
+import { Copy, Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
@@ -22,7 +22,7 @@ import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import { addressNow } from '../dom.js';
 import type { CoverageGroupView, CoverageView } from '../types.js';
-import { andList, asksNotCovered, coverageSaid, coverageShows, endOf, lastTried, lineSteps, NO_LONGER, nearestWords, packCommand, pathWords, triedWhy, whereOf, type LineStep, type Where } from './model.js';
+import { andList, asksNotCovered, coverageSaid, coverageShows, endOf, lastTried, lineSteps, NO_LONGER, nearestWords, packCommand, pathWords, triedWhy, unreadWords, whereOf, type LineStep, type Where } from './model.js';
 import { PackDialogPart } from './part.js';
 
 /*
@@ -75,7 +75,7 @@ function Step({ s }: { s: LineStep }) {
     );
   }
   return s.write ? (
-    <code className="wr" title="a write">
+    <code className="wr" title={s.unknown ? 'effect unknown: counted as a write' : 'a write'}>
       {s.name}
     </code>
   ) : (
@@ -349,6 +349,16 @@ function Foot({ v }: { v: CoverageView }) {
   );
 }
 
+/** The goldens the scan couldn't read, in amber above the foot: they cover nothing, so what they would cover reads as not covered. */
+function Unread({ v }: { v: CoverageView }) {
+  const words = unreadWords(v);
+  return words ? (
+    <div className="pbody">
+      <Copy className="fieldnote warn cvunread">{words}</Copy>
+    </div>
+  ) : null;
+}
+
 /** Rescan coverage: the CLI's scan, free, on no lane: it waits only as every action does. Lime where it leads (`rescanLeads`). */
 function Rescan({ lime }: { lime: boolean }) {
   const app = useApp();
@@ -422,6 +432,7 @@ export function NotCovered({ read, lime }: { read: Loaded<CoverageView | null>; 
           <p className="muted cvnone">Every behaviour production took has a golden.</p>
         </div>
       )}
+      <Unread v={v} />
       <Foot v={v} />
     </Section>
   );
