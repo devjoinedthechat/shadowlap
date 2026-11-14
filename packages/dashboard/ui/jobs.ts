@@ -112,8 +112,11 @@ export function replayEndedEarly(job: JobLike, lines: readonly string[]): { call
   return { callNo, target: target && target.callNo >= callNo ? target : null };
 }
 
-/** The line `replay` ends a replay that made no call with (engine report.ts `formatSummary`). */
-const NO_CALLS = /^\s*(?:⚠\s*)?Replayed \S+: no calls were made/m;
+/** The line `replay` ends a replay that made no call with, and `run` a recording (engine report.ts `formatSummary`). */
+const NO_CALLS = /^\s*(?:⚠\s*)?(?:Recorded|Replayed) \S+: no calls were made/m;
+
+/** The line `run` ends a recording that holds calls with, and how many (engine report.ts `formatSummary`). */
+const RECORDED = /^\s*(?:●\s*)?Recorded \S+: (\d+) calls/m;
 
 /** The line a replay's summary says the agent's own failure with: what its exit code is then. */
 const AGENT_FAILED = /the agent process exited with an error/;
@@ -170,6 +173,24 @@ export function unrecordedRefused(lines: readonly string[]): string | null {
 }
 
 const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+
+/**
+ * How a recording ended, from what `run` prints: the calls it holds, and that its agent failed where
+ * it did, the run holding that failure; none made, in amber, as `run` warns. Null for any other job,
+ * and for a recording that held nothing to say so (its command never started), whose exit code
+ * says it.
+ */
+function recordedStatus(job: JobLike, lines: readonly string[], code: number): JobWords | null {
+  if (ownArgs(job.args)[0] !== 'run') return null;
+  const all = lines.join('\n');
+  const exit = `exit ${code}`;
+  if (NO_CALLS.test(all)) return { text: `no calls were made · ${exit}`, tone: agentTone(code) };
+  const held = RECORDED.exec(all);
+  if (!held) return null;
+  const calls = count(Number(held[1]), 'call');
+  if (code === 0) return { text: `${calls} · ${exit}`, tone: 'ok' };
+  return AGENT_FAILED.test(all) ? { text: `${calls} · agent exited ${code}`, tone: 'warn' } : null;
+}
 
 /**
  * How a Training job ended, in the job drawer's status line, from the result it reports: Score a model
@@ -229,8 +250,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   // recorder left is interrupted, though nobody asked it to.
   if (code === null) return { text: 'interrupted', tone: 'warn' };
   const exit = `exit ${code}`;
-  // A Replay that didn't reproduce the run, or a fork that left it before its flag acted, whatever the agent did after (leftStatus).
-  const left = leftStatus(job, lines, code);
+  // A Replay that didn't reproduce the run, or a fork that left it before its flag acted, whatever the
+  // agent did after (leftStatus); a recording, the calls it holds (recordedStatus).
+  const left = leftStatus(job, lines, code) ?? recordedStatus(job, lines, code);
   if (left) return left;
   // A session, an update, a search, a verify or a repeat: in the words of its kind.
   const ending = jobEnding(job, all, code);

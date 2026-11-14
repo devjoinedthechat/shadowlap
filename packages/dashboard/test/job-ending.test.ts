@@ -267,6 +267,32 @@ describe('a job that ended with nobody asking it to stop, or that was stopped', 
   });
 });
 
+describe('a recording’s end, read from what `shadowlap run` prints', () => {
+  const ARGS = ['run', '--', 'node', 'agent.mjs'];
+  const recording = (code: number | null) => done({ kind: 'record', title: 'Recording', args: ARGS, code });
+  /** What `run` prints as it ends (the CLI's printOutcome): the recording's summary, then `show`. */
+  const recorded = (o: Partial<RunSummary> & Pick<RunSummary, 'total'>) => replayed(summary({ mode: 'record', byOrigin: { replayed: 0, live: o.total, blocked: 0, stubbed: 0, overridden: 0 }, ...o }));
+
+  it('says how many calls a recording holds, and that its agent failed where it did, never only that it finished', () => {
+    const twelve = recorded({ total: 12 });
+    expect(jobStatus(recording(0), twelve)).toEqual({ text: '12 calls · exit 0', tone: 'ok' });
+    expect(jobHeader(recording(0), twelve)).toEqual({ title: 'Recorded', text: '12 calls · exit 0', tone: 'ok' });
+    expect(endToast(recording(0), twelve)).toBe('Recorded · 12 calls · exit 0');
+    expect(jobStatus(recording(0), recorded({ total: 1 }))).toEqual({ text: '1 call · exit 0', tone: 'ok' });
+    // The agent failed: the run it recorded holds that failure.
+    const failed = recorded({ total: 12, status: 'failed' });
+    expect(failed).toContain('  the agent process exited with an error');
+    expect(jobHeader(recording(1), failed)).toEqual({ title: 'Recorded', text: '12 calls · agent exited 1', tone: 'warn' });
+  });
+
+  it('says a recording that made no call so, in amber, as `run` does', () => {
+    const none = recorded({ total: 0, byKind: { api: 0, tool: 0, clock: 0, random: 0 } });
+    expect(none.join('\n')).toContain(': no calls were made.');
+    expect(jobStatus(recording(0), none)).toEqual({ text: 'no calls were made · exit 0', tone: 'warn' });
+    expect(endToast(recording(0), none)).toBe('Recorded · no calls were made · exit 0');
+  });
+});
+
 describe('an injection job’s end', () => {
   const plant = (code: number, verdict: string) => jobStatus(done({ kind: 'injection', title: 'Running injection test', args: ['injection', 'X'], code, result: { results: [{ mode: 'plant' }], verdict } }), []);
   const clean = (code: number, verdict: string) => jobStatus(done({ kind: 'injection', title: 'Finding cause: testing #4', args: ['injection', 'X', '--clean', '4'], code, result: { results: [{ mode: 'clean', verdict }], verdict: 'passed' } }), []);

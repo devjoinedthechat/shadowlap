@@ -2632,6 +2632,8 @@ How a replay or a fork ended:
 - **A Repeat where a check failed or couldn't be decided** says how many attempts passed: *failed · 3 of 5 attempts passed · exit 1*, or *inconclusive · 4 of 5 attempts passed · exit 3* in amber. An attempt that failed or never ran counts against it.
 - **A command the CLI refused** before it ran, such as a status `--fail-at` doesn't take, ends *Tried forking · exit 2*, its toast giving the CLI's reason.
 
+A recording ends on the calls it holds, *12 calls · exit 0*, or *12 calls · agent exited 1* in amber, as the run holds the failure. One that made no call says *no calls were made*, in amber where the agent exited 0, as `shadowlap run` warns.
+
 How a preview and its verify ended:
 
 - **A preview** is titled by its way (*Previewing model switch*). It ends *finished · exit 0*, or *inconclusive · exit 3* in amber where it settled nothing, with **Open preview**.
