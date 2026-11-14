@@ -247,12 +247,13 @@ describe('a golden’s presets on Tests', () => {
     const [f, i] = view.rows;
     expect(f.last.line).toBe('1 of 3 presets failed: tool timeout #2 · replay not tested yet');
     expect(f.last.result).toBeNull();
-    // The strip draws every preset, the one that couldn't apply too (muted, left out of the counts).
+    // The strip draws every preset, the one that couldn't apply too (muted, left out of the counts),
+    // with why it couldn't: the detail the CLI kept. These attempts kept no reason for the failure.
     const cells = [
-      { label: 'tool timeout', verdict: 'failed', passes: 0, attempts: 1, callNo: 2 },
-      { label: 'empty result', verdict: 'passed', passes: 1, attempts: 1, callNo: 2 },
-      { label: 'malformed JSON', verdict: 'not-applicable', passes: 0, attempts: 0, callNo: null },
-      { label: 'provider 429', verdict: 'passed', passes: 1, attempts: 1, callNo: 3 },
+      { label: 'tool timeout', verdict: 'failed', passes: 0, attempts: 1, callNo: 2, why: null },
+      { label: 'empty result', verdict: 'passed', passes: 1, attempts: 1, callNo: 2, why: null },
+      { label: 'malformed JSON', verdict: 'not-applicable', passes: 0, attempts: 0, callNo: null, why: 'malformed: the agent exited with code 1' },
+      { label: 'provider 429', verdict: 'passed', passes: 1, attempts: 1, callNo: 3, why: null },
     ];
     expect(f.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number), recording: forecast, cells });
     expect(i.presets).toMatchObject({ verdict: 'passed', ran: 1, line: '1 of 1 preset passed' });
