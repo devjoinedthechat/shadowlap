@@ -428,5 +428,9 @@ describe('an event’s icon', () => {
     expect(html('err')).toContain('class="glyph blame ic err"');
     expect(html('warn')).toContain('aria-label="Blame"');
     expect(renderToStaticMarkup(createElement(EventIcon, { kind: 'fixinc' }))).toContain('aria-label="Fix inconclusive"');
+    // A verdict that counts for no fix it names: the loop with no verdict's colour, and never "Fix accepted".
+    const plain = renderToStaticMarkup(createElement(EventIcon, { kind: 'fixok', outcome: 'plain' }));
+    expect(plain).toContain('class="glyph fixok ic plain"');
+    expect(plain).toContain('aria-label="Verify that doesn&#x27;t count for the fix"');
   });
 });

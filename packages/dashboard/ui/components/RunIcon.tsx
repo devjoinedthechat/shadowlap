@@ -88,10 +88,11 @@ export function RunIcon({ run, className = 'ri' }: { run: RunLike; className?: s
 
 /**
  * An activity or Needs-a-look entry's icon, its colour how it came out where that differs from its
- * kind's: `err` red, `warn` amber (a stopped blame is the loop in amber). A "Recording started" entry
- * stops pulsing once the run ends.
+ * kind's: `err` red, `warn` amber (a stopped blame is the loop in amber), `plain` no verdict's colour,
+ * for a verdict that counts for no fix it names, as its Verify step draws one. A "Recording started"
+ * entry stops pulsing once the run ends.
  */
-export function EventIcon({ kind, live = false, outcome, className = 'ic' }: { kind: GlyphKind; live?: boolean; outcome?: 'err' | 'warn' | undefined; className?: string }) {
-  const tone = outcome === 'warn' ? ' amb' : outcome === 'err' ? ' err' : '';
-  return <Glyph kind={kind} label={EVENT_LABEL[kind]} className={`${className}${tone}`} done={kind === 'live' && !live} />;
+export function EventIcon({ kind, live = false, outcome, className = 'ic' }: { kind: GlyphKind; live?: boolean; outcome?: 'err' | 'warn' | 'plain' | undefined; className?: string }) {
+  const tone = outcome === 'warn' ? ' amb' : outcome === 'err' ? ' err' : outcome === 'plain' ? ' plain' : '';
+  return <Glyph kind={kind} label={outcome === 'plain' ? "Verify that doesn't count for the fix" : EVENT_LABEL[kind]} className={`${className}${tone}`} done={kind === 'live' && !live} />;
 }

@@ -263,6 +263,8 @@ The rest is what commands record as they change the project or write something:
 - A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 - A preview's verify, by the preview's name and how its runs came out (*Verified · Model switch to claude-haiku-4-5: 1 fixed, 1 kept*), counted the same way where it rejected the change, or why it settled nothing. It opens the preview.
+- A fix's repairs, verdicts and applies, each opening the fix. A repair that tried candidates and accepted none is red. One that stopped, had no fix to try or asked no repairer is amber (*Repairer not asked · claude was not found*).
+- A verdict on a fix's runs that counts for none of them is plain, as its Verify step draws it, and says *doesn't count for the fix*. An applied fix whose goldens failed their test is red (*Patch applied · Refund over the limit · tests failed*).
 
 An entry no page shows is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview), and a migration on [Migrate](#migrate), as does *Config change applied*, which `migrate apply` records with the goldens it left to update. A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
 
