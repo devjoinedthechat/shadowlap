@@ -7,10 +7,10 @@ import { HttpError } from '../http.js';
 import { budgetFlags, injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection, payloadsRead } from '../injection.js';
 import { injectionReportHtml, reportFile, reportPreview } from '../injection-report.js';
 import type { InjectionReadInput } from '../injection-security.js';
-import { sendAnswer } from '../read-pool.js';
+import { sendAnswer, sendAnswerTagged } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { runAffinity } from '../run-index.js';
-import { runVersionTag } from '../run-version.js';
+import { runTag } from '../run-version.js';
 import { namesTeamStore } from './verdicts.js';
 
 /**
@@ -82,17 +82,20 @@ function planParams(q: URLSearchParams): InjectionPlan {
 }
 
 /**
- * What a dialog's price is worked out on, with the ETag that says where it stands: a run of the store
- * (`run`), or a project's golden (`golden`), its recording where the store holds it, else the pack
- * that does, which stands as it was packed.
+ * What a dialog's price is worked out on, with the tag that says where it stands (sendAnswerTagged): a
+ * run of the store (`run`), or a project's golden (`golden`), its recording where the store holds it,
+ * else the pack that does, which stands as it was packed.
  */
-function planTarget(ctx: RouteContext, q: URLSearchParams, asked: string): { runId: string; pack?: string; etag: string } {
+function planTarget(ctx: RouteContext, q: URLSearchParams, asked: string): { runId: string; pack?: string; tag: () => string } {
   const golden = q.get('golden');
   const g = golden === null ? null : (ctx.options.goldens?.() ?? []).find((x) => x.path === golden);
   if (g === undefined) throw new HttpError(404, `no golden ${golden ?? ''} in this project`);
   const run = g ? (g.runId ? ctx.store.getRun(g.runId) : null) : lookupRun(ctx.store, q.get('run') ?? '');
-  if (run) return { runId: run.runId, etag: runVersionTag(ctx.store, run, asked) };
-  if (g) return { runId: g.runId ?? '', pack: join(ctx.project?.path ?? process.cwd(), g.path), etag: `"g${createHash('sha1').update(JSON.stringify([g.path, g.packedAt, asked])).digest('base64url')}"` };
+  if (run) return { runId: run.runId, tag: runTag(ctx.store, run.runId, () => asked) };
+  if (g) {
+    const etag = `"g${createHash('sha1').update(JSON.stringify([g.path, g.packedAt, asked])).digest('base64url')}"`;
+    return { runId: g.runId ?? '', pack: join(ctx.project?.path ?? process.cwd(), g.path), tag: () => etag };
+  }
   const no = noSuchRun(ctx.store, q.get('run') ?? '');
   throw new HttpError(no.status, no.message);
 }
@@ -122,13 +125,8 @@ export function register(router: Router, ctx: RouteContext): void {
   // goldens, the trust marks and the prices: the palette asks as it opens, a 304 while nothing moved.
   router.get('/injection/security', async (r) => {
     const input = injectionReadInput(ctx);
-    const etag = `"s${createHash('sha1').update(JSON.stringify([store.changeCounts(), input])).digest('base64url')}"`;
-    if (r.req.headers['if-none-match'] === etag) {
-      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
-      r.res.end();
-      return;
-    }
-    sendAnswer(r, await ctx.reads.run({ kind: 'injection-security', ...input }), { etag });
+    const tag = () => `"s${createHash('sha1').update(JSON.stringify([store.changeCounts(), input])).digest('base64url')}"`;
+    await sendAnswerTagged(r, tag, () => ctx.reads.run({ kind: 'injection-security', ...input }));
   });
   // A dialog's picks priced, asked again a moment after each pick, or Find cause…'s read: revalidated,
   // as a run's estimates are, from where the run (or the golden's pack) stands, the prices and the plan.
@@ -138,13 +136,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const gate = r.query.get('gate') === '1';
     const trust = tools();
     const on = planTarget(ctx, r.query, JSON.stringify([ctx.read, trust ?? null, plan, gate, clean ?? null]));
-    if (r.req.headers['if-none-match'] === on.etag) {
-      r.res.writeHead(304, { etag: on.etag, 'cache-control': 'no-cache' });
-      r.res.end();
-      return;
-    }
     const job = { kind: 'injection-estimate' as const, runId: on.runId, ...(on.pack ? { pack: on.pack } : {}), ...(clean !== undefined ? { clean } : {}), plan, gate, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(trust ? { tools: trust } : {}) };
-    sendAnswer(r, await ctx.reads.run(job, on.pack ? undefined : runAffinity(store, on.runId)), { etag: on.etag });
+    await sendAnswerTagged(r, on.tag, () => ctx.reads.run(job, on.pack ? undefined : runAffinity(store, on.runId)));
   });
   // Both read every call they are about, of a run or of every run: worked out beside the server.
   router.get('/injection/tools', async (r) => {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchIndexBehind, Store } from '@shadowlap/engine';
 import { runDetail, type RunDetail } from '../src/api.js';
-import { startDashboard, type Dashboard } from '../src/index.js';
+import { startDashboard, type Dashboard, type RouteModule } from '../src/index.js';
 import { liveRuns } from '../src/meta.js';
 import { runVersionTag } from '../src/run-version.js';
 import { familyRefresh, feedMoves, runRefresh, withLiveCalls } from '../ui/connection.js';
@@ -172,6 +172,51 @@ describe('a run’s page on the server', () => {
     const forked = await get(`runs/${done}`, tagged);
     expect(forked.status).toBe(200);
     expect(((await forked.json()) as RunDetail).children.map((c) => c.runId)).toEqual([fork]);
+  });
+
+  it('tags no answer by where the run stood before a write that landed while it was worked out, so an Undo is never a 304 for the label it took off', async () => {
+    // The test's own route module reaches the reads: `landing` is a write that lands as the next
+    // answer is worked out, after the route has read where the run stands.
+    let landing: (() => void) | null = null;
+    const writes: RouteModule = {
+      register: (_router, ctx) => {
+        const run = ctx.reads.run.bind(ctx.reads);
+        ctx.reads.run = (job, o) => {
+          const write = landing;
+          landing = null;
+          write?.();
+          return run(job, o);
+        };
+      },
+    };
+    const here = await startDashboard({ store, dbPath: ':memory:', routes: [writes] });
+    try {
+      const done = addRun(store, { startedAt: Date.now() - HOUR, calls: 'll' });
+      const label = (labels: string[]) => store.updateRunMeta(done, { labels });
+      // The browser's copy: an answer is kept with its ETag and shown again on a 304; one with none is shown, not kept.
+      let kept: { etag: string; labels: string[] } | null = null;
+      const page = async (): Promise<string[]> => {
+        const res = await fetch(`${here.url}/api/runs/${done}`, { headers: { 'x-shadowlap-token': here.token, ...(kept ? { 'if-none-match': kept.etag } : {}) } });
+        if (res.status === 304) return kept!.labels;
+        expect(res.status).toBe(200);
+        const labels = ((await res.json()) as RunDetail).run.meta?.labels ?? [];
+        const etag = res.headers.get('etag');
+        if (etag) kept = { etag, labels };
+        return labels;
+      };
+      expect(await page()).toEqual([]);
+      // Marked good, then put back with Undo while the page asks again: the mark lands again as that answer is worked out.
+      label(['good']);
+      expect(await page()).toEqual(['good']);
+      label([]);
+      landing = () => label(['good']);
+      expect(await page()).toEqual(['good']);
+      // Undo again: the run stands as it did before that mark, and the page shows it so.
+      label([]);
+      expect(await page()).toEqual([]);
+    } finally {
+      await here.close();
+    }
   });
 
   it('gives a recording’s page the calls after those it has, and the rest of the run whole', async () => {

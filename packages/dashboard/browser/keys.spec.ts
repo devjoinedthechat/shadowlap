@@ -374,15 +374,19 @@ test('⌘K on a failed run’s row offers its next step after Open run, with no 
 });
 
 test('the palette says “this row” where a row’s name doesn’t fit its field, measured again as the window changes', async ({ page }) => {
-  await openRuns(page);
+  // A row of Fixes, named in words. A row named by its run's id, as Runs' rows are, takes 142 to 217px
+  // of the field's type as the id's letters fall, and the field holds 171px at its narrowest: one fits
+  // there, and the page rightly keeps its name, as 01M7BPJ841's did.
+  await openPage(page, '/fixes', 'main#view .pslist');
   await page.keyboard.press('j');
   await page.keyboard.press('ControlOrMeta+k');
   const field = page.locator('.palin input');
-  await expect(field).toHaveAttribute('placeholder', /^Actions for \w{10}$/);
+  await expect(field).toHaveAttribute('placeholder', /^Actions for (?!this row$)/);
+  const named = (await field.getAttribute('placeholder'))!;
   await page.setViewportSize({ width: 220, height: 700 });
   await expect(field).toHaveAttribute('placeholder', 'Actions for this row');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(field).toHaveAttribute('placeholder', /^Actions for \w{10}$/);
+  await expect(field).toHaveAttribute('placeholder', named);
 });
 
 test('the sheet’s switch stays in view at the foot of its lines', async ({ page }) => {

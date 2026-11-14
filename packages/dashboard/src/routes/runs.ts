@@ -3,7 +3,7 @@ import type { ToolTrust } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { ExportError, exportHtmlApart } from '../export-apart.js';
 import { HttpError } from '../http.js';
-import { sendAnswer } from '../read-pool.js';
+import { sendAnswer, sendAnswerTagged } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { recordingNow, stillRecording } from '../run-exports.js';
 import { runAffinity } from '../run-index.js';
@@ -11,7 +11,7 @@ import { maskCount } from '../run-mask.js';
 import { nextStepStamp, stepCalls } from '../next-step.js';
 import { outcomeWork, projectWork } from '../outcome-work.js';
 import { outcomeKey } from '../run-outcome.js';
-import { runVersionTag } from '../run-version.js';
+import { runTag } from '../run-version.js';
 import { deleteRunsApart } from '../delete-apart.js';
 import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
 import type { Normalizer } from '@shadowlap/engine';
@@ -77,13 +77,8 @@ export function register(router: Router, ctx: RouteContext): void {
     // those and the results of the tests run on it (next-step.ts): the answer is tagged by them too,
     // so a page asks again once a check is added or changed, or a test ends.
     const { outcome, next } = projectWork(ctx);
-    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, after ?? null, outcomeKey(outcome), nextStepStamp(store, run)]));
-    if (r.req.headers['if-none-match'] === etag) {
-      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
-      r.res.end();
-      return;
-    }
-    sendAnswer(r, await ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, outcome, next, ...(after === undefined ? {} : { after }) }, runAffinity(ctx.store, run.runId)), { etag });
+    const tag = runTag(store, run.runId, (now) => JSON.stringify([ctx.read, after ?? null, outcomeKey(outcome), nextStepStamp(store, now)]));
+    await sendAnswerTagged(r, tag, () => ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, outcome, next, ...(after === undefined ? {} : { after }) }, runAffinity(ctx.store, run.runId)));
   });
 
   // A run's outcome by checks alone, each check with it (run-outcome.ts): its own, a capture's by

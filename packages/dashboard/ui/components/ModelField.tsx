@@ -3,6 +3,7 @@ import { fieldModels, FAMILY_NAMES, type ModelFamily, type ModelOption } from '.
 import type { ModelChoicesView } from '../estimates-api.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
+import { Copy } from './Copy.js';
 
 /**
  * A model to switch to, for Preview's model switch and Migrate's To: any name the job takes, typed,
@@ -47,7 +48,8 @@ export function ModelField({ value, onChange, recorded, listing, label = 'Model'
           ))}
         </datalist>
       </label>
-      {listing?.notes.length ? <p className="dlgnote">{listing.notes.map((n) => `${n.group}: ${n.note}`).join('; ')}</p> : null}
+      {/* Set as copy, so a provider's name (OpenAI-compatible) and what it said are never broken inside a word. */}
+      {listing?.notes.length ? <Copy className="dlgnote">{listing.notes.map((n) => `${n.group}: ${n.note}`).join('; ')}</Copy> : null}
     </>
   );
 }
