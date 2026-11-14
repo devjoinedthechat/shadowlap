@@ -20,7 +20,7 @@ import type { PresetAttempt } from './preset.js';
 import { attemptOutcome } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, outcomeFact, spentWords, toolsToCheck, type MetricInput, type OutcomeFact } from './metrics.js';
-import { attemptOf, checksOf, originOf, pulledSpender, runLikeOf } from './model.js';
+import { attemptOf, checksOf, originOf, pulledSpender, recordedAt, runLikeOf } from './model.js';
 
 /** What the run page's first calls are drawn as while they load: a call's name, as long as a name runs. */
 const SKEL_CALLS = ['model call', 'search_orders', 'model call', 'get_customer', 'model call', 'update_ticket', 'model call', 'send_reply'];
@@ -123,7 +123,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
   const fact = runFact(run, judged ?? null, { pending, preset, rescued, offered, injection });
   return (
     <section className="metrics" aria-label="How it went">
-      <Outcome fact={fact} runId={run.run.runId} />
+      <Outcome fact={fact} run={run} />
       {/* Each fact's make-up is on its card: the calls' kinds, the upstream requests, the tokens not sent again. */}
       {items.map((m) => (
         <span className="metric" key={m.label} data-tip={tipCard(m.tip.title, m.tip.rows.map(([label, value]) => ({ label, value: typeof value === 'number' ? num(value) : value })), m.tip.sub)}>
@@ -155,9 +155,10 @@ let cards: typeof import('../outcome-card.js') | null = null;
  * The run's first fact: its status, a dot and its verdict's word, the call it turned on as a link,
  * by today's checks after it; what judged it on hover, and to a screen reader the check it names. The
  * card its checks give loads as the pointer or the focus reaches the status, ahead of the card, which
- * says the status's words until it has come.
+ * says the status's words until it has come. The first call a replay that ended early never made
+ * opens on its recording's page (`recordedAt`).
  */
-function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
+function Outcome({ fact, run }: { fact: OutcomeFact; run: RunDetail }) {
   const [, loaded] = useState(cards);
   const t = cards ? cards.factCard(fact) : fact.tip;
   const load = fact.card && !cards ? () => void import('../outcome-card.js').then((m) => loaded((cards = m))) : undefined;
@@ -169,7 +170,7 @@ function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
         {fact.callNo !== null ? (
           <>
             {' '}
-            <a className="bn" href={href.run(runId, fact.callNo)}>
+            <a className="bn" href={href.run(recordedAt(run, fact.callNo) ?? run.run.runId, fact.callNo)}>
               #{fact.callNo}
             </a>
           </>

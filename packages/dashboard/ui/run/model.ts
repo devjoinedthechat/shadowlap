@@ -5,7 +5,7 @@ import { num } from '../format.js';
 import { personName } from '../person.js';
 import type { BlameView, CallRow, CheckView, InjectionMark, RunDetail } from '../types.js';
 import { href } from '../route.js';
-import { countChecks, type RunLike, type RunType } from '../runs.js';
+import { countChecks, forkWords, type RunLike, type RunType } from '../runs.js';
 import type { AttemptInput } from './banner.js';
 import { modelCallOf, originOf } from './calls.js';
 
@@ -109,7 +109,8 @@ const INJECTION_WORDS: Readonly<Record<InjectionMark['role'], string>> = { attem
  * attempt`, a `repeat attempt` or a golden's `test attempt` (one that forked nowhere too); an injection
  * test's replay is an `injection attempt`, a `clean attempt` or a `baseline`, and an error-path
  * preset's a `preset attempt`, from its own record, so an exported copy names it the same; any other fork is `fork @n`, where it forked. Null for any other
- * run, which the eyebrow names by its kind.
+ * run, which the eyebrow names by its kind. A replay that stopped before its recording did is `ended
+ * early @n`, at the recording's call it never made, as Runs and the sidebar name it (`forkWords`).
  */
 export function forkKindWords(d: { run: Pick<RunDetail['run'], 'meta' | 'divergence'>; attemptPlace?: RunDetail['attemptPlace'] }, type: RunType, rescued: boolean): string | null {
   if (type === 'fork' && rescued) return 'rescued fork';
@@ -118,7 +119,7 @@ export function forkKindWords(d: { run: Pick<RunDetail['run'], 'meta' | 'diverge
   if (d.run.meta?.chaos) return 'preset attempt';
   const a = attemptOf(d);
   if (a) return ATTEMPT_WORDS[a.kind];
-  return type === 'fork' && d.run.divergence ? `fork @${d.run.divergence.callNo}` : null;
+  return type === 'fork' && d.run.divergence ? forkWords(d.run.divergence) : null;
 }
 
 /**
@@ -216,7 +217,25 @@ export function withModelNames(calls: CallRow[], models: Readonly<Record<string,
   });
 }
 
-export function forkAtOf(d: RunDetail): number | null {
+/**
+ * A replay that stopped before its recording did (`ended_early`): its divergence names the
+ * recording's first call it never made, by the recording's number, which is no call of its own.
+ */
+export const endedEarly = (d: { run: Pick<RunDetail['run'], 'divergence'> }): boolean => d.run.divergence?.type === 'ended_early';
+
+/**
+ * The recording a call the run's page names belongs to, where it is the first call a replay that
+ * ended early never made (its divergence's): that call opens on the recording's page. Null for any
+ * other call, and any other run.
+ */
+export function recordedAt(d: { run: Pick<RunDetail['run'], 'divergence' | 'parentRunId'> }, callNo: number): string | null {
+  const v = d.run.divergence;
+  return v?.type === 'ended_early' && v.callNo === callNo ? (v.counterpart?.runId ?? d.run.parentRunId) : null;
+}
+
+/** Where a replay forked or diverged; none for one that ended early, which forked at no call it made (an older server names the recording's). */
+export function forkAtOf(d: Pick<RunDetail, 'forkAt'> & { run: Pick<RunDetail['run'], 'divergence'> }): number | null {
+  if (endedEarly(d)) return null;
   return d.forkAt ?? d.run.divergence?.callNo ?? null;
 }
 
@@ -224,10 +243,10 @@ export function forkAtOf(d: RunDetail): number | null {
  * The call the strip and Calls flag FORK: where a replay forked. A replay `shadowlap test` made that
  * diverged offline did not fork there, it failed (its banner says where, and the page opens on it):
  * every call from there was refused, so nothing is flagged. One of a golden that may fork went on
- * live from there, and is flagged.
+ * live from there, and is flagged. One that ended early forked at no call of its own.
  */
 export function forkMarkOf(d: Pick<RunDetail, 'forkAt' | 'calls'> & { run: Pick<RunDetail['run'], 'divergence' | 'meta'> }): number | null {
-  const at = d.forkAt ?? d.run.divergence?.callNo ?? null;
+  const at = forkAtOf(d);
   if (at === null || !d.run.meta?.test) return at;
   return d.calls.some((c) => c.callNo >= at && originOf(c) === 'live') ? at : null;
 }

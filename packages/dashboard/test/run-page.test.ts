@@ -332,6 +332,22 @@ describe('the run page: header and banners', () => {
     store.close();
   });
 
+  it('names no fork for a replay that ended early: its divergence is the recording’s call it never made', () => {
+    const store = Store.open(':memory:');
+    const rec = RunBuilder.start(store);
+    for (let i = 1; i <= 4; i++) rec.model({ messages: [user(`q${i}`)] }, [text('a')]);
+    rec.end();
+    const early = RunBuilder.start(store, { parent: rec.runId });
+    for (let i = 1; i <= 2; i++) early.model({ messages: [user(`q${i}`)] }, [text('a')], { origin: 'replayed', replayedFrom: i });
+    early.end();
+    // As the engine ends it (session.ts `end`): at the recording's first call it never made.
+    store.setDivergence(early.runId, { type: 'ended_early', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, recorded: 4, reason: 'the agent stopped after 2 of the 4 recorded calls, before making #3', counterpart: { runId: rec.runId, callNo: 3 } });
+    const d = runDetail(store, early.runId)!;
+    expect(d.forkAt).toBeNull();
+    expect(d.calls.map((c) => c.callNo)).toEqual([1, 2]);
+    store.close();
+  });
+
   it('says where a blamed run was lost, counted in its scope, and which fork blame rescued', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);

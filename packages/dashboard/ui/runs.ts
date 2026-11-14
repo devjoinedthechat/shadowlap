@@ -176,9 +176,9 @@ export function runCounts(r: RunLike): OriginCounts | null {
 
 export type GlyphKind = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'fixinc' | 'project' | 'setting' | 'train' | 'retire';
 
-/** Where a fork left its recording: `fork @17`, or `ended early @11` for a replay that stopped before its recording did. */
-function forkAt(d: { callNo: number; type?: string }, fork = 'fork'): string {
-  return `${d.type === 'ended_early' ? 'ended early' : fork} @${d.callNo}`;
+/** Where a fork left its recording: `fork @17`, or `ended early @11` for a replay that stopped before its recording did, as the engine labels them. */
+export function forkWords(d: { callNo: number; type?: string }): string {
+  return `${d.type === 'ended_early' ? 'ended early' : 'fork'} @${d.callNo}`;
 }
 
 /**
@@ -206,7 +206,7 @@ export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
 /** What kind of run it is, in a word or two: recording, clean replay, replay, fork @17, capture, test. */
 export function kindWord(r: RunLike): string {
   const t = runType(r);
-  if (t === 'fork') return forkAt(r.divergence!);
+  if (t === 'fork') return forkWords(r.divergence!);
   if (t === 'clean') return 'clean replay';
   return t;
 }
@@ -248,7 +248,7 @@ export function sideLine(r: RunLike): { text: string; err?: string; warn?: strin
   if (t === 'clean') return { text: counts ? `clean replay · ${num(counts.rep)}/${num(r.calls)}` : `clean replay · ${calls}` };
   if (t === 'fork') {
     const went = counts ? ` · ${num(counts.live + counts.fail)} live${counts.block ? ` · ${num(counts.block)} blocked` : ''}${counts.stub ? ` · ${num(counts.stub)} stubbed` : ''}` : ` · ${calls}`;
-    return { text: `${forkAt(r.divergence!)}${went}` };
+    return { text: `${forkWords(r.divergence!)}${went}` };
   }
   if (t === 'capture') return { text: `capture · ${calls}` };
   if (t === 'test') return { text: counts && counts.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(counts.live)} live` : 'test · offline · 0 upstream' };
@@ -586,7 +586,7 @@ export function familyLine(r: RunLike): string {
   if (isInterrupted(r)) return `${kindWord(r)} · interrupted · ${plural(r.calls, 'call')}`;
   if (t === 'fork' && r.divergence) {
     const went = n ? `${num(n.rep)} replayed · ${num(n.live + n.fail)} live${n.block ? ` · ${num(n.block)} blocked` : ''}${n.stub ? ` · ${num(n.stub)} stubbed` : ''}` : plural(r.calls, 'call');
-    return `${forkAt(r.divergence)} · ${went} · ${spentWords(r)}`;
+    return `${forkWords(r.divergence)} · ${went} · ${spentWords(r)}`;
   }
   if (t === 'clean') return n && n.rep === r.calls ? `clean replay · ${num(r.calls)}/${num(r.calls)} · 0 upstream` : `clean replay · ${plural(r.calls, 'call')}`;
   // A test of a golden that may fork went live from where it left the recording: what it did there, as

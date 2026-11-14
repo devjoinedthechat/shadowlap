@@ -126,7 +126,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   const scopes = recordedScopes(run.calls);
   const like = runLikeOf(run);
   const flag = flagText(run.intervention ?? null);
-  const what = r.divergence ? `fork at #${r.divergence.callNo}${run.parent ? ` of ${shortId(run.parent.runId)}` : ''}${flag ? ` · ${flag}` : ''}` : run.parent ? `${kindWord(like)} of ${shortId(run.parent.runId)}${r.meta?.test?.golden ? ` · ${r.meta.test.golden}` : ''}` : run.source ? `imported from ${run.source}` : 'recording';
+  const what = r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'fork'} at #${r.divergence.callNo}${run.parent ? ` of ${shortId(run.parent.runId)}` : ''}${flag ? ` · ${flag}` : ''}` : run.parent ? `${kindWord(like)} of ${shortId(run.parent.runId)}${r.meta?.test?.golden ? ` · ${r.meta.test.golden}` : ''}` : run.source ? `imported from ${run.source}` : 'recording';
   // The ancestors, oldest first, and this run.
   const chain: LineageNode[] = [];
   if (lineage.data) {

@@ -60,6 +60,11 @@ export function firstStep(calls: readonly OpenCall[], judge: ReadonlySet<number>
 export interface OpenInput {
   /** Where a replay forked (the strip's FORK), or a test's replay diverged. */
   forkAt: number | null;
+  /**
+   * The replay stopped before its recording did (`ended_early`): its divergence names the recording's
+   * first call it never made, none of its own, so it opens where it stopped, on its last call.
+   */
+  endedEarly?: boolean;
   /** Where blame found the run lost. */
   lostAt: number | null;
   /** The call the run's outcome names, its first fact's (a check's failing call); none where it names none. */
@@ -79,11 +84,33 @@ export interface OpenInput {
   total?: number | null;
 }
 
-/** A call a run may open on: one of its own, no clock or random read, and none of the judge's. */
-function stepAt(calls: readonly OpenCall[], n: number | null | undefined, judge: ReadonlySet<number>): number | null {
+/**
+ * A call a run may open on: one of its own, no clock or random read, and none of the judge's. While a
+ * long run's pages come (`total`), a call up to its count is one of its own, read yet or not; else
+ * a call not among those it has is none.
+ */
+function stepAt(calls: readonly OpenCall[], n: number | null | undefined, judge: ReadonlySet<number>, total: number | null): number | null {
   if (n === null || n === undefined || judge.has(n)) return null;
   const c = calls.find((x) => x.callNo === n);
-  return c && isRead(c) ? null : n;
+  if (!c) return total !== null && n >= 1 && n <= total ? n : null;
+  return isRead(c) ? null : n;
+}
+
+/**
+ * Where a replay that ended early stopped: its last call that is neither a clock nor a random read,
+ * nor the judge's (asked after the agent); its last of the agent's when it made only reads. While a
+ * long run's pages come, its last call is its count (`total`), past the calls read.
+ */
+function stoppedAt(calls: readonly OpenCall[], total: number | null, judge: ReadonlySet<number>): number | null {
+  const byNo = new Map(calls.map((c) => [c.callNo, c]));
+  let read: number | null = null;
+  for (let n = Math.max(total ?? 0, calls.at(-1)?.callNo ?? 0); n >= 1; n--) {
+    if (judge.has(n)) continue;
+    const c = byNo.get(n);
+    if (!c || !isRead(c)) return n;
+    read ??= n;
+  }
+  return read;
 }
 
 /** The number of a long run's first call of a kind, or with `last` its last, the judge's left out. */
@@ -111,16 +138,19 @@ function writeAndModel(calls: readonly OpenCall[], kinds: readonly Kind[] | null
 
 /**
  * Where a run opens, the most telling call first, as the design picks it: a recording at its newest
- * call; where blame found it lost; where it forked or diverged; the call its outcome names; its first
- * call that failed, whether or not the run failed for it; its first write; its last model call; else
- * its first call. Never a clock or random read, unless the run made only those, and never a judge's
- * call (the judge is asked once a recording has ended). While a long run's pages come, its failures,
- * its first write and its last model call are found past the calls read.
+ * call; where blame found it lost; where it forked or diverged, or a replay that ended early where it
+ * stopped; the call its outcome names; its first call that failed, whether or not the run failed for
+ * it; its first write; its last model call; else its first call. Never a call the run doesn't have, a
+ * clock or random read, unless the run made only those, nor a judge's call (the judge is asked once a
+ * recording has ended). While a long run's pages come, its failures, its first write and its last
+ * model call are found past the calls read.
  */
 export function openingCall(i: OpenInput): number | null {
   if (i.live) return Math.max(i.total ?? 0, i.calls.at(-1)?.callNo ?? 0) || null;
   const judge = judgeNumbers(i.calls, i.judge ?? null);
-  const named = stepAt(i.calls, i.lostAt, judge) ?? stepAt(i.calls, i.forkAt, judge) ?? stepAt(i.calls, i.outcomeAt, judge);
+  const total = i.total ?? null;
+  const left = i.endedEarly ? stoppedAt(i.calls, total, judge) : stepAt(i.calls, i.forkAt, judge, total);
+  const named = stepAt(i.calls, i.lostAt, judge, total) ?? left ?? stepAt(i.calls, i.outcomeAt, judge, total);
   if (named !== null) return named;
   const { write, model } = writeAndModel(i.calls, i.kinds, judge);
   return failedIn(i.calls, i.origins ?? null, judge) ?? write ?? model ?? firstStep(i.calls, judge);

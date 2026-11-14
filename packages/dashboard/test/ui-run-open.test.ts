@@ -122,6 +122,25 @@ describe('where a run opens', () => {
     expect(firstFailedCall(read, origins)).toBe(1200);
     expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, origins, kinds, judge: [1199, 1200] })).toBe(1100);
   });
+
+  it('never opens on a call the run doesn’t have, which a fork, a loss or an outcome names', () => {
+    const calls = [oc(1, 'api'), oc(2, 'tool', 'ok', 'live', 'read'), oc(3, 'api')];
+    expect(openingCall({ forkAt: 9, lostAt: null, live: false, calls })).toBe(3);
+    expect(openingCall({ forkAt: null, lostAt: 9, outcomeAt: 2, live: false, calls })).toBe(2);
+    // While a long run's pages come, a call up to its count is one of its own, read yet or not.
+    expect(openingCall({ forkAt: 900, lostAt: null, live: false, calls, total: 1200 })).toBe(900);
+    expect(openingCall({ forkAt: 1300, lostAt: null, live: false, calls, total: 1200 })).not.toBe(1300);
+  });
+
+  it('opens a replay that ended early where it stopped: its last call, never the judge’s after it', () => {
+    // It stopped before its recording did: its divergence names the recording's call it never made, #8, which no call of its own is.
+    const calls = [oc(1, 'api', 'ok', 'replayed'), oc(2, 'tool', 'ok', 'replayed', 'read'), oc(3, 'api', 'ok', 'replayed'), oc(4, 'clock', 'ok', 'replayed'), judgeOc(5)];
+    expect(openingCall({ forkAt: null, endedEarly: true, lostAt: null, live: false, calls })).toBe(3);
+    // While its pages come, its last call is its count, past the calls read, the judge's left out.
+    expect(openingCall({ forkAt: null, endedEarly: true, lostAt: null, live: false, calls: calls.slice(0, 2), total: 1200, judge: [1200] })).toBe(1199);
+    // One that made no call has none to open on.
+    expect(openingCall({ forkAt: null, endedEarly: true, lostAt: null, live: false, calls: [] })).toBeNull();
+  });
 });
 
 /** A call of the run: a clock read, then model and tool calls; the tool call `failAt` threw. */
@@ -298,6 +317,61 @@ describe('a run’s page, opened without a call', () => {
     const keys = (state.runKeys as { current: (e: { key: string }) => boolean }).current;
     expect(keys({ key: 'n' })).toBe(true);
     expect(bar.hash).toBe(`#/run/${RUN}/9`);
+  });
+});
+
+describe('a replay that ended early, on its page', () => {
+  const RECORDING = '01M5GRVTKSJ12EE2SE9YZ5W4J3';
+  /**
+   * A replay of a recording of 20 calls that stopped after its first 12, as the engine keeps it: its
+   * divergence at the recording's #13, which it never made, and its page as the server sent it before
+   * (`forkAt` that call) or since (none).
+   */
+  function endedEarly(forkAt: number | null): RunDetail {
+    const a = answer(12, 12, { failed: false, failAt: null });
+    const divergence = { type: 'ended_early', callNo: 13, kind: 'api', name: 'POST /v1/messages', replayedBefore: 12, recorded: 20, reason: 'the agent stopped after 12 of the 20 recorded calls, before making #13', counterpart: { runId: RECORDING, callNo: 13 } };
+    return {
+      ...a,
+      run: { ...a.run, parentRunId: RECORDING, mode: 'replay', divergence },
+      label: 'ended early @13',
+      calls: a.calls.map((c) => ({ ...c, origin: 'replayed' })),
+      parent: { runId: RECORDING, label: 'recording' },
+      forkAt,
+      state: { ...a.state!, kind: 'fork' },
+    } as unknown as RunDetail;
+  }
+
+  async function open(forkAt: number | null) {
+    const bar = addressBar(`#/run/${RUN}`);
+    const { client, details } = server(12, 12, { failed: false, failAt: null });
+    const early = { ...client, run: () => Promise.resolve(endedEarly(forkAt)) } as unknown as Client;
+    r = await render(createElement(AppContext.Provider, { value: app(early) }, createElement(RunPage, { id: RUN, call: null, view: null })));
+    await r.until('the call’s details', () => details.length > 0);
+    return { bar, details };
+  }
+
+  it('opens where it stopped, its last call, never on the recording’s call it never made', async () => {
+    for (const forkAt of [13, null]) {
+      const { bar, details } = await open(forkAt);
+      expect(bar.hash).toBe(`#/run/${RUN}/12`);
+      expect(details).toEqual([12]);
+      expect(r!.one('table.calls tr[aria-selected="true"] td.n').textContent).toBe('12');
+      await r!.unmount();
+      r = null;
+      forgetPickedCalls();
+    }
+  });
+
+  it('says it ended early, as Runs and the sidebar do, at the recording’s call, which its #13 opens there', async () => {
+    await open(13);
+    expect(r!.one('.rhead .ek .ebk').textContent).toBe('ended early @13');
+    const finding = r!.one('.findings .banner.fork');
+    expect(finding.querySelector('.bk')!.textContent).toBe('ended early at');
+    const at = finding.querySelector('a.bn')!;
+    expect([at.textContent, at.getAttribute('href')]).toEqual(['#13', `#/run/${RECORDING}/13`]);
+    expect(finding.textContent).not.toContain('forked at');
+    // No FORK flag on a call of its own: it forked at none it made.
+    expect(r!.all('table.calls .fk').length).toBe(0);
   });
 });
 

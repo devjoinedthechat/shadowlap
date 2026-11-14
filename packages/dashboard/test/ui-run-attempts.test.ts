@@ -94,6 +94,8 @@ describe('a fork that failed', () => {
     const at = (callNo: number) => ({ callNo, kind: 'api' as const, name: 'POST /v1/messages', type: 'request_changed' as const, replayedBefore: callNo - 1 });
     const fork = { run: { meta: {}, divergence: at(7) } } as unknown as Parameters<typeof runKindWords>[0];
     expect(runKindWords(fork, 'fork', false)).toBe('fork @7');
+    // One that stopped before its recording did, as Runs, the sidebar and its glyph name it.
+    expect(runKindWords({ ...fork, run: { ...fork.run, divergence: { ...at(7), type: 'ended_early' } } }, 'fork', false)).toBe('ended early @7');
     // A recording or a test replay is named by its kind, never by how it came out.
     expect(runKindWords({ ...fork, run: { ...fork.run, divergence: null } }, 'recording', false)).toBe('recording');
     expect(runKindWords({ ...fork, run: { ...fork.run, divergence: at(3) } }, 'test', false)).toBe('test replay');
@@ -321,6 +323,23 @@ describe('an attempt', () => {
       ['All 8 attempts →', '#/run/01M5GRW4YMYK6SK2VFC2XFKCDA/forks'],
     ]);
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
+  });
+
+  it('says one that stopped before its recording did ended early, at the recording’s call, which opens there', async () => {
+    const run = detail({
+      runId: '01M5GRW4YMYK6SK2VFC2XFKCDA',
+      parent: REFUND,
+      // As the engine ends it: at the recording's first call it never made, by the recording's number.
+      divergence: { callNo: 9, type: 'ended_early', kind: 'api', name: 'POST /v1/messages', replayedBefore: 8, recorded: 20, counterpart: { runId: REFUND, callNo: 9 } },
+      meta: { verify: { role: 'target', passed: false, verdict: 'failed' }, repeat: { group: 'g', attempt: 1, of: 3 } },
+      state: { status: 'completed', kind: 'fork', outcome: { kind: 'none' }, failed: false, interrupted: false, label: 'ended early @9' },
+      attemptPlace: { k: 1, n: 3 },
+    });
+    page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, props(run))));
+    expect(page.one('.banner.fork.wrap .bk').textContent).toBe('ended early at');
+    const at = page.one('.banner.fork.wrap a.bn');
+    expect([at.textContent, at.getAttribute('href')]).toEqual(['#9', `#/run/${REFUND}/9`]);
+    expect(page.all('.banner.fork.wrap button.bn')).toHaveLength(0);
   });
 });
 

@@ -27,7 +27,7 @@ import { useCallList } from '../run/call-list.js';
 import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
-import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
+import { blameOf, checksOf, endedEarly, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
 import { InspectorPlace, useFindingPanel, usePickInView, useResultsBodies } from '../run/InspectorPanel.js';
 import { useInjectionArrival } from '../injection/arrival.js';
 import { byKind } from '../run/kinds.js';
@@ -281,7 +281,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // Its verdict by checks, which a long run's analysis may give after its first answer: its first fact and findings say it.
   const { judged, outcomeAt } = useJudgedAt(run);
   // The call the page shows, the address and the session's memory kept in step with it (run-selection.ts).
-  const selected = useRunSelection({ run, id, call, view, calls, paging, forkAt, lostAt, outcomeAt });
+  const selected = useRunSelection({ run, id, call, view, calls, paging, forkAt, lostAt, outcomeAt, endedEarly: endedEarly(run) });
   const v: View = view ?? 'calls';
   const need = paging?.need ?? null;
   // The calls as Calls lists them: the scope, the filter, the groups and what is folded (call-list.ts).
@@ -309,7 +309,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const chain = useAncestors(run);
   const { offers, preset, presets, notes, rescued, injection } = useRunExtras(run, chain[0] ?? null, forkAt);
   const results = useResultsBodies(runId, presets, run.about);
-  const actions = useActionRunner(runId, !!run.source, offers, run.forkAt, run.run);
+  const actions = useActionRunner(runId, !!run.source, offers, forkAt, run.run);
   const tests = testOpeners(injection.attempt, injection.untrusted, actions.test);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);

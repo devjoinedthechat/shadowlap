@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, openPage } from './dashboard.js';
+import { dash, demoId, openPage, patched } from './dashboard.js';
 
 /**
  * A long run opens on the call its address names, and keeps it in view while the rest of its pages
@@ -42,3 +42,29 @@ for (const [name, at] of [['batch', 600], ['batch', 1100], ['batchFork', null]] 
     expect(where, `the view shows ${where.shown[0]} to ${where.shown.at(-1)}`).toMatchObject({ inView: true });
   });
 }
+
+test('a replay that ended early opens where it stopped, and its finding names the recording’s call it never made, which opens there', async ({ page }) => {
+  // The demo's clean replay, as the server sends a replay that stopped after its first ten calls: its
+  // divergence at the recording's first call it never made, which an older server named the fork too.
+  const id = demoId('clean');
+  const recording = demoId('ticket');
+  await page.route(new RegExp(`/api/runs/${id}(\\?.*)?$`), (route) =>
+    patched<{ run: object; state: object; calls: Array<{ callNo: number }> }>(route, (d) => {
+      const calls = d.calls.slice(0, 10);
+      const at = calls.length + 1;
+      const divergence = { type: 'ended_early', callNo: at, kind: 'api', name: 'POST /v1/messages', replayedBefore: calls.length, recorded: d.calls.length, counterpart: { runId: recording, callNo: at } };
+      return { ...d, run: { ...d.run, divergence }, state: { ...d.state, kind: 'fork' }, calls, callsTotal: calls.length, callsNext: null, forkAt: at };
+    }),
+  );
+  await openPage(page, `/run/${id}`, 'main#view table.calls tbody tr[data-wi]');
+  // Where it stopped: its last call, shown in the inspector, never "No calls in this run".
+  await expect(page.locator('main#view table.calls tbody tr[aria-selected="true"] td').first()).toHaveText('10');
+  await expect(page).toHaveURL(new RegExp(`/run/${id}/10`));
+  await expect(page.locator('main#view').getByText('No calls in this run.')).toHaveCount(0);
+  // Ended early, as Runs and the sidebar say it, at the recording's call, which its number opens on the recording's page.
+  await expect(page.locator('main#view .rhead .ek .ebk')).toHaveText('ended early @11');
+  const finding = page.locator('main#view .findings .banner.fork');
+  await expect(finding.locator('.bk')).toHaveText('ended early at');
+  await expect(finding.locator('a.bn')).toHaveAttribute('href', `#/run/${recording}/11`);
+  await expect(page.locator('main#view table.calls .fk')).toHaveCount(0);
+});

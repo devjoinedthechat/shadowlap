@@ -588,7 +588,10 @@ export interface RunPageFacts {
   notWaitedMs: number;
   /** What the run did that Shadowlap did not record, so a replay runs it for real; null when nothing. */
   notRecorded: NotRecorded | null;
-  /** The call a replay forked at. */
+  /**
+   * The call a replay forked at; none for one that stopped before its recording did (`ended_early`),
+   * whose divergence names the recording's first call it never made, no call of its own.
+   */
   forkAt: number | null;
   /** The flag the fork banner names, and every flag the replay ran with. */
   intervention: InterventionFlag | null;
@@ -778,7 +781,7 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     cache: { readShare: a.cache.readShare, readShareAll: a.cache.readShareAll, misses: a.cache.misses, sentAgain: a.cache.sentAgain },
     notWaitedMs,
     notRecorded: notRecordedOf(store, run),
-    forkAt: run.mode === 'replay' ? (run.divergence?.callNo ?? null) : null,
+    forkAt: run.mode === 'replay' && run.divergence?.type !== 'ended_early' ? (run.divergence?.callNo ?? null) : null,
     // The flag the banner names: the first the replay ran with (`--inject-as system` is part of its `--inject`).
     intervention: interventions[0] ?? null,
     interventions,
