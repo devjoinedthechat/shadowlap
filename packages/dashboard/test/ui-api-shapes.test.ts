@@ -136,6 +136,9 @@ describe('a run', () => {
     // The run page's own blame wins, and the fix adds what asking again did.
     const both = normalizeRunDetail(detail({ blame: { outcome: 'blamed', callNo: 9, modelCall: { k: 3, m: 8 }, confidence: 'high', rescuedRunId: null, scope: 'agent', at: 1 }, fix: { role: 'failing', fix: null, blame: { lostAt: 9, short: 'asked again, it calls escalate instead' } } }));
     expect(both.blame).toMatchObject({ callNo: 9, modelCall: { k: 3, m: 8 }, scope: 'agent', short: 'asked again, it calls escalate instead' });
+    // A blamed run no fix holds says it from its own blame, as the server keeps it whole.
+    const alone = normalizeRunDetail(detail({ blame: { outcome: 'blamed', callNo: 9, modelCall: { k: 3, m: 8 }, confidence: 'high', rescuedRunId: null, scope: null, at: 1, short: 'asked again, it calls escalate instead' }, fix: null }));
+    expect(alone.blame).toMatchObject({ callNo: 9, short: 'asked again, it calls escalate instead' });
 
     // A probe's blame is the blame of the run it came from, not this run's.
     const probe = normalizeRunDetail(detail({ fix: { role: 'probe', fix: { fixId: 'fx-7', title: 'x', status: 'open' }, blame: { lostAt: 9 }, probe: { of: '01A', callNo: 9, passed: true, blamed: true } } }));

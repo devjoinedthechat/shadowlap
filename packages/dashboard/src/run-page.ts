@@ -45,6 +45,7 @@ import {
 } from '@shadowlap/engine';
 import { lostRange, modelResolver, runLabel } from '@shadowlap/engine';
 import { str } from './fields.js';
+import { blameShort } from './fix-for-run.js';
 import { runCalls } from './run-calls.js';
 import { runWebSockets, type WebSocketView } from './run-unrecorded.js';
 
@@ -560,6 +561,12 @@ export interface RunBlame {
   rescuedRunId: string | null;
   scope: string | null;
   at: number;
+  /**
+   * What asking the blamed call again did, in a few words, as a fix's blame says it ("asked again, it
+   * calls escalate instead"), from the blame the store keeps whole; absent where it keeps none (a
+   * pack carries a run's blame alone), and a fix the run fails in says it then.
+   */
+  short?: string;
 }
 
 export interface RunCheck {
@@ -648,6 +655,12 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[], step?: { k: numbe
     scope,
     at: typeof b.at === 'number' && Number.isFinite(b.at) ? b.at : 0,
   };
+}
+
+/** The run's blame with what its latest kept blame found, in a few words (`blameShort`), which a fix needn't hold the run for. */
+function withShort(store: Store, blame: RunBlame | null, runId: string): RunBlame | null {
+  const kept = blame ? store.blamesOfRun(runId).at(-1) : undefined;
+  return blame && kept ? { ...blame, short: blameShort(kept) } : blame;
 }
 
 type StoredRunCheck = Pick<RunCheck, 'ok' | 'label' | 'detail' | 'status' | 'reason' | 'source' | 'judge'>;
@@ -786,7 +799,7 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     intervention: interventions[0] ?? null,
     interventions,
     rescuedBy: rescued && parent ? { runId: parent.runId, callNo: int(rescued.callNo) } : null,
-    blame: blameOf(run, calls, o.blameStep),
+    blame: withShort(store, blameOf(run, calls, o.blameStep), run.runId),
     checks: checksOf(store, run),
     models: o.models ?? modelsOf(store, calls),
     websockets: runWebSockets(run),

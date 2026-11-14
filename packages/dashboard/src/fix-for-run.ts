@@ -68,10 +68,15 @@ function askedInstead(recorded: readonly Block[], rescued: readonly Block[]): st
   return calls(rescued) !== calls(recorded) ? `it calls ${now.join(' and ')} with other arguments` : 'it answers differently';
 }
 
+/** What a blame found, in a few words: "asked again, it calls escalate instead", or why it placed the failure on no call. A run's page says it with or without a fix. */
+export function blameShort(b: StoredBlame): string {
+  const r = b.report;
+  return b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(r)) : 'blame stopped early';
+}
+
 function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   const r = b.report;
-  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(r)) : 'blame stopped early';
-  return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, range: lostRange(r.range), step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
+  return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, range: lostRange(r.range), step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: blameShort(b), href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
 
 /** How a run takes part in Fixes, for its page and the Forks view; null when it doesn't. `index`: the run index, where the caller has it for many runs. */

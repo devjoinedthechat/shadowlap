@@ -11,6 +11,7 @@ import { runCallsPage } from '../src/api.js';
 
 type RunDetailShape = Pick<RunDetail, 'intervention' | 'interventions' | 'notRecorded'>;
 import { assistant, batchRun, closingBatch, RunBuilder, subagentRun, subagentRunLive, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from '../../engine/test/run-fixtures.js';
+import { blameReport } from '../../engine/test/fix-fixtures.js';
 
 describe('the run page: conversations', () => {
   it('numbers the conversations of a batch and shows a tool call its own ticket', () => {
@@ -377,6 +378,20 @@ describe('the run page: header and banners', () => {
     // One that placed the failure on no call because its first probe couldn't tell says so.
     store.updateRunMeta(b.runId, { blame: { ...blame, outcome: 'unrescuable', callNo: null, rescuedRunId: null, unsettled: true } });
     expect(runDetail(store, b.runId)!.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, callNo: null });
+    store.close();
+  });
+
+  it('says in a few words what asking the blamed call again did, from the blame the store keeps, though no fix holds the run', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    for (let i = 1; i <= 5; i++) b.model({ messages: [user(`q${i}`)] }, [text('a')]);
+    b.end();
+    store.updateRunMeta(b.runId, { blame: { at: 5, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0.1 } });
+    // Its blame is kept whole, as `shadowlap blame` keeps it, with no fix that lists the run as failing.
+    store.putBlame({ blameId: 'bl-01K8RG0000000000000000000A', runId: b.runId, at: 6, outcome: 'blamed', report: blameReport(b.runId), expect: null, scope: null, command: 'shadowlap blame x' });
+    const d = runDetail(store, b.runId)!;
+    expect(d.fix).toBeNull();
+    expect(d.blame).toMatchObject({ callNo: 5, short: 'asked again, it calls escalate instead' });
     store.close();
   });
 
