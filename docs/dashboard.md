@@ -606,7 +606,9 @@ The results are a matrix: a row for each untrusted read planted in, a column for
 
 **Error-path presets.** The recording [error-path presets](./error-paths.md) ran on shows their newest session as a finding: *error-path presets*, then the verdict in its colour, *failed*, *inconclusive* or *passed*. Then come the presets that failed or couldn't say (*malformed JSON and oversized result failed · tool timeout inconclusive*), or *every preset passed*. **Show results** opens their results in the inspector's place.
 
-The results are the same matrix: the run's row, against a column for each preset with the call it hit under its name. A cell says its verdict, how many attempts passed and the gate's bound, with each attempt on hover, and opens the attempt that didn't pass. Above it come how many presets ran, where they hit and when, with their command. Under it come the gate's rule and the checks that judged them, or that the agent's exit alone did, then what they spent and their upstream requests.
+The results are the same matrix: the run's row, against a column for each preset with the call it hit under its name. A cell says its verdict, how many attempts passed and the gate's bound, and opens the attempt that didn't pass. Its hover lists each attempt, then what the preset spent and its upstream requests. A preset that couldn't apply says why there, as *get_ticket (#4): it already answered with nothing*.
+
+Above the matrix come how many presets ran, where they hit and when, with their command. Under it come the gate's rule and the checks that judged them, or that the agent's exit alone did, then what they spent and their upstream requests.
 
 **A cause's answers.** A run that [Find cause…](#find-what-caused-a-write) asked of shows its answers as a finding, causes first. It leads with *caused by*, *not caused by* or *inconclusive*, then the read and the answer: *#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)*. It takes its lead's colour: red for a cause, muted for not caused, amber for inconclusive.
 
@@ -1578,7 +1580,7 @@ Each revision's header gives its commit's subject on hover, and its author where
 
 A gated golden with a report draws its bar alone: its evidence opens with the report, above it, and shows only why the gate stopped and the score line. A gate that ran out of attempts offers **Run more attempts** among the report's steps, or **Run tests** where its checks changed since.
 
-**A golden's [error-path presets](./error-paths.md)** draw under its checks as one picture: *error-path presets*, which opens its recording with their results, then a cell a preset in its verdict's colour, its tally and call on hover. Their counts after it (*1 failed · 1 inconclusive · 4 passed*) open the attempt that proves the verdict. A golden whose tests entry sets presets that never ran says *not run yet*, with **Run error-path presets…**.
+**A golden's [error-path presets](./error-paths.md)** draw under its checks as one picture: *error-path presets*, which opens its recording with their results, then a cell a preset in its verdict's colour, its tally and call on hover, with why it failed, couldn't say or couldn't apply. Their counts after it (*1 failed · 1 inconclusive · 4 passed*) open the attempt that proves the verdict. A golden whose tests entry sets presets that never ran says *not run yet*, with **Run error-path presets…**.
 
 A golden whose presets ran but whose replay didn't has their line as its last result: *1 of 2 presets failed: tool timeout #2 · replay not tested yet*. It never says *not run yet*.
 
@@ -2377,7 +2379,7 @@ Its dialog, *Run error-path presets on 01K5CQ4R1T*, holds the server's plan for 
 | Decided by | The golden's `chaos.gate`, the count its golden repeats, or one attempt each     |
 
 - **Runs here** names who recorded the command only where names show.
-- **At** offers each tool the recording answered, at its first call. A recording with no model call to hit says the provider presets are not applicable.
+- **At** offers each tool the recording answered, at its first call. A recording with no tool the tool presets can hit says why, in the engine's words, and that the tool presets are not applicable: *the recording makes no tool call: the tool presets are not applicable*. A recording with no model call to hit says the provider presets are not applicable.
 - **Judged by** on a run starts from the first write limit of the run's own `--expect` that its calls exceed. Left empty, each attempt is judged as the command judges it: by the checks of a golden the recording belongs to, else by the exit alone.
 - **A golden's presets** are judged by its `chaos.expect`, else the write limits of its `expect`, else the agent exiting 0 alone.
 - **The command** follows your picks: `--presets` and `--chaos-tool` where they differ from the command's own, `--expect`, and `--yes` for a command from elsewhere.

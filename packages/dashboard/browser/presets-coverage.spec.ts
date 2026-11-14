@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
-import type { CoverageView } from '../ui/types.js';
-import { dash, openPage, patched, RESET_RETRY, seriousViolations } from './dashboard.js';
+import type { ChaosMatrix, CoverageView, PresetsPlan } from '../ui/types.js';
+import { dash, demoId, openPage, patched, RESET_RETRY, seriousViolations } from './dashboard.js';
+import { DIALOG, MENU } from './routes.js';
 
 /**
  * Error-path presets and production coverage in Chromium over the demo store: Tests › Not covered's
@@ -124,4 +125,39 @@ test('the presets’ results on their recording fit at 1440, 1180, 1024 and 390:
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `sideways scroll at ${width}`).toBeLessThanOrEqual(0);
     expect(await seriousViolations(page), `axe at ${width}`).toEqual([]);
   }
+});
+
+test('Run error-path presets… says where a recording with no tool to hit has the tool presets hit nothing, and why, with no serious axe violation', async ({ page }) => {
+  const run = demoId('ticket');
+  // A recording that calls no tool the tool presets can hit, as the engine's chaosTargets says it.
+  await page.route((url) => url.pathname === `/api/chaos/runs/${run}/plan`, (route) => patched<PresetsPlan>(route, (plan) => ({ ...plan, choices: [], tool: null, at: { ...plan.at, tool: { none: 'the recording makes no tool call' } } })));
+  await openPage(page, `/run/${run}`, 'run');
+  await page.locator('#forkBtn').click();
+  await page.locator(`${MENU} [role="menuitem"]`, { hasText: 'Run error-path presets' }).click();
+  const at = page.locator(`${DIALOG} .dfacts > div`, { has: page.locator('dt', { hasText: /^At$/ }) });
+  await expect(at.locator('dd')).toContainText('the recording makes no tool call: the tool presets are not applicable; the provider presets hit model call #');
+  expect(await seriousViolations(page)).toEqual([]);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('a preset’s cell says on its card why it couldn’t apply, and what a preset that ran spent and sent upstream', async ({ page }) => {
+  const id = await presetsRecording(page);
+  let ran = '';
+  // The demo's empty result made one that couldn't apply at the tool it hits, as the CLI's notApplicable keeps a refused preset: the call, then why.
+  await page.route((url) => url.pathname === `/api/chaos/runs/${id}`, (route) =>
+    patched<{ matrix: ChaosMatrix | null }>(route, (body) => {
+      const m = body.matrix!;
+      ran = m.cells.find((c) => c.attempts > 0 && c.preset !== 'empty')!.label;
+      const refused = (c: ChaosMatrix['cells'][number]) => ({ ...c, verdict: 'not-applicable' as const, passes: 0, attempts: 0, runs: [], reason: null, detail: `${c.target!.name} (#${c.callNo!}): it already answered with nothing` });
+      return { matrix: { ...m, cells: m.cells.map((c) => (c.preset === 'empty' ? refused(c) : c)) } };
+    }),
+  );
+  await openPage(page, `/run/${id}`, 'run');
+  await page.locator('button[data-act="results"][data-which="presets"]').first().click();
+  await expect(page.locator(`${PANEL} .rmx-c`).first()).toBeVisible();
+  const cards = await page.locator(`${PANEL} .rmx-c[data-tip]`).evaluateAll((cells) => cells.map((c) => JSON.parse(c.getAttribute('data-tip')!) as { t: string; s?: string; rows: string[][] }));
+  expect(cards.find((c) => c.t === 'empty result · not applicable')?.s).toMatch(/^\S+ \(#\d+\): it already answered with nothing$/);
+  expect(cards.find((c) => c.t.startsWith(`${ran} ·`))?.rows.at(-1)?.[0]).toBe('spent');
+  expect(await seriousViolations(page)).toEqual([]);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });

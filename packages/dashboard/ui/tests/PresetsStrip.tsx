@@ -24,11 +24,14 @@ export function presetsCounts(p: Pick<Presets, 'failed' | 'inconclusive' | 'pass
     .join(' · ');
 }
 
-/** A preset's cell's card: its words, its verdict (`not applicable` in words) with its tally where it took several attempts, and the call it hit. */
+/**
+ * A preset's cell's card: its words, why it failed, couldn't say or couldn't apply where it did, its
+ * verdict (`not applicable` in words) with its tally where it took several attempts, and the call it hit.
+ */
 export function presetCard(c: Cell): string {
   const rows: TipRow[] = [{ label: c.verdict.replace('-', ' '), value: c.attempts > 1 ? `${c.passes} of ${c.attempts}` : '', color: COLOUR[c.verdict] ?? 'var(--cq-muted)' }];
   if (c.callNo !== null) rows.push({ label: 'at', value: `#${c.callNo}` });
-  return tipCard(c.label, rows);
+  return tipCard(c.label, rows, c.why ?? null);
 }
 
 /**
