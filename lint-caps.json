@@ -139,9 +139,6 @@
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
     },
-    "packages/dashboard/src/routes/imports.ts": {
-      "register > build": 35
-    },
     "packages/dashboard/src/routes/settings.ts": {
       "register > build #2": 31
     },

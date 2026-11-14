@@ -422,6 +422,8 @@ The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), 
 
 **Use sample: otel-traces.json** picks the trace the dashboard ships, dated to end as you pick it: one agent run as an OpenTelemetry collector exports it, with two model calls and the tool call between them. **Import capture** then brings it in as any file you pick.
 
+**Several files** go in together as LiteLLM captures, a proxy's file per worker, or OpenTelemetry exports, traces apart from their logs: one import puts each run together from all of them, up to 20 files. Each goes up on its own, and the command names them all. Files of another format, or of two formats, go in one at a time, and the dialog says so.
+
 You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. The CLI reads the trace with the keys already in the environment the dashboard runs in, and they never pass through the browser.
 
 | Trace store | Trace id | Keys it reads |
@@ -431,7 +433,17 @@ You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. T
 | Phoenix | 32 hex characters, and the project | `PHOENIX_API_KEY`, when your Phoenix asks for one |
 | Logfire | 32 hex characters | `LOGFIRE_READ_TOKEN` |
 
-Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire is searched back 30 days; an older trace takes [`--since`](./cli.md#traces) in a terminal.
+Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire looks a trace up as far back as **Looks back** says, the CLI's [`--since`](./cli.md#traces): 30 days unless you type another, such as `90d`.
+
+**Traces in a window**, beside **One trace** for Langfuse, Phoenix and Logfire, imports the traces that started in it, newest first, each a run of its own, as [`shadowlap import`](./cli.md#traces) does without a trace id:
+
+| Field | What it takes | Empty |
+| --- | --- | --- |
+| **Since**, **Until** | A date (`2026-09-30`), a time (`2026-09-30T14:00Z`), or how long ago (`30d`, `12h`) | The last 30 days, until now |
+| **At most** | The most traces, from 1 to 10,000 | 100 |
+| **Trace name** | Only the traces of that name | Any |
+
+Each field is checked as you type it, in the CLI's words. A trace an earlier import brought in is skipped.
 
 A run imported from Langfuse links back to the trace: **Open in Langfuse ↗** in [its header](#the-header).
 
@@ -3568,6 +3580,8 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or a trace by its id, `{ format: "langfuse", traceId, host? }`, from `langfuse`, `langsmith`, `phoenix` or `logfire`, with `project?` too for `phoenix` |
+| `import { format, uploadIds }` | Several uploads at once, for `litellm` and `otel`, up to 20 |
+| `import { format, window, host? }` | The traces in a window, from `langfuse`, `phoenix` or `logfire`: `window` holds `since`, `until`, `limit` and `traceName`, each optional; with a `logfire` `traceId`, `since` alone |
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
 | `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, budget?, clean?, writes?, liveReads?, again?, yes? }` | `injection <run\|golden> --json` |
 | `migrate { to, goldens?, runs?, from?, scope?, set?, yes? }` | A migration, every golden unless some are named |

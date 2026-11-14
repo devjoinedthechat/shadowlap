@@ -112,6 +112,7 @@
     "packages/dashboard/test/ui-tests-picked.test.ts",
     "packages/dashboard/test/ui-settings-unrecorded.test.ts",
     "packages/dashboard/test/ui-settings-build.test.ts",
+    "packages/dashboard/test/ui-import-dialog.test.ts",
     "packages/dashboard/test/ui-allow-again.test.ts",
     "packages/dashboard/test/ui-tests-check-entries.test.ts",
     "packages/dashboard/test/ui-run-check-steps.test.ts",

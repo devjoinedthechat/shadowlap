@@ -519,6 +519,54 @@ describe('imports', () => {
     expect(traceHost('ftp://x')).toBeNull();
     expect(traceHost('')).toBeNull();
   });
+
+  it('imports the traces that started in a window from Langfuse, Phoenix and Logfire, each field one argument, and Logfire’s trace from as far back as asked', async () => {
+    for (const k of KEYS) delete process.env[k];
+    Object.assign(process.env, { LANGFUSE_PUBLIC_KEY: 'pk-lf-EXAMPLE', LANGFUSE_SECRET_KEY: 'sk-lf-EXAMPLE', LOGFIRE_READ_TOKEN: 'pylf_v1_us_EXAMPLE' });
+    const id = '4a2db41deabc4aec332fb9fbfa0fc3e2';
+    expect(await built({ kind: 'import', format: 'langfuse', window: { since: '7d', limit: 50, traceName: '--json' } })).toEqual(['import', 'langfuse', '--since=7d', '--limit=50', '--trace-name=--json']);
+    // A window left as the CLI has it, the last 30 days: said, since the CLI takes no import without a trace id or a flag.
+    expect(await built({ kind: 'import', format: 'phoenix', window: {}, project: 'support-agent' })).toEqual(['import', 'phoenix', '--since=30d', '--project=support-agent']);
+    expect(await built({ kind: 'import', format: 'logfire', window: { since: '2026-09-01', until: '2026-10-01' } })).toEqual(['import', 'logfire', '--since=2026-09-01', '--until=2026-10-01']);
+    expect(await built({ kind: 'import', format: 'logfire', traceId: id, window: { since: '90d' } })).toEqual(['import', 'logfire', id, '--since=90d']);
+    for (const [body, error] of [
+      [{ kind: 'import', format: 'langfuse', window: { since: 'last week' } }, 'window: --since: a date (2026-09-30), a time (2026-09-30T14:00Z), or how long ago (30d, 12h), not "last week"'],
+      [{ kind: 'import', format: 'langfuse', window: { limit: 20000 } }, 'window: --limit: a number of traces from 1 to 10000, not "20000"'],
+      [{ kind: 'import', format: 'langfuse', window: { since: '2d', until: '3d' } }, 'window: --until: "3d" is not after --since'],
+      [{ kind: 'import', format: 'langfuse', traceId: 'abc', window: { limit: '5' } }, 'window: --limit is for the traces in a window, without a trace id'],
+      [{ kind: 'import', format: 'langsmith', window: { since: '7d' } }, 'traceId: the id from the trace’s page'],
+      [{ kind: 'import', format: 'langfuse' }, 'traceId: the id from the trace’s page, or window: the traces that started in a window'],
+      [{ kind: 'import', format: 'langfuse', window: 'last week' }, 'window: since, until, limit and traceName, each a string'],
+    ] as const) {
+      const res = await post(dash, 'jobs', body);
+      expect([res.status, await errorOf(res)], JSON.stringify(body)).toEqual([400, error]);
+    }
+  });
+
+  it('imports several LiteLLM or OpenTelemetry files together, as one import puts a run together from them, and one of any other format', async () => {
+    const send = async (filename: string, body: string) => {
+      const up = await api(dash, 'uploads', { method: 'POST', body, headers: { 'x-filename': encodeURIComponent(filename), 'content-type': 'application/octet-stream' } });
+      expect(up.status).toBe(201);
+      return ((await up.json()) as { uploadId: string; name: string }).uploadId;
+    };
+    const traces = await send('traces.json', '{"resourceSpans":[]}');
+    const logs = await send('logs.json', '{"resourceLogs":[]}');
+    expect(await built({ kind: 'import', format: 'otel', uploadIds: [traces, logs] })).toEqual(['import', 'otel', `.shadowlap/uploads/${traces}-traces.json`, `.shadowlap/uploads/${logs}-logs.json`, '--name=traces.json, logs.json']);
+    const workers = await Promise.all(['worker-1.jsonl', 'worker-2.jsonl', 'worker-3.jsonl', 'worker-4.jsonl'].map((n) => send(n, '{}\n')));
+    expect((await built({ kind: 'import', format: 'litellm', uploadIds: workers })).at(-1)).toBe('--name=worker-1.jsonl, worker-2.jsonl, worker-3.jsonl and 1 more');
+    const hars = [await send('a.har', '{"log":{"entries":[]}}'), await send('b.har', '{"log":{"entries":[]}}')];
+    for (const [body, error] of [
+      [{ kind: 'import', format: 'har', uploadIds: hars }, 'uploadIds: several files go in together for LiteLLM and OpenTelemetry, which put a run together from them; import HAR files one at a time'],
+      [{ kind: 'import', format: 'otel', uploadIds: [hars[0], hars[0]] }, 'uploadIds: from 1 to 20 uploads, each once'],
+      [{ kind: 'import', format: 'otel', uploadIds: [] }, 'uploadIds: from 1 to 20 uploads, each once'],
+      [{ kind: 'import', format: 'otel', uploadIds: [traces] }, 'uploadIds: upload the file first (POST /api/uploads), and use it for one import'],
+    ] as const) {
+      const res = await post(dash, 'jobs', body);
+      expect([res.status, await errorOf(res)], JSON.stringify(body)).toEqual([400, error]);
+    }
+    // One HAR goes in alone, as before.
+    expect((await built({ kind: 'import', format: 'har', uploadIds: [hars[1]] })).slice(0, 2)).toEqual(['import', 'har']);
+  });
 });
 
 describe('searching what runs recorded', () => {
