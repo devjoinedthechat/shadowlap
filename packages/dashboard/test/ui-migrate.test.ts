@@ -564,7 +564,7 @@ describe('Changes › Migrate', () => {
       vi.stubGlobal('innerWidth', 1440);
       vi.stubGlobal('innerHeight', 900);
       const asked: string[] = [];
-      const p = await report(MG, { client: { estimates: { ...estimates, migrateEstimate: (to: string) => (asked.push(to), Promise.resolve({ estimate: null, preview: null })) } } as unknown as Partial<Client> });
+      const p = await report(MG, { client: { estimates: { ...estimates, migrateEstimate: (to: string) => (asked.push(to), Promise.resolve({ estimate: null, preview: null, scopes: [] })) } } as unknown as Partial<Client> });
       const menu = p.byText('.chbar button', 'Migrate to');
       expect(shown(menu)).toBe('Migrate to');
       await p.click(menu);

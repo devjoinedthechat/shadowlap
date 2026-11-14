@@ -405,12 +405,13 @@ describe('the Preview page', () => {
     const client = {
       decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }),
       decisionSession: () => Promise.resolve(migrating),
-      estimates: { migrateEstimate: (...args: unknown[]) => (priced.push(args), Promise.resolve({ estimate: null, preview: null })) },
+      estimates: { migrateEstimate: (...args: unknown[]) => (priced.push(args), Promise.resolve({ estimate: null, preview: null, scopes: [] })) },
       startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ jobId: 'j1', kind, status: 'running' })),
     };
     const p = await open(client as unknown as Partial<Client>);
     await p.until('the price', () => priced.length > 0);
-    expect(priced).toEqual([['claude-haiku-4-5', ['claude-sonnet-4-5-20250929'], [], [a, b]]]);
+    // Neither kept to a scope nor held to a Stop at $ until its dialog says so.
+    expect(priced).toEqual([['claude-haiku-4-5', ['claude-sonnet-4-5-20250929'], [], [a, b], { scope: null, budget: null }]]);
     await p.click(p.byText('.dverdict .actions button', 'Migrate to claude-haiku-4-5'));
     await p.until('the ask', () => p.all('.dialog').length === 1);
     await p.click(p.one('.dialog .dlg-ok'));
