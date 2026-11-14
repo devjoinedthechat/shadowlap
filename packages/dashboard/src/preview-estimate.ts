@@ -1,4 +1,4 @@
-import { CONTROL_MIN_SAMPLES, defaultFrom, modelFamily, modelUse, noEstimate, otherFamilyWords, PREVIEW_SAMPLES, previewAsks, previewEstimate, fieldRetirementWords, retiredFields, type Estimate, type Price, type PricedCall, type Store } from '@shadowlap/engine';
+import { CONTROL_MIN_SAMPLES, defaultFrom, isReservedScope, modelFamily, modelUse, noEstimate, otherFamilyWords, PREVIEW_SAMPLES, previewAsks, previewEstimate, fieldRetirementWords, retiredFields, type CallRecord, type Estimate, type Price, type PricedCall, type Store } from '@shadowlap/engine';
 import { typedValue } from './decisions-argv.js';
 import { fieldModels, startModel, type ModelFamily, type ModelOption } from './model-order.js';
 import { estimateOf, pricingOf } from './pricing.js';
@@ -32,6 +32,10 @@ export type PreviewEstimateJob = {
   /** The models the providers list (model-listing.ts), for the switch's card while no change is named. */
   listed?: ModelOption[];
   prices?: Record<string, Price>;
+  /** Stop at $: what the preview is held to, under its price. */
+  budget?: number | null;
+  /** It then verifies the runs it can't clear, live: what that bills is known once it has asked. */
+  thenVerify?: boolean;
 };
 
 /** What the preview a dialog names would ask, and cost. */
@@ -49,6 +53,34 @@ export interface PreviewEstimates {
   targets: string[];
   /** While no change is named: each way's card at its default, the switch at the model its field starts on, the field `max_tokens` at 512. */
   ways: { model: string | null; modelSwitch: Estimate | null; fieldChange: Estimate | null } | null;
+  /** The scopes the runs' model calls were made in, the most calls first, null for calls made in none: what a preview may keep to (`scope`). */
+  scopes: Array<{ scope: string | null; calls: number }>;
+}
+
+/** Why a preview that then verifies has no estimate: what verify runs is what the preview can't clear. */
+export const THEN_VERIFY_UNPRICED = 'what verify runs is known once the preview has asked';
+
+/** The scopes the runs' model calls were made in, as a preview asks them (none of shadowlap's own), the most calls first. */
+export function callScopes(runs: Iterable<readonly CallRecord[]>): PreviewEstimates['scopes'] {
+  const count = new Map<string | null, number>();
+  for (const calls of runs) {
+    for (const c of calls) {
+      if (c.kind !== 'api' || !c.requestRef || isReservedScope(c.meta.scope)) continue;
+      const scope = typeof c.meta.scope === 'string' && c.meta.scope ? c.meta.scope : null;
+      count.set(scope, (count.get(scope) ?? 0) + 1);
+    }
+  }
+  // The most calls first; of as many, a named scope before none, then by name.
+  return [...count].map(([scope, calls]) => ({ scope, calls })).sort((a, b) => b.calls - a.calls || Number(a.scope === null) - Number(b.scope === null) || (a.scope ?? '').localeCompare(b.scope ?? ''));
+}
+
+/**
+ * A price held to Stop at $: under it, its price reads `Stops at`, and its line says what is left
+ * undone past it (`past`): a preview's steps, or a migration's steps and attempts.
+ */
+export function heldTo(e: Estimate | null, budget: number | null | undefined, past = 'steps past it not asked'): Estimate | null {
+  if (!e || !budget || e.usd === null || budget >= e.usd) return e;
+  return { ...e, stops: budget, parts: [...e.parts, past] };
 }
 
 /** What the max_tokens a change sets shows of the recorded answers. */
@@ -70,6 +102,8 @@ export async function previewEstimates(store: Store, job: PreviewEstimateJob): P
     job.unrecorded
       ? Promise.resolve(noEstimate('preview', 'a golden’s recording isn’t in this store, so its calls can’t be priced'))
       : estimateOf(() => previewEstimate(priced, { model, from: fromOf(model), ...(job.fromCode ? { fromCode: true, ...(job.changed ? { changed: job.changed } : {}) } : {}) }, { samples: n, scope: job.scope, ...(job.prices ? { prices: job.prices } : {}) }), pricing);
+  // The change named, held to its Stop at $; one that then verifies has no estimate until it has asked.
+  const namedPrice = async (): Promise<Estimate | null> => (job.thenVerify ? noEstimate('preview', THEN_VERIFY_UNPRICED) : heldTo(await priceOf(job.model, samples), job.budget));
   const named = job.model !== null || job.set.length > 0 || job.fromCode;
   const from = fromOf(job.model);
   const { asked, otherFamily } = previewAsks(priced, { model: job.model, from, ...(job.fromCode && job.changed ? { fromCode: true, changed: job.changed } : {}) }, job.scope);
@@ -82,13 +116,14 @@ export async function previewEstimates(store: Store, job: PreviewEstimateJob): P
     ways = { model, modelSwitch: model ? await priceOf(model, PREVIEW_SAMPLES) : null, fieldChange: await priceOf(null, 1) };
   }
   const body: PreviewEstimates = {
-    preview: named ? await priceOf(job.model, samples) : null,
+    preview: named ? await namedPrice() : null,
     asks: { calls: asked.length, from, control: samples >= CONTROL_MIN_SAMPLES, runs: job.targets.length, otherFamily: job.model && !asked.length && otherFamily ? otherFamilyWords(job.model) : null },
     recorded,
     answers: answersOf(asked, job.set),
     refused: refusal ? { field: refusal.f.field, model: refusal.model, says: fieldRetirementWords(refusal.model, refusal.f), source: refusal.f.rule.source } : null,
     targets: job.targets,
     ways,
+    scopes: callScopes(raw),
   };
   return answer(body, { tagged: true });
 }

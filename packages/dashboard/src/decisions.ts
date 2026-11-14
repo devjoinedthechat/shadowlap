@@ -3,7 +3,7 @@ import { decisionRow, LATER_STEPS, verifiedOutcome, viewSteps, type DecisionRow,
 import { lookupRun } from './api.js';
 import { sprtGate } from './fix-shared.js';
 import { moreFlags, moreOf, type PreviewMore } from './decision-more.js';
-import { decisionsArgv, FIELD_NAME, migrateArgv, MODEL_NAME, PREVIEW_MAX, tooManyToPreview } from './decisions-argv.js';
+import { BUDGET_MAX, decisionsArgv, FIELD_NAME, migrateArgv, MODEL_NAME, PREVIEW_MAX, tooManyToPreview } from './decisions-argv.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { appliedState, applyInputOf, type AppliedState } from './migrate-applied.js';
@@ -230,10 +230,18 @@ function fromArgs(raw: unknown): string[] | { error: string } {
 }
 
 /** The request's `scope`, checked: a scope's name, or `none` for the calls made in none. */
-function scopeArgs(raw: unknown): { scope: string | null } | { error: string } {
+export function scopeArgs(raw: unknown): { scope: string | null } | { error: string } {
   if (raw === undefined || raw === null) return { scope: null };
   if (typeof raw !== 'string' || !/^[\w.:/-]{1,100}$/.test(raw) || isReservedScope(raw)) return { error: 'scope is the name of a scope the agent made calls in, or none' };
   return { scope: raw };
+}
+
+/** The request's `budget`, checked: Stop at $, an amount in USD above 0 to the cent, as Run injection test's is. */
+export function budgetArg(raw: unknown): { budget: number | null } | { error: string } {
+  if (raw === undefined || raw === null) return { budget: null };
+  const cents = typeof raw === 'number' && Number.isFinite(raw) ? Math.round(raw * 100) : 0;
+  if (cents <= 0 || cents > BUDGET_MAX * 100) return { error: 'budget is an amount in USD above 0, such as 25.00' };
+  return { budget: cents / 100 };
 }
 
 /** A preview's request, checked as its job and its estimate (`GET /api/decisions/estimates`) take it: its targets as the job resolves them, and its change. */
@@ -245,9 +253,13 @@ export interface PreviewRequest {
   scope: string | null;
   fromCode: boolean;
   samples: number | null;
+  /** Stop at $, or null for none. */
+  budget: number | null;
+  /** Then verify the runs it can't clear, live. */
+  thenVerify: boolean;
 }
 
-/** `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples? }` checked, a change or none. */
+/** `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, budget?, thenVerify? }` checked, a change or none. */
 export function previewRequest(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[]): PreviewRequest | { error: string; status?: number } {
   const targets = targetArgs(store, req, goldens);
   if ('error' in targets) return targets;
@@ -259,28 +271,30 @@ export function previewRequest(req: JobRequest, store: StoreOf<'recording'>, gol
   const scope = scopeArgs(req.scope);
   if ('error' in scope) return scope;
   if (req.samples !== undefined && (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20)) return { error: 'samples is a whole number from 1 to 20' };
-  return { targets, model: typeof req.model === 'string' ? req.model : null, set, from, scope: scope.scope, fromCode: req.fromCode === true, samples: typeof req.samples === 'number' ? req.samples : null };
+  const budget = budgetArg(req.budget);
+  if ('error' in budget) return budget;
+  return { targets, model: typeof req.model === 'string' ? req.model : null, set, from, scope: scope.scope, fromCode: req.fromCode === true, samples: typeof req.samples === 'number' ? req.samples : null, budget: budget.budget, thenVerify: req.thenVerify === true };
 }
 
 /**
  * `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?,
- * thenVerify?, yes? }`. Without `samples`, each step is asked as the CLI asks it by default: 3 times
- * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
- * passed on whatever it is, 1 too, which asks once and has no control.
+ * thenVerify?, budget?, yes? }`. Without `samples`, each step is asked as the CLI asks it by default: 3
+ * times under the change and 3 times as recorded, the control, six requests a step. `samples` given
+ * is passed on whatever it is, 1 too, which asks once and has no control. `budget` is Stop at $.
  */
 export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
   const p = previewRequest(req, store, goldens);
   if ('error' in p) return p;
   if (!p.model && !p.set.length && !p.fromCode) return { error: 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree' };
   if (p.from.length && !p.model && !p.set.length) return { error: 'from names the model calls a model or fields change: give one of them' };
-  const runsAgent = p.fromCode || req.thenVerify === true;
+  const runsAgent = p.fromCode || p.thenVerify;
   let yes: string[] = [];
   if (runsAgent) {
     const consent = commandConsent(store, p.targets.byId, p.targets.packs, projectDir, req.yes);
     if ('ask' in consent) return consent.ask;
     yes = consent.yes;
   }
-  const args = [...decisionsArgv({ targets: p.targets.args, model: p.model, set: p.set, from: p.from, scope: p.scope, fromCode: p.fromCode, samples: p.samples, thenVerify: req.thenVerify === true }), ...yes];
+  const args = [...decisionsArgv({ targets: p.targets.args, model: p.model, set: p.set, from: p.from, scope: p.scope, fromCode: p.fromCode, samples: p.samples, thenVerify: p.thenVerify, budget: p.budget }), ...yes];
   const title = p.fromCode ? ACTIONS.previewChangedPrompt.doing : p.model ? ACTIONS.previewModelSwitch.doing : ACTIONS.previewFieldChange.doing;
   return { args, title, ...(p.targets.runIds.length === 1 ? { runId: p.targets.runIds[0]! } : {}) };
 }
@@ -305,7 +319,7 @@ export function decisionsReadJob(req: JobRequest, store: StoreOf<'recording'>, g
   return { args, title: READING_TREE, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
 
-/** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, yes? }`; every golden when none are named. */
+/** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, budget?, yes? }`; every golden when none are named. `budget` is Stop at $. */
 export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.to !== 'string' || !MODEL.test(req.to)) return { error: 'to is the model to switch to, such as claude-sonnet-5-5' };
   const named = req.goldens !== undefined || req.runs !== undefined;
@@ -317,9 +331,11 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
   if ('error' in from) return from;
   const scope = scopeArgs(req.scope);
   if ('error' in scope) return scope;
+  const budget = budgetArg(req.budget);
+  if ('error' in budget) return budget;
   const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
   if ('ask' in consent) return consent.ask;
-  return { args: [...migrateArgv({ to: req.to, targets: targets.args, from, scope: scope.scope, set }), ...consent.yes], title: `Migrating to ${req.to}` };
+  return { args: [...migrateArgv({ to: req.to, targets: targets.args, from, scope: scope.scope, set, budget: budget.budget }), ...consent.yes], title: `Migrating to ${req.to}` };
 }
 
 /**

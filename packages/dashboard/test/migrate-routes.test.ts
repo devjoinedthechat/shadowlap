@@ -154,6 +154,21 @@ describe('Migrate’s price', () => {
     expect((await ask(`&run=${runId}`))?.usd).toBe(golden?.usd);
     expect((await api(dash, 'migrate/estimate?to=claude-sonnet-5-5&run=01NOSUCHRUN00000000000000')).status).toBe(404);
   });
+
+  it('prices only the calls of the scope it keeps to, and holds it to its Stop at $', async () => {
+    const ask = async (q: string) => ((await (await api(dash, `migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5${q}`)).json()) as { estimate: { usd: number | null; stops?: number; parts: string[] } | null }).estimate;
+    const all = (await ask(''))!;
+    // The golden's calls were made in no scope, which is the one scope the dialog could keep to: so it offers none.
+    const body = (await (await api(dash, 'migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5')).json()) as { scopes: Array<{ scope: string | null; calls: number }> };
+    expect(body.scopes).toEqual([{ scope: null, calls: expect.any(Number) }]);
+    // A named scope has none of them, none keeps them all.
+    expect(await ask('&scope=billing')).toMatchObject({ usd: 0, parts: ['no golden’s call is made with claude-sonnet-4-5'] });
+    expect((await ask('&scope=none'))?.usd).toBe(all.usd);
+    // Under its ceiling, Stop at $ is what it is held to, and its line says what is left undone past it.
+    const half = Math.floor(all.usd! * 50) / 100;
+    expect(await ask(`&budget=${half}`)).toEqual({ ...all, stops: half, parts: [...all.parts, 'nothing asked or verified past it'] });
+    for (const q of ['&budget=0', '&budget=lots', '&scope=shadowlap:judge']) expect((await api(dash, `migrate/estimate?to=claude-sonnet-5-5${q}`)).status, q).toBe(400);
+  });
 });
 
 describe('a migration’s applied state', () => {

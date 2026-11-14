@@ -1,4 +1,5 @@
 import { type Estimate, migrateEstimate, recordedChecks, recordedRole, type Price, type Store } from '@shadowlap/engine';
+import { callScopes, heldTo, type PreviewEstimates } from './preview-estimate.js';
 import type { ConfigVerifyRule } from './estimates.js';
 import { sameSwitch } from './migrate-applied.js';
 import { estimateOf, pricingOf } from './pricing.js';
@@ -14,14 +15,19 @@ import type { GoldenSource } from './tests.js';
  * by its checks and reads its calls.
  */
 
-/** `GET /api/migrate/estimate`'s answer: migrate's ceiling, and the newest preview of the same switch, which asked these already. */
+/** `GET /api/migrate/estimate`'s answer: migrate's ceiling, the newest preview of the same switch, which asked these already, and the scopes its runs' calls were made in, which it may keep to. */
 export interface MigrateEstimateView {
   estimate: Estimate | null;
   preview: { sessionId: string; verified: boolean } | null;
+  scopes: PreviewEstimates['scopes'];
 }
 
-/** `goldens`, the goldens it asks; `runs`, the runs of the store it asks by id, judged by the checks of the recording each comes from, as the job judges them. */
-export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: string[]; goldens: GoldenSource[]; runs?: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
+/**
+ * `goldens`, the goldens it asks; `runs`, the runs of the store it asks by id, judged by the checks of
+ * the recording each comes from, as the job judges them; `scope`, the calls it keeps to; `budget`, its
+ * Stop at $.
+ */
+export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: string[]; scope?: string | null; budget?: number | null; goldens: GoldenSource[]; runs?: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
 
 /**
  * The newest preview of the same switch (`sameSwitch`) that asked every run the migration asks, which
@@ -50,15 +56,20 @@ async function migrateEstimates(store: Store, job: MigrateEstimateJob): Promise<
     return run ? [{ golden: null, run }] : [];
   });
   const live = [...goldens, ...runs];
+  const pricing = pricingOf(store, job.prices);
   const estimate = await estimateOf(
     (p) =>
       migrateEstimate(
         live.map(({ golden, run }) => ({ calls: p.calls(run.runId), failed: recordedRole(store, run, recordedChecks(entries, store, run, job.work?.dir ?? process.cwd(), golden)?.spec ?? null, job.prices) === 'target' })),
-        { to: job.to, from: job.from, rule: job.rule, ...(job.prices ? { prices: job.prices } : {}) },
+        { to: job.to, from: job.from, rule: job.rule, ...(job.scope ? { scope: job.scope } : {}), ...(job.prices ? { prices: job.prices } : {}) },
       ),
-    pricingOf(store, job.prices),
+    pricing,
   );
-  const view: MigrateEstimateView = { estimate, preview: newestPreviewOf(store, job.to, job.from, live.map(({ run }) => run.runId)) };
+  const view: MigrateEstimateView = {
+    estimate: heldTo(estimate, job.budget, 'nothing asked or verified past it'),
+    preview: newestPreviewOf(store, job.to, job.from, live.map(({ run }) => run.runId)),
+    scopes: callScopes(live.map(({ run }) => pricing.raw(run.runId))),
+  };
   return answer(view, { tagged: true });
 }
 
