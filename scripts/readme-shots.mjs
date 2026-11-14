@@ -25,6 +25,9 @@
 //                              verify's verdict
 //   dashboard-fork-phone.png   the same pages in the dashboard's phone layout: the fork down to its
 //   dashboard-fix-phone.png    strip of calls, the fix down to verify's verdict
+//   dashboard-walkthrough.svg  the whole window, from Runs › Failed to the newest failed run at the call
+//                              blame found, its fix with verify's verdict, and the patch: four pages
+//                              and a pointer that presses through them, looping (walkthrough-svg.mjs)
 //
 // and what each command of the story printed into <folder>/samples/, where the README's console
 // examples come from: blame, repair, fix apply, decisions and the override. Without a folder the
@@ -49,6 +52,7 @@ import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdi
 import { devNull, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { walkthroughSvg } from './walkthrough-svg.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = join(root, 'packages', 'cli', 'bin', 'shadowlap.js');
@@ -56,6 +60,11 @@ const kit = join(root, 'scripts', 'demo-store');
 const outDir = join(root, '.github', 'assets', 'readme');
 /** Each picture's largest size: the README's pictures stay light. */
 const MAX_BYTES = 450 * 1024;
+/**
+ * The walkthrough: a 1280 by 800 window, its pages at one and a half times the pixels, as WebP; four
+ * pages in one picture weigh more than one, and no more than this.
+ */
+const WALK = { width: 1280, height: 800, scale: 1.5, quality: 75, maxBytes: 600 * 1024 };
 
 if (process.env.CHROME && !existsSync(process.env.CHROME)) {
   console.error(`readme-shots: CHROME names ${process.env.CHROME}, which isn't there`);
@@ -373,6 +382,93 @@ try {
       if (bytes > MAX_BYTES) throw new Error(`readme-shots: ${file} is ${(bytes / 1024).toFixed(0)} KB, over the ${MAX_BYTES / 1024} KB a README picture may weigh`);
     }
   }
+
+  // ---- the walkthrough: from a failed run to the call blame found, the fix and its proof ----
+  // The whole window, sidebar and all, each page as the press before it left it, at one and a half
+  // times its pixels: the README's column shows it about 830 px wide, which a screen of twice the
+  // pixels still draws sharp. The pointer and the pages' changes are drawn by walkthrough-svg.mjs.
+  await send('Emulation.setDefaultBackgroundColorOverride', {});
+  await send('Emulation.setDeviceMetricsOverride', { width: WALK.width, height: WALK.height, deviceScaleFactor: WALK.scale, mobile: false });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
+  const settle = async () => {
+    await evaluate('document.fonts.ready.then(() => true)');
+    await wait(700);
+  };
+  const frame = async () => (await send('Page.captureScreenshot', { format: 'webp', quality: WALK.quality, clip: { x: 0, y: 0, width: WALK.width, height: WALK.height, scale: 1 } })).data;
+  /** The middle of what `find` (an expression) finds, in the window's px: of its words where it has them, as a pointer aims at them, else of its box. */
+  async function centre(find, what) {
+    const c = await evaluate(`(() => {
+      const el = ${find};
+      if (!el) return null;
+      const words = document.createRange();
+      words.selectNodeContents(el);
+      const w = words.getBoundingClientRect();
+      const r = w.width > 0 ? w : el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`);
+    if (!c) fail(`the walkthrough found no ${what}`);
+    return c;
+  }
+  /**
+   * A press as a mouse makes it, where the pointer is drawn pressing, so the page answers as it does
+   * a person's (a dialog opened so shows no focus ring); then the mouse leaves the window, so no
+   * hover stays on the next page.
+   */
+  async function press(at) {
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: at.x, y: at.y, button: type === 'mouseMoved' ? 'none' : 'left', clickCount: type === 'mouseMoved' ? 0 : 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WALK.width + 40, y: WALK.height + 40, button: 'none' });
+  }
+  const named = (scope, words) => `[...document.querySelectorAll(${JSON.stringify(scope)})].find((b) => b.textContent.trim() === ${JSON.stringify(words)})`;
+
+  // Runs › Failed, its one issue's runs listed: the pointer opens the newest.
+  await send('Page.navigate', { url: `${origin}/#token=${String(token)}&open=/runs` });
+  await until(`!!document.querySelector('main#view table.runst tbody tr')`, 'Runs');
+  await press(await centre(`[...document.querySelectorAll('main#view button, main#view a')].find((b) => /^Failed\\b/.test(b.textContent.trim()))`, 'Failed chip'));
+  await until(`!!document.querySelector('main#view button.isn')`, 'Runs › Failed');
+  await press(await centre(`document.querySelector('main#view button.isn')`, 'count of the issue’s runs'));
+  await until(`!!document.querySelector('main#view a.isr')`, 'the issue’s runs');
+  await settle();
+  // On the newest run's words, not the middle of its row.
+  const failed = { image: await frame(), press: await centre(`document.querySelector('main#view a.isr .rab')`, 'run of the issue') };
+  await press(failed.press);
+  // The run opens at the call blame found it lost at: Open fix.
+  await until(`!!document.querySelector('main#view .rhead') && ${text('lost at')} && ${text('what the model saw')}`, 'the failed run at the call blame found');
+  await settle();
+  const run = { image: await frame(), press: await centre(named('main#view a, main#view button', 'Open fix'), 'Open fix') };
+  await press(run.press);
+  // The fix, and its proof: Show patch.
+  await until(`${text('Every failing run fixed')} && ${text('Lost at model call')}`, 'the fix’s verdict');
+  await settle();
+  const fix = { image: await frame(), press: await centre(named('main#view button', 'Show patch'), 'Show patch') };
+  await press(fix.press);
+  // The patch: the pointer rests beside its Close.
+  await until(`!!document.querySelector('[role="dialog"]') && ${text('const SYSTEM')}`, 'the patch');
+  await settle();
+  const close = await centre(named('[role="dialog"] button', 'Close'), 'the patch’s Close');
+  const patch = { image: await frame(), rest: { x: close.x - 64, y: close.y + 6 } };
+  const svg = walkthroughSvg({
+    width: WALK.width,
+    height: WALK.height,
+    radius: WALK.width / 80,
+    // Where the pointer starts: under the issue, clear of every row.
+    start: { x: WALK.width - 300, y: WALK.height - 240 },
+    // Where motion is unwanted: the fix, its proof and the call blame found.
+    still: 2,
+    pages: [
+      { ...failed, hold: 4.2 },
+      { ...run, hold: 5.8 },
+      { ...fix, hold: 8 },
+      { ...patch, hold: 7.2 },
+    ],
+    title: 'The Shadowlap dashboard, from a failed run to its fix: the call blame found, the fix and its proof',
+    desc: 'Runs › Failed lists one issue, issue_refund called with amount 240: three runs, each lost at model call #5. The newest opens at that call, where blame found the run lost, and asked again the model escalates instead. Open fix shows the fix: blame, repair’s prompt change and verify’s verdict, every failing run fixed and every good run kept. Show patch shows the prompt change.',
+  });
+  const walkFile = join(outDir, 'dashboard-walkthrough.svg');
+  writeFileSync(walkFile, svg);
+  const walkBytes = Buffer.byteLength(svg);
+  console.log(`wrote ${relative(root, walkFile)}: 4 pages at ${WALK.width * WALK.scale}×${WALK.height * WALK.scale}, ${(walkBytes / 1024).toFixed(0)} KB`);
+  if (walkBytes > WALK.maxBytes) throw new Error(`readme-shots: dashboard-walkthrough.svg is ${(walkBytes / 1024).toFixed(0)} KB, over the ${WALK.maxBytes / 1024} KB it may weigh`);
 
   /**
    * The picture in the terminal picture's frame: corners rounded, transparent outside them, and a
