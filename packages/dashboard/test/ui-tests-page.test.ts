@@ -111,6 +111,8 @@ function one(el: FakeElement, selector: string): FakeElement {
   return found[0];
 }
 const all = (el: FakeElement, selector: string) => el.querySelectorAll(selector);
+/** In CI's rows as read: each label with its line. */
+const rowsOf = (ci: FakeElement) => all(ci, '.tci > div').map((row) => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent.replace(/\u00a0/g, ' ')]);
 
 /** The checks of a golden's row, as the Checks column shows them: each one's class, mark and words. */
 function checks(page: Rendered, name: string) {
@@ -162,15 +164,23 @@ describe('the Tests page', () => {
     expect(all(page.one('.ph p'), '.term').map((t) => t.textContent.slice(0, 6))).toEqual(['golden']);
     expect(page.all('button').map((b) => b.textContent.trim())).not.toContain('Copy CI command');
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!;
-    expect(ci.textContent.replace(/\u00a0/g, ' ')).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
+    // Its command leads, then what a run in CI needs and how it judges, a label and its line each: never one paragraph of them.
+    expect(ci.children.map((c) => (c.tagName === 'DL' ? 'rows' : c.className.split(' ').includes('cmdline') ? 'command' : c.tagName === 'HEADER' ? 'heading' : 'line'))).toEqual(['heading', 'command', 'rows', 'line']);
+    expect(rowsOf(ci)).toEqual([
+      ['Keys', 'A golden marked fork runs live from where it forks and needs the providers’ keys. Replay goldens run offline and need no key.'],
+      // budget has a gate against history: CI must keep the store between runs.
+      ['Store', 'A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.'],
+      ['Fails a golden', 'A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide.'],
+      ['Only warns', 'A gate against history with fewer than 30 sessions, when it runs out of attempts, until the plan reads a decline or a drop.'],
+    ]);
     expect(ci.textContent).not.toContain('throwaway store');
     // Settings → CI writes each part the workflow has, so the line names them.
     expect(ci.textContent.replace(/\u00a0/g, ' ')).toContain('On GitHub, Settings → CI builds the whole workflow, with the pull request comment, Fix on failure and alerts.');
     expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     // In its box alone, with the box's one Copy, named by what it copies.
     expect(all(ci, 'button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy CI command']);
-    // budget has a gate against history: CI must keep the store between runs.
-    expect(all(ci, 'p.muted.after')[0].textContent.replace(/\u00a0/g, ' ')).toBe('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
+    // The store's names as code, each whole.
+    expect(all(ci, '.tci code').map((c) => c.textContent)).toEqual(['keep-history', '.shadowlap/shadowlap.db']);
     expect(all(ci, 'a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Settings → CI', '#/settings/ci']]);
     expect(page.document.body.textContent.replace(/\u00a0/g, ' ')).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
   });
@@ -179,8 +189,23 @@ describe('the Tests page', () => {
     // No gate against history here: the store need not be kept, and a short history still only warns.
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x.path === 'goldens/budget' ? { ...x, gate: null } : x)));
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!;
-    expect(all(ci, 'p.muted')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
+    expect(rowsOf(ci)).toEqual([
+      ['Keys', 'A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. Replay goldens run offline and need no key.'],
+      ['Fails a golden', 'A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide.'],
+      ['Only warns', 'A gate against history with fewer than 30 sessions, when it runs out of attempts, until the plan reads a decline or a drop.'],
+    ]);
     expect(ci.textContent).not.toContain('keep-history');
+  });
+
+  it('says which goldens need keys by what the goldens are: none where every golden replays, each fork counted, an injection test alone', async () => {
+    const inCi = async (goldens: GoldenSource[]) => {
+      const page = await open([], goldens);
+      return rowsOf(page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!)[0];
+    };
+    const replays = GOLDENS.map((x) => ({ ...x, mode: 'replay' as const, gate: null }));
+    expect(await inCi(replays)).toEqual(['Keys', 'Replay goldens run offline and need no key.']);
+    expect(await inCi(replays.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x)))).toEqual(['Keys', 'An injection test runs live from each payload it plants and needs the providers’ keys. Replay goldens run offline and need no key.']);
+    expect(await inCi(replays.map((x) => (x.path === 'goldens/passes' || x.path === 'goldens/budget' ? { ...x, mode: 'fork' as const } : x)))).toEqual(['Keys', '2 goldens marked fork run live from where they fork and need the providers’ keys. Replay goldens run offline and need no key.']);
   });
 
   it('settles a judge a replay golden couldn\'t ask offline with Update golden, which asks first and names its command', async () => {

@@ -35,6 +35,13 @@ td.hist i.meter.hdrop::after, td.hist i.meter.upd::after { width: 30px; height: 
 
 
 .gpanel { margin-top: 16px; }
+/* In CI, under its command: what a run in CI needs and how it judges, a label and its line each, as What it costs sets
+   its lines (.mgcost); on a phone each label over its line. The line that sends to Settings → CI closes the section */
+.tci { margin: 12px 0 14px; }
+.tci > div { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 10px; padding: 3px 0; font-size: 12.5px; }
+.tci dt { color: var(--dim); }
+.tci dd { margin: 0; color: var(--faint); }
+@media (max-width: 640px) { .tci > div { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 5px 0; } }
 /* where the recordings pytest and Vitest keep run: one quiet line under In CI and Add a golden */
 p.muted.tfoot { margin: 14px 0 0; }
 
