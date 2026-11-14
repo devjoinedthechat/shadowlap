@@ -2470,7 +2470,7 @@ One result per pack, in `results`, has these fields:
 | `gate` | For a golden with a gate (below); null otherwise |
 | `judge` | What its judge checks' calls did and cost over every attempt, apart from the agent's (below), or `null` |
 | `updated` | With `--update`, what it updated: `from`, `to`, `calls`, `changes`, and `decides` and `reason` when it has them |
-| `takesOut` | For a golden that diverged: each sentence its request takes out that an [accepted change](./ci.md#say-why) added, with `at`, `by`, `reason` and `fix`. Absent with none |
+| `takesOut` | Each sentence a diverged golden's request takes out that an [accepted change](./ci.md#say-why) added, with `at`, `by`, `reason` and `fix`; absent with none |
 | `injection` | Its injection gate (below), or null |
 
 More on a result's fields:
@@ -3317,6 +3317,8 @@ Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1
   ✓ 1 run    lookup_order → read_policy → escalate
              writes escalate · answered · seen 2d ago in escalate.har
              covered by goldens/escalate
+
+Make a golden of one run of each: shadowlap coverage --pack -- <the agent's command, with {message} where its input goes>
 ```
 
 A behaviour is:
@@ -3373,6 +3375,11 @@ The replay is offline, and needs no tool to answer:
 A replay that sends every request the capture holds and exits 0 is a recording of the agent as it is
 doing what production did. It is packed into `goldens/<first tool>-<writes>-<key>` (with the project's
 redaction rules, as `pack` writes one) and logged in the activity feed.
+
+In the folder's name, the tools are at most 3, each once, lowercased with `-` for anything but letters
+and digits, and cut at 48 characters. `<key>` is the key's first 6 characters, so the example's
+uncovered behaviour goes to `goldens/lookup-order-issue-refund-3f9a2c`. When that folder is taken,
+`-2`, `-3` and so on are added.
 
 One that doesn't is not packed, and says why:
 

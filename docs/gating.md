@@ -84,6 +84,7 @@ Each gate answers its own question. Pick the one whose question is your requirem
 - **Use history where each golden's own past is the standard.** `{ "baseline": "history" }` costs 5 to 6 attempts for an unchanged agent, never needs figures of its own, and fails a collapse or a large drop. It catches a drop just past `drop` only sometimes, and needs its history kept, in CI too.
 - **Set the suite's risk for the whole session,** not each gate's: `--suite-risk` or `tests.suiteRisk`. A lower one costs attempts only where the evidence is close; leave `max` out so the session can size it.
 - **Read the cost before you commit to it.** The [forecast](#the-forecast) says it before every session. The odds on this page come from the engine's `gateOdds`, which gives them for any figures and any history ([reference](#engine-and-dashboard)).
+- **Try them on the dashboard.** Settings → Gates (`#/settings/gates`) shows what the figures you pick tell apart and the odds of each verdict, then gives the golden's entry to copy ([dashboard](./dashboard.md#gates)).
 
 ## The sequential test
 
@@ -547,6 +548,8 @@ To let inconclusive goldens through with a warning instead, add `--inconclusive 
 | `max-attempts` input  | As `--max-attempts`             |
 | `inconclusive` output | Counts the inconclusive goldens |
 
+**On the dashboard.** Settings → Gates says under **In CI** what an inconclusive golden does to the step, as your workflow has it. You set that on Settings → CI, in Your workflow: **An inconclusive golden**, where **Warns** writes `inconclusive: warn` and **Fails** leaves the input out ([dashboard](./dashboard.md#ci)).
+
 The Markdown summary counts inconclusive goldens apart (`### Shadowlap: 11 of 12 goldens passed · 1 inconclusive`) and marks them 🟡. It says what CI did with them and what to do:
 
 - the `--inconclusive` given, or with none, the default;
@@ -851,12 +854,12 @@ The fields of `shadowlap test --json` this page refers to. The [CLI reference](.
 
 The odds on this page come from the engine ([the engine as a library](./engine.md)):
 
-| Function or endpoint  | What it gives                                                              |
-|-----------------------|----------------------------------------------------------------------------|
-| `gateOdds`            | The odds of each verdict and the attempts, for any figures and any history |
-| `attemptsToPass`      | The attempts an agent that always passes needs                             |
-| `planSuite`           | A session's split                                                          |
-| `GET /api/tests/gate` | The dashboard's preview of the odds, for figures not yet saved             |
+| Function or endpoint  | What it gives                                                                      |
+|-----------------------|------------------------------------------------------------------------------------|
+| `gateOdds`            | The odds of each verdict and the attempts, for any figures and any history         |
+| `attemptsToPass`      | The attempts an agent that always passes needs                                     |
+| `planSuite`           | A session's split                                                                  |
+| `GET /api/tests/gate` | The dashboard's preview of the odds on Settings → Gates, for figures not yet saved |
 
 ## See also
 

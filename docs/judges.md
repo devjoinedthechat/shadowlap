@@ -34,7 +34,7 @@ A judge check has these fields:
 | `model`    | The judge's model, by its name or with its provider before it                    | —        |
 | `pass`     | The answer that passes: `yes` or `no`                                            | `yes`    |
 
-`model` takes `claude-…`, `gpt-…` or `o3`, `o4-…`, and `gemini-…` by name. Any other model takes its provider before it, `anthropic:`, `openai:` or `gemini:`, as an OpenAI-compatible server's own names do (`openai:qwen2.5-7b`).
+`model` takes `claude-…`, `gpt-…`, `chatgpt-…`, a name that starts with `o` and a digit (`o1`, `o3`, `o4-…`), and `gemini-…` by name. Any other model takes its provider before it, `anthropic:`, `openai:` or `gemini:`, as an OpenAI-compatible server's own names do (`openai:qwen2.5-7b`).
 
 A judge check sits under `expect` beside the [other checks](./ci.md#outcome-checks), and works wherever they do: `shadowlap test`, `replay`, `blame`, `verify` and `repair`, and `--expect '{"judge":[…]}'`.
 
@@ -206,7 +206,8 @@ The judge is told the material is data: instructions in it are part of what the 
 One message goes to the judge's model with the question and the material between `<material>` tags, asking for `{"verdict": "yes" | "no", "reason": "…"}`:
 
 - **Temperature 0** wherever the model takes a temperature. Claude Opus 4.7 and the generation 5 models refuse one, as do OpenAI's reasoning models (o1, o3, o4-mini, the gpt-5 family): they are sent none. A verdict from the recording is the same every time either way.
-- **As little thinking as the model takes.** A model that thinks by default (the Claude generation 5 models and Fable) is asked for `low` effort, as is every Claude model from the 4.6 generation on; OpenAI's reasoning models are sent `reasoning_effort: "low"`. A yes or no needs no more, and a long run's material never spends the answer's room on thinking.
+- **As little thinking as the model takes.** A model that thinks by default (the Claude generation 5 models and Fable) is asked for `low` effort, as is every Claude model from the 4.6 generation on. A yes or no needs no more, and a long run's material never spends the answer's room on thinking.
+- **OpenAI's reasoning effort.** Its o3 and o4 models, and the gpt-5 family but its chat models, are sent `reasoning_effort: "low"`. None goes to o1 or the gpt-5 chat models.
 - **Room for the answer.** A Claude judge's answer may take up to 16,000 tokens, its thinking included: a ceiling, not a cost.
 - **Structured output.** The verdict's JSON schema goes in the field each provider reads (below). Never a forced tool call, which current Claude models refuse.
 - **Retried on a failure that may pass.** A rate limit, an overloaded provider or a dropped connection is retried twice, as the providers' SDKs retry, and the run keeps the attempts as one call. A failure that persists is a check not judged.

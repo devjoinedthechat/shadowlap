@@ -6,6 +6,7 @@ A golden suite is only as good as what it holds. The runs you packed as goldens 
 
 - a [LiteLLM capture](./gateways.md);
 - a HAR;
+- a nock recording or a VCR cassette;
 - an OpenTelemetry, Langfuse, LangSmith, Phoenix or Logfire trace.
 
 `shadowlap coverage` then groups those runs by what they did and checks each group against the goldens:
@@ -21,14 +22,16 @@ It prints:
 Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1 golden read)
 
   ✗ 2 runs   lookup_order → read_policy → issue_refund
-             writes issue_refund · answered · seen 2d ago in refund.har
+             writes issue_refund · answered · seen 2d ago in shadowlap-4127.jsonl
              nearest golden: goldens/escalate, the same for 2 steps;
              then it calls issue_refund where the golden calls escalate
              runs: 01K5CQ9C4H 01K5CQ9B7Q · behaviour 3f9a2c1d5e8b7a60
 
   ✓ 1 run    lookup_order → read_policy → escalate
-             writes escalate · answered · seen 2d ago in escalate.har
+             writes escalate · answered · seen 2d ago in shadowlap-4130.jsonl
              covered by goldens/escalate
+
+Make a golden of one run of each: shadowlap coverage --pack -- <the agent's command, with {message} where its input goes>
 ```
 
 ## What a behaviour is
@@ -47,13 +50,14 @@ Two runs behave alike when three things match:
 
 **How it ended.** A run ends one of these ways:
 
-| Ending        | The run ended                           |
-|---------------|-----------------------------------------|
-| `answered`    | With an answer                          |
-| `model-error` | On a model call that failed             |
-| `token-limit` | At the token limit                      |
-| `tool-call`   | On a tool call nothing answered         |
-| `agent-error` | For a recording, with the agent failing |
+| Ending           | The run ended                           |
+|------------------|-----------------------------------------|
+| `answered`       | With an answer                          |
+| `model-error`    | On a model call that failed             |
+| `token-limit`    | At the token limit                      |
+| `tool-call`      | On a tool call nothing answered         |
+| `agent-error`    | For a recording, with the agent failing |
+| `no-model-calls` | With no model calls                     |
 
 Arguments are not part of a behaviour: a refund of $40 and one of $240 take the same path. Give a golden the checks that tell them apart ([outcome checks](./ci.md#outcome-checks)).
 
@@ -78,6 +82,10 @@ A capture holds model calls, but no tool calls and no command, and `shadowlap te
 3. **It replays offline**, every model call served from the capture. A replay that sends every request the capture holds, and exits 0, is a recording of your agent, as it is today, doing what production did.
 
 That replay is packed into `goldens/<first tool>-<writes>-<key>`, with your redaction rules, and kept in the activity feed. Review the goldens it makes in a pull request like any other.
+
+In the folder's name, the tools are at most 3, each once, lowercased with `-` for anything but letters and digits, and cut at 48 characters. `<key>` is the key's first 6 characters, so the uncovered behaviour at the top of this page goes to `goldens/lookup-order-issue-refund-3f9a2c`. When that folder is taken, `-2`, `-3` and so on are added.
+
+`--guard <mode>` sets the [network guard](./how-it-works.md#the-network-guard) for the replays `--pack` makes. `block`, the default, refuses a connection that bypasses Shadowlap; `warn` or `off` lets it through.
 
 ### The command
 

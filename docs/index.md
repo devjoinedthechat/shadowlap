@@ -38,7 +38,7 @@ Each job below, done without Shadowlap and with it:
 
 ### Start here
 
-- [Quickstart](./quickstart.md): record and replay the bundled reference agent in two minutes, then your own.
+- [Quickstart](./quickstart.md): the whole loop in about half a minute with `npx shadowlap demo`, then record and replay the bundled reference agent in two minutes, and your own.
 - [How it works](./how-it-works.md): the sidecar, fingerprints, matching, effects, thinking blocks, storage.
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
 - [Coding agents](./agents.md): Claude Code, Codex, Cursor, Copilot and others setting Shadowlap up for an agent and debugging it through the CLI, with the skills that tell them how.
@@ -53,6 +53,7 @@ Each job below, done without Shadowlap and with it:
 ### Test every change
 
 - [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
+- [Test suites](./testing.md): a test you mark in pytest, Vitest, Jest or node:test records its model and tool calls once, then replays them offline, and fails with the diff when it sends a different request.
 - [Checks](./checks.md): what a passing run must do, from call counts and budgets to the order of its calls, their arguments against earlier calls' results, and rules that apply only on a condition. You try them on your recordings for free with `shadowlap check`.
 - [Judge checks](./judges.md): a model answers a question about a run, recorded like any call, so a clean replay is judged from the recording, free and the same every time.
 - [Injection tests](./injection.md): payloads planted in every read of a tool marked untrusted, with proof of which ones a tool call obeyed. `--clean` asks whether a recorded read caused a write, and the gate for CI never passes a test that showed nothing.
@@ -65,6 +66,12 @@ Each job below, done without Shadowlap and with it:
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
 - [Team store](./team.md): your team's runs in a bucket you own, pushed and pulled with your own credentials, with pull requests kept to their own folders, and share links.
 - [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
+
+### Reference
+
+- [CLI reference](./cli.md): every command, its flags, how it exits and the JSON it prints.
+- [Dashboard](./dashboard.md): your recordings in a browser. Follow a failed run to the call that lost it, fork it at any call, and take its fix through blame, repair and verify.
+- [Terminal UI](./tui.md): `shadowlap ui` works a run through without leaving the terminal, from why it failed to what each call sent and got back.
 
 ### Build on Shadowlap
 

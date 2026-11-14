@@ -15,6 +15,7 @@
   <a href="https://github.com/devjoinedthechat/shadowlap/actions/workflows/ci.yml"><img src="https://github.com/devjoinedthechat/shadowlap/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/shadowlap"><img src="https://img.shields.io/npm/v/shadowlap?color=blue" alt="npm version"></a>
   <a href="https://pypi.org/project/shadowlap/"><img src="https://img.shields.io/pypi/v/shadowlap?color=blue" alt="PyPI version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
 </p>
 
 <p align="center">
@@ -25,9 +26,9 @@
   <a href="docs/compare.md">Compare</a>
 </p>
 
-Your agent refunded $240 it should have escalated. Run it again and it behaves, so you can't make it fail on demand or prove&nbsp;a&nbsp;fix&nbsp;worked.
+Your agent refunded $240 it should have escalated. Run it again and it behaves, so you can't make it fail on demand, or prove&nbsp;a&nbsp;fix&nbsp;worked.
 
-Shadowlap records your agent's model calls and the tools you wrap, then replays your real code against the recording. Every call is answered from the recording, the refund included: nothing goes upstream and nothing happens twice. Change one thing and the run forks at the first request&nbsp;that&nbsp;differs.
+Shadowlap records your agent's model calls and the tools you wrap, then replays your real code against the recording. Every call is answered from it, the refund included: nothing goes upstream, and nothing happens twice. Change one thing, and the run forks at the first request&nbsp;that&nbsp;differs.
 
 <p align="center">
   <picture>
@@ -42,30 +43,38 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
   <sub>The real CLI, with scripted models standing in for Claude: lines&nbsp;left&nbsp;out&nbsp;or&nbsp;wrapped,&nbsp;none&nbsp;changed&nbsp;(<a href="scripts/demo-svg.mjs">source</a>).</sub>
 </p>
 
-## Install
+## Highlights
 
-Install the CLI. It needs Node 22.16 or later, not&nbsp;23:
+- **Exact replays, offline.** A failing run replays call for call from its recording, with no upstream requests and no&nbsp;real&nbsp;key.
+- **What-ifs at any call.** Override a tool's result, switch the model or plant an instruction, and the run forks where its request&nbsp;first&nbsp;differs.
+- **Blame.** Finds the model call that lost the run by asking calls again, and says how&nbsp;sure&nbsp;it&nbsp;is.
+- **Repair and verify.** A fix is proposed, then proven on the failing runs, runs held out from the model and the good runs, at a&nbsp;stated&nbsp;risk.
+- **Goldens in CI.** Runs become tests that replay offline, and the GitHub Action can propose the fix for one&nbsp;that&nbsp;fails.
+- **A dashboard and a terminal UI.** Step through a run, fork from any call and compare two runs, in your browser or&nbsp;your&nbsp;terminal.
+
+## Quickstart
+
+### Install
 
 ```sh
 npm install -g shadowlap
 ```
 
-Model calls need no code changes, though a Node agent needs Node 18.18 or later. Tools and tests use&nbsp;these&nbsp;packages:
+The CLI needs Node 22.16 or later, not 23. Model calls need no code changes. Tools and tests use&nbsp;these&nbsp;packages:
 
 ```sh
-# wrap tools (Node 18.18+)
-npm install @shadowlap/sdk
-# wrap them in your framework (Node 18.18+)
-npm install @shadowlap/adapters
-# record tests in Vitest, Jest or node:test (Node 22.16+, not 23)
-npm install -D @shadowlap/test
-# Python 3.9+: all three in one package
-pip install shadowlap
+# Node 18.18+
+npm install @shadowlap/sdk         # wrap tools
+npm install @shadowlap/adapters    # wrap them in your framework
+# Node 22.16+, not 23
+npm install -D @shadowlap/test     # record tests in Vitest, Jest or node:test
+# Python 3.9+
+pip install shadowlap              # all three in one package
 ```
 
-## Quickstart
+### See the whole loop
 
-See the whole loop first, with no key and nothing to clone, in about half a&nbsp;minute:
+No key and nothing to clone, in about half&nbsp;a&nbsp;minute:
 
 ```sh
 npx shadowlap demo
@@ -73,16 +82,16 @@ npx shadowlap demo
 
 It records a refund agent breaking its policy, replays it with 0 upstream requests, finds the model call that lost the run, and has a fix proposed, proven and applied, against a scripted model on&nbsp;127.0.0.1.
 
-Then run `init` in your&nbsp;agent's&nbsp;folder:
+### Set up your agent
 
 ```sh
 cd your-agent
 shadowlap init
 ```
 
-`init` finds your model SDKs, framework, agent command and tools, and prints your next&nbsp;steps.
+`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Then wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged.
 
-Wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged:
+**TypeScript**
 
 ```ts
 import { tool } from '@shadowlap/sdk';
@@ -91,6 +100,8 @@ export const issueRefund =
   tool('issue_refund', { effect: 'write' }, refund);
 ```
 
+**Python**
+
 ```python
 from shadowlap import tool
 
@@ -98,28 +109,23 @@ from shadowlap import tool
 def lookup_order(order_id): ...
 ```
 
-A tool you don't wrap runs for real on every replay. `run` names each one the model called, and every command that replays a run won't run one that writes, or one nothing says the effect of, until you wrap it, declare its effect under `tools.unrecorded`, or pass&nbsp;`--allow-unrecorded`.
+A tool you don't wrap runs for real on every replay. `run` names each one the model called. A replay won't run one that writes, or one whose effect nothing declares, until you wrap it, declare its effect under `tools.unrecorded`, or pass&nbsp;`--allow-unrecorded`.
 
-Then record a run, replay it and open&nbsp;the&nbsp;dashboard:
+### Record and replay
 
 ```sh
-# record, with your usual key
-shadowlap run -- node agent.mjs
-# replay it; no real key if clean
-shadowlap replay <run>
-# step through it in your browser
-shadowlap dashboard
+shadowlap run -- node agent.mjs   # record, with your usual key
+shadowlap replay <run>            # replay it; no real key if clean
+shadowlap dashboard               # step through it in your browser
 ```
 
 The [quickstart](docs/quickstart.md) walks through each step with what&nbsp;it&nbsp;prints.
 
 ## From failure to proof
 
-The support agent refunds order&nbsp;A&#8209;1042 for $240, though its policy sends refunds above $100 to a manager. Two more $240 orders go&nbsp;the&nbsp;same&nbsp;way.
+The support agent refunds order&nbsp;A&#8209;1042 for $240, though its policy sends refunds above $100 to a manager. Two more $240 orders go the same way, and all three runs are labelled `refund-bug`. A fourth refunds $60, within the limit, and is labelled&nbsp;`good`.
 
-All three runs are labelled `refund-bug`. A fourth run refunds $60, within the limit, and is&nbsp;labelled&nbsp;`good`.
-
-### Find the call that lost the run
+### 1. Find the call that lost the run
 
 [`shadowlap blame`](docs/blame.md) asks model calls again, each from a fork that replays everything before it. It names the last call whose answer, asked again, can still save the run. Here a passing run never calls `issue_refund`&nbsp;for&nbsp;$240:
 
@@ -138,9 +144,9 @@ $ shadowlap blame 01M64J32D4 --expect @refund-check.json
 …
 ```
 
-### Prove the fix
+### 2. Get a fix, and prove it
 
-[`shadowlap repair`](docs/repair.md) asks a model, or your own Claude&nbsp;Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that verify accepts twice, the second time with fresh attempts. Verify accepts one that fixes the failing runs, even held&#8209;out runs the model never saw, and leaves no good run 10&nbsp;points or more worse than before, at 5%&nbsp;risk a&nbsp;run. Here it rewrites one line of&nbsp;the&nbsp;system&nbsp;prompt:
+[`shadowlap repair`](docs/repair.md) asks a model, or your own Claude&nbsp;Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that verify accepts twice, the second time with fresh attempts. Verify accepts a fix that fixes the failing runs, even held&#8209;out runs the model never saw, and leaves no good run 10&nbsp;points or more worse than before, at 5%&nbsp;risk a&nbsp;run:
 
 ```console
 $ shadowlap repair --fixes label:refund-bug --keeps label:good \
@@ -158,13 +164,7 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 …
 ```
 
-`--repairer anthropic` needs the Anthropic&nbsp;SDK beside&nbsp;the&nbsp;CLI:
-
-```sh
-npm install -g @anthropic-ai/sdk
-```
-
-`shadowlap verify` runs the same [proof](docs/verify.md) on a fix you write yourself. It exits&nbsp;0 only when it accepts the fix, 1&nbsp;when it rejects it, and 3&nbsp;when it can't&nbsp;decide.
+`--repairer anthropic` needs the Anthropic&nbsp;SDK beside the CLI: `npm install -g @anthropic-ai/sdk`. For a fix you write yourself, `shadowlap verify` runs the same [proof](docs/verify.md). It exits&nbsp;0 only when it accepts the fix, 1&nbsp;when it rejects it, and 3&nbsp;when it can't&nbsp;decide.
 
 <p align="center">
   <picture>
@@ -177,7 +177,7 @@ npm install -g @anthropic-ai/sdk
   <sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-### Keep it fixed in CI
+### 3. Keep it fixed in CI
 
 Blame opened fix `fx-01M64J3BR1` for this failure, and repair verified its patch. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
 
@@ -199,18 +199,13 @@ Commit the goldens with the patch. In CI, <code>shadowlap&nbsp;test</code> repla
     recordings: goldens/*
 ```
 
-With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix for a golden that fails a check, then verifies it on two sets of goldens:
-
-- those that fail the same check, every other one held out from the model that wrote&nbsp;the&nbsp;fix;
-- those that pass&nbsp;the&nbsp;check.
-
-It then opens a pull request whose checks start. On a pull request, it keeps one comment with each golden's&nbsp;verdict.
+With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix for a golden that fails a check. It verifies the fix on the goldens that fail the same check, every other one held out from the model that wrote it, and on those that pass. It then opens a pull request whose checks start, and on a pull request it keeps one comment with each golden's&nbsp;verdict.
 
 ## Model and prompt changes
 
-A second agent, `refund_agent.mjs`, handles the same order from support ticket&nbsp;T&#8209;8812. Before you move it to another model, [<code>shadowlap&nbsp;decisions</code>](docs/decisions.md) sends its recorded model calls to that model and shows which decisions&nbsp;change.
+Before you move an agent to another model, [<code>shadowlap&nbsp;decisions</code>](docs/decisions.md) sends its recorded model calls to that model and shows which decisions change. No tool runs. Each step is asked three times under the change and three times as recorded, so a change counts only when it shows beyond the model's own variation, and changes are ranked by what they do, writes&nbsp;first.
 
-No tool runs. Each step is asked three times under the change and three times as recorded, so a change counts only when it shows beyond the model's own variation. Changes are ranked by what they do, writes first. Under a scripted Haiku, the agent no longer issues&nbsp;the&nbsp;refund:
+A second agent, `refund_agent.mjs`, handles the same order from support ticket&nbsp;T&#8209;8812. Under a scripted Haiku, it no longer issues&nbsp;the&nbsp;refund:
 
 ```console
 $ shadowlap decisions 01M64J4EMP --model claude-haiku-4-5
@@ -227,30 +222,6 @@ $ shadowlap decisions 01M64J4EMP --model claude-haiku-4-5
 
 `shadowlap decisions --from-code` previews a prompt edit in your code the same way, and <code>shadowlap&nbsp;migrate</code> verifies and prices&nbsp;a&nbsp;model&nbsp;switch.
 
-## What you can do
-
-Each task, with the command or page that does it:
-
-| You want to | Use |
-|---|---|
-| Reproduce a failing run, with no upstream requests | [`shadowlap replay`](docs/how-it-works.md) |
-| See what a run does if one call goes differently | [What-ifs: `--override`, `--inject`, `--fail-at` and more](docs/interventions.md) |
-| Find the model call that lost a run | [`shadowlap blame`](docs/blame.md) |
-| Get a fix proposed and proven | [`shadowlap repair`](docs/repair.md) |
-| Prove a fix you wrote yourself | [`shadowlap verify`](docs/verify.md) |
-| Keep runs as tests, replayed offline in CI | [`shadowlap test` and the GitHub Action](docs/ci.md) |
-| Say what a passing run must do | [Checks](docs/checks.md) and [judge checks](docs/judges.md) |
-| Get verdicts with stated error rates on runs that vary | [Gating](docs/gating.md) |
-| See what a prompt edit or a model switch decides differently | [`shadowlap decisions` and `migrate`](docs/decisions.md) |
-| Prove which planted instructions a tool call obeyed | [`shadowlap injection`](docs/injection.md) |
-| Check the agent's error paths | [`shadowlap test --chaos`](docs/error-paths.md) |
-| Find the first commit where a recording fails | [`shadowlap bisect`](docs/cli.md#bisect) |
-| Turn a run that went wrong in production into a recording | [Production traffic](docs/gateways.md) |
-| Find behaviours no golden covers | [`shadowlap coverage`](docs/coverage.md) |
-| Share runs with your team, in a bucket you own | [The team store](docs/team.md) |
-| Have a coding agent set Shadowlap up and debug with it | [Coding agents](docs/agents.md) |
-| Export preference pairs and tasks for training | [Training](docs/training.md) |
-
 ## Dashboard and terminal UI
 
 `shadowlap dashboard` opens your runs on 127.0.0.1:
@@ -258,8 +229,8 @@ Each task, with the command or page that does it:
 - **Fork from any call**, or compare two runs side by side. Edit a tool's result, or what a person answered, in the call inspector and fork&nbsp;from&nbsp;it.
 - **A failed run opens where it went wrong:** where blame found it lost, or else where it first failed, its calls grouped under the model call each&nbsp;belongs&nbsp;to.
 - **A fork's page says what the fork did differently**, ranked as `shadowlap decisions` ranks&nbsp;a&nbsp;change.
-- **One press labels a run good or bad**, and `u` undoes it. A fix must leave each good run no worse than its own baseline, as `repair --keeps label:good` holds it, and Runs lists them with `label:good` and keeps its filters in&nbsp;the&nbsp;address.
-- **Large stores and long runs open at once.** What reads every run or every call, the search index included, is worked out beside the server, and a long run's calls come a page at a time, from any depth, while the rest is&nbsp;read.
+- **One press labels a run good or bad**, and `u` undoes it. A fix must leave each good run no worse than its own baseline, as `repair --keeps label:good` holds it, and Runs lists those runs under&nbsp;`label:good`.
+- **Large stores and long runs open at once.** Reads of every run or every call, search included, are worked out beside the server, and a long run's calls arrive a page at a time, from&nbsp;any&nbsp;depth.
 
 <p align="center">
   <picture>
@@ -271,7 +242,7 @@ Each task, with the command or page that does it:
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background. It shows why a run failed, where blame found it lost and whether its fix held, and where a fork left its parent and what it then did differently. Each call has conversation, request, response and meta tabs. Press&nbsp;`:` for the what&#8209;ifs at the selected call, and to blame, repair or verify the&nbsp;run:
+`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: why a run failed, where blame found it lost and whether its fix held, and what a fork did differently from its parent. Each call has conversation, request, response and meta tabs. Press&nbsp;`:` for the what&#8209;ifs at the selected call, or to blame, repair or verify the&nbsp;run:
 
 <p align="center">
   <picture>
@@ -312,9 +283,29 @@ shadowlap run -- node agent.mjs
 
 [How it works](docs/how-it-works.md) covers fingerprints, matching, effects and&nbsp;the&nbsp;network&nbsp;guard.
 
-## Integrations
+## What you can do
 
-What Shadowlap records, runs in and exchanges with:
+| You want to | Use |
+|:---|:---|
+| Reproduce a failing run, with no upstream requests | [`shadowlap replay`](docs/how-it-works.md) |
+| See what a run does if one call goes differently | [What-ifs: `--override`, `--inject`, `--fail-at` and more](docs/interventions.md) |
+| Find the model call that lost a run | [`shadowlap blame`](docs/blame.md) |
+| Get a fix proposed and proven | [`shadowlap repair`](docs/repair.md) |
+| Prove a fix you wrote yourself | [`shadowlap verify`](docs/verify.md) |
+| Keep runs as tests, replayed offline in CI | [`shadowlap test` and the GitHub Action](docs/ci.md) |
+| Say what a passing run must do | [Checks](docs/checks.md) and [judge checks](docs/judges.md) |
+| Get verdicts with stated error rates on runs that vary | [Gating](docs/gating.md) |
+| See what a prompt edit or a model switch decides differently | [`shadowlap decisions` and `migrate`](docs/decisions.md) |
+| Prove which planted instructions a tool call obeyed | [`shadowlap injection`](docs/injection.md) |
+| Check the agent's error paths | [`shadowlap test --chaos`](docs/error-paths.md) |
+| Find the first commit where a recording fails | [`shadowlap bisect`](docs/cli.md#bisect) |
+| Turn a run that went wrong in production into a recording | [Production traffic](docs/gateways.md) |
+| Find behaviours no golden covers | [`shadowlap coverage`](docs/coverage.md) |
+| Share runs with your team, in a bucket you own | [The team store](docs/team.md) |
+| Have a coding agent set Shadowlap up and debug with it | [Coding agents](docs/agents.md) |
+| Export preference pairs and tasks for training | [Training](docs/training.md) |
+
+## Integrations
 
 | Area | Works with |
 |:---|:---|

@@ -69,6 +69,8 @@ How attempts count:
 
 - `5 attempts, 4 passed` for a `replay --repeat`.
 - `12 probes, 3 passed · 6 verify attempts, 6 passed` for blame's and verify's, which count by their own verdicts. An inconclusive attempt, or an unavailable provider, is no failure, and an interrupted attempt counts apart, one whose recorder went away among them.
+- `4 test runs, 4 passed` for a golden one `shadowlap test` session replayed 5 times (`"repeat": 5`), folded under the attempt its result shows.
+- `6 error-path runs, 5 passed` for the error-path presets (`replay --chaos`), folded under the recording they forked.
 
 Attempts are folded under their run, as the dashboard's Runs folds them; `a` lists them one by one. The line under the list has the selected run in full, with its command. `Enter` opens a run.
 
@@ -143,7 +145,7 @@ Play mode replays the selected response at its recorded pacing (×1, ×2, ×4, i
 
 ## Layout
 
-- **The header line** summarizes the run: calls; how many replayed, ran live, were blocked or stubbed; tokens saved and what they were worth; the approximate cost of the live calls; wall time, status, age and revision.
+- **The header line** summarizes the run: calls; how many replayed, ran live, were injected, blocked, stubbed or overridden; tokens saved and what they were worth; the approximate cost of the live calls; wall time, status, age and revision. A run imported from a pack or a capture shows what its calls cost where they ran (`≈… captured`).
 - **A narrow terminal**: when it is too narrow for all of the header, what fits is shown whole, in order, and ` · …` stands for the rest.
 - **The footer line** is the keys of the pane in focus, `? help` first, or a message, or what a filter or a delete asks.
 - **A run that is still recording** is tailed live.
@@ -172,7 +174,7 @@ The terminal UI's keys:
 | `n`, `d` | Jump to the call the run forked at; show what changed there on the diff tab |
 | `f` | Cycle the origin filter: all / live / replayed / blocked / stubbed |
 | `:` | Actions for the selected call |
-| `y`, `w` | Copy the request (or the response, on that tab) to the clipboard; write request and response to a file |
+| `y`, `w` | Copy the request (or the response, on that tab) to the clipboard; write the call with its request and response to a file |
 | `p` | Open the parent run |
 | `s` | Search what runs said, as `shadowlap search` searches it (runs view) |
 | `N` | Add a note on the selected call, as `shadowlap note` adds one |
@@ -188,7 +190,7 @@ The terminal UI's keys:
 
 **`n` and `d`**: `n` jumps to the call the run forked at, and `d` shows what changed there, and what the fork did differently, on the diff tab.
 
-**`w`** writes request and response to `shadowlap-<run>-call<n>.json`.
+**`w`** writes the call's record, its request and its response to `shadowlap-<run>-call<n>.json` in the folder the UI runs in. `<run>` is the run id's first 10 characters, lowercased.
 
 **`s`** searches prompts, model responses, tool arguments and results, every word, or `"quoted words"` together. It runs the search, so the first one indexes every run, in a process of its own while the UI keeps answering. The matches are listed with the text around each, and `Enter` opens one at its call, on the tab it was found on.
 
@@ -196,7 +198,7 @@ The terminal UI's keys:
 
 **`o`**: the first `o` starts the dashboard in the same process. It stops when you quit, and so do the jobs started from it (they are killed at once when the terminal closes). Without a browser (over SSH), the link is shown and copied.
 
-**`x`** deletes the run with its attempts (`--repeat`, blame's probes, verify's attempts, and theirs in turn). It asks first, naming how many attempts go with it. A run still recording, one a replay in progress reads from, and one with an attempt still running stay, and the reason is shown.
+**`x`** deletes the run with its attempts (`--repeat`, blame's probes, verify's attempts, a golden's repeats in one test session, the error-path presets' runs, and theirs in turn). It asks first, naming how many attempts go with it. A run still recording, one a replay in progress reads from, and one with an attempt still running stay, and the reason is shown.
 
 **`?`, `Esc` and `q`**: `?` shows the keys of the view it was opened from. `Esc` steps back one thing at a time: a filter, the zoom, the inspector's focus, then the view. `q` goes back to the runs, or quits from them, and from a run `shadowlap ui <run>` opened.
 
@@ -257,14 +259,17 @@ Inject always passes `--inject-as user`, which every provider takes. What you ty
 
 ### Blame from here
 
-The Fixes section's `B` runs [blame](./blame.md) from the run in front of you. It shows the exact command first, since it replays the run and asks models live, and the check it judges by:
+The Fixes section's `B` runs [blame](./blame.md) from the run in front of you. It shows the exact command first, since it replays the run and asks models live, and the check it judges by, the first of these it finds:
 
 - the run's own `replay --expect`;
 - its golden's check in `shadowlap.config.json`;
 - the check of the fix it fails in;
+- the check of a fix its labels point to;
 - or, for a run that exited with an error, that exit.
 
-A run that failed a check none of those name asks for one (`--expect`), since blaming on the exit alone would look for another failure than the one it had. A run from someone else's pack asks its yes first, as a replay of it does. When the job's pane closes, the run is read again, so its verdict, blame's call and its fix show what blame found.
+The check stands in a line you can edit, as `--expect` JSON: change it, or empty it to judge by the agent's exit alone. A run that failed a check none of those name asks for one (`--expect`), since blaming on the exit alone would look for another failure than the one it had.
+
+A run from someone else's pack asks its yes first, as a replay of it does. When the job's pane closes, the run is read again, so its verdict, blame's call and its fix show what blame found.
 
 ### Repair and verify
 
@@ -294,7 +299,7 @@ The terminal UI uses the dashboard's colours, and each means one thing, as it do
 
 | Colour | For |
 | --- | --- |
-| Lime | What passed, and the `Enter` that runs a blame, a repair or a verify |
+| Lime | What passed, and the `Enter` that runs what a pane shows: a blame, a repair, a verify, or an action that asks first |
 | Amber | What needs a look or is inconclusive |
 | Red | What failed: a check, a call, a lost run, and what a changed request removed |
 | Teal | A write a fork changed, on its diff tab |
