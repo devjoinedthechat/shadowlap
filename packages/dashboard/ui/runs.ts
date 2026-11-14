@@ -596,7 +596,8 @@ export function familyLine(r: RunLike): string {
     return n && n.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(n.live)} live · ${spentWords(r)}` : `test · replayed offline · ${plural(r.calls, 'call')}`;
   }
   if (t === 'capture') return `capture · ${plural(r.calls, 'call')} · ${money(r.captured)} as captured`;
-  if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status}`;
+  // How it ended in the words every list has: one stopped before it ended (`crashed` in the store) is interrupted.
+  if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status === 'crashed' ? 'interrupted' : r.status}`;
   return `${isFailed(r) ? `${failedWord(r)} · ` : 'recording · '}${plural(r.calls, 'call')} · ${spentWords(r)}`;
 }
 

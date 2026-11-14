@@ -34,6 +34,9 @@ describe('an interrupted run, everywhere it is shown', () => {
     expect(runOutcome(fork)).toEqual({ tone: 'n', text: 'interrupted' });
     expect(runGlyph(fork)).toEqual({ kind: 'fork', label: 'Fork at #3, interrupted' });
     // The fork's tag says what it is; its page's eyebrow says that it stopped.
+    // A replay a check failed before it was stopped is failed, and its Forks line says it stopped in the words every list uses, never the store's `crashed`.
+    const failedReplay: RunLike = { ...replay, kind: 'replay', checks: { passed: 0, total: 1 }, outcome: { kind: 'check-failed', check: 'send_email called 0 times' }, failed: true };
+    expect(familyLine(failedReplay)).toBe('replay · 8 calls · interrupted');
   });
 
   it('is interrupted without the server too: a stop is not a failure', () => {
