@@ -206,10 +206,15 @@ function SessionResult({ now }: { now: FollowedGolden }) {
   );
 }
 
-/** How the golden's last result came out, in its word and colour. */
+/** How the golden's last result came out, in its word and colour: a pack that can't be read says so over the result it had. */
 function LastResult({ row }: { row: GoldenRow }) {
   const last = row.last;
-  return last.verdict === 'inconclusive' ? (
+  return row.error ? (
+    <span className="st err">
+      <i />
+      can’t be read
+    </span>
+  ) : last.verdict === 'inconclusive' ? (
     <span className="st warn">
       <i />
       inconclusive
@@ -223,11 +228,6 @@ function LastResult({ row }: { row: GoldenRow }) {
     <span className="st err">
       <i />
       failed
-    </span>
-  ) : row.error ? (
-    <span className="st err">
-      <i />
-      can’t be read
     </span>
   ) : row.presets ? (
     // Tested by its error-path presets, its replay not yet: never "not run yet".

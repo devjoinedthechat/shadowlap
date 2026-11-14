@@ -4,7 +4,8 @@ import { testsView, type GoldenSource } from '../src/tests.js';
 
 /**
  * States of a golden the Tests screen says in its own words: one the provider left undecided, which
- * its verdict names as the provider's, never a check's.
+ * its verdict names as the provider's, never a check's; and one whose pack can't be read since its
+ * last test, which says so over the result it had and offers no search from it.
  */
 
 const T0 = Date.UTC(2026, 8, 20, 10, 0);
@@ -43,5 +44,17 @@ describe('a golden the provider left undecided', () => {
     // In the words test-unavailable.test.ts pins for golden-test.ts failureOf.
     const cut = 'inconclusive: 2 of 3 attempts passed, 1 of them cut short by the provider, 3 needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended';
     expect(title(cut, { mode: 'fork', attempts: { total: 3, passed: 2, required: 3, runs: [], cutShort: 1 }, verdict: 'inconclusive' })).toBe('0 of 1 golden passed · escalates inconclusive: 1 attempt cut short by the provider');
+  });
+});
+
+describe('a golden whose pack can’t be read', () => {
+  it('says so over the result it had before, and offers no search from it', () => {
+    const diverged: TestResultData = { mode: 'replay', divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, text: '' } };
+    const s = store([{ golden: 'goldens/refund-in-limit', ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', data: diverged }]);
+    // Its pack lost its run.json since its last test (readPackHead's words).
+    const view = testsView(s, [golden('goldens/refund-in-limit', { runId: null, mode: 'replay', gate: null, error: 'no run.json: not a pack' })]);
+    s.close();
+    expect(view.rows[0]).toMatchObject({ error: 'no run.json: not a pack', last: { verdict: 'failed', line: "can't be read: no run.json: not a pack" } });
+    expect(view.divergences[0]).toMatchObject({ unreadable: 'no run.json: not a pack', bisect: null, revisions: [] });
   });
 });

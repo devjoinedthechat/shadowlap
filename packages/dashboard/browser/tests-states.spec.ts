@@ -55,3 +55,22 @@ test('a golden the provider left undecided leads the verdict as the provider’s
   await expect(verdict.locator('h2')).toContainText('overloaded inconclusive: the provider was unavailable');
   await expect(verdict).not.toContainText('a check could not be judged');
 });
+
+test('a golden whose pack can’t be read says so over its last result, and its report keeps Find breaking commit off, saying why, with no serious axe violation', async ({ page }) => {
+  await openTests(page, answer({ broken: true }));
+  const row = page.locator('main#view table.gt tbody tr[data-rowkey]').filter({ has: page.locator('code.gn', { hasText: /^refunds$/ }) });
+  await expect(row.locator('td.glast .st')).toHaveText('can’t be read');
+  await expect(row.locator('td.glast .st')).toHaveClass(/\berr\b/);
+  await expect(row.locator('td.glast .rsub')).toHaveText("can't be read: no run.json: not a pack");
+  const toggle = page.locator('main#view button.grptog[aria-controls="grp-refunds"]');
+  await toggle.click();
+  const find = page.locator('main#view section[id="report-refunds"] .actions button', { hasText: 'Find breaking commit…' });
+  await expect(find).toHaveAttribute('aria-disabled', 'true');
+  await expect(find).toHaveAttribute('data-why', 'The golden’s pack can’t be read: no run.json: not a pack');
+  // A press says why in a toast, and the button keeps the focus.
+  await find.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.toast').filter({ hasText: 'The golden’s pack can’t be read: no run.json: not a pack' })).toBeVisible();
+  await expect(find).toBeFocused();
+  await expectAccessible(page);
+});

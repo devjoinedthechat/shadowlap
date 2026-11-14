@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
 import { leadStep, staleSub } from '../ui/tests/lead.js';
-import { asksUpdate, changedLine, checkMark, ciQuery, commandText, dayClock, divergenceButtons, findCommitButton, foundLine, missedLine, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
+import { asksUpdate, changedLine, checkMark, ciQuery, commandText, dayClock, divergenceButtons, findCommitButton, findCommitWait, foundLine, missedLine, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { goodCommits } from '../ui/tests/good-commits.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { jobStatus } from '../ui/jobs.js';
@@ -331,6 +331,11 @@ describe('the buttons under a divergence', () => {
     expect(findCommitButton(failure, all)).toBeNull();
     expect(findCommitButton({ ...failure, unreadable: null }, all)).toEqual({ range: false, live: false });
     expect(findCommitButton({ ...failure, unreadable: null }, (k) => k !== 'bisect')).toBeNull();
+    // Where it would be offered, a pack that can't be read keeps it in its place, saying why it can't search.
+    expect(findCommitWait(failure, all)).toBe("The golden’s pack can’t be read: run.json can't be read");
+    expect(findCommitWait({ ...failure, unreadable: null }, all)).toBeNull();
+    expect(findCommitWait(failure, (k) => k !== 'bisect')).toBeNull();
+    expect(findCommitWait({ ...failure, found: {} as never }, all)).toBeNull();
   });
 
   it('offer no other good commit once a search found it passing where it fails: the failure is in no commit', () => {

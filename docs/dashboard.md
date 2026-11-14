@@ -1568,7 +1568,9 @@ The gate's hover says what it plants where, with its tests entry as the config h
 
 Each revision's header gives its commit's subject on hover, and its author where names show. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
 
-**No result.** A golden nothing has tested reads *not run yet* in Last result. A golden whose pack can't be read, such as one whose path starts with `-`, reads *can’t be read* in red, with *can't be read:* and why under it.
+**No result.** A golden nothing has tested reads *not run yet* in Last result.
+
+**A pack that can't be read.** A golden whose pack can't be read, such as one whose path starts with `-`, reads *can’t be read* in red, with *can't be read:* and why under it, over any result it had before. Search or jump to says *can’t be read* for it too.
 
 **Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided. A rule opens [Settings → Gates](#gates) at its gate's kind.
 
@@ -1644,7 +1646,7 @@ Find breaking commit's answer is the first bad commit, or why there is none betw
 - **An answer given while the golden passed**, or about an earlier failure, never shows over a later one.
 - **A golden passing at the commit it fails at**: when the search found that, the failure is in changes not committed there, or doesn't happen every time. It says so, and offers no other commit until it fails at another one.
 
-A failed check, a non-zero exit or a replay with no calls shows its checks, and an exit its **Error** too. It offers **Find breaking commit…** unless the pack can't be read. A crash offers **Run blame** beside its step, unless a fix holds its run. A test replay that failed a check an open fix is for leads with **Open fix**, as its run's page does.
+A failed check, a non-zero exit or a replay with no calls shows its checks, and an exit its **Error** too. It offers **Find breaking commit…**. Where the pack can't be read, the button stays in its place, off, and says why on hover and press. A crash offers **Run blame** beside its step, unless a fix holds its run. A test replay that failed a check an open fix is for leads with **Open fix**, as its run's page does.
 
 **A named commit's change** shows in the **First bad commit** part wherever the answer kept it, in the box **Show change** opens on a run's page. A crash whose first bad commit stands offers **Revert** first, and its hint says what to do with the commit: *The agent stopped part way at the commit above: revert it or fix the code, then run the tests.*
 

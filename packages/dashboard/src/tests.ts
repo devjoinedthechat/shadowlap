@@ -897,8 +897,9 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       changed: checksChanged(latest, checksNow(g)),
       injection: !!g.injection,
       history: historyCells(store, list, revisions, { columnOf, columns: sessionIds, note: (r) => cellNote(store, r, g.checks, rules), runId: (r) => runIfKept(store, r.runId) }),
+      // A pack that can't be read says so over the result it had before, which no test can repeat.
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
+        ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: error ? `can't be read: ${error}` : latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
         : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : presetsOf.get(g.path) ? `${presetsOf.get(g.path)!.line} · replay not tested yet` : 'not run yet', at: null, updated: false, gate: null },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,

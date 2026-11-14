@@ -259,6 +259,15 @@ describe('the Tests page', () => {
     expect(header(two)).toEqual([['Open CI settings', '#/settings/ci', 1], ['Update goldens', null, 0], ['Run tests', null, 0]]);
   });
 
+  it('says a golden whose pack can’t be read now so over the result it had, and keeps Find breaking commit in its place, saying why it can’t search', async () => {
+    // refunds failed its checks, and its pack has lost its run.json since (readPackHead's words).
+    const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/refunds' ? { ...x, error: 'no run.json: not a pack' } : x)));
+    const tr = page.all('table.gt tbody tr[data-rowkey]').find((row) => all(row, 'code')[0].textContent === 'refunds')!;
+    expect([one(tr, 'td.glast .st').className, one(tr, 'td.glast .st').textContent, one(tr, 'td.glast .rsub').textContent]).toEqual(['st err', 'can’t be read', "can't be read: no run.json: not a pack"]);
+    const find = all(page.one('section[id="report-refunds"]'), '.actions button').find((b) => b.textContent.startsWith('Find breaking commit'))!;
+    expect([find.getAttribute('aria-disabled'), find.getAttribute('data-why')]).toEqual(['true', 'The golden’s pack can’t be read: no run.json: not a pack']);
+  });
+
   it('says older than your working tree, in amber, after the facts of a session that ended, and not while one runs', async () => {
     const ended = await open([], GOLDENS, (v) => ({ ...v, older: true }));
     expect(all(ended.one('.verdict.tv'), '.tstale').map((s) => s.textContent)).toEqual(['older than your working tree']);

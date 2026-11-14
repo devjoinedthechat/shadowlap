@@ -114,6 +114,8 @@ describe('the palette\'s Tests group', () => {
     expect(goldenHint(row('limit-two', 'fail'))).toBe('failed');
     expect(goldenHint(row('new-one', null))).toBe('not run yet');
     expect(goldenHint({ ...row('broken', null), error: 'not a pack' })).toBe('can’t be read');
+    // One that can't be read now says so over the result it had before, which no test can repeat.
+    expect(goldenHint({ ...row('broken', 'pass'), error: 'not a pack' })).toBe('can’t be read');
     const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 40 };
     const gated = (outcomes: boolean[], verdict: 'passed' | 'failed' | 'inconclusive', decision?: 'inconclusive'): GoldenRow => {
       const g = gateResult(gate, outcomes, decision ? { decision } : {});
