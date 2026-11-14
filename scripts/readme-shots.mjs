@@ -16,7 +16,8 @@
 //
 // It writes into .github/assets/readme/:
 //
-//   dashboard-fork.png         the override fork, with the request that changed and the strip of calls
+//   dashboard-fork.png         the override fork: its strip of calls, the calls from the fork on, and
+//                              the diff of the request that changed, at its change
 //   dashboard-fix.png          the fix: the call blame found, the prompt repair proposed, and verify's
 //                              verdict on every failing and good run
 //   dashboard-fork-medium.png  the same pages 640 px wide, in the dashboard's narrow layout, for the
@@ -37,9 +38,10 @@
 // the project's shadowlap.config.json is taken out while it runs, and the file put back as it was.
 // Each picture is taken at twice the pixels by Chromium's headless shell as Playwright installs it
 // (npx playwright install chromium-headless-shell, in packages/dashboard), or by the Chrome that
-// CHROME=/path/to/chrome names: on a desktop, the page beside the sidebar of a 1280 by 800 window; in a medium
-// window, the page 640 px wide, top bar included; on a phone, the page 390 px wide, as a touch screen
-// shows it. Each ends under a part of the page, never through one, and above the status bar. It is in the README terminal's frame (rounded corners,
+// CHROME=/path/to/chrome names: on a desktop, the page beside the sidebar and under the top bar of a
+// 1280 by 800 window; in a medium window, the page 640 px wide, top bar included; on a phone, the
+// page 390 px wide, as a touch screen shows it. Each starts at the page's top and ends under a part
+// of the page, never through one, or at the status bar. It is in the README terminal's frame (rounded corners,
 // transparent outside them, and a hairline edge). The dashboard is dark only. Run ids, dates and
 // durations differ from run to run; the rest comes out the same.
 import { execFileSync, spawn } from 'node:child_process';
@@ -279,10 +281,14 @@ try {
         await until(`!!document.querySelector('.banner.fork') && !!document.querySelector('.cells')`, 'the fork’s banner and calls');
         // The diff of the request that changed opens from the banner.
         await evaluate(`[...document.querySelectorAll('.banner.fork button')].find((b) => b.textContent.trim() === 'Show diff')?.click()`);
-        await until(`!!document.querySelector('.diffpanel')`, 'the fork’s diff');
+        await until(`!!document.querySelector('.diffpanel .jl.del, .diffpanel .jl.add')`, 'the fork’s diff');
+        // It opens at the top of the request; what changed is the lines further down, brought into view.
+        await evaluate(`(document.querySelector('.diffpanel .jl.del, .diffpanel .jl.add').scrollIntoView({ block: 'center' }), true)`);
       },
-      // Down to the strip of the calls the fork made.
-      end: { desktop: 'section.strip', medium: 'section.strip', phone: 'section.strip' },
+      // On a desktop the whole page, the diff open beside the calls ('window': down to the status
+      // bar). Narrower, where the diff goes under every call, down to the strip of the calls the fork
+      // made and its key: the strip's box lays its parts out apart there, the cells kept at the top.
+      end: { desktop: 'window', medium: '.strip .legend', phone: '.strip .legend' },
     },
     {
       name: 'dashboard-fix',
@@ -320,21 +326,33 @@ try {
       await shot.ready();
       await evaluate('document.fonts.ready.then(() => true)');
       await wait(700);
+      // A run's page opens at the call it is about, scrolled to it: the picture is the page from its
+      // top. The page scrolls in its own box, or on a phone the window does.
+      await evaluate(`(window.scrollTo(0, 0), document.querySelectorAll('#view .page').forEach((p) => (p.scrollTop = 0)), true)`);
+      await wait(300);
       // The picture ends under a part of the page, never through one: 24 px under it, or just above
       // what follows it, whichever comes first. Where what follows starts closer than 16 px under it,
       // the frame adds the rest of 16 px in the page's own background, so the frame's edge never
       // touches the part (the fork's strip of calls, whose marker sits under its cells). A tint the
       // page shows through, such as the verdict's, is not that background: the first opaque one is.
+      // 'window' is the whole page, down to the status bar.
       const clip = await evaluate(`(() => {
-        const part = document.querySelector(${JSON.stringify(end)});
+        const status = document.querySelector('footer.status').getBoundingClientRect().top;
+        const whole = ${JSON.stringify(end)} === 'window';
+        const part = whole ? document.querySelector('#view') : document.querySelector(${JSON.stringify(end)});
         if (!part) return null;
-        let next = part.nextElementSibling;
+        let next = whole ? null : part.nextElementSibling;
         while (next && !next.getBoundingClientRect().height) next = next.nextElementSibling;
-        const below = part.getBoundingClientRect().bottom;
-        const bottom = Math.floor(Math.min(below + 24, next ? next.getBoundingClientRect().top - 1 : Infinity));
-        if (bottom > document.querySelector('footer.status').getBoundingClientRect().top) return { under: true };
-        // The sidebar beside the page in a wide window; none in a narrow one, where it is a menu.
-        const left = ${s.width} > 1000 ? Math.ceil(document.querySelector('aside.side').getBoundingClientRect().right) : 0;
+        const below = whole ? status : part.getBoundingClientRect().bottom;
+        const bottom = whole ? Math.floor(status) : Math.floor(Math.min(below + 24, next ? next.getBoundingClientRect().top - 1 : Infinity));
+        if (bottom > status) return { under: true };
+        // The sidebar beside the page in a wide window; none in a narrow one, where it is a menu. In a
+        // wide window the top bar runs over the sidebar too, its logo and crumbs above the sidebar's
+        // column, so the page starts under it: a picture of the page beside the sidebar would cut the
+        // crumbs at its edge.
+        const wide = ${s.width} > 1000;
+        const left = wide ? Math.ceil(document.querySelector('aside.side').getBoundingClientRect().right) : 0;
+        const top = wide ? Math.ceil(document.querySelector('header.top').getBoundingClientRect().bottom) : 0;
         const alpha = (color) => {
           if (color === 'transparent') return 0;
           const a = /^rgba\\(.*,\\s*([\\d.]+)(%?)\\)$/.exec(color) || /\\/\\s*([\\d.]+)(%?)\\)$/.exec(color);
@@ -342,7 +360,7 @@ try {
         };
         let behind = part;
         while (behind && alpha(getComputedStyle(behind).backgroundColor) < 1) behind = behind.parentElement;
-        return { x: left, y: 0, width: ${s.width} - left, height: bottom, pad: Math.max(0, Math.ceil(below + 16 - bottom)), background: behind ? getComputedStyle(behind).backgroundColor : 'transparent' };
+        return { x: left, y: top, width: ${s.width} - left, height: bottom - top, pad: whole ? 0 : Math.max(0, Math.ceil(below + 16 - bottom)), background: behind ? getComputedStyle(behind).backgroundColor : 'transparent' };
       })()`);
       if (!clip) fail(`${file}: the page has no ${end}`);
       if (clip.under) fail(`${file}: ${end} ends under the status bar of a ${s.width} by ${s.height} window`);

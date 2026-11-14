@@ -264,7 +264,7 @@ Each task, with the command or page that does it:
   <picture>
     <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fork-phone.png" width="390">
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fork-medium.png" width="640">
-    <img src=".github/assets/readme/dashboard-fork.png" alt="The Shadowlap dashboard on a fork of the second agent's refund run: forked at call 17 after the lookup_policy result was overridden, the request as recorded and as sent, what the fork did differently (the refund no longer issued, the case escalated instead), and a strip of calls replayed, overridden, live and blocked." width="880">
+    <img src=".github/assets/readme/dashboard-fork.png" alt="The Shadowlap dashboard on a fork of the second agent's refund run: forked at call 17 after lookup_policy's result was overridden with the EU policy, the calls after it escalating with the write blocked, and the request's diff, where refund_limit now reaches the model." width="880">
   </picture>
   <br>
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
