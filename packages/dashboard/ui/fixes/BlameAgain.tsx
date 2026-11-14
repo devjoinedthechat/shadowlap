@@ -8,7 +8,7 @@ import { ACTIONS, confirmWords, STRONGER_MODEL } from '../labels.js';
 import { sentEstimate } from '../spending.js';
 import type { FixDetail } from '../types.js';
 import { useStrongerEstimate } from './estimates.js';
-import { UNDER_CHECK_AGAIN } from './model.js';
+import { sameCount, UNDER_CHECK_AGAIN } from './model.js';
 
 /**
  * The asks of a fix's next blame: Run blame again, by Spending, and Run blame with stronger model, a
@@ -20,25 +20,34 @@ import { UNDER_CHECK_AGAIN } from './model.js';
 const rate = (p: number): string => `${Math.round(p * 100)}%`;
 
 /** What Run blame again's ask says, from the fix's actions or its Fixes row's lead alike. */
-export type BlameAgainAsk = Pick<NonNullable<FixDetail['actions']['blameAgain']>, 'kind' | 'gate' | 'soFar' | 'lastGood' | 'command' | 'underCheck'>;
+export type BlameAgainAsk = Pick<NonNullable<FixDetail['actions']['blameAgain']>, 'kind' | 'gate' | 'count' | 'soFar' | 'lastGood' | 'command' | 'underCheck'>;
 
 /**
  * Run blame again: the same blame with more attempts and a lower bar, the last blame's beside it, or
  * from the first model call where the last stopped part way, at the furthest call it had rescued; for
- * a blame found under the fix's old check, the search under its check, with no Gate row.
+ * a blame found under the fix's old check, the search under its check, with no Gate row. A fixed
+ * count has no bar to lower: its ask names the count it probes by again.
  */
 export function BlameAgainDialog({ again, estimate, onRun, onClose }: { again: BlameAgainAsk | null; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
   const stopped = again?.kind === 'stopped';
   const under = again?.underCheck === true;
   const gate = !stopped && !under && again?.gate ? again.gate : null;
+  const count = !stopped && !under && !gate && again?.count ? again.count : null;
   const soFar = again?.soFar ?? null;
   const last = again?.lastGood ?? null;
+  const lead = under
+    ? `${UNDER_CHECK_AGAIN}.`
+    : stopped
+      ? `Searches the run again from the first model call: the last search stopped ${soFar === null ? 'part way' : `at #${soFar}`}.`
+      : count
+        ? `Probes again with ${sameCount(count)}: the last search’s first probe stopped on an attempt that could not be judged.`
+        : 'Probes again with more attempts and a lower bar.';
   return (
     <ConfirmDialog
       title={ACTIONS.runBlameAgain.label}
-      lead={under ? `${UNDER_CHECK_AGAIN}.` : stopped ? `Searches the run again from the first model call: the last search stopped ${soFar === null ? 'part way' : `at #${soFar}`}.` : 'Probes again with more attempts and a lower bar.'}
+      lead={lead}
       doc="blame"
-      facts={gate ? [{ label: 'Gate', value: `a rescue at ${rate(gate.good)} or more`, ...(last === null ? {} : { quiet: `the last blame’s was ${rate(last)}` }) }] : []}
+      facts={gate ? [{ label: 'Gate', value: `a rescue at ${rate(gate.good)} or more`, ...(last === null ? {} : { quiet: `the last blame’s was ${rate(last)}` }) }] : count ? [{ label: 'Count', value: `${count.attempts} attempt${count.attempts === 1 ? '' : 's'} a probe, a rescue at ${count.needed} passing` }] : []}
       command={again?.command ?? null}
       cost={{ price: 'Billed by your provider', parts: [probesPart()], estimate }}
       footNote={<AskNote estimate={estimate} />}

@@ -22,7 +22,7 @@ export function LeadDialog({ lead, open, run, close }: { lead: FixLead; open: Le
     return <StrongerDialog fix={open.fix} onClose={close} onRun={(model, more) => run({ ...sent, model, ...more })} />;
   }
   if (lead.key === 'blame-again')
-    return <BlameAgainDialog again={{ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, soFar: lead.soFar, lastGood: lead.lastGood, command: lead.command, underCheck: lead.underCheck }} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
+    return <BlameAgainDialog again={{ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, count: lead.count, soFar: lead.soFar, lastGood: lead.lastGood, command: lead.command, underCheck: lead.underCheck }} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
   if (lead.key === 'more' || lead.key === 'again') return <VerifyAsk more={{ kind: lead.key, command: lead.command }} attempts={lead.attempts} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
   if (lead.key === 'verify-left') return <VerifyLeftAsk left={lead} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
   return null;

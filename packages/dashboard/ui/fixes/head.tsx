@@ -5,6 +5,7 @@ import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import type { FixDetail, JobListItem, StepKey } from '../types.js';
 import { pluralS as s } from '../../../engine/src/words.js';
+import { sameCount } from './model.js';
 import { isStepJob } from './page-fix.js';
 import { Flagged } from './parts.js';
 import { STEP_NAMES } from './row-scope.js';
@@ -77,7 +78,7 @@ export function runningStep(fix: Pick<FixDetail, 'fixId' | 'actions' | 'verify'>
     return { key: 'blame', title: `${title}…`, meta: model ? `${model} answers from the probed call` : '' };
   }
   const again = title === ACTIONS.runBlameAgain.doing ? fix.actions.blameAgain : null;
-  return { key: 'blame', title: `${title}…`, meta: again ? (again.underCheck ? 'under the fix’s check' : again.kind === 'stopped' ? 'from the first model call' : 'at a lower bar') : '' };
+  return { key: 'blame', title: `${title}…`, meta: again ? (again.underCheck ? 'under the fix’s check' : again.kind === 'stopped' ? 'from the first model call' : again.gate || !again.count ? 'at a lower bar' : `with ${sameCount(again.count)}`) : '' };
 }
 
 /**

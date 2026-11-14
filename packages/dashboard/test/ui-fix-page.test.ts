@@ -618,6 +618,18 @@ describe('what settles a fix left unsettled', () => {
     expect(r!.all('.dialog dl')).toHaveLength(0);
   });
 
+  it('asks Run blame again of a fixed count whose first probe stopped on an attempt that couldn’t be judged by that count, never a lower bar', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const report = blameReport(run, 'unrescuable');
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive', undecided: 'judge "explains" gave no verdict' }];
+    const { fix } = blame(run, { report });
+    await open(fix.fixId, null, null, { started: [] });
+    await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(text(r!.one('.dialog header'))).toContain('Probes again with the same 5 attempts a probe: the last search’s first probe stopped on an attempt that could not be judged.');
+    expect(text(r!.one('.dialog header'))).not.toContain('lower bar');
+    expect(text(r!.one('.dialog dl'))).toBe('Count5 attempts a probe, a rescue at 2 passing');
+  });
+
   it('prices Run blame with stronger model at the model typed once the field rests, its card at the placeholder’s, opening on every setting', async () => {
     const other = newRun({ labels: ['digest'] });
     const { fix } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });

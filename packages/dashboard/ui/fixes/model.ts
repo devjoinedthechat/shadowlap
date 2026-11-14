@@ -122,9 +122,21 @@ export function leadingVerdict(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'de
 /** What Run blame again does for a blame found under the fix's old check, on its card and its ask. */
 export const UNDER_CHECK_AGAIN = 'Finds the call that lost the run under the fix’s check';
 
-/** Run blame again's card, on the fix's header and its Fixes row alike: under the fix's check first, for a blame found under its old one. */
-export const blameAgainTip = (again: { kind: 'stopped' | 'unsettled' | 'old-check'; gate: { good: number; max: number } | null; underCheck: boolean }): string =>
-  again.underCheck ? UNDER_CHECK_AGAIN : again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
+/** What a fixed count's blame again does: it has no bar to lower, so it probes by the same count once more. */
+export const sameCount = (count: { attempts: number }): string => `the same ${count.attempts} attempt${s(count.attempts)} a probe`;
+
+/**
+ * Run blame again's card, on the fix's header and its Fixes row alike: under the fix's check first,
+ * for a blame found under its old one; for one inconclusive under a gate, the gate it lowers to; under
+ * a fixed count, which has no bar to lower, the same count again.
+ */
+export const blameAgainTip = (again: { kind: 'stopped' | 'unsettled' | 'old-check'; gate: { good: number; max: number } | null; count: { attempts: number } | null; underCheck: boolean }): string => {
+  if (again.underCheck) return UNDER_CHECK_AGAIN;
+  if (again.kind === 'stopped') return 'Runs the search to the end, without the budget that stopped it';
+  if (again.gate) return `More attempts and a lower bar: a rescue at ${Math.round(again.gate.good * 100)}% or more, up to ${again.gate.max} attempts`;
+  const n = again.count?.attempts ?? 0;
+  return `The same search again, ${n} attempt${s(n)} a probe: its first probe stopped on an attempt that could not be judged`;
+};
 
 /** Run blame with stronger model's card. */
 export const STRONGER_TIP = 'Another model answers from each probed call instead of the recorded one';

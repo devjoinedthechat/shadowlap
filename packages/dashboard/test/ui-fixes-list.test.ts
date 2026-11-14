@@ -83,12 +83,14 @@ describe('a row’s words', () => {
   });
 
   it('cards each lead as the fix’s page does, reads the fix only for a dialog that shows it, and says why one waits', () => {
-    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame r --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
+    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame r --again', use: 'reads', stopped: true, gate: null, count: null, soFar: 4, lastGood: null, underCheck: false };
     const repair: FixLead = { key: 'repair', label: 'Run repair', command: 'shadowlap repair --fixes label:x', use: 'writes', repairer: null };
     const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'v1', max: 80, attempts: 20 };
     const apply: FixLead = { key: 'apply', label: 'Finish applying', command: 'shadowlap fix apply fx-a', use: 'writes', pending: 'the goldens weren’t re-recorded' };
     expect(leadCard(again)).toBe('Runs the search to the end, without the budget that stopped it');
     expect(leadCard({ ...again, stopped: false, gate: { good: 0.25, max: 60 } as never })).toBe('More attempts and a lower bar: a rescue at 25% or more, up to 60 attempts');
+    // A fixed count has no bar to lower: the card names the count it probes by again.
+    expect(leadCard({ ...again, stopped: false, count: { attempts: 5, needed: 2 } })).toBe('The same search again, 5 attempts a probe: its first probe stopped on an attempt that could not be judged');
     expect(leadCard(repair)).toBe('Asks your own Claude Code for rewrites; each is tried in a worktree of its own');
     expect(leadCard({ ...repair, repairer: 'openai:gpt-5' })).toBe('Asks openai:gpt-5 for rewrites; each is tried in a worktree of its own');
     expect(leadCard(more)).toBe('Verifies the change again from the start, up to 80 attempts a run');
@@ -439,7 +441,7 @@ describe('the Fixes list', () => {
     const a = opened('send_email');
     const b = opened('escalate');
     const c = opened('lookup');
-    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: `shadowlap blame ${a.run} --again`, use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
+    const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: `shadowlap blame ${a.run} --again`, use: 'reads', stopped: true, gate: null, count: null, soFar: 4, lastGood: null, underCheck: false };
     const repair: FixLead = { key: 'repair', label: 'Run repair', command: 'shadowlap repair --fixes label:escalate', use: 'writes', repairer: null };
     const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'verify-1', max: 80, attempts: 20 };
     const stand = app({ leads: { [a.fixId]: again, [b.fixId]: repair, [c.fixId]: more } });

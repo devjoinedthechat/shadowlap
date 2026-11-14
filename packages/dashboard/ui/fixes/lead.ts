@@ -55,7 +55,7 @@ const capital = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 export function leadCard(lead: FixLead): string | null {
   switch (lead.key) {
     case 'blame-again':
-      return blameAgainTip({ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, underCheck: lead.underCheck });
+      return blameAgainTip({ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, count: lead.count, underCheck: lead.underCheck });
     case 'blame-stronger':
       return STRONGER_TIP;
     case 'repair':

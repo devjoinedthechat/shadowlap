@@ -2444,10 +2444,10 @@ It asks first on every setting of [Spending](#spending), since it runs your agen
 
 The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
-- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), that stopped part way (to the end, without its budget), or that was found under an earlier check, under the fix's check.
+- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), that stopped part way (to the end, without its budget), or that was found under an earlier check, under the fix's check. A blame of a fixed count (`--attempts`) has no bar to lower: it probes by the same count again, which its card and its ask name.
 - **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run. Its Cost line follows the model you type.
 
-Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, or, for a search that stopped, the furthest call it had rescued the run at.
+Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, the count for a fixed count, or, for a search that stopped, the furthest call it had rescued the run at.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 

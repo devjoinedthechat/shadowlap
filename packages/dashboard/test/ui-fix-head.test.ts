@@ -6,6 +6,7 @@ import { fixDetail } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { runningStep, showPatchCard } from '../ui/fixes/head.js';
+import { blameAgainTip, blameNextStep } from '../ui/fixes/model.js';
 import { rungStatus } from '../ui/fixes/list.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixDetail, FixRung, JobListItem } from '../ui/types.js';
@@ -155,5 +156,19 @@ describe('the stepper', () => {
     await open(f.fixId, null, { jobs: job('repair', 'Repairing') as unknown as JobListItem[] });
     await r!.until('the jobs to load', () => r!.all('nav.stepper a.busy').length === 1);
     expect(text(r!.one('nav.stepper a.busy b'))).toBe('Repairing…');
+  });
+
+  it('says Run blame again after a fixed count probes by the same count, on its card and while it runs, never at a lower bar', () => {
+    const run = makeRun(engineStore(), { labels: ['digest'] });
+    const report = blameReport(run, 'unrescuable');
+    // As blame keeps a fixed count's first probe an attempt it could not judge stopped: inconclusive, with why, and no gate.
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive', undecided: 'judge "explains" gave no verdict' }];
+    const { fix } = recordBlame(store, { runId: run, report, expect: SEND_ONCE, scope: null, command: 'shadowlap blame', rerun: { flags: [], command: null }, title: 't', checkText: 'c', at: (at += DAY) });
+    const d = fixDetail(store, fix.fixId)!;
+    const said = 'The same search again, 5 attempts a probe: its first probe stopped on an attempt that could not be judged';
+    expect(blameAgainTip(d.actions.blameAgain!)).toBe(said);
+    expect(blameNextStep(d)?.tip).toBe(said);
+    const job = { kind: 'blame', title: 'Blaming again', args: d.actions.blameAgain!.argv, fixId: fix.fixId, done: false };
+    expect(runningStep(d, [job])?.meta).toBe('with the same 5 attempts a probe');
   });
 });

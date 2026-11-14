@@ -176,6 +176,22 @@ function ranOut(o: { gate?: { good: number; bad: number; risk: number; max: numb
   }
 }
 
+describe('Run blame again after a fixed count whose first probe stopped on an attempt that could not be judged', () => {
+  it('blames again with the same count, which it names, with no gate', () => {
+    const failing = makeRun(store, { labels: ['digest'] });
+    const report = blameReport(failing, 'unrescuable');
+    // As blame keeps such a probe under a fixed count (blame.ts): inconclusive, with why, and no gate.
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive', undecided: 'judge "explains" gave no verdict' }];
+    const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'b', rerun: rerun([]), title: 't', checkText: 'c' });
+    const d = fixDetail(store, fix.fixId)!;
+    const again = d.actions.blameAgain!;
+    expect(again).toMatchObject({ kind: 'unsettled', gate: null, lastGood: null, count: { attempts: 5, needed: 2 } });
+    expect(again.argv).toEqual(['blame', failing, '--expect', JSON.stringify(EXPECT), '--attempts', '5', '--passes', '2']);
+    // Its Fixes row leads with it the same way.
+    expect(d.lead).toMatchObject({ key: 'blame-again', gate: null, count: { attempts: 5, needed: 2 } });
+  });
+});
+
 describe('what one yes may spend running a pulled record again', () => {
   const pulled = { from: 's3://team-bucket/project', at: 5 };
   const huge = { good: 0.6, bad: 0.1, risk: 0.05, max: 1000 };

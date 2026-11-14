@@ -106,12 +106,12 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { interrupt?:
       interruptedAt = Date.now();
       child.kill('SIGINT');
     };
-    child.stdout.on('data', (d: Buffer) => {
+    child.stdout!.on('data', (d: Buffer) => {
       out += d.toString();
       stdout += d.toString();
       interrupt();
     });
-    child.stderr.on('data', (d: Buffer) => {
+    child.stderr!.on('data', (d: Buffer) => {
       out += d.toString();
       interrupt();
     });

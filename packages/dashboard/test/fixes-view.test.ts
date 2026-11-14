@@ -174,9 +174,9 @@ describe('the step a fix leads with', () => {
 
   it('leads an open fix with blame again, blame with a stronger model, or Run repair, in that order', () => {
     const f = recOf(opened('send_email').fixId);
-    const again = { kind: 'stopped' as const, argv: ['blame'], command: 'shadowlap blame 01M3RZ0001', gate: null, lastGood: null, soFar: 9, pulled: null, left: [], underCheck: false };
+    const again = { kind: 'stopped' as const, argv: ['blame'], command: 'shadowlap blame 01M3RZ0001', gate: null, count: null, lastGood: null, soFar: 9, pulled: null, left: [], underCheck: false };
     const stronger = { argv: ['blame'], command: 'shadowlap blame 01M3RZ0001', attempts: 4, spent: 0.2, pulled: null, left: [] };
-    expect(fixLead(f, actions({ blameAgain: again, blameStronger: stronger, repair }), { repairer: null })).toEqual({ key: 'blame-again', label: 'Run blame again', command: again.command, use: 'reads', stopped: true, gate: null, soFar: 9, lastGood: null, underCheck: false });
+    expect(fixLead(f, actions({ blameAgain: again, blameStronger: stronger, repair }), { repairer: null })).toEqual({ key: 'blame-again', label: 'Run blame again', command: again.command, use: 'reads', stopped: true, gate: null, count: null, soFar: 9, lastGood: null, underCheck: false });
     expect(fixLead(f, actions({ blameStronger: stronger, repair }), { repairer: null })).toEqual({ key: 'blame-stronger', label: 'Run blame with stronger model…', command: stronger.command, use: 'reads' });
     expect(fixLead(f, actions({ repair }), { repairer: ' anthropic ' })).toEqual({ key: 'repair', label: 'Run repair', command: repair.command, use: 'writes', repairer: 'anthropic' });
     // A repair that would end "No fix to try" runs nothing, and with no repair at all there is no step: the row opens the fix.

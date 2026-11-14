@@ -122,9 +122,11 @@ export interface FixActions {
    * as blame's report says (`gate`), with the last blame's good rate beside it (`lastGood`). For one
    * stopped part way, `soFar` is the furthest call a probe rescued the run at, which its ask says the
    * last search stopped at; null when none did. `underCheck` is true for a blame made under the old
-   * check, whatever its kind: its words say it searches under the fix's check. Null otherwise.
+   * check, whatever its kind: its words say it searches under the fix's check. `count`: the fixed
+   * count it probes by again (`--attempts`, `--passes`), for a blame of one, which has no bar to
+   * lower; null under a gate. Null otherwise.
    */
-  blameAgain: { kind: 'unsettled' | 'stopped' | 'old-check'; argv: string[]; command: string; gate: SprtGate | null; lastGood: number | null; soFar: number | null; pulled: PulledFrom | null; left: string[]; underCheck: boolean } | null;
+  blameAgain: { kind: 'unsettled' | 'stopped' | 'old-check'; argv: string[]; command: string; gate: SprtGate | null; count: { attempts: number; needed: number } | null; lastGood: number | null; soFar: number | null; pulled: PulledFrom | null; left: string[]; underCheck: boolean } | null;
   /**
    * An open fix whose blame rescued its run from no call, asking the recorded model again, and
    * found nothing that says the model's answer isn't what lost it: Run blame with stronger model, the
