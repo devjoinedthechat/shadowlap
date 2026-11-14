@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { demoId, openPage, seriousViolations, sideways, startJob } from './dashboard.js';
+import { demoId, openPage, patched, seriousViolations, sideways, startJob } from './dashboard.js';
 
 /**
  * A run's strip and views as the design lays them out (ui/css/run.css, ui/run/fit-work.ts): the strip
@@ -288,4 +288,16 @@ test('in a forced-colours theme the notch is drawn in the text colour and the ke
   // stylesheet gives where it paints the system's, so the lime button's dark words would read as dark
   // on the forced black. Its contrast is checked in the page's own colours above.
   expect((await seriousViolations(page)).filter((v) => !v.startsWith('color-contrast '))).toEqual([]);
+});
+
+test('a replayed call that ended in an error is drawn failed in Calls, as Runs’ strip codes it', async ({ page }) => {
+  // The demo's clean replay, its fifth call a recorded error served again, as a replay serves one (the sidecar's serveReplayedTool).
+  const id = demoId('clean');
+  await page.route(new RegExp(`/api/runs/${id}(\\?.*)?$`), (route) =>
+    patched<{ calls: Array<{ callNo: number; origin: string; outcome: string | null; error: string | null }> }>(route, (d) => ({ ...d, calls: d.calls.map((c) => (c.callNo === 5 ? { ...c, outcome: 'error', error: 'TimeoutError: the order service timed out' } : c)) })),
+  );
+  await openPage(page, `/run/${id}/5`, 'main#view table.calls tbody tr[data-wi]');
+  const row = page.locator('main#view table.calls tbody tr[aria-selected="true"]');
+  await expect(row.locator('td').first()).toHaveText('5');
+  await expect(row.locator('.orgw')).toHaveText('failed');
 });

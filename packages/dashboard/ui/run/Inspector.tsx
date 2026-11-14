@@ -407,7 +407,9 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 /** Details' Origin and Outcome: what made the call, an overridden one by the flag that did, and who answered a failed one. */
 function originRows(c: CallDetail['call'], flag: string | null, played: string | null): Array<[string, ReactNode]> {
   const origin = originOf(c);
-  const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
+  // An overridden call says what overrode it, though it ended in an error and is drawn as failed.
+  const overridden = c.origin === 'overridden';
+  const over = overridden && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
   // The preset a call was played in by, said once for its Origin and its Outcome.
   const pre = played && `by the ${played} preset`;
   const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? (
@@ -421,7 +423,7 @@ function originRows(c: CallDetail['call'], flag: string | null, played: string |
           )}
         </small>
       </>
-    ) : over || (origin === 'over' && pre) ? (
+    ) : over || (overridden && pre) ? (
       <>
         {c.origin} <small>{pre || (over ? <Code>{over}</Code> : null)}</small>
       </>

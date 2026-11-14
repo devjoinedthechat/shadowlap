@@ -1,7 +1,8 @@
 /**
  * The seven origins every view colours a call by. The store keeps five (live, replayed, blocked,
  * stubbed, overridden); the server adds `injected` for a call Shadowlap answered with `--fail-at`,
- * and a live call that ended in an error is drawn as `failed`. No DOM here: the tests import it.
+ * and a call that ended in an error is drawn as `failed`, a fenced one aside. No DOM here: the tests
+ * import it.
  */
 
 export type Origin7 = 'rep' | 'live' | 'over' | 'inject' | 'fail' | 'block' | 'stub';
@@ -63,10 +64,15 @@ export function isFailure(c: OriginCall): boolean {
   return c.outcome === 'error' && c.origin !== 'blocked' && c.origin !== 'stubbed' && c.origin !== 'injected';
 }
 
-/** The origin a call is drawn as. */
+/**
+ * The origin a call is drawn as, as the server codes it for Runs' strip and the run's counts (the
+ * engine's classify.ts `displayOrigin`): one that ended in an error failed, whether it ran live, was
+ * replayed (a replay serves a recorded error again) or answered by an override; a fenced write's error
+ * is the fence's, and an injected failure is its own origin.
+ */
 export function displayOrigin(c: OriginCall): Origin7 {
   const o = STORE_NAMES[c.origin] ?? (ORIGINS.includes(c.origin as Origin7) ? (c.origin as Origin7) : 'live');
-  if (o === 'live' && c.outcome === 'error') return 'fail';
+  if ((o === 'live' || o === 'rep' || o === 'over') && c.outcome === 'error') return 'fail';
   return o;
 }
 

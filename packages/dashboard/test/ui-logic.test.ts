@@ -6,7 +6,8 @@ import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
 import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, stopAsk, type RunLink } from '../ui/jobs.js';
-import { displayOrigin, parseOrigins } from '../ui/origins.js';
+import { displayOrigin as storedOrigin, ORIGIN_CODE as STORED_CODE } from '../../engine/src/classify.js';
+import { displayOrigin, ORIGIN_CODE, parseOrigins } from '../ui/origins.js';
 import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, runIdPrefix, runsById, runsToAskFor, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, timeOf, tokensText, turnCalls, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
@@ -229,6 +230,15 @@ describe('strip', () => {
     expect(displayOrigin({ origin: 'blocked', outcome: 'error' })).toBe('block');
     expect(displayOrigin({ origin: 'injected', outcome: 'error' })).toBe('inject');
     expect(displayOrigin({ origin: 'replayed', outcome: 'ok' })).toBe('rep');
+  });
+
+  it('draws a call as the server codes it for Runs’ strip and the run’s counts: a replayed or overridden call that errored failed too', () => {
+    // The engine's code for each call (classify.ts `displayOrigin`), as the server sends it in `origins`.
+    for (const origin of ['replayed', 'live', 'overridden', 'blocked', 'stubbed'] as const) {
+      for (const outcome of ['ok', 'error'] as const) expect(displayOrigin({ origin, outcome }), `${origin}, ${outcome}`).toBe(ORIGIN_CODE[STORED_CODE[storedOrigin(origin, { outcome })]]);
+    }
+    expect(displayOrigin({ origin: 'replayed', outcome: 'error' })).toBe('fail');
+    expect(displayOrigin({ origin: 'overridden', outcome: 'error' })).toBe('fail');
   });
 });
 
