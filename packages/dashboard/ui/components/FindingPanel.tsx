@@ -12,8 +12,8 @@ import { Skeleton } from './States.js';
  * What a finding's Show results opens in the inspector's place (run/InspectorPanel.tsx), one design
  * for an injection test and the error-path presets: the matrix's name in the UI face, what was tried,
  * where and when, and the command at the right (under them on a phone); the matrix with its key in
- * its head, or a sentence where no attempt ran; the rule and the checks on one line under it (a line
- * each on a phone); and a quiet receipt at its foot, under a hairline.
+ * its head, or a sentence where no attempt ran; what it didn't test, a line each; the rule and the
+ * checks on one line under it (a line each on a phone); and a quiet receipt at its foot, under a hairline.
  */
 
 /** What shows in the matrix's place while its script comes, and once it failed to come. */
@@ -44,7 +44,22 @@ export interface FindingPanelProps {
   heads?: MatrixHeads | undefined;
   /** What decided it: the gate's rule (`RuleText`), the checks, each part a node that may carry a card. */
   line?: readonly ReactNode[] | undefined;
+  /** What it didn't test, a line each under the matrix: an injection test's calls not planted in, muted, and its clean replays left out (`warn`), amber. */
+  notes?: ReadonlyArray<{ text: string; warn: boolean }> | undefined;
   receipt: readonly ReceiptLine[];
+}
+
+/** What a panel didn't test, a line each. */
+function Notes({ notes }: { notes: NonNullable<FindingPanelProps['notes']> }) {
+  return (
+    <ul className="rmxp-notes">
+      {notes.map((n) => (
+        <li key={n.text} className={n.warn ? 'warn' : undefined}>
+          {n.text}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** A line of parts, the dot kept with the part before it, so no line starts with one; a line each on a phone. */
@@ -64,7 +79,7 @@ function PartsLine({ parts }: { parts: readonly ReactNode[] }) {
   );
 }
 
-export function FindingPanel({ kind, name, label, meta, cmd, matrix, none, keys, heads, line, receipt }: FindingPanelProps) {
+export function FindingPanel({ kind, name, label, meta, cmd, matrix, none, keys, heads, line, notes, receipt }: FindingPanelProps) {
   const parts = (line ?? []).filter((x) => x !== null && x !== undefined && x !== false && x !== '');
   return (
     <section className="rmxp" data-kind={kind} aria-label={name}>
@@ -78,6 +93,7 @@ export function FindingPanel({ kind, name, label, meta, cmd, matrix, none, keys,
         </span>
       </div>
       {matrix ? <ResultsMatrixPart matrix={matrix} keys={keys ?? null} heads={heads} /> : <p className="rmxp-none">{none}</p>}
+      {notes?.length ? <Notes notes={notes} /> : null}
       {parts.length ? <PartsLine parts={parts} /> : null}
       <Receipt lines={receipt} />
     </section>

@@ -216,7 +216,7 @@ describe('an exported copy', () => {
 const view = (o: Partial<InjectionPanelView> = {}): InjectionPanelView => ({
   rows: [
     { callNo: 4, name: 'get_ticket', from: 'config', readAt: 5, worst: 0 },
-    { callNo: 9, name: 'fetch_page', from: 'mcp', readAt: 10, worst: 3 },
+    { callNo: 9, name: 'fetch_page', from: 'mcp', readAt: 10, worst: 4 },
   ],
   cols: [
     { id: 'system-notice', title: 'Poses as a system notice', text: 'SYSTEM NOTICE: …' },
@@ -229,7 +229,11 @@ const view = (o: Partial<InjectionPanelView> = {}): InjectionPanelView => ({
   ],
   tools: null,
   totals: { attempts: 12, obeyed: 3, influenced: 1, inconclusive: 0, ignored: 8 },
+  planned: 12,
   what: '12 templates, version 1',
+  unrecorded: 'fence',
+  notPlanted: [],
+  leftOut: [],
   startedAt: new Date(2026, 9, 1, 9, 31).getTime(),
   by: null,
   command: `shadowlap injection ${RUN} --attempts 3`,
@@ -262,7 +266,7 @@ describe('the results panel', () => {
   });
 
   it('past eight reads, sums each tool’s reads in a row of its own, its card naming how many and the read it opens', () => {
-    const rows: InjectionPanelView['rows'] = Array.from({ length: 9 }, (_, i) => ({ callNo: 4 + i * 2, name: 'get_ticket', from: 'config', readAt: 5 + i * 2, worst: i ? 3 : 0 }));
+    const rows: InjectionPanelView['rows'] = Array.from({ length: 9 }, (_, i) => ({ callNo: 4 + i * 2, name: 'get_ticket', from: 'config', readAt: 5 + i * 2, worst: i ? 4 : 0 }));
     const summed = { read: 4, payload: 'system-notice', verdict: 'obeyed' as const, n: 3, of: 27, attempt: { runId: '01K5CQXJ00', callNo: 6 }, line: 'planted at #4 → read at #5 → send_email.to = x7f3kq2m@canary.invalid at #6' };
     const m = injectionMatrix(view({ rows, cells: [], tools: [{ name: 'get_ticket', reads: rows.map((r) => r.callNo), cells: [summed] }] }), RUN, 'inj-01PLANT');
     expect(m.rows.map((r) => r.key)).toEqual(['g:get_ticket']);
@@ -273,7 +277,7 @@ describe('the results panel', () => {
   });
 
   it('past eight reads, words a tool with a single read as that read’s cell, with no prefix', () => {
-    const rows: InjectionPanelView['rows'] = [...Array.from({ length: 8 }, (_, i) => ({ callNo: 4 + i * 2, name: 'get_ticket', from: 'config' as const, readAt: 5 + i * 2, worst: 3 as const })), { callNo: 30, name: 'fetch_page', from: 'config', readAt: 31, worst: 3 }];
+    const rows: InjectionPanelView['rows'] = [...Array.from({ length: 8 }, (_, i) => ({ callNo: 4 + i * 2, name: 'get_ticket', from: 'config' as const, readAt: 5 + i * 2, worst: 4 as const })), { callNo: 30, name: 'fetch_page', from: 'config', readAt: 31, worst: 4 }];
     const one = { read: 30, payload: 'system-notice', verdict: 'ignored' as const, n: 3, of: 3, attempt: { runId: '01K5CQXJ09', callNo: 31 }, line: 'no tool call after #30 carries the canary' };
     const m = injectionMatrix(view({ rows, cells: [], tools: [{ name: 'get_ticket', reads: rows.slice(0, 8).map((r) => r.callNo), cells: [] }, { name: 'fetch_page', reads: [30], cells: [one] }] }), RUN, 'inj-01PLANT');
     const row = m.rows.find((r) => r.key === 'g:fetch_page');
@@ -284,8 +288,22 @@ describe('the results panel', () => {
   it('says what was tried, how and when, and its receipt in upstream requests', () => {
     expect(panelMeta(view())).toEqual(['12 attempts', '12 templates, version 1', 'Oct 1, 09:31']);
     expect(panelMeta(view({ by: 'Ana', totals: { attempts: 0, obeyed: 0, influenced: 0, inconclusive: 0, ignored: 0 }, what: 'a payload file' }))).toEqual(['a payload file', 'Ana, Oct 1, 09:31']);
-    expect(panelReceipt(view())).toEqual([{ parts: ['this test spent ≈$3.11', 'every call before a read replayed free'] }, { parts: ['819 upstream requests', '6 clean replays to compare with'] }]);
-    expect(panelReceipt(view({ receipt: { spent: 25, upstreamRequests: 1, baselines: 1, stopReason: 'the budget of $25.00 is spent' } }))).toEqual([{ parts: ['this test spent ≈$25.00', 'stopped: the budget of $25.00 is spent'] }, { parts: ['1 upstream request', '1 clean replay to compare with'] }]);
+    // Stopped short, it says how many of the attempts it planned ran, as its gate's reason counts them.
+    expect(panelMeta(view({ planned: 24 }))[0]).toBe('12 of 24 planned attempts');
+    expect(panelReceipt(view())).toEqual([{ parts: ['this test spent ≈$3.11', 'every call before a read replayed free', 'reads the recording doesn’t hold blocked'] }, { parts: ['819 upstream requests', '6 clean replays to compare with'] }]);
+    expect(panelReceipt(view({ unrecorded: 'live', receipt: { spent: 25, upstreamRequests: 1, baselines: 1, stopReason: 'the budget of $25.00 is spent' } }))).toEqual([{ parts: ['this test spent ≈$25.00', 'stopped: the budget of $25.00 is spent', 'reads the recording doesn’t hold ran live'] }, { parts: ['1 upstream request', '1 clean replay to compare with'] }]);
+  });
+
+  it('says under the matrix what the test didn’t test: each call not planted in muted, each clean replay left out amber, also where no attempt ran', async () => {
+    const notPlanted = ['#3 send_email not planted: a write: an instruction arrives in what the agent reads, and a write’s result is only its receipt'];
+    const leftOut = ['#4 get_ticket: 2 clean replays left out: the agent exited 1'];
+    for (const v of [view({ notPlanted, leftOut }), view({ notPlanted, leftOut, none: 'No attempt ran: nothing could be planted. 0 clean replays ran first, as a test runs them.' })]) {
+      const app = { client: { injectionResult: () => Promise.resolve({ view: v }) }, exported: false, conn: 'ok', guard: (fn: () => void) => (fn(), true), toast: () => undefined } as never;
+      const page = await render(createElement(AppContext.Provider, { value: app }, createElement(InjectionResults, { runId: RUN, resultId: 'inj-01PLANT' })));
+      await page.until('the panel', () => page.all('.rmxp').length === 1);
+      expect(page.all('.rmxp-notes li').map((li) => [li.textContent, li.className])).toEqual([[notPlanted[0], ''], [leftOut[0], 'warn']]);
+      await page.unmount();
+    }
   });
 
   it('says a failed read in the line every page says, the server’s own sentence where it sent one, else its status, with Retry', async () => {

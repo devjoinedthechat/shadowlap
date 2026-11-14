@@ -6,7 +6,7 @@ import { ResultsToggle } from '../ui/components/ResultsToggle.js';
 import { MatrixKey } from '../ui/components/MatrixKey.js';
 import { Receipt } from '../ui/components/Receipt.js';
 import { ResultsMatrix } from '../ui/components/ResultsMatrix.js';
-import { cellName, cellTone, glueBound, groupRows, keyLines, resultsKey, TONE_COLOUR, type Matrix, type MatrixCell, type MatrixCol, type MatrixRow, type ReadRow, type Worst } from '../ui/matrix.js';
+import { cellName, cellTone, glueBound, groupRows, keyLines, quietNote, resultsKey, TONE_COLOUR, type Matrix, type MatrixCell, type MatrixCol, type MatrixRow, type ReadRow, type Worst } from '../ui/matrix.js';
 import { bandsOf, fitMatrix, keyStart, openGroups, resetMatrixState, shownRows, toggleGroup, type Measure } from '../ui/matrix-fit.js';
 import { AppContext } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -168,16 +168,16 @@ describe('turning under 560px', () => {
 /** A read and its worst attempt. */
 const read = (callNo: number, name: string, worst: Worst): ReadRow => ({ callNo, name, worst, row: readRow(callNo, name) });
 
-/** 42 reads, as a test finds them: get_ticket's, three of which did something, among fetch_page's, none of which did. */
+/** 42 reads, as a test finds them: get_ticket's, three of which did something, among fetch_page's, none of which did (4: every payload ran and was ignored). */
 function fortyTwo(): ReadRow[] {
   const out: ReadRow[] = [];
-  for (let n = 4; n < 4 + 42 * 4; n += 4) out.push(n % 8 === 0 ? read(n, 'fetch_page', 3) : read(n, 'get_ticket', n === 12 ? 0 : n === 28 ? 2 : n === 36 ? 1 : 3));
+  for (let n = 4; n < 4 + 42 * 4; n += 4) out.push(n % 8 === 0 ? read(n, 'fetch_page', 4) : read(n, 'get_ticket', n === 12 ? 0 : n === 28 ? 2 : n === 36 ? 1 : 4));
   return out;
 }
 
 describe('groups per tool', () => {
   it('lists eight reads or fewer each on its own row', () => {
-    const eight = Array.from({ length: 8 }, (_, i) => read(i + 1, 'get_ticket', 3));
+    const eight = Array.from({ length: 8 }, (_, i) => read(i + 1, 'get_ticket', 4));
     expect(groupRows(eight).map((r) => r.label)).toEqual(eight.map((r) => r.row.label));
   });
 
@@ -198,6 +198,15 @@ describe('groups per tool', () => {
       ['', null, null, null, '18 more reads, every one ignored'],
     ]);
     expect(page.rows!.map((r) => r.note)).toEqual(['every read ignored every payload']);
+  });
+
+  it('never counts a read no attempt ran at as ignored: it lists one a payload never ran at, and says how many weren’t run', () => {
+    // A test its budget stopped: #4 obeyed, #8 had one payload of two, #12 to #20 ignored every payload, #24 to #36 weren't reached.
+    const reads = [read(4, 'get_ticket', 0), read(8, 'get_ticket', 3), ...[12, 16, 20].map((n) => read(n, 'get_ticket', 4)), ...[24, 28, 32, 36].map((n) => read(n, 'get_ticket', 5))];
+    const [ticket] = groupRows(reads);
+    expect(ticket.rows!.map((r) => r.note ?? r.label)).toEqual(['#4', '#8', '3 more reads, every one ignored; 4 not run']);
+    expect(groupRows(reads.filter((r) => r.worst !== 4), { many: 4 })[0].rows!.map((r) => r.note ?? r.label)).toEqual(['#4', '#8', '4 more reads, none run']);
+    expect([quietNote(false, 0, 9), quietNote(false, 5, 4), quietNote(false, 5, 0), quietNote(true, 5, 0)]).toEqual(['9 reads, none run', '5 reads ignored every payload; 4 not run', 'every read ignored every payload', '5 more reads, every one ignored']);
   });
 
   it('has no line for the rest where every read did something', () => {

@@ -57,17 +57,23 @@ export function injectionMatrix(view: InjectionPanelView, runId: string, resultI
   return { id: `injection:${resultId}`, label: 'Untrusted reads by payload', corner: 'untrusted read', rows: groupRows(reads), cols, cell };
 }
 
-/** What was tried, how and when: `72 attempts · 12 templates, version 1 · Oct 1, 09:31`, who ran it first where names are shared. */
-export const panelMeta = (view: InjectionPanelView): string[] => [...(view.totals.attempts ? [plural(view.totals.attempts, 'attempt')] : []), view.what, `${view.by ? `${view.by}, ` : ''}${minuteStamp(view.startedAt)}`];
+/** How many attempts ran: `72 attempts`, or `40 of 72 planned attempts` where the test stopped short, as its gate's reason counts them. */
+const attemptsWords = (view: InjectionPanelView): string => (view.planned > view.totals.attempts ? `${view.totals.attempts} of ${plural(view.planned, 'planned attempt')}` : plural(view.totals.attempts, 'attempt'));
 
-/** The receipt: what the test spent, or where it stopped, then what it asked and the clean replays it compared with. */
+/** What was tried, how and when: `72 attempts · 12 templates, version 1 · Oct 1, 09:31`, who ran it first where names are shared. */
+export const panelMeta = (view: InjectionPanelView): string[] => [...(view.totals.attempts ? [attemptsWords(view)] : []), view.what, `${view.by ? `${view.by}, ` : ''}${minuteStamp(view.startedAt)}`];
+
+/** The receipt: what the test spent, or where it stopped, and what the reads the recording doesn't hold did; then what it asked and the clean replays it compared with. */
 export function panelReceipt(view: InjectionPanelView): ReceiptLine[] {
   const r = view.receipt;
   return [
-    { parts: [`this test spent ${approx(r.spent)}`, r.stopReason ? `stopped: ${r.stopReason}` : 'every call before a read replayed free'] },
+    { parts: [`this test spent ${approx(r.spent)}`, r.stopReason ? `stopped: ${r.stopReason}` : 'every call before a read replayed free', view.unrecorded === 'live' ? 'reads the recording doesn’t hold ran live' : 'reads the recording doesn’t hold blocked'] },
     { parts: [plural(r.upstreamRequests, 'upstream request'), `${plural(r.baselines, 'clean replay')} to compare with`] },
   ];
 }
+
+/** What the test didn't test, under the matrix: each untrusted call no payload was planted in, then, in amber, the clean replays left out of the comparison. */
+export const panelNotes = (view: InjectionPanelView): Array<{ text: string; warn: boolean }> => [...view.notPlanted.map((text) => ({ text, warn: false })), ...view.leftOut.map((text) => ({ text, warn: true }))];
 
 /** The panel's body, as the result's read comes: a skeleton, then the panel, or its failed read in the line every page says (`failedRead`). */
 export function InjectionResults({ runId, resultId }: { runId: string; resultId: string }) {
@@ -87,6 +93,7 @@ export function InjectionResults({ runId, resultId }: { runId: string; resultId:
       matrix={view.none ? null : injectionMatrix(view, runId, resultId)}
       none={view.none}
       keys={view.none ? null : resultsKey([['obeyed', t.obeyed], ['influenced', t.influenced], ['inconclusive', t.inconclusive], ['ignored', t.ignored]])}
+      notes={panelNotes(view)}
       receipt={panelReceipt(view)}
     />
   );

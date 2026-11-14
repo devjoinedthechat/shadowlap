@@ -445,6 +445,7 @@ describe('amber', () => {
     '.rmx-c.warn i': 'a results matrix’s cell that was inconclusive or influenced: its bar',
     '.rmx-c.warn b': 'a results matrix’s cell that was inconclusive or influenced: its word',
     '.mxsw.warn': 'a matrix’s key: what was inconclusive or influenced',
+    '.rmxp-notes .warn': 'a clean replay an injection test left out of its comparison, under its results: a look',
     '.cb-units li.bad .cb-ul code': 'a rule the check builder refuses, in the engine’s words: Save waits until it is fixed',
     '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',

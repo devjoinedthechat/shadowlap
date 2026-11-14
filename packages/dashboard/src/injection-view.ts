@@ -14,8 +14,23 @@ import type { InjectionAgain } from './next-step.js';
 /** Past this many reads, the matrix gives each tool a row that sums its reads (ui/matrix.ts groupRows). */
 export const MANY_READS = 8;
 
-/** A read's worst attempt, as the matrix groups by it: obeyed, influenced, inconclusive, then ignored. Unlike a cell's strongest verdict, inconclusive ranks above ignored. */
-const WORST: Readonly<Record<InjectionVerdict, 0 | 1 | 2 | 3>> = { obeyed: 0, influenced: 1, inconclusive: 2, ignored: 3 };
+/**
+ * A read as the matrix groups it (ui/matrix.ts groupRows): its worst attempt, obeyed (0), influenced
+ * (1) or inconclusive (2); else, its attempts having ignored their payloads, whether a payload never
+ * ran there (3) or every payload did (4); or no attempt ran there at all (5), as a test stopped at its
+ * budget leaves the reads it didn't reach. Unlike a cell's strongest verdict, inconclusive ranks above ignored.
+ */
+export type ReadWorst = 0 | 1 | 2 | 3 | 4 | 5;
+
+const WORST: Readonly<Record<InjectionVerdict, 0 | 1 | 2 | 4>> = { obeyed: 0, influenced: 1, inconclusive: 2, ignored: 4 };
+
+/** A read's worst (ReadWorst): a read never tried is no read that ignored every payload. */
+function readWorst(report: PlantReport, callNo: number): ReadWorst {
+  const ran = report.cells.filter((c) => c.read === callNo && c.attempts);
+  if (!ran.length) return 5;
+  const worst = Math.min(...ran.map((c) => WORST[c.verdict])) as ReadWorst;
+  return worst === 4 && report.payloads.some((p) => !ran.some((c) => c.payload === p.id)) ? 3 : worst;
+}
 
 /** One cell of the matrix: what its attempts came to, the attempt that shows it and what that rests on. */
 export interface InjectionCellView {
@@ -33,15 +48,23 @@ export interface InjectionCellView {
 }
 
 export interface InjectionPanelView {
-  /** Each untrusted read planted in, in call order, with its worst attempt. */
-  rows: Array<{ callNo: number; name: string; from: TrustSource; readAt: number | null; worst: 0 | 1 | 2 | 3 }>;
+  /** Each untrusted read planted in, in call order, with its worst attempt, or that none ran there (ReadWorst). */
+  rows: Array<{ callNo: number; name: string; from: TrustSource; readAt: number | null; worst: ReadWorst }>;
   cols: Array<{ id: string; title: string; text: string }>;
   cells: InjectionCellView[];
   /** Past eight reads, each tool's reads by payload, summed: null at eight or fewer. */
   tools: Array<{ name: string; reads: number[]; cells: InjectionCellView[] }> | null;
   totals: { attempts: number; obeyed: number; influenced: number; inconclusive: number; ignored: number };
+  /** The attempts it planned, each payload at each read planted in, `repeat` times: more than ran where it stopped short. */
+  planned: number;
   /** What was planted: `12 templates, version 1`, `2 templates`, `a payload file`, `templates and a payload file`. */
   what: string;
+  /** Reads the recording doesn't hold, after a fork: fenced, each answered with an error, or run live (`--live-reads`). */
+  unrecorded: 'fence' | 'live';
+  /** Each untrusted call no payload was planted in, with why, as `shadowlap injection` prints it: `#9 fetch_page not planted: …`. */
+  notPlanted: string[];
+  /** The clean replays left out of the comparison, by read and why: `#4 get_ticket: 1 clean replay left out: …`. */
+  leftOut: string[];
   startedAt: number;
   /** Who ran it, where names are shared. */
   by: string | null;
@@ -80,7 +103,23 @@ export function panelCommand(report: PlantReport): string {
   if (report.golden) return commandLine(['test', report.golden]);
   const again = againCommand(report.runId, testedAs(report));
   if (!fromFile(report)) return again;
-  return `${report.templates.ids.length ? again : again.replace(/^shadowlap injection (\S+)/, 'shadowlap injection $1 --templates none')} --payloads <file>`;
+  return `${report.templates.ids.length ? again : again.replace(/^(shadowlap injection \S+)/, '$1 --templates none')} --payloads <file>`;
+}
+
+/** Each untrusted call no payload was planted in, in call order, as `shadowlap injection` prints it under the reads: a read that couldn't take one, and a call it passed over. */
+function notPlantedLines(report: PlantReport): string[] {
+  const calls = [...report.reads.filter((r) => !r.planted).map((r) => ({ callNo: r.callNo, name: r.name, why: r.why ?? '' })), ...report.skipped];
+  return calls.sort((a, b) => a.callNo - b.callNo).map((c) => `#${c.callNo} ${c.name} not planted: ${c.why}`);
+}
+
+/** The clean replays left out of the comparison, once per read and reason, as `shadowlap injection` prints them. */
+function leftOutLines(report: PlantReport): string[] {
+  return report.baselines.flatMap((b) => {
+    const whys = new Map<string, number>();
+    for (const f of b.failed) whys.set(f.why, (whys.get(f.why) ?? 0) + 1);
+    const name = report.reads.find((r) => r.callNo === b.read)?.name ?? '';
+    return [...whys].map(([why, n]) => `#${b.read} ${name}: ${plural(n, 'clean replay')} left out: ${why}`);
+  });
 }
 
 /** What an attempt rests on, as its cell's card says it. */
@@ -103,7 +142,6 @@ function cellOf(store: StoreOf<'recording'>, report: PlantReport, reads: readonl
 /** One kept plant's panel: what the run page's Show results opens. */
 export function injectionPanel(store: StoreOf<'recording'>, report: PlantReport, o: { by?: string | null } = {}): InjectionPanelView {
   const planted = report.reads.filter((r) => r.planted);
-  const worst = (callNo: number) => Math.min(3, ...report.cells.filter((c) => c.read === callNo && c.attempts).map((c) => WORST[c.verdict])) as 0 | 1 | 2 | 3;
   const cells = planted.flatMap((r) => report.payloads.map((p) => cellOf(store, report, [r.callNo], p.id))).filter((c): c is InjectionCellView => c !== null);
   const names = [...new Set(planted.map((r) => r.name))];
   const tools = planted.length > MANY_READS ? names.map((name) => {
@@ -113,12 +151,16 @@ export function injectionPanel(store: StoreOf<'recording'>, report: PlantReport,
   const baselines = report.baselines.reduce((n, b) => n + b.runs.length, 0);
   const { attempts, obeyed, influenced, inconclusive, ignored } = report.totals;
   return {
-    rows: planted.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from, readAt: r.readAt, worst: worst(r.callNo) })),
+    rows: planted.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from, readAt: r.readAt, worst: readWorst(report, r.callNo) })),
     cols: report.payloads.map((p) => ({ id: p.id, title: p.title, text: p.text })),
     cells,
     tools,
     totals: { attempts, obeyed, influenced, inconclusive, ignored },
+    planned: planted.length * report.payloads.length * report.repeat,
     what: plantedWords(report),
+    unrecorded: report.unrecordedReads === 'live' ? 'live' : 'fence',
+    notPlanted: notPlantedLines(report),
+    leftOut: leftOutLines(report),
     startedAt: report.startedAt,
     by: o.by ?? null,
     command: panelCommand(report),
