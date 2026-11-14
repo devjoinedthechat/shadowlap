@@ -288,9 +288,9 @@ export function UnrecordedTools({ data, editor, off, version }: Pick<TrustProps,
   };
   return (
     <div className="egrp unrec">
-      <span className="k">tools Shadowlap doesn’t record</span>
+      <span className="k">tools shadowlap doesn’t record</span>
       <Copy className="muted">
-        A tool the agent runs without Shadowlap recording it runs again for real on every replay. A replay refuses one that writes, or whose effect nothing says, unless <code>tools.unrecorded</code> in {CONFIG_FILE} declares it a read.
+        A tool the agent runs without shadowlap recording it runs again for real on every replay. A replay refuses one that writes, or whose effect nothing says, unless <code>tools.unrecorded</code> in {CONFIG_FILE} declares it a read.
       </Copy>
       {data.unrecorded?.length ? (
         <ul>

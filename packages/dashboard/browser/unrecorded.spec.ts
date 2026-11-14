@@ -47,7 +47,7 @@ test('a refused replay offers Run again, allowing its tool, in its drawer and it
   await expect.poll(() => sent).toEqual([{ allowUnrecorded: ['Bash'] }]);
 });
 
-test('Settings → Tools declares a tool Shadowlap doesn’t record a read, and says a pure tool marked untrusted is, with no serious axe violation', async ({ page }) => {
+test('Settings → Tools declares a tool shadowlap doesn’t record a read, and says a pure tool marked untrusted is, with no serious axe violation', async ({ page }) => {
   const declared: unknown[] = [];
   await page.route((url) => url.pathname === '/api/settings/tools', (route) =>
     patched<ToolsSettings>(route, (t) => {

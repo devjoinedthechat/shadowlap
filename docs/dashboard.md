@@ -1941,7 +1941,7 @@ Reads come first, the untrusted ones first among them. A row you mark keeps its 
 
 Only a read takes a mark. A pure tool, a write, a tool that declares no effect and what the user types read `—`, with why on hover: a write's result is only its receipt, and what the user types is the user's own words. A pure tool or what the user types marked untrusted all the same reads *untrusted*, with **Mark trusted**: `shadowlap injection` plants in every untrusted call but a write and one of no effect.
 
-**Tools Shadowlap doesn't record.** Under the table, each tool `tools.unrecorded` declares, with what it does and **Declare read** or **Declare write** for the other. A field takes another tool's name, as a run's page names it, and **Declare read** declares it a read. A replay runs a tool declared a read again for real, and refuses one that writes or of no declared effect. Each writes its line against the version the page read, with **Undo**:
+**Tools shadowlap doesn't record.** Under the table, each tool `tools.unrecorded` declares, with what it does and **Declare read** or **Declare write** for the other. A field takes another tool's name, as a run's page names it, and **Declare read** declares it a read. A replay runs a tool declared a read again for real, and refuses one that writes or of no declared effect. Each writes its line against the version the page read, with **Undo**:
 
 ```json
 "tools": { "unrecorded": { "Bash": "read" } }

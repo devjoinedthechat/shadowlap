@@ -66,7 +66,7 @@ describe('Settings → Tools’ Trust table', () => {
   });
 });
 
-describe('Settings → Tools’ tools Shadowlap doesn’t record', () => {
+describe('Settings → Tools’ tools shadowlap doesn’t record', () => {
   it('lists each declared with what it does, declares one typed a read against the version read, and undoes it', async () => {
     const toasts: Array<[string, ToastAction | undefined]> = [];
     const sent: Array<[string, 'read' | 'write' | null, string]> = [];
@@ -80,7 +80,7 @@ describe('Settings → Tools’ tools Shadowlap doesn’t record', () => {
       return { tool: name, effect, was, changed: true, version, line: declared(name, effect ?? was!) };
     };
     r = await render(createElement(AppContext.Provider, { value: app({ tools: async () => tools(list, version), setUnrecorded }, toasts) }, createElement(SettingsPage, { tab: 'tools' })));
-    await r.until('the tools Shadowlap doesn’t record', () => r!.all('.unrec li').length === 1);
+    await r.until('the tools shadowlap doesn’t record', () => r!.all('.unrec li').length === 1);
     expect(r.all('.unrec li').map((li) => li.textContent)).toEqual(['Writedeclared a writeDeclare read']);
     await r.type(r.one('.unrec input'), 'Bash');
     await r.click(r.byText('.unrec form button', 'Declare read'));

@@ -116,7 +116,7 @@ describe('PUT /api/settings/tools/trust', () => {
 describe('PUT /api/settings/tools/unrecorded', () => {
   const declare = (body: Record<string, unknown>) => api('settings/tools/unrecorded', { method: 'PUT', body: JSON.stringify(body) });
 
-  it('declares a tool Shadowlap doesn’t record a read, keeping the rest of the file, answers the line and what it held, and undoes it', async () => {
+  it('declares a tool shadowlap doesn’t record a read, keeping the rest of the file, answers the line and what it held, and undoes it', async () => {
     write({ tools: { get_ticket: { trust: 'untrusted' }, unrecorded: { Write: 'write' } }, clock: 'exact' });
     const res = await declare({ tool: 'Bash', effect: 'read', expect: await version() });
     expect(res.status).toBe(200);
