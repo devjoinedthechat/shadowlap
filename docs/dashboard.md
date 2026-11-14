@@ -895,7 +895,7 @@ Attempts are bundled:
 - **A golden with a gate** says what the gate made of its attempts, as Tests does, with its verdict, tally and bound, and its rule once under them.
 - **A verified run** has an icon saying how it came out. A verdict that doesn't count for the fix says so, *doesn't count*, with a plain icon.
 - **Under a run several fixes share**, such as a good run every repair kept, each bundle names its fix.
-- **A good run's baseline**, the same run under the code before the change, is a bundle of its own beside the change's (*verify · baseline*), counted apart and named so (*baseline · 2 of 3 passed · the code before the change at 35034be · accepted*), with a plain icon. Its attempts' pages say so too.
+- **A good run's baseline**, the same run under the code before the change, is a bundle of its own beside the change's (*verify · baseline*), with a plain icon. It is counted apart and named so (*baseline · 2 of 3 passed · the code before the change at 35034be · accepted*), and its attempts' pages say so too.
 - **A probe's attempt the provider was unavailable for** sits in its probe's bundle, unmarked, its note saying it was retried and never counted.
 
 Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 passed · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
@@ -1461,7 +1461,7 @@ A verdict made under a check the fix had before counts only while its check asks
 - **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled.
 - **Verify again**, for one stopped by an attempt that couldn't be judged.
 
-Run more attempts verifies its runs again from the start, named in their roles, since verify has no `--continue`. It doubles a failing run's attempts where its gate ran out of them. A good run keeps the pairs it ran under (`--kept-max`), doubled only where one ran out. It runs without the budget that stopped it.
+Run more attempts verifies its runs again from the start, named in their roles, since verify has no `--continue`. It doubles a failing run's attempts where its gate ran out of them. A good run keeps the pairs it ran under (`--kept-max`), doubled only where one ran out. It runs without the budget that stopped it, and keeps one that didn't.
 
 Both are built from the verdict's report and the flags kept beside it, never from its command line:
 
@@ -1473,6 +1473,12 @@ A line under the verdict says which run is open and why, and what settling it ta
 The verdict line says what it checked and its oracle under the headline. Its command is the box at the foot, with its own Copy. A verdict that counts and was rejected after the fix was applied also says, under its verdict line, *Rejected after the fix was applied: it no longer holds.*
 
 **Why it wasn't accepted.** A rejected verdict, or an inconclusive one the header can't settle, lists verify's reasons above its runs, in red, with a run it couldn't settle in amber.
+
+**Verify your change** checks a change you made by hand, the code in your working tree, on the fix's failing runs, the runs a repair held out and the good runs it keeps, under its check. It runs the command the step shows, `shadowlap verify --fixes … --holdout … --keeps … --expect …`. An unverified fix's Verify step offers it beside that command, and one with verdicts offers it small at its foot.
+
+The fix's header leads with it, lime, where it is the next step: after a repair whose gate rejected every candidate, with nothing left to settle, and where Run repair would end *No fix to try*. It is priced and goes by [Spending](#spending), and a run whose command came from someone else's pack asks first.
+
+**Stop at $.** The asks of Run blame again, Run blame with stronger model, Run repair, Run more attempts, Verify again, Verify this run and Verify your change each have the injection test's Stop at $. No attempt starts once that much is spent (`--budget`). It starts at the budget the step's command keeps, else empty, for none.
 
 Then come:
 
@@ -3566,10 +3572,12 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `test-update { goldens, normalize?, reason? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
 | `verify { fixId, left: true, yes? }` | Verify this run: the failing runs no accepted verdict checked |
+| `verify { fixId, change: true, yes? }` | Verify your change: the fix's failing, held-out and good runs, under its check |
 
 What some of them do:
 
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
+- **`budget`**, on `blame`, `verify` and `repair`: Stop at $, an amount in dollars above 0, run as `--budget` in place of one the command kept, or null for none. Left out, the command runs as it was made. An amount that isn't one is a 400.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why, and lists them in `live`; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
 - **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead. With `normalize: true`, it is Add normalizer and update for several goldens: it adds each rule in their divergences' `newRules` once, then updates them all. When none of them diverged on a value that changes every run, it is refused (400).

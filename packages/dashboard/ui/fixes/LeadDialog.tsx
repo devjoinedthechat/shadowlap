@@ -3,7 +3,7 @@ import type { FixDetail, FixLead } from '../types.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { BlameAgainDialog, StrongerDialog } from './BlameAgain.js';
 import { ApplyDialog, RepairDialog } from './FixDialogs.js';
-import { VerifyAsk, VerifyLeftAsk } from './verify-asks.js';
+import { VerifyAsk, VerifyChangeAsk, VerifyLeftAsk } from './verify-asks.js';
 
 /**
  * The dialog a list row's fix lead opens (RowStep.tsx): the one the fix's page opens for the same
@@ -22,8 +22,9 @@ export function LeadDialog({ lead, open, run, close }: { lead: FixLead; open: Le
     return <StrongerDialog fix={open.fix} onClose={close} onRun={(model, more) => run({ ...sent, model, ...more })} />;
   }
   if (lead.key === 'blame-again')
-    return <BlameAgainDialog again={{ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, count: lead.count, soFar: lead.soFar, lastGood: lead.lastGood, command: lead.command, underCheck: lead.underCheck }} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
-  if (lead.key === 'more' || lead.key === 'again') return <VerifyAsk more={{ kind: lead.key, command: lead.command }} attempts={lead.attempts} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
-  if (lead.key === 'verify-left') return <VerifyLeftAsk left={lead} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
+    return <BlameAgainDialog again={{ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, count: lead.count, soFar: lead.soFar, lastGood: lead.lastGood, command: lead.command, underCheck: lead.underCheck }} estimate={open.estimate} onRun={(fields) => run({ ...sent, ...fields })} onClose={close} />;
+  if (lead.key === 'more' || lead.key === 'again') return <VerifyAsk more={{ kind: lead.key, command: lead.command, keptBudget: lead.keptBudget }} attempts={lead.attempts} estimate={open.estimate} onRun={(fields) => run({ ...sent, ...fields })} onClose={close} />;
+  if (lead.key === 'verify-left') return <VerifyLeftAsk left={lead} estimate={open.estimate} onRun={(fields) => run({ ...sent, ...fields })} onClose={close} />;
+  if (lead.key === 'verify-change') return <VerifyChangeAsk change={lead} estimate={open.estimate} onRun={(fields) => run({ ...sent, ...fields })} onClose={close} />;
   return null;
 }

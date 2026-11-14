@@ -11,7 +11,7 @@ import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '..
 const verify = (verifyId: string, verdict: VerifyStep['verdict'] = 'accepted'): VerifyStep =>
   ({ verifyId, verdict, href: `#/fixes/fx-1/verify/${verifyId}`, label: `x · ${verdict}` }) as VerifyStep;
 
-const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, ...o });
+const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, verifyChange: null, ...o });
 
 describe('the list', () => {
   it('keeps each fix under its own bucket’s chip, and every fix under All', () => {
@@ -379,6 +379,8 @@ describe('the Verify step', () => {
     const run = { runId: '01M5JERYHZ', state: 'stopped' as const, why: 'the budget of $0.01 is spent', attempt: null };
     expect(moreLine({ kind: 'more', run, max: 80, expected: 12, cost: 0.045, budget: '0.012' })).toBe(' is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about\u00a012 attempts, ≈$0.045.');
     expect(moreLine({ kind: 'more', run: { ...run, state: 'inconclusive', why: null }, max: 160, expected: 35, cost: null, budget: null })).toBe(' is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up to 160 a run: about\u00a035 attempts.');
+    // A budget that didn't stop it is kept, and the line says so.
+    expect(moreLine({ kind: 'more', run: { ...run, state: 'inconclusive', why: null }, max: 160, expected: 35, cost: null, budget: null, keptBudget: '0.012' })).toBe(' is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up to 160 a run, still stopping at its --budget 0.012: about\u00a035 attempts.');
     expect(moreLine({ kind: 'again', run: { ...run, state: 'unjudged', why: 'no key for anthropic', attempt: 3 }, max: 80, expected: 3, cost: null, budget: null })).toBe(' stopped at attempt 3, which could not be judged: no key for anthropic. Verify again once it can be.');
   });
 

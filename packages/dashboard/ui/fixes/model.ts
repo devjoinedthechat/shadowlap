@@ -167,12 +167,13 @@ export const headBlameNext = (f: Pick<FixDetail, 'status' | 'actions'>): ReturnT
  * ("is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up
  * to 160 a run: about 35 attempts, ≈$0.70.").
  */
-export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected' | 'cost' | 'budget'>): string {
+export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected' | 'cost' | 'budget'> & { keptBudget?: string | null }): string {
   if (m.kind === 'again') return ` stopped at attempt ${m.run.attempt ?? '?'}, which could not be judged${m.run.why ? `: ${m.run.why}` : ''}. Verify again once it can be.`;
   // Inconclusive, the page's one word for a run its attempts left open, with why when they stopped first.
   const why = ` is inconclusive${m.run.state !== 'inconclusive' && m.run.why ? `: ${m.run.why}` : ''}.`;
   const takes = `about\u00a0${m.expected} attempt${m.expected === 1 ? '' : 's'}${m.cost !== null ? `, ${approx(m.cost)}` : ''}`;
-  return `${why} Run more attempts verifies again from the start (verify has no --continue), up to ${m.max} a run${m.budget ? `, without its --budget ${m.budget}` : ''}: ${takes}.`;
+  const budget = m.budget ? `, without its --budget ${m.budget}` : m.keptBudget ? `, still stopping at its --budget ${m.keptBudget}` : '';
+  return `${why} Run more attempts verifies again from the start (verify has no --continue), up to ${m.max} a run${budget}: ${takes}.`;
 }
 
 /** What the page's main button does, if anything: repair an open fix, apply a verified one, finish an apply, or nothing. */

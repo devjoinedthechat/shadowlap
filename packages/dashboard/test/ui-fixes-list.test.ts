@@ -85,7 +85,7 @@ describe('a row’s words', () => {
   it('cards each lead as the fix’s page does, reads the fix only for a dialog that shows it, and says why one waits', () => {
     const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame r --again', use: 'reads', stopped: true, gate: null, count: null, soFar: 4, lastGood: null, underCheck: false };
     const repair: FixLead = { key: 'repair', label: 'Run repair', command: 'shadowlap repair --fixes label:x', use: 'writes', repairer: null };
-    const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'v1', max: 80, attempts: 20 };
+    const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'v1', max: 80, attempts: 20, keptBudget: null };
     const apply: FixLead = { key: 'apply', label: 'Finish applying', command: 'shadowlap fix apply fx-a', use: 'writes', pending: 'the goldens weren’t re-recorded' };
     expect(leadCard(again)).toBe('Runs the search to the end, without the budget that stopped it');
     expect(leadCard({ ...again, stopped: false, gate: { good: 0.25, max: 60 } as never })).toBe('More attempts and a lower bar: a rescue at 25% or more, up to 60 attempts');
@@ -426,7 +426,7 @@ describe('the Fixes list', () => {
     newRun({ calls: ['api', 'tool', 'api'] });
     const running = { id: 'j1', kind: JOB_KINDS.repair, title: 'Repairing', fixId: a.fixId, done: false, startedAt: 1, endedAt: null, worktree: { use: 'writes', doing: 'a repair is running', folder: null } };
     const repair = (fixId: string): FixLead => ({ key: 'repair', label: 'Run repair', command: `shadowlap repair --fixes ${fixId}`, use: 'writes', repairer: null });
-    const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'v1', max: 80, attempts: 20 };
+    const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'v1', max: 80, attempts: 20, keptBudget: null };
     const stand = app({ jobs: [running], leads: { [a.fixId]: repair(a.fixId), [b.fixId]: repair(b.fixId), [c.fixId]: more } });
     await list(stand);
     await r!.until('the jobs', () => cellsOf(a.href)[1] === 'busy Repair repairing…');
@@ -443,7 +443,7 @@ describe('the Fixes list', () => {
     const c = opened('lookup');
     const again: FixLead = { key: 'blame-again', label: 'Run blame again', command: `shadowlap blame ${a.run} --again`, use: 'reads', stopped: true, gate: null, count: null, soFar: 4, lastGood: null, underCheck: false };
     const repair: FixLead = { key: 'repair', label: 'Run repair', command: 'shadowlap repair --fixes label:escalate', use: 'writes', repairer: null };
-    const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'verify-1', max: 80, attempts: 20 };
+    const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'verify-1', max: 80, attempts: 20, keptBudget: null };
     const stand = app({ leads: { [a.fixId]: again, [b.fixId]: repair, [c.fixId]: more } });
     await list(stand);
     const step = (key: string) => row(key).querySelector('.psn button')!;

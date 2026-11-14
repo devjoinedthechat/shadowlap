@@ -2,13 +2,14 @@ import { useState, type ReactNode } from 'react';
 import { probesPart } from '../../../engine/src/cost-words.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { AskNote } from '../components/AskNote.js';
-import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
+import { Dialog, PromptDialog } from '../components/Dialog.js';
 import { approx } from '../format.js';
 import { ACTIONS, confirmWords, STRONGER_MODEL } from '../labels.js';
 import { sentEstimate } from '../spending.js';
 import type { FixDetail } from '../types.js';
 import { useStrongerEstimate } from './estimates.js';
 import { sameCount, UNDER_CHECK_AGAIN } from './model.js';
+import { StopAtField, useStopAt } from './stop-at.js';
 
 /**
  * The asks of a fix's next blame: Run blame again, by Spending, and Run blame with stronger model, a
@@ -28,7 +29,9 @@ export type BlameAgainAsk = Pick<NonNullable<FixDetail['actions']['blameAgain']>
  * a blame found under the fix's old check, the search under its check, with no Gate row. A fixed
  * count has no bar to lower: its ask names the count it probes by again.
  */
-export function BlameAgainDialog({ again, estimate, onRun, onClose }: { again: BlameAgainAsk | null; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
+export function BlameAgainDialog({ again, estimate, onRun, onClose }: { again: BlameAgainAsk | null; estimate: Estimate | null | undefined; onRun: (fields: Record<string, unknown>) => boolean; onClose: () => void }) {
+  // Without the budget that stopped it, unless you set one.
+  const stop = useStopAt(null);
   const stopped = again?.kind === 'stopped';
   const under = again?.underCheck === true;
   const gate = !stopped && !under && again?.gate ? again.gate : null;
@@ -43,18 +46,20 @@ export function BlameAgainDialog({ again, estimate, onRun, onClose }: { again: B
         ? `Probes again with ${sameCount(count)}: the last search’s first probe stopped on an attempt that could not be judged.`
         : 'Probes again with more attempts and a lower bar.';
   return (
-    <ConfirmDialog
+    <Dialog
       title={ACTIONS.runBlameAgain.label}
       lead={lead}
       doc="blame"
       facts={gate ? [{ label: 'Gate', value: `a rescue at ${rate(gate.good)} or more`, ...(last === null ? {} : { quiet: `the last blame’s was ${rate(last)}` }) }] : count ? [{ label: 'Count', value: `${count.attempts} attempt${count.attempts === 1 ? '' : 's'} a probe, a rescue at ${count.needed} passing` }] : []}
-      command={again?.command ?? null}
+      command={again ? stop.command(again.command) : null}
       cost={{ price: 'Billed by your provider', parts: [probesPart()], estimate }}
       footNote={<AskNote estimate={estimate} />}
       ok={ACTIONS.runBlameAgain.label}
-      onOk={onRun}
+      onOk={() => onRun(stop.fields)}
       onClose={onClose}
-    />
+    >
+      <StopAtField typed={stop.typed} setTyped={stop.setTyped} />
+    </Dialog>
   );
 }
 
@@ -66,7 +71,8 @@ export function BlameAgainDialog({ again, estimate, onRun, onClose }: { again: B
  */
 export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model: string, sent: Record<string, unknown>) => boolean; onClose: () => void }) {
   const s = fix.actions.blameStronger;
-  const base = s ? s.command.replace(/ --model <model>$/, '') : '';
+  const stop = useStopAt(null);
+  const base = s ? stop.command(s.command.replace(/ --model <model>$/, '')) : '';
   const [model, setModel] = useState('');
   const estimate = useStrongerEstimate(fix.fixId, model.trim());
   return (
@@ -79,9 +85,10 @@ export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun:
       ok={confirmWords(ACTIONS.runBlameStronger.label)}
       command={(m) => `${base} --model ${m.trim() || '<model>'}`}
       cost={{ price: 'Billed by your provider', parts: [...(s ? [`the last blame took ${s.attempts} attempts, ${approx(s.spent)}`] : []), probesPart()], estimate }}
+      after={() => <StopAtField typed={stop.typed} setTyped={stop.setTyped} />}
       onAnswer={setModel}
       // The model typed is the one priced: with its estimate not come yet, the job keeps none.
-      onRun={(m) => (m.trim() ? onRun(m.trim(), { estimate: sentEstimate(m.trim() === model.trim() ? estimate : null).estimate }) : false)}
+      onRun={(m) => (m.trim() ? onRun(m.trim(), { estimate: sentEstimate(m.trim() === model.trim() ? estimate : null).estimate, ...stop.fields }) : false)}
       onClose={onClose}
     />
   );
@@ -90,5 +97,5 @@ export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun:
 /** The ask a fix's next blame opens, starting it with what its dialog adds. */
 export function blameNextAsk(fix: FixDetail, kind: 'again' | 'stronger', estimate: Estimate | null | undefined): (start: (more: Record<string, unknown>) => boolean, close: () => void) => ReactNode {
   if (kind === 'stronger') return (start, close) => <StrongerDialog fix={fix} onRun={(model, sent) => start({ model, ...sent })} onClose={close} />;
-  return (start, close) => <BlameAgainDialog again={fix.actions.blameAgain} estimate={estimate} onRun={() => start({})} onClose={close} />;
+  return (start, close) => <BlameAgainDialog again={fix.actions.blameAgain} estimate={estimate} onRun={(fields) => start(fields)} onClose={close} />;
 }

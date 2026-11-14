@@ -221,6 +221,8 @@ export interface FixEstimates {
   verify: Record<string, Estimate>;
   /** Verify this run, on a verified fix's failing runs no accepted verdict checked (`actions.verifyLeft`); null where it isn't offered. */
   verifyLeft: Estimate | null;
+  /** Verify your change, on the fix's failing runs, held-out runs and good runs (`actions.verifyChange`); null where it isn't offered. */
+  verifyChange: Estimate | null;
 }
 
 
@@ -273,6 +275,26 @@ function verifyLeftPrice(rec: FixRecords, runs: readonly string[], job: FixEstim
   );
 }
 
+/**
+ * Verify your change, as its command selects the runs (`actions.verifyChange`): each failing run, and
+ * each it holds out, priced from its recording live from its first model call, and each good run it
+ * keeps with its baseline, by the config's verify rule.
+ */
+function verifyChangePrice(store: Store, argv: readonly string[], job: FixEstimatesJob, p: Pricing): Estimate {
+  const role = (flag: string) => selectedRuns(store, [flag, ...listed(argv, flag)]);
+  const runs = [...role('--fixes').map((r) => wholeRun('target', p.calls(r.runId))), ...role('--holdout').map((r) => wholeRun('holdout', p.calls(r.runId))), ...role('--keeps').map((r) => wholeRun('good', p.calls(r.runId)))];
+  return verifyEstimate(runs, { rule: job.rule, budget: budgetOf(argv) });
+}
+
+/** The words after `flag` in a command line, up to the next flag. */
+function listed(argv: readonly string[], flag: string): string[] {
+  const at = argv.indexOf(flag);
+  if (at < 0) return [];
+  const rest = argv.slice(at + 1);
+  const end = rest.findIndex((a) => a.startsWith('--'));
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
 /** The `--budget` a step's command runs with, before any command of the agent's own after `--`; null for none. */
 function budgetOf(argv: readonly string[]): number | null {
   const end = argv.indexOf('--');
@@ -291,6 +313,7 @@ async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAns
   const b = shownBlame(rec);
   const next = (again: boolean) => (b ? estimateOf((p) => blameNextPrice(rec, b, { again, model: job.model ?? STRONGER_MODEL }, p), pricing) : null);
   const left = d.actions.verifyLeft;
+  const change = d.actions.verifyChange;
   const verify: Record<string, Estimate> = {};
   for (const step of d.verify) {
     const more = step.more;
@@ -309,6 +332,7 @@ async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAns
     blameStronger: d.actions.blameStronger ? await next(false) : null,
     verify,
     verifyLeft: left ? await estimateOf((p) => verifyLeftPrice(rec, left.runs, job, p), pricing) : null,
+    verifyChange: change ? await estimateOf((p) => verifyChangePrice(store, change.argv, job, p), pricing) : null,
   };
   return answer(body, { tagged: true });
 }

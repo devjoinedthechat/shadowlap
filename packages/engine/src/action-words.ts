@@ -59,6 +59,8 @@ export const ACTIONS = {
   // A verified fix's failing runs that no accepted verify checked, verified on the code as it is now.
   verifyThisRun: { label: 'Verify this run', doing: 'Verifying' },
   verifyTheseRuns: { label: 'Verify these runs', doing: 'Verifying' },
+  // A change made by hand, verified on a fix's failing runs, held-out runs and good runs, under its check.
+  verifyYourChange: { label: 'Verify your change', doing: 'Verifying your change' },
   applyFix: { label: 'Apply fix', doing: 'Applying fix' },
   // A migration's config change, put in the working tree as `shadowlap migrate apply` puts it.
   applyConfigChange: { label: 'Apply config change', doing: 'Applying config change' },

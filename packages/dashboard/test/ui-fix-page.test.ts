@@ -642,7 +642,8 @@ describe('what settles a fix left unsettled', () => {
     expect((JSON.parse(String(stronger.props['data-tip'])) as { est?: unknown }).est).toEqual({ usd: 2.8, ceiling: true, form: true });
     await r!.click(stronger);
     expect(text(r!.one('.dialog .dcost'))).toContain('Billed by your provider');
-    await r!.type(r!.one('.dialog input'), 'claude-opus-5');
+    // The model's field, the dialog's text field: Stop at $ beside it takes an amount.
+    await r!.type(r!.one('.dialog input[type="text"]'), 'claude-opus-5');
     await r!.wait(300);
     expect(text(r!.one('.dialog .dcost'))).toBe('At most ≈$2.80 · up to 7 probes');
     await r!.click(r!.one('.dialog .dlg-ok'));
@@ -811,5 +812,36 @@ describe('Apply fix from the palette', () => {
     APPLY_ASK.ask(fix.fixId);
     await r!.until('the dialog to open again', () => dialogs().length === 1);
     expect(dialogs()).toEqual(['Apply fix?']);
+  });
+});
+
+describe('a change of your own, and Stop at $', () => {
+  it('offers Verify your change on an unverified fix’s Verify step, asking with Stop at $, the command run with the budget typed', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    const started: Array<[string, unknown]> = [];
+    await open(fix.fixId, 'verify', null, { started });
+    // The empty step: what verify checks, its button, and the command it runs, for a terminal.
+    const press = r!.byText('.stepempty .actions button', 'Verify your change');
+    expect(press.className).toBe('btn');
+    await r!.click(press);
+    expect(text(r!.one('.dialog h3'))).toBe('Verify your change');
+    const command = `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}'`;
+    expect(text(r!.one('.dialog .cmdline'))).toContain(command);
+    // Stop at $: empty, for none, until an amount is typed; the command shows the budget it runs with.
+    const stop = r!.one('.dialog .fxstop input');
+    expect(stop.props.placeholder).toBe('none');
+    await r!.type(stop, '2');
+    expect(text(r!.one('.dialog .cmdline'))).toContain(`${command} --budget 2.00`);
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['verify', { fixId: fix.fixId, change: true, budget: 2 }]]);
+  });
+
+  it('leads with Verify your change after a repair whose gate rejected every candidate: the lime one, rightmost', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    recordRepair(store, { repairId: 'repair-none', dir: '.shadowlap/repairs/repair-none', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair', at: NOW + 1 });
+    await open(fix.fixId, 'repair');
+    expect(r!.all('.ph .actions button').map((b) => [text(b), b.className]).at(-1)).toEqual(['Verify your change', 'btn lime']);
   });
 });

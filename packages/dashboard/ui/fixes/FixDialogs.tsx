@@ -10,6 +10,7 @@ import { copiedTo, GoldenNameFields, nameFields, nameFlags, useGoldenNames } fro
 import { applySteps, keepsOf, markLead, PULLED_LINE, repairCost } from './dialog-words.js';
 import { OLD_BLAME_REPAIR, useFixEstimates } from './estimates.js';
 import { patchLines, repairAsk, repairAside, shortFixId } from './model.js';
+import { StopAtField, useStopAt } from './stop-at.js';
 
 /**
  * The dialogs a fix's Run repair, Show patch and Apply fix ask in, on the fix's page and on a list
@@ -41,6 +42,7 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
     };
   }, [client, fix.fixId]);
   const ask = repairAsk(fix, fresh);
+  const stop = useStopAt(null);
   const now = fresh?.fix ?? fix;
   // Priced again for the fix as it re-read it, so the repairer priced is the one it names.
   const estimate = useFixEstimates(now)?.repair;
@@ -69,13 +71,15 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
               { label: 'While it runs', value: 'leave the prompt and tools alone' },
             ]
       }
-      command={ask.command}
+      command={ask.command === null ? null : stop.command(ask.command)}
       cost={repair && (!ask.why || repair.noFixWhy) ? { ...repairCost(repair, stopped), estimate } : null}
       ok={ACTIONS.runRepair.label}
       okDisabled={!ask.ready}
       onClose={onClose}
-      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer, sentEstimate(estimate)) : false)}
-    />
+      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer, { ...sentEstimate(estimate), ...stop.fields }) : false)}
+    >
+      {ask.ready ? <StopAtField typed={stop.typed} setTyped={stop.setTyped} /> : null}
+    </Dialog>
   );
 }
 

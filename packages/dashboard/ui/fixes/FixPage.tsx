@@ -38,7 +38,7 @@ import { leadWait, verifyTip } from './lead.js';
 import { CrashStepButton } from '../revert/CrashStep.js';
 import { EditorButton } from '../revert/EditorButton.js';
 import { VerifyAsk } from './verify-asks.js';
-import { VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
+import { VerifyChangeButton, VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
 
 export { StrongerDialog } from './BlameAgain.js';
 import { ApplyDialog, PatchDialog, RepairDialog } from './FixDialogs.js';
@@ -388,6 +388,8 @@ function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { sh
         />
       ) : null}
       <CrashButtons fix={fix} lime={lime} />
+      {/* A change of your own, verified, where it is the fix's next step: the lime one, rightmost. The Verify step offers it otherwise. */}
+      {lime?.key === 'verify-change' ? <VerifyChangeButton fix={fix} prices={prices} lead /> : null}
       {left ? <VerdictNext fix={fix} v={left} prices={prices} /> : null}
     </>
   );
@@ -510,7 +512,7 @@ function VerdictNext({ fix, v, prices }: { fix: FixDetail; v: VerifyStep; prices
       tip={verifyTip(more)}
       command={more.command}
       estimate={estimate}
-      ask={(begin, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={() => begin({})} onClose={close} />}
+      ask={(begin, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={(fields) => begin(fields)} onClose={close} />}
     />
   );
 }

@@ -334,7 +334,7 @@ describe('a fix’s estimates', () => {
     const fixId = blame(failing, blameReport(failing));
     const plan = (reused: { outcome: 'blamed' } | null) => repairEstimate({ failing: [{ runId: failing, startedAt: store.getRun(failing)!.startedAt, calls: priced(failing), blame: reused }], good: [{ calls: priced(good) }], scope: null, rule: RULE, repairer: DEFAULT_REPAIRER, noFix: null, last: null });
     const fresh = await get<FixEstimates>(`fixes/${fixId}/estimates`);
-    expect(fresh).toEqual({ repair: plain(plan(null)), blameAgain: null, blameStronger: null, verify: {}, verifyLeft: null });
+    expect(fresh).toEqual({ repair: plain(plan(null)), blameAgain: null, blameStronger: null, verify: {}, verifyLeft: null, verifyChange: expect.objectContaining({ kind: 'verify' }) as unknown });
     expect(fresh.repair).toMatchObject({ kind: 'repair', ceiling: true, parts: ['a new blame, then up to 3 candidates', 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] });
     // The blame stored on the run, under the fix's check, with the fork that rescued it: reused, not priced again.
     const rescue = addRun(store, { parent: failing, startedAt: T0 + 72, calls: 'rl' });

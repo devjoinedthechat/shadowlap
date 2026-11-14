@@ -47,6 +47,7 @@ function priceOf(lead: FixLead, e: FixEstimates | null | undefined): Estimate | 
   if (lead.key === 'repair') return e?.repair ?? null;
   if (lead.key === 'more' || lead.key === 'again') return verifyPrice(e, lead.verifyId);
   if (lead.key === 'verify-left') return e?.verifyLeft ?? null;
+  if (lead.key === 'verify-change') return e?.verifyChange ?? null;
   return blameNextPrice(lead.key === 'blame-again' ? 'again' : 'stronger', e);
 }
 
@@ -54,6 +55,7 @@ function priceOf(lead: FixLead, e: FixEstimates | null | undefined): Estimate | 
 function fieldsOf(lead: FixLead): Record<string, unknown> {
   if (lead.key === 'blame-again') return { again: true };
   if (lead.key === 'more' || lead.key === 'again') return { verifyId: lead.verifyId };
+  if (lead.key === 'verify-change') return { change: true };
   return lead.key === 'verify-left' ? { left: true } : {};
 }
 

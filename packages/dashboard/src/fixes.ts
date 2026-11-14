@@ -227,7 +227,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
   };
   const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify, options.keptMax ?? null));
-  const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs });
+  const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs, verifyArgs });
   const crash = openCrash(fix, b, options.crash);
   return {
     ...row,

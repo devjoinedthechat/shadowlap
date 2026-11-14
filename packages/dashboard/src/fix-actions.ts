@@ -1,5 +1,5 @@
 import { isAbsolute, join, resolve } from 'node:path';
-import { applyGoldens, applyLeft, defaultGoldenNames, type FixRecords, gitApplyCommand, goldensFolder, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, repairPatchProblem, repairToApply, shownBlame, type StoredRepair, type StoreOf } from '@shadowlap/engine';
+import { applyGoldens, applyLeft, defaultGoldenNames, type FixRecords, gitApplyCommand, goldensFolder, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, repairPatchProblem, repairToApply, selectedRuns, shownBlame, type StoredRepair, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { blameNext } from './fix-blame-step.js';
 import { repairSpent } from './fix-lead.js';
 import { acceptedVerdict, commandLine, fieldsSet, type FixActions, notVerified, type PatchCheck, patchMerged, type RewriteCheck, unrepairedVerdict } from './fix-shared.js';
@@ -147,6 +147,15 @@ export interface FixActionsOptions {
   goldensFolder?: GoldensFolder | null | undefined;
   /** The engine's `repairArgv` for the fix, where the caller has it already: each is a read of every run. */
   repairArgs?: readonly string[] | undefined;
+  /** The engine's `verifyArgv` for the fix, likewise: without it, worked out only for an open fix, the one a list's row leads with it for. */
+  verifyArgs?: readonly string[] | undefined;
+}
+
+/** Verify your change (`FixActions['verifyChange']`): the fix's verify command, with the failing runs it selects; null where it makes none. */
+function verifyChangeOffer(store: StoreOf<'recording'>, rec: FixRecords, argv: readonly string[]): FixActions['verifyChange'] {
+  if (!argv.length) return null;
+  const failing = new Set(rec.failing);
+  return { runs: selectedRuns(store, argv).flatMap((r) => (failing.has(r.runId) ? [r.runId] : [])), argv: [...argv], command: commandLine([...argv]) };
 }
 
 /** What each of a fix's buttons would run, as its page offers them and its Fixes row leads with one (fix-lead.ts). */
@@ -164,5 +173,7 @@ export function fixActions(store: StoreOf<'recording' | 'fixes' | 'team'>, rec: 
     applied: fix.status === 'applied',
     ...blameNext(store, rec, b),
     verifyLeft: verifyLeftOffer(store, rec, inTree),
+    // The list leads with it only for an open fix, so a row of any other reads no runs for it; the page gives its own.
+    verifyChange: verifyChangeOffer(store, rec, o.verifyArgs ?? (fix.status === 'open' ? verifyArgv(store, rec) : [])),
   };
 }

@@ -22,12 +22,14 @@ export type FixLead =
   | { key: 'blame-stronger'; label: string; command: string; use: 'reads' }
   /** `repairer`: the one shadowlap.config.json names, which its card says it asks; null for your own Claude Code. */
   | { key: 'repair'; label: string; command: string; use: 'writes'; repairer: string | null }
-  /** The verdict it settles, how many attempts a run it goes up to, and the attempts so far, which start over. */
-  | { key: 'more' | 'again'; label: string; command: string; use: 'reads'; verifyId: string; max: number; attempts: number }
+  /** The verdict it settles, how many attempts a run it goes up to, the attempts so far, which start over, and the budget its command keeps, which its ask's Stop at $ starts at. */
+  | { key: 'more' | 'again'; label: string; command: string; use: 'reads'; verifyId: string; max: number; attempts: number; keptBudget: string | null }
   /** `pending`: what applying left undone, which Finish applying does; null otherwise. */
   | { key: 'apply'; label: string; command: string; use: 'writes'; pending: string | null }
   /** Verify this run: the failing runs (`runs`, by id) no accepted verdict checked, on the code as it is now (`actions.verifyLeft`). */
   | { key: 'verify-left'; label: string; command: string; use: 'reads'; runs: string[] }
+  /** Verify your change: a change made by hand, on the fix's failing runs (`runs`, by id), the runs it holds out and the good runs it keeps (`actions.verifyChange`). */
+  | { key: 'verify-change'; label: string; command: string; use: 'reads'; runs: string[] }
   /**
    * The blamed run's own step, where it crashed and no model rescued it (fix-crash.ts): Find breaking
    * commit, which holds no working tree, or Revert once that named the commit, which changes it. A row
@@ -56,26 +58,33 @@ function verifyLead(rec: FixRecords, keptMax: number | null): FixLead | null {
   const v = counting(rec).at(-1);
   const more = v ? verifyMore(v, keptMax) : null;
   if (!v || !more) return null;
-  return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max, attempts: v.report.attempts };
+  return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max, attempts: v.report.attempts, keptBudget: more.keptBudget };
 }
 
+/** Verify your change, where the fix's own next step is a change made by hand. */
+const changeLead = (actions: FixActions): FixLead | null => {
+  const change = actions.verifyChange;
+  return change ? { key: 'verify-change', label: ACTIONS.verifyYourChange.label, command: change.command, use: 'reads', runs: change.runs } : null;
+};
+
 /**
- * An open fix's lead: what its spent repair's last verdict left, blame again, a crash's own step once
- * no model rescued it (`crash`: Find breaking commit, then Revert) while the fix still holds its run,
- * blame with a stronger model, or Run repair when it can run the agent. A crashed run that a check
- * given since passed left the fix (runsLeft): its step is its own, and Run repair blames the runs the
- * fix holds.
+ * An open fix's lead: what its spent repair's last verdict left, else Verify your change, as repairing
+ * again would try the same; blame again, a crash's own step once no model rescued it (`crash`: Find
+ * breaking commit, then Revert) while the fix still holds its run, blame with a stronger model, or Run
+ * repair when it can run the agent, else Verify your change, where repair would end "No fix to try".
+ * A crashed run that a check given since passed left the fix (runsLeft): its step is its own, and Run
+ * repair blames the runs the fix holds.
  */
 function openLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixLead | null {
-  if (repairSpent(rec)) return verifyLead(rec, o.keptMax ?? null);
+  if (repairSpent(rec)) return verifyLead(rec, o.keptMax ?? null) ?? changeLead(actions);
   const again = actions.blameAgain;
   if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, count: again.count, soFar: again.soFar, lastGood: again.lastGood, underCheck: again.underCheck };
   if (o.crash && rec.failing.includes(o.crash.runId)) return crashLead(o.crash.runId, o.crash.step);
   const stronger = actions.blameStronger;
   if (stronger) return { key: 'blame-stronger', label: ACTIONS.runBlameStronger.label, command: stronger.command, use: 'reads' };
-  // A repair that would end "No fix to try" runs nothing: the row opens the fix, which says why.
+  // A repair that would end "No fix to try" runs nothing: what is left is a change of your own, verified.
   const repair = actions.repair;
-  return repair && !repair.noFix ? { key: 'repair', label: ACTIONS.runRepair.label, command: repair.command, use: 'writes', repairer: o.repairer?.trim() || null } : null;
+  return repair && !repair.noFix ? { key: 'repair', label: ACTIONS.runRepair.label, command: repair.command, use: 'writes', repairer: o.repairer?.trim() || null } : changeLead(actions);
 }
 
 /**

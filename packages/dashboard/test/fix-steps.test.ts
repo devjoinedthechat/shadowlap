@@ -89,7 +89,8 @@ describe('the step a fix’s page leads with', () => {
     const f = blamed();
     expect(detail(f.fixId).actions.repair?.spent).toBe(false);
     recordRepair(store, { repairId: 'repair-none', dir: '.shadowlap/repairs/repair-none', report: repairReport({ targets: [f.run], accepted: false }), expect: SEND_ONCE, command: 'shadowlap repair', at: (at += DAY) });
-    expect(detail(f.fixId)).toMatchObject({ actions: { repair: { spent: true } }, lead: null });
+    // Repairing again would try the same: what is left is a change of your own, verified.
+    expect(detail(f.fixId)).toMatchObject({ actions: { repair: { spent: true } }, lead: { key: 'verify-change', label: 'Verify your change' } });
     recordBlame(store, { runId: f.run, report: blameReport(f.run), expect: SEND_ONCE, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
     expect(detail(f.fixId)).toMatchObject({ actions: { repair: { spent: false } }, lead: { key: 'repair' } });
   });

@@ -20,8 +20,9 @@ import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { useFixEstimates } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
-import { verifyLeftCard } from './lead.js';
-import { leftLabel, VerifyLeftAsk } from './verify-asks.js';
+import { VERIFY_CHANGE_TIP, verifyLeftCard } from './lead.js';
+import { leftLabel, VerifyChangeAsk, VerifyLeftAsk } from './verify-asks.js';
+import { ACTIONS } from '../labels.js';
 
 /**
  * The Verify step: one change verified at a time (a switch between them, each with its own URL and
@@ -35,12 +36,14 @@ import { leftLabel, VerifyLeftAsk } from './verify-asks.js';
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
   const groups = useAttemptGroups(fix.fixId);
+  const prices = useFixEstimates(fix);
   const v = verifyFor(fix, sub);
   if (!v)
     return (
       <EmptyState
         title="Not verified yet"
-        text="verify checks a change on the failing runs, on failures it was not written against, and on runs that worked, before it ships. A repair runs it for you."
+        text="verify checks a change on the failing runs, on failures it was not written against, and on runs that worked, before it ships. A repair runs it for you, or verify a change of your own."
+        step={fix.actions.verifyChange && fix.lead?.key !== 'verify-change' ? <VerifyChangeButton fix={fix} prices={prices} lead={false} /> : undefined}
         command={fix.commands.verify}
       />
     );
@@ -85,6 +88,13 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
       <Runs v={v} groups={groups?.verify.find((g) => g.verifyId === v.verifyId)?.runs ?? null} />
       <LeftOut fix={fix} v={v} />
       <Receipts v={v} />
+      {/* A change of your own since, verified on the fix's runs: small here, unless the header leads with it. */}
+      {fix.actions.verifyChange && fix.lead?.key !== 'verify-change' ? (
+        <p className="vmine">
+          <span>Changed it yourself since?</span>
+          <VerifyChangeButton fix={fix} prices={prices} lead={false} small />
+        </p>
+      ) : null}
     </>
   );
 }
@@ -262,7 +272,33 @@ export function VerifyLeftButton({ fix, prices, lead, small = false }: { fix: Fi
       command={left.command}
       className={small ? 'btn sm' : 'btn'}
       estimate={estimate}
-      ask={(begin, close) => <VerifyLeftAsk left={left} estimate={estimate} onRun={() => begin({})} onClose={close} />}
+      ask={(begin, close) => <VerifyLeftAsk left={left} estimate={estimate} onRun={(fields) => begin(fields)} onClose={close} />}
+    />
+  );
+}
+
+/**
+ * Verify your change, on the header (`lead`, lime where it is the fix's next step), on the empty Verify
+ * step, or small on one checked under the fix's old check: a change made by hand, verified on the
+ * code as it is now on the fix's failing runs, the runs held out and the good runs kept, priced on the
+ * fix's estimates and asking by Spending's rule (`VerifyChangeAsk`), with Stop at $.
+ */
+export function VerifyChangeButton({ fix, prices, lead, small = false }: { fix: FixDetail; prices: FixEstimates | null | undefined; lead: boolean; small?: boolean }) {
+  const change = fix.actions.verifyChange;
+  if (!change) return null;
+  const estimate = prices === undefined ? undefined : (prices?.verifyChange ?? null);
+  return (
+    <FixJobButton
+      kind={JOB_KINDS.verify}
+      fields={{ fixId: fix.fixId, change: true }}
+      label={ACTIONS.verifyYourChange.label}
+      verb="verify your change"
+      lead={lead}
+      tip={VERIFY_CHANGE_TIP}
+      command={change.command}
+      className={small ? 'btn sm' : 'btn'}
+      estimate={estimate}
+      ask={(begin, close) => <VerifyChangeAsk change={change} estimate={estimate} onRun={(fields) => begin(fields)} onClose={close} />}
     />
   );
 }

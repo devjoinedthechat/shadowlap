@@ -145,6 +145,13 @@ export interface FixActions {
    * what runs on no other machine (`left`). Null otherwise.
    */
   verifyLeft: { runs: string[]; argv: string[]; command: string; pulled: PulledFrom | null; left: string[] } | null;
+  /**
+   * Any fix with a failing run left in the store: Verify your change, a change made by hand verified
+   * on the code as it is now, on its failing runs (`runs`), the runs a repair held out and the good runs
+   * it keeps, under its check, as its empty Verify step's command runs (engine fix-jobs.ts `verifyArgv`).
+   * Null where that makes no command.
+   */
+  verifyChange: { runs: string[]; argv: string[]; command: string } | null;
 }
 
 // Links come from the one builder (links.ts), which the page's route parser reads back.
