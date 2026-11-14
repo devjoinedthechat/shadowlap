@@ -192,6 +192,35 @@ describe('GET /api/tests/gate', () => {
   });
 });
 
+describe('a gate against history, figured against a golden’s own', () => {
+  it('pools the golden’s last sessions as its next test would, says how many, and says when it has none', async () => {
+    const own = Store.open(':memory:');
+    const fork = goldens[3];
+    // Three sessions that passed on the baseline branch for no pull request, under its checks (gate-history.ts notBaseline).
+    for (const [i, passed] of [9, 10, 10].entries()) {
+      const s = own.startTestSession({ command: ['shadowlap', 'test', fork.path], revision: `aaa000${i}`, startedAt: T0 + i * 100 });
+      own.addTestResult({ sessionId: s.sessionId, golden: fork.path, ok: true, runId: null, goldenRunId: fork.runId, revision: `aaa000${i}`, at: T0 + i * 100 + 1, data: { mode: 'fork', verdict: 'passed', attempts: { total: 10, passed, required: null, runs: [] }, checks: [{ ok: true, status: 'passed', label: 'send_email called 0 times', detail: null }], branch: 'main', pullRequest: false, baselineBranch: 'main' } });
+      own.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: T0 + i * 100 + 10 });
+    }
+    const d = await startDashboard({ store: own, spawnCli, readOnly: false, goldens: () => goldens });
+    try {
+      expect(await getJson(d, `tests/gate?baseline=history&golden=${fork.path}`)).toMatchObject({ history: { passes: 29, attempts: 30 }, from: { golden: fork.path, sessions: 3 } });
+      // A window of two pools the newest two.
+      expect(await getJson(d, `tests/gate?baseline=history&window=2&golden=${fork.path}`)).toMatchObject({ history: { passes: 20, attempts: 20 }, from: { sessions: 2 } });
+      // One with none yet is figured against the example, saying so.
+      expect(await getJson(d, 'tests/gate?baseline=history&golden=goldens/refund-flow')).toMatchObject({ history: { passes: 47, attempts: 50 }, from: { golden: 'goldens/refund-flow', sessions: 0 } });
+      // A gate of figures takes no history, and a golden not on disk is refused.
+      expect(await getJson(d, `tests/gate?golden=${fork.path}`)).toMatchObject({ history: null, from: null });
+      expect((await api(d, 'tests/gate?baseline=history&golden=goldens/nope')).status).toBe(400);
+      // Settings → Gates offers the goldens marked fork, each by the name Tests gives it.
+      expect((await getJson<CiWorkflowsView>(d, 'ci/workflows')).gates.forks).toEqual([{ path: fork.path, name: fork.path }]);
+    } finally {
+      await d.close();
+      own.close();
+    }
+  });
+});
+
 describe('GET /api/tests/runs/:id', () => {
   it('gives a run\'s page Find the commit\'s choices, and the banner of a test replay that diverged', async () => {
     // R2_LIMIT is a replay `shadowlap test` made of refund-in-limit in the failing session.

@@ -1891,6 +1891,8 @@ Its preview says what the gate tells apart, what it takes for a golden on its ow
 
 Until you change a figure, a line says these are the defaults, what `"gate": {}` stands for, and names the goldens that use them; once you do, **Reset** puts them back. While the server is offline, the preview pauses on the last it worked out.
 
+**Against** picks what a gate against history is figured against: an example baseline, 47 of 50, or the own last sessions of a golden marked fork, pooled as its next test pools them. The preview then says *refund-over-limit’s own history: its last 10 sessions*. A golden with no session that passed on its baseline branch says so, and the example stands in.
+
 Under **In CI**, it says what an inconclusive golden does to the step as your workflow has it, with what you changed on the CI tab and haven't written. It has no switch of its own: **Settings → CI** leads to [CI](#ci), where Your workflow sets it.
 
 ### Coding agents
@@ -3241,6 +3243,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 | --- | --- |
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=&suiteRisk=`, `?baseline=history&drop=&window=&min=&max=&history=47/50&risk=&suiteRisk=` | What a [gate](./gating.md)'s figures would do |
+| `GET /api/tests/gate?baseline=history&…&golden=` | The same against the golden's own last sessions |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
 | `GET /api/tests/estimates?update=&run=` | What Run tests and each golden's buttons bill, Update goldens for the goldens `update` names, and Run tests on… for those `run` names |
 | `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
@@ -3330,6 +3333,8 @@ An attempt the provider cut short is `inconclusive`, never the agent's failure; 
 - the defaults.
 
 A gate against history is figured at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails at each of those pass rates is its power to catch a drop. Figures the config would refuse are a 400 with its message, as is a `suiteRisk` that isn't above 0 and below 0.5.
+
+With `golden`, a gate against history is figured against that golden's own last sessions, its `window` of them pooled under its recording and checks, its first `min` attempts of each, as its next test pools them. `from` names the golden and how many `sessions` it pooled, 0 when it has none yet and `history` stands in. A golden not on disk is a 400. Settings → Gates offers the goldens marked fork, which `/api/ci/workflows` lists in `gates.forks`.
 
 **A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start, with `onTests` where that reason sends you to Tests. `before` limits the good commits to runs before it.
 

@@ -1,4 +1,4 @@
-import { attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, decide, describeGate, explainGate, gateOdds, gateOddsAt, gateResult, parseGate, parseTestSettings, passesPerFailure, planSuite, readConfigFile, riskPercent, runsRed, SPRT_DEFAULTS, SUITE_RISK, verdictLine, type Gate, type GateDecision, type GateHistory, type Tally } from '@shadowlap/engine';
+import { attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, decide, describeGate, explainGate, gateHistory, gateOdds, gateOddsAt, gateResult, parseGate, parseTestSettings, passesPerFailure, planSuite, readConfigFile, riskPercent, runsRed, SPRT_DEFAULTS, SUITE_RISK, verdictLine, type Gate, type GateDecision, type GateHistory, type StoreOf, type Tally } from '@shadowlap/engine';
 import { answer, type ReadTable } from './read-registry.js';
 import type { GoldenSource } from './tests.js';
 
@@ -39,6 +39,12 @@ export interface GatePreview {
   /** A gate against history: the baseline its odds are figured against. Null for an SPRT gate. */
   history: { passes: number; attempts: number } | null;
   /**
+   * Where that baseline came from, for a gate against history the query named a golden for: the
+   * golden, and how many of its last sessions it pooled, as its next test would (0 when it has none
+   * yet, the example then standing in). Null for the example, and for an SPRT gate.
+   */
+  from: { golden: string; sessions: number } | null;
+  /**
    * With 100 forked goldens of an agent that passes 95% of the time, how often a CI run goes red for
    * nothing, under `--inconclusive fail` and `warn`: the session as `shadowlap test` plans it, the
    * suite's risk (`risk`, the query's `suiteRisk`, 5% unless the config says) split across them.
@@ -48,12 +54,14 @@ export interface GatePreview {
   defaults: { sprt: Omit<Gate & { kind: 'sprt' }, 'kind'>; baseline: Omit<Gate & { kind: 'baseline' }, 'kind'>; blame: Omit<Gate & { kind: 'sprt' }, 'kind'> };
 }
 
-/** What Settings → Gates needs of the project: the suite's risk its CI figure splits, and each kind's goldens on the defaults. */
+/** What Settings → Gates needs of the project: the suite's risk its CI figure splits, each kind's goldens on the defaults, and the goldens a gate against history can be figured against. */
 export interface CiGates {
   /** The config's `tests.suiteRisk`, else 5%: what the preview's `suiteRisk` sends. */
   suiteRisk: number;
   /** The readable goldens whose gate is of that kind with every figure the kind's default, named as Tests names them. */
   uses: { sprt: string[]; baseline: string[] };
+  /** The readable goldens marked fork, each by its path and the name Tests gives it: a gate against history is previewed against one's own last sessions (`golden`). None where the view was built without the goldens. */
+  forks?: Array<{ path: string; name: string }>;
 }
 
 /** The project's suite risk and its goldens on each kind's defaults, for Gates' defaults note. */
@@ -66,13 +74,15 @@ export function ciGates(project: string | null, goldens: readonly GoldenSource[]
     // A config that can't be read, or a suiteRisk it refuses: every session refuses it too, and the page says so.
   }
   const uses: CiGates['uses'] = { sprt: [], baseline: [] };
+  const named = (path: string) => (path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path);
   for (const g of goldens) {
     if (g.error || !g.gate) continue;
     const defaults = (g.gate.kind === 'sprt' ? SPRT_DEFAULTS : BASELINE_DEFAULTS) as unknown as Readonly<Record<string, number>>;
     const figures = g.gate as unknown as Readonly<Record<string, unknown>>;
-    if (Object.keys(defaults).every((k) => figures[k] === defaults[k]) && figures.failRisk === undefined) uses[g.gate.kind].push(g.path.startsWith(`${folder}/`) ? g.path.slice(folder.length + 1) : g.path);
+    if (Object.keys(defaults).every((k) => figures[k] === defaults[k]) && figures.failRisk === undefined) uses[g.gate.kind].push(named(g.path));
   }
-  return { suiteRisk, uses };
+  const forks = goldens.filter((g) => !g.error && g.mode === 'fork').map((g) => ({ path: g.path, name: named(g.path) }));
+  return { suiteRisk, uses, forks };
 }
 
 const PREVIEW_RATES = [0.99, 0.95, 0.9, 0.8, 0.7, 0.5];
@@ -148,6 +158,8 @@ export interface GateQuery {
   gate: Gate;
   history: { passes: number; attempts: number } | null;
   risk: number;
+  /** The golden whose own last sessions a gate against history is figured against, as the route found it on disk: its recording and checks, which its history is pooled under. */
+  golden?: { path: string; runId: string | null; checks: string[] } | null;
 }
 
 /** A gate's preview, worked out on a read-model thread: plain data, as the thread gets it. */
@@ -175,8 +187,21 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
   return previewOf(gateQuery(query));
 }
 
+/**
+ * The baseline a gate against history is figured against for the golden the query names: its last
+ * `window` sessions that qualify, pooled as its next test pools them (gateHistory: under its
+ * recording and checks, its first `min` attempts of each), or the query's (the example) where it has
+ * none yet, saying so (`sessions` 0). A gate of figures, or no golden, figures as the query says.
+ */
+function ownHistory(store: StoreOf<'tests'>, q: GateQuery): { history: GateQuery['history']; from: GatePreview['from'] } {
+  const g = q.golden;
+  if (q.gate.kind !== 'baseline' || !g) return { history: q.history, from: null };
+  const pooled = gateHistory(store, g.path, { window: q.gate.window, first: q.gate.min, ...(g.runId ? { goldenRunId: g.runId } : {}), checks: g.checks, mode: 'fork' });
+  return pooled.attempts ? { history: { passes: pooled.passes, attempts: pooled.attempts }, from: { golden: g.path, sessions: pooled.sessions } } : { history: q.history, from: { golden: g.path, sessions: 0 } };
+}
+
 /** A gate's preview from its figures. */
-function previewOf({ gate, history, risk }: GateQuery): GatePreview {
+function previewOf({ gate, history, risk }: GateQuery, from: GatePreview['from'] = null): GatePreview {
   const odds = gateOddsAt(gate, gate.kind === 'sprt' ? PREVIEW_RATES : HISTORY_RATES, history);
   // Its verdict lines say over how many sessions the baseline was pooled: the window's.
   const pooled = gate.kind === 'baseline' && history ? { ...history, sessions: gate.window } : null;
@@ -193,12 +218,16 @@ function previewOf({ gate, history, risk }: GateQuery): GatePreview {
     extremes: { pass: up.line, fail: sprt ? always(gate, false, null).line : null },
     odds: odds.map((o) => ({ rate: o.rate, pass: o.pass, fail: o.fail, inconclusive: o.inconclusive, attempts: o.attempts })),
     history,
+    from,
     ci: { goldens: CI_GOLDENS, rate: CI_RATE, risk, ...ci, redText: riskPercent(ci.red), redWarnText: riskPercent(ci.redWarn) },
     defaults: { sprt: { ...SPRT_DEFAULTS }, baseline: { ...BASELINE_DEFAULTS }, blame: { ...BLAME_DEFAULTS } },
   };
 }
 
-/** The preview, beside the server: it reads nothing of the store. */
+/** The preview, beside the server: it reads the store only for a golden's own history. */
 export const GATE_READS: ReadTable<GatePreviewJob> = {
-  'gate-preview': (_store, job) => answer(previewOf(job), { tagged: true }),
+  'gate-preview': (store, job) => {
+    const own = ownHistory(store, job);
+    return answer(previewOf({ ...job, history: own.history }, own.from), { tagged: true });
+  },
 };

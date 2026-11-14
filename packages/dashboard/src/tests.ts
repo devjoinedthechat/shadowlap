@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, judgedUnder as underChecks, goldensPassed, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -55,14 +55,11 @@ export { runTestsJob, updateGoldensJob } from './tests-run.js';
 /** A result's verdict: as kept, or for one kept before verdicts were, as its `ok` says (the engine's, which Training's tasks read too). */
 export const verdictOfResult: (r: Pick<TestResult, 'ok' | 'failure' | 'data'>) => GoldenVerdict = testResultVerdict;
 
-/** A golden's gate as the config gives it, in the words Settings previews it in. */
+/** A golden's gate as the config gives it, in the words Settings previews it in: what each extreme takes is Settings → Gates', where its rule under Tests' table leads. */
 export interface GateView {
   gate: Gate;
   /** The gate's rule: `tells 90%+ from 70%- at <= 5% risk, up to 40 attempts`. */
   description: string;
-  /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), and one that always fails (3). Null for history. */
-  toPass: number | null;
-  toFail: number | null;
 }
 
 /**
@@ -605,7 +602,7 @@ export const modeOf = (g: GoldenSource) =>
 /** A golden's gate in the words Settings previews it in, with what it costs at the extremes. */
 function gateView(gate: Gate | null | undefined): GateView | null {
   if (!gate) return null;
-  return { gate, description: describeGate(gate), toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null, toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null };
+  return { gate, description: describeGate(gate) };
 }
 
 export { gatePreview, PREVIEW_HISTORY, type GatePreview } from './tests-gate.js';

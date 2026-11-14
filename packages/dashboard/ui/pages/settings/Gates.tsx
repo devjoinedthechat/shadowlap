@@ -60,8 +60,20 @@ const KINDS = [
   { key: 'baseline' as const, label: 'fork · history' },
 ];
 
-/** What was tried, kept while the dashboard is open: the kind, and each kind's figures that were changed. */
-const tried: { kind: Kind; figures: Record<Kind, Partial<Record<Figure, number>>> } = { kind: 'sprt', figures: { sprt: {}, baseline: {} } };
+/** What was tried, kept while the dashboard is open: the kind, each kind's figures that were changed, and the golden a gate against history is figured against ('' for the example). */
+const tried: { kind: Kind; figures: Record<Kind, Partial<Record<Figure, number>>>; golden: string } = { kind: 'sprt', figures: { sprt: {}, baseline: {} }, golden: '' };
+
+/** The goldens a gate against history can be figured against. */
+type Forks = NonNullable<CiWorkflowsView['gates']['forks']>;
+
+/** The baseline a gate against history is figured against when no golden is picked, as the preview names it (tests-gate.ts PREVIEW_HISTORY). */
+const EXAMPLE = '47 of 50, an example';
+
+/** Where the baseline came from, under the takes: a golden's own last sessions, or that it has none yet and the example stands in. */
+function fromWords(from: NonNullable<GatePreview['from']>, forks: Forks): string {
+  const name = forks.find((g) => g.path === from.golden)?.name ?? from.golden;
+  return from.sessions ? `${name}’s own history: its last ${from.sessions === 1 ? 'session' : `${from.sessions} sessions`}` : `${name} has no session that passed on its baseline branch yet: an example stands in`;
+}
 
 /** `"gate": {}`, or the figures that differ from the defaults: `{ "baseline": "history", "max": 20 }`. */
 function entryOf(kind: Kind, gate: Record<string, unknown>, defaults: Record<string, unknown>): string {
@@ -117,14 +129,18 @@ function Gates({ view, inc }: { view: CiWorkflowsView; inc: 'fail' | 'warn' }) {
   const [figures, setFigures] = useState<Partial<Record<Figure, number>>>(() => ({ ...tried.figures[tried.kind] }));
   const [answer, setAnswer] = useState<{ preview: GatePreview | null; refused: string | null; error: string | null }>({ preview: null, refused: null, error: null });
   const [odds, setOdds] = useState(false);
+  const [golden, setGolden] = useState(tried.golden);
   const off = conn === 'offline';
+  const forks = view.gates.forks ?? [];
+  // A golden picked is figured against only where it is still one of the goldens marked fork.
+  const against = kind === 'baseline' && forks.some((g) => g.path === golden) ? golden : '';
   const pick = (k: Kind) => {
     tried.kind = k;
     setKind(k);
     setFigures({ ...tried.figures[k] });
   };
   useGateLink(pick);
-  const query = new URLSearchParams([...(kind === 'baseline' ? [['baseline', 'history']] : []), ...Object.entries(figures).map(([k, v]) => [k, String(v)]), ['suiteRisk', String(view.gates.suiteRisk)]]).toString();
+  const query = new URLSearchParams([...(kind === 'baseline' ? [['baseline', 'history']] : []), ...Object.entries(figures).map(([k, v]) => [k, String(v)]), ['suiteRisk', String(view.gates.suiteRisk)], ...(against ? [['golden', against]] : [])]).toString();
   useEffect(() => {
     const stop = new AbortController();
     client.settings.gate(query, stop.signal).then(
@@ -172,6 +188,15 @@ function Gates({ view, inc }: { view: CiWorkflowsView; inc: 'fail' | 'warn' }) {
               </div>
             );
           })}
+          {kind === 'baseline' && forks.length ? (
+            <div className="setrow tight">
+              <div>
+                <b>Against</b>
+                <Copy as="span">The baseline its odds are figured against: an example, or a golden’s own last sessions.</Copy>
+              </div>
+              <Select label="Against" value={against} off={off} options={[{ value: '', label: EXAMPLE }, ...forks.map((g) => ({ value: g.path, label: g.name }))]} onChange={(x) => ((tried.golden = x), setGolden(x))} />
+            </div>
+          ) : null}
           {off ? (
             <Copy className="gdef">Paused until the dashboard server is back: the preview is the last it worked out.</Copy>
           ) : changed ? (
@@ -196,7 +221,7 @@ function Gates({ view, inc }: { view: CiWorkflowsView; inc: 'fail' | 'warn' }) {
             <p className="fieldnote err">{answer.refused}</p>
           </div>
         ) : p ? (
-          <Preview p={p} inc={inc} odds={odds} setOdds={setOdds} />
+          <Preview p={p} inc={inc} odds={odds} setOdds={setOdds} forks={forks} />
         ) : (
           <div className="pbody teamside gprev">{answer.error ? <p className="fieldnote err">{answer.error}</p> : null}</div>
         )}
@@ -223,8 +248,8 @@ function Verdict({ line }: { line: string }) {
   );
 }
 
-/** The preview of the answer's gate: what it tells apart, what each extreme takes, how it comes out, and CI's figure. */
-function Preview({ p, inc, odds, setOdds }: { p: GatePreview; inc: 'fail' | 'warn'; odds: boolean; setOdds: (open: boolean) => void }) {
+/** The preview of the answer's gate: what it tells apart, what each extreme takes, where its baseline came from, how it comes out, and CI's figure. */
+function Preview({ p, inc, odds, setOdds, forks }: { p: GatePreview; inc: 'fail' | 'warn'; odds: boolean; setOdds: (open: boolean) => void; forks: Forks }) {
   const g = p.gate;
   const sprt = g.kind === 'sprt';
   const tone = (line: string | null) => (line?.startsWith('passed') ? 'ok' : line?.startsWith('failed') ? 'err' : 'warn');
@@ -259,6 +284,7 @@ function Preview({ p, inc, odds, setOdds }: { p: GatePreview; inc: 'fail' | 'war
           </li>
         ))}
       </ul>
+      {p.from ? <Copy className="muted gfrom">{fromWords(p.from, forks)}</Copy> : null}
       <div className={`godw${odds ? ' open' : ''}`}>
         <div className="godh">
           <span className="k">{sprt ? 'how it comes out' : `how it comes out, against ${p.history?.passes ?? 0} of ${p.history?.attempts ?? 0}`}</span>

@@ -351,6 +351,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds,
   // worked out beside the server, since CI's figure plans a session.
+  // A gate against history is figured against the golden `golden` names, by its own last sessions.
   router.get('/tests/gate', async (r) => {
     let figures;
     try {
@@ -358,7 +359,10 @@ export function register(router: Router, ctx: RouteContext): void {
     } catch (err) {
       throw new HttpError(400, messageOf(err));
     }
-    sendAnswer(r, await ctx.reads.run({ kind: 'gate-preview', ...figures }));
+    const named = r.query.get('golden');
+    const source = named ? goldens().find((g) => g.path === knownGolden(goldens(), named) && !g.error) : null;
+    if (named && !source) throw new HttpError(400, 'golden: name a golden on disk');
+    sendAnswer(r, await ctx.reads.run({ kind: 'gate-preview', ...figures, golden: source ? { path: source.path, runId: source.runId, checks: source.checks } : null }));
   });
 
   // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that

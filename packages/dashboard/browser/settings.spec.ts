@@ -1,14 +1,15 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { dash, openPage, sideways } from './dashboard.js';
+import { dash, openPage, seriousViolations, sideways } from './dashboard.js';
 
 /**
  * Settings and Training on a phone, 390 px: no tab scrolls the page sideways (a table scrolls in a
  * box of its own), the tabs keep one row with the one shown in view, a row's label and line sit
  * over its control, a rule removed comes back from its toast's Undo, the file as it was, and
  * Settings → CI's workflow and, on Gates, a gate's odds, shown, scroll nothing sideways; nor does
- * the CI tab with the part and the lists it folds opened.
+ * the CI tab with the part and the lists it folds opened. Gates figures a gate against history
+ * against a golden's own last sessions, saying where its baseline came from.
  */
 
 const TABS = ['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store'];
@@ -136,4 +137,22 @@ test('a link to a gate’s kind opens Gates on it, the one CI’s address had to
   await expect(line.locator('.seg')).toHaveCount(0);
   await line.getByRole('link', { name: 'Settings → CI' }).click();
   await expect(page.locator('#workflow [aria-labelledby="inconclusive-name"] button[aria-pressed="true"]')).toHaveText('Fails');
+});
+
+test('Gates figures a gate against history against a golden’s own last sessions, saying where its baseline came from, with no serious axe violation', async ({ page }) => {
+  await openPage(page, '/settings/gates', 'main#view #gates .gsays');
+  await page.locator('#gates header .seg button', { hasText: 'fork · history' }).click();
+  const against = page.locator('#gates select[aria-label="Against"]');
+  await expect(against).toBeVisible();
+  const goldens = (await against.locator('option').allTextContents()).slice(1);
+  expect(goldens.length, 'the demo has goldens marked fork').toBeGreaterThan(0);
+  await against.selectOption({ label: goldens[0]! });
+  // Its own history, or the example standing in where it has none yet: never said as the example's.
+  const from = async () => (await page.locator('#gates .gfrom').textContent())?.replace(/\u00a0/g, ' ');
+  await expect.poll(from).toMatch(new RegExp(`^${goldens[0]!}(’s own history: its last \\d+ sessions?| has no session that passed on its baseline branch yet: an example stands in)$`));
+  expect(await seriousViolations(page)).toEqual([]);
+  // What was tried is kept while the dashboard is open: the example and fork · gate again.
+  await against.selectOption({ index: 0 });
+  await expect(page.locator('#gates .gfrom')).toHaveCount(0);
+  await page.locator('#gates header .seg button', { hasText: 'fork · gate' }).click();
 });

@@ -206,10 +206,12 @@ describe('Gates in the CI view', () => {
   });
 
   it('sends the config’s suite risk with the figures, and names the goldens each kind’s defaults stand for', async () => {
-    expect((await view()).gates).toEqual({ suiteRisk: 0.05, uses: { sprt: [], baseline: [] } });
+    expect((await view()).gates).toEqual({ suiteRisk: 0.05, uses: { sprt: [], baseline: [] }, forks: [] });
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { suiteRisk: 0.1 } }));
     const list = [golden('goldens/refund', { kind: 'sprt', ...SPRT_DEFAULTS }), golden('goldens/slow', { kind: 'sprt', ...SPRT_DEFAULTS, max: 40 }), golden('goldens/order', { kind: 'baseline', ...BASELINE_DEFAULTS }), golden('goldens/broken', { kind: 'sprt', ...SPRT_DEFAULTS }, 'run.json is missing'), golden('goldens/plain', null)];
-    expect(ciGates(project, list, 'goldens')).toEqual({ suiteRisk: 0.1, uses: { sprt: ['refund'], baseline: ['order'] } });
+    // A gate against history is figured against a readable golden marked fork, named as Tests names it.
+    const forks = ['refund', 'slow', 'order', 'plain'].map((name) => ({ path: `goldens/${name}`, name }));
+    expect(ciGates(project, list, 'goldens')).toEqual({ suiteRisk: 0.1, uses: { sprt: ['refund'], baseline: ['order'] }, forks });
     // A config that can't be read, or a suite risk it refuses, leaves the default: every session refuses the file meanwhile.
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { suiteRisk: 0.7 } }));
     expect(ciGates(project, [], 'goldens').suiteRisk).toBe(0.05);
