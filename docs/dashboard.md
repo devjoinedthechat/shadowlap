@@ -1957,13 +1957,15 @@ Credentials in a copied config:
 
 ### Project
 
-*Project* starts with the Shadowlap version: *open source, Apache-2.0 · no account, no limits on runs*. It shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
+*Project* starts with the Shadowlap version: *open source, Apache-2.0 · no account, no limits on runs*. It shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store. Under *This machine*, it says in amber what the server ignored of this machine's settings, and why: a relative `SHADOWLAP_HOME`.
 
 **Spending** is the row that sets when a billed job asks first: **Always ask**, **$0.50**, **$2** or **Never ask**, or an amount typed in dollars, kept once you press Enter or leave the field. See [Spending](#spending).
 
 - **It is yours**, on every project on this machine, kept under `SHADOWLAP_HOME` in `settings.json`, never in the project.
 - **Each change is kept at once**, with **Undo** in its toast (`Asks above $2 · on this machine`).
 - **Its words follow the setting**: *Ask before spending more than $0.50.* and *A job with no estimate always asks.*
+- **Until you change it**, it says *The default, until you change it.*
+- **What the server ignored** shows under it in amber, with why: a `settings.json` that isn't JSON, or a value that is no threshold.
 - **Change**, in a dialog's footer, opens this row with the field focused.
 
 ### Store

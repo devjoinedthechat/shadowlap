@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ProjectRegistry } from '@shadowlap/engine';
 import type { MatchingSettings, ProjectSettings } from '../src/settings.js';
 import { pageSig } from '../ui/focus.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
@@ -44,11 +45,13 @@ const project = {
   cleanup: { olderThanDays: 30 },
 } as unknown as ProjectSettings;
 
-function app(o: { matching?: MatchingSettings; version?: string | null } = {}): AppState {
+function app(o: { matching?: MatchingSettings; version?: string | null; warnings?: string[] } = {}): AppState {
   const never = () => new Promise<never>(() => undefined);
   const settings = { matching: async () => o.matching ?? matching(), project: async () => project, redaction: never, codingAgents: never, tools: never, store: never, spending: never };
+  // The project list, with what the server ignored of this machine's settings; none from a server that serves one store.
+  const projects = { list: async () => (o.warnings ? { items: [], notice: null, warnings: o.warnings } : null) };
   return {
-    client: { settings, startJob: async () => ({}), storeSetup: { view: never }, teamStore: async () => null, jobs: async () => [], ciWorkflows: never },
+    client: { settings, projects, startJob: async () => ({}), storeSetup: { view: never }, teamStore: async () => null, jobs: async () => [], ciWorkflows: never },
     meta: { version: 'version' in o ? o.version : '0.1.0', project: { id: 'research-agent', name: 'research-agent', path: '/work/research-agent' } },
     runs: [],
     feeds: {},
@@ -191,6 +194,17 @@ describe('Settings → Project', () => {
     // Clean up old runs says what it does on its card: what it would free first, then it asks.
     const clean = r.byText('.settab .setfoot .btn', 'Clean up old runs');
     expect(JSON.parse(clean.getAttribute('data-tip')!)).toMatchObject({ t: 'Clean up old runs', s: 'Shows what it would free, then asks before deleting', cmd: '$ shadowlap gc --older-than 30 --dry-run' });
+  });
+
+  it('says what the server ignored of this machine’s settings, and why, under This machine', async () => {
+    // A relative SHADOWLAP_HOME, as the project list's registry words it.
+    const { warnings } = new ProjectRegistry({ env: { SHADOWLAP_HOME: 'shadowlap-home' }, home: '/home/example' });
+    expect(warnings).toHaveLength(1);
+    addressBar('#/settings/project');
+    r = await page('project', app({ warnings }));
+    await r.until('This machine', () => r!.all('.settab dl.kvs dt').length === 7);
+    expect(r.all('.settab dl.kvs dt').at(-1)!.textContent).toBe('This machine');
+    expect(r.all('.settab dl.kvs dd.setwarn .ln').map((l) => l.textContent)).toEqual(warnings);
   });
 
   it('says what Shadowlap is here without a version when the dashboard has none', async () => {

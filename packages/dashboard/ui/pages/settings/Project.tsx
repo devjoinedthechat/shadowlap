@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { num } from '../../format.js';
 import { ONLY_PROJECT, useProjectRemoval } from '../../project-actions.js';
+import { useLoad } from '../../hooks.js';
 import { useApp } from '../../state.js';
 import { LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { bytesText, sizeNote } from './logic.js';
@@ -13,9 +14,9 @@ import { SpendingRow } from './SpendingRow.js';
 
 /**
  * Project: what Shadowlap is here (its version, its licence, no account), then the project's name,
- * store, runs and attempts, the store's size and the dashboard's address, what is data as code; Spending,
- * when a billed job asks before it starts (SpendingRow); Clean
- * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
+ * store, runs and attempts, the store's size and the dashboard's address, what is data as code, and
+ * what the server ignored of this machine's settings and why (MachineRow); Spending, when a billed
+ * job asks before it starts (SpendingRow); Clean up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
  * "Free X" for what deleted runs left unused); and Remove project…, which opens the projects
  * feature's own dialog, here in the page.
  */
@@ -23,6 +24,7 @@ export function ProjectTab() {
   const app = useApp();
   const { client } = app;
   const { data, error, reload } = useSettingsData(() => client.settings.project(), 'settings:project');
+  const machine = useMachineWarnings();
   const removal = useProjectRemoval();
   const [removing, setRemoving] = useState(false);
   const gone = useFolderGone();
@@ -86,8 +88,9 @@ export function ProjectTab() {
             <Words>local only, refuses other hosts</Words>
           </small>
         </dd>
+        <MachineRow warnings={machine} />
       </dl>
-      <SpendingRow />
+      <SpendingRow shown={machine} />
       <div className="pbody setfoot">
         <ActionButton
           className="btn"
@@ -106,5 +109,30 @@ export function ProjectTab() {
       </div>
       {removing && removal && current ? <removal.Dialog id={current.id} onClose={() => setRemoving(false)} /> : null}
     </Section>
+  );
+}
+
+const NONE: readonly string[] = [];
+
+/** What the server ignored of this machine's settings, and why (a relative SHADOWLAP_HOME), as the project list says it; none from a server that serves one store. */
+function useMachineWarnings(): readonly string[] {
+  const { client } = useApp();
+  return useLoad(() => client.projects.list(), 'settings:projects').data?.warnings ?? NONE;
+}
+
+/** This machine: what the server ignored of its settings, and why, a line each, in amber; no row while it ignored nothing. */
+function MachineRow({ warnings }: { warnings: readonly string[] }) {
+  if (!warnings.length) return null;
+  return (
+    <>
+      <dt>This machine</dt>
+      <dd className="setwarn">
+        {warnings.map((w) => (
+          <span key={w} className="ln">
+            {w}
+          </span>
+        ))}
+      </dd>
+    </>
   );
 }

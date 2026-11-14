@@ -53,7 +53,8 @@ const agents = (skill: SkillOffer): CodingAgentsSettings => ({ files: [{ path: '
 
 function app(o: { client: Partial<Client['settings']> & { startJob?: Client['startJob'] }; missing?: boolean; watchJob?: AppState['watchJob'] }): AppState {
   const { startJob, ...settings } = o.client;
-  const client = { settings, startJob: startJob ?? (async () => ({})), storeSetup: { view: async () => ({ active: false, next: null, setup: {}, ci: [] }) }, teamStore: async () => null, jobs: async () => [] };
+  // No project list, as a server that serves one store answers.
+  const client = { settings, startJob: startJob ?? (async () => ({})), storeSetup: { view: async () => ({ active: false, next: null, setup: {}, ci: [] }) }, projects: { list: async () => null }, teamStore: async () => null, jobs: async () => [] };
   return {
     client,
     meta: { project: { id: 'research-agent', name: 'research-agent', path: '/work/research-agent', ...(o.missing ? { problem: '~/research-agent doesn’t exist any more. Remove the project, or put the folder back.', missing: true } : {}) } },

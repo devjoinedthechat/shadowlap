@@ -5,7 +5,7 @@ import { useActionWait } from '../../components/ActionButton.js';
 import { Words } from '../../components/Copy.js';
 import { SegmentedControl } from '../../components/Segmented.js';
 import { coarsePointer } from '../../dom.js';
-import { showSpending, spendingNow, takeSpendingFocus, useSpending, type SpendingClient } from '../../spending.js';
+import { showSpending, showSpendingFacts, spendingNow, takeSpendingFocus, useSpending, useSpendingFacts, type SpendingClient } from '../../spending.js';
 import { useApp } from '../../state.js';
 import { errorText } from '../../toast.js';
 
@@ -22,6 +22,7 @@ export async function saveSpending(client: SpendingClient, v: Spending): Promise
   try {
     const kept = await api.setSpending(v);
     showSpending(kept.askAbove);
+    showSpendingFacts(kept);
     return kept.was;
   } catch (err) {
     showSpending(before);
@@ -40,11 +41,14 @@ const UNREAD = 'Spending is read from the dashboard server first';
  * so with Undo. An amount that isn't one puts the field back and says what one is. The row says the
  * new value where it stands, so the focus stays where it was. Change, on an ask's footer, lands here:
  * the field, or on a touch screen the pick pressed, so no keyboard opens over the row. It waits as
- * every server action does, the value still shown; an exported copy has no row.
+ * every server action does, the value still shown; an exported copy has no row. It says when the value
+ * is the default nobody set, and, in amber, what the server ignored in the file and why: a settings.json
+ * it can't read, or a relative SHADOWLAP_HOME, unless the page shows it already (`shown`).
  */
-export function SpendingRow() {
+export function SpendingRow({ shown = [] }: { shown?: readonly string[] }) {
   const app = useApp();
   const v = useSpending();
+  const facts = useSpendingFacts();
   const why = useActionWait(v === undefined ? UNREAD : null);
   const [text, setText] = useState<string | null>(null);
   const row = useRef<HTMLDivElement>(null);
@@ -94,6 +98,13 @@ export function SpendingRow() {
                 </span>
               ))
             : null}
+          {known && facts && !facts.set ? <span className="ln">The default, until you change it.</span> : null}
+          {/* What the server ignored in the file and why: a broken settings.json, a relative SHADOWLAP_HOME. */}
+          {(facts?.problems ?? []).filter((p) => !shown.includes(p)).map((p) => (
+            <span key={p} className="ln spendbad">
+              {p}
+            </span>
+          ))}
         </span>
       </div>
       <div className="spendset">
