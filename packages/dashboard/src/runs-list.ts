@@ -111,6 +111,12 @@ export interface RunRow extends RunListItem {
   /** For a run made in CI: the provider (`meta.ci`), such as `github`. */
   ci: string | null;
   /**
+   * A replay `shadowlap test` made: its golden and session (`meta.test`); null for any other run.
+   * Its agent's exit code is read by it (`exitCode`, exit-codes.ts), and a list tells a test replay
+   * that ended from a recording that did by it.
+   */
+  test: { golden: string; session: string } | null;
+  /**
    * Its outcome by checks (run-outcome.ts): its own, a capture's by the rules on calls, or its
    * family's goldens' judged from its recording; null when no check judges it. Absent while it isn't
    * judged yet: a long run past what a list reads, judged once its page or a later list reaches it.
@@ -462,6 +468,7 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       checks: checksOf(c),
       author: r.meta.author,
       ci: r.meta.ci,
+      test: r.meta.test ? { golden: r.meta.test.golden, session: r.meta.test.session } : null,
     };
   });
 }

@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { gateResult, Store } from '@shadowlap/engine';
 import { ambiguousRunId, lineage, listRuns, noSuchRun, runDetail } from '../src/api.js';
 import { exportHtml, type StaticPayload } from '../src/index.js';
+import { runJob } from '../src/read-jobs.js';
+import { endedRecordings } from '../ui/live.js';
+import { normalizeRuns } from '../ui/normalize.js';
+import type { RunListItem } from '../ui/types.js';
 import { recentRuns, type RunRow } from '../src/runs-list.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
 
@@ -54,6 +58,42 @@ describe('/api/runs', () => {
       [id.rec, 0, null],
       [id.probe, 1, 'probe'],
     ]);
+  });
+});
+
+describe('a test replay in the lists', () => {
+  it('carries its golden and session, and the code its agent exited with where its test result kept it, in every list and an exported copy', async () => {
+    const s = Store.open(':memory:');
+    const rec = addRun(s, { startedAt: NOW - DAY, calls: 'llll' });
+    const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund'], startedAt: NOW - HOUR }).sessionId;
+    const replay = addRun(s, { parent: rec, startedAt: NOW - HOUR, status: 'failed', calls: 'rrrr', meta: { test: { golden: 'goldens/refund', session } } });
+    // As `shadowlap test` keeps a replay whose agent exited with an error.
+    s.addTestResult({ sessionId: session, golden: 'goldens/refund', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: replay, at: NOW - HOUR + 1 });
+    const row = (rows: RunRow[]) => rows.find((r) => r.runId === replay);
+    const body = async (job: Parameters<typeof runJob>[1]) => JSON.parse((await runJob(s, job, { whole: true })).body) as { runs: RunRow[]; issues?: Array<{ runs: RunRow[] }> };
+    const want = { test: { golden: 'goldens/refund', session }, exitCode: 1 };
+    // The sidebar's /api/runs and Runs' table.
+    expect(row((await body({ kind: 'recent', read: {} })).runs)).toMatchObject(want);
+    expect(row((await body({ kind: 'runs-page', options: {}, team: null })).runs)).toMatchObject(want);
+    // An exported copy's list.
+    const html = exportHtml({ store: s, runIds: [replay, rec], uiDir, now: NOW }).html;
+    const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1]!.split('<\\/').join('</')) as StaticPayload;
+    expect(row((data.responses['runs'] as { runs: RunRow[] }).runs)).toMatchObject(want);
+    // A recording carries none.
+    expect((await body({ kind: 'recent', read: {} })).runs.find((r) => r.runId === rec)).toMatchObject({ test: null });
+    s.close();
+  });
+
+  it('is no recording to announce as it ends: a test session started in a terminal reports it', async () => {
+    const s = Store.open(':memory:');
+    const rec = addRun(s, { startedAt: NOW - DAY, calls: 'llll' });
+    const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund'], startedAt: NOW - HOUR }).sessionId;
+    const replay = addRun(s, { parent: rec, startedAt: NOW - HOUR, status: 'running', calls: 'rr', meta: { test: { golden: 'goldens/refund', session } } });
+    const listed = async () => normalizeRuns((JSON.parse((await runJob(s, { kind: 'recent', read: {} }, { whole: true })).body) as { runs: RunListItem[] }).runs);
+    const before = await listed();
+    s.endRun(replay, 'completed', NOW);
+    expect(endedRecordings(before, await listed())).toEqual([]);
+    s.close();
   });
 });
 
