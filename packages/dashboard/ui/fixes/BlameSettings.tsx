@@ -53,7 +53,8 @@ export function BlameSettingsDialog({ runId, offer: given, scope: picked, line, 
   // The run page's offer says the check, the agents and the temperature; one a list gave says less, so it is read again.
   const [offer, setOffer] = useState(given);
   useEffect(() => {
-    if (given.expect !== undefined || given.scopes || given.temperature0) return;
+    // A copy, or a page with no server, has no offers to read: the dialog asks with what it was given.
+    if (given.expect !== undefined || given.scopes || given.temperature0 || typeof client.offers !== 'function') return;
     let live = true;
     client.offers(runId).then(
       (o) => {

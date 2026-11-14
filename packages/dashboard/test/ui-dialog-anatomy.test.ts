@@ -362,7 +362,8 @@ describe('a run’s next steps that ask first', () => {
     let page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, estimate }), served());
     expect(JSON.parse(String(page.byText('button', 'Run blame').props['data-tip']))).toMatchObject({ est: { usd: 10.88, ceiling: true } });
     await pressBlame(page);
-    holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: OK, ok: 'Run blame' });
+    // Its settings are fields, the check it is judged by first, which the focus starts on.
+    holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: FIELD, ok: 'Run blame' });
     expect(page.one('[role="dialog"] .dcost').textContent.replace(/\u00a0/g, ' ')).toContain('At most ≈$10.88');
     expect(page.one('[role="dialog"] .dlgcost').textContent).toContain('Asks above $0.50');
     expect(page.one('[role="dialog"]').textContent).toContain(`shadowlap blame ${RUN.slice(0, 10)}`);
