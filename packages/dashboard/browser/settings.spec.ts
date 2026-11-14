@@ -8,7 +8,7 @@ import { dash, openPage, sideways } from './dashboard.js';
  * box of its own), the tabs keep one row with the one shown in view, a row's label and line sit
  * over its control, a rule removed comes back from its toast's Undo, the file as it was, and
  * Settings → CI's workflow and, on Gates, a gate's odds, shown, scroll nothing sideways; nor does
- * the CI tab with the part and the lists it folds opened.
+ * the CI tab with the part and the lists it folds opened, nor Settings → Store's Pull runs… dialog.
  */
 
 const TABS = ['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store'];
@@ -40,6 +40,25 @@ test('a Settings row puts its label and line over its control on a phone, a Swit
   expect(on!.y, 'the Switch under its line').toBeGreaterThanOrEqual(line!.y + line!.height);
   expect(link!.y, 'the link under the Switch').toBeGreaterThanOrEqual(on!.y + on!.height);
   await openPage(page, '/training', 'main#view .ph');
+  expect(await sideways(page)).toBe(0);
+});
+
+test('Settings → Store says when this machine last pushed and pulled, and Pull runs… builds its command as you type on a phone, scrolling nothing sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, '/settings/store', 'main#view dl.kvs');
+  const sync = page.locator('main#view dl.kvs dt:text-is("Last sync") + dd');
+  // Each part's dot kept with it by a no-break space.
+  await expect(sync).toHaveText(/^(never|pushed \S+\s·\spulled \S+)\s\d+ runs? in the store/);
+  await sync.getByRole('button', { name: 'Pull runs…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pull runs' });
+  const command = dialog.locator('.cmdline');
+  await expect(command).toHaveText('$shadowlap pull');
+  const runs = dialog.getByRole('textbox', { name: 'Runs' });
+  await runs.fill('01k5cq4n7g --all');
+  await expect(dialog.locator('.fieldnote.err')).toHaveText('--all is no run: name one by its id, or its first 4 characters or more.');
+  await runs.fill('01k5cq4n7g');
+  await dialog.getByRole('switch', { name: 'Pull requests’ runs too' }).click();
+  await expect(command).toHaveText('$shadowlap pull 01K5CQ4N7G --include-pr');
   expect(await sideways(page)).toBe(0);
 });
 

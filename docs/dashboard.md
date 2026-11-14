@@ -1975,7 +1975,7 @@ Credentials in a copied config:
 - the bucket, with its region and provider;
 - who has access, with **Copy access policy**, which copies what [`shadowlap store policy`](./team.md#access) prints, to ask your cloud admin for;
 - your access, with **Check again**;
-- the last sync, with the runs in the store and only on this machine, by run (attempts filed under their run);
+- when this machine last pushed and last pulled, with the runs in the store and only on this machine, by run (attempts filed under their run), and **Pull runs…**;
 - the last check, once there is one;
 - **Push local runs** and **Pull**;
 - Push from CI (every test run, its report and each fix CI opens), a switch with **Undo**, which [your workflow](#ci) on Settings → CI follows;
@@ -1984,6 +1984,8 @@ Credentials in a copied config:
 Beside Push from CI, **Open Your workflow** leads to Settings → CI, which writes the step with the rest of the job. For GitLab CI or another CI the setup picked, **Copy CI step** copies that CI's step in its place. A change's toast says, as Settings → CI's switches do, whether your workflow changes with it or is your repository's again.
 
 One button is lime, the next step: **Push local runs** while finished runs are only on this machine, else **Continue setup** while a setup is under way.
+
+**Pull runs…** pulls only the runs you name, by id or their first 4 characters or more, as the store lists them. Its switch brings the runs pull requests' CI jobs pushed to their own folders too, as `shadowlap pull --include-pr` does, and they stay on this machine. The dialog shows the command as you type.
 
 **Check again** runs [`shadowlap store check`](./team.md#check-access) as a job. It writes nothing to `shadowlap.config.json`, and a finished setup stays finished. Its result shows as the last check, and in the [activity feed](#activity).
 

@@ -34,6 +34,7 @@ export const DOCS = {
   injectionReport: { page: 'injection#the-security-report', what: 'Injection tests' },
   proveCause: { page: 'injection#prove-cause-on-an-incident', what: 'Injection tests' },
   imports: { page: 'cli#import', what: 'Imports' },
+  pushPull: { page: 'team#push-and-pull', what: 'Push and pull' },
   packs: { page: 'cli#pack-unpack', what: 'Packs' },
   datasets: { page: 'cli#export-dataset', what: 'Datasets' },
   traces: { page: 'cli#export-otel', what: 'Traces' },

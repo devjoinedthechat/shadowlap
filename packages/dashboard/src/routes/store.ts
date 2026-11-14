@@ -6,6 +6,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
+import { pullArgs, pullNameProblem, PULL_MAX } from '../store-pull.js';
 import { checkSetupUrl, isProvider, recordSetup, storeSetupView } from '../store-setup.js';
 import { editFolder, failed, writeCiPush, type CiPushWrite } from './settings-edits.js';
 import { readTeamStoreInput, teamStoreStatus, type TeamStoreStatus } from '../team-store.js';
@@ -184,13 +185,25 @@ export function register(router: Router, ctx: RouteContext): void {
     },
   });
 
-  // Pull: the team's runs and the labels and notes they changed. Runs pulled open from the drawer.
+  // Pull: the team's runs and the labels and notes they changed, or only the runs named as the store
+  // lists them (Settings → Store's Pull runs…), and with `includePr` the runs pull requests' CI jobs
+  // pushed to their own folders. Runs pulled open from the drawer.
   ctx.jobs.registerJobKind('pull', {
     title: () => 'Pulling from store',
-    build: () => {
+    build: (req) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       if (!teamStoreFor(ctx)) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
-      return { args: ['pull'] };
+      const named: unknown = req.runIds ?? [];
+      if (!Array.isArray(named)) return { error: 'runIds: the runs to pull, by id as the store lists them' };
+      if (named.length > PULL_MAX) return { error: `runIds: at most ${PULL_MAX} runs at once` };
+      const names: string[] = [];
+      for (const raw of named) {
+        const name = typeof raw === 'string' ? raw.trim() : '';
+        const problem = pullNameProblem(name);
+        if (problem) return { error: `runIds: ${problem}` };
+        if (!names.includes(name.toUpperCase())) names.push(name.toUpperCase());
+      }
+      return { args: pullArgs(names, req.includePr === true) };
     },
   });
 

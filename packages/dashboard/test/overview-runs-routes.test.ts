@@ -383,6 +383,19 @@ describe('the team store', () => {
       expect(res.status, JSON.stringify(body)).toBe(status);
     }
   });
+
+  it('pulls only the runs named as the store lists them, and the runs pull requests pushed once asked', async () => {
+    setConfig({ store: 's3://northwind-agent-runs/support-agent' });
+    // Runs a teammate pushed, not here: an id, or a prefix of one, each once, in capitals as the store lists them.
+    expect(await built({ kind: 'pull', runIds: ['01k5cq4n7g', '01K5CR0000000000000000ABCD', ' 01K5CQ4N7G'] })).toEqual(['pull', '01K5CQ4N7G', '01K5CR0000000000000000ABCD']);
+    expect(await built({ kind: 'pull', includePr: true })).toEqual(['pull', '--include-pr']);
+    expect(await built({ kind: 'pull', runIds: ['01K5CQ4N7G'], includePr: true })).toEqual(['pull', '01K5CQ4N7G', '--include-pr']);
+    // Nothing the CLI would read as a flag or a path, and no prefix too short to name one run.
+    for (const runIds of [['--all'], ['../runs'], ['01K'], '01K5CQ4N7G', [42]]) {
+      const res = await post(dash, 'jobs', { kind: 'pull', runIds });
+      expect(res.status, JSON.stringify(runIds)).toBe(400);
+    }
+  });
 });
 
 describe('imports', () => {
