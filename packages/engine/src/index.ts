@@ -137,6 +137,7 @@ export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-labe
 // What the dashboard and the terminal UI both say of a run: why it failed, how an attempt came out,
 // what a fork did differently from its parent and how each ended, and the good/bad key.
 export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, lostRange, lostWords, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
+export { acceptedWords, REASON_MAX, TAKEN_OUT_HEAD, type TakenOutNote } from './accepted.js';
 export { compareFork, comparePair, forkEnd, MAX_TOOL_CALLS, PATH_ROWS, pairDecisions, pairEnding, pathRows, ROW_TEXT, ROW_TOOLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite, type PairChange, type PairComparison, type PairDecisions, type PairEnd, type PairEnding, type PairOptions, type PathCall, type PathDecision, type PathRow } from './fork-changes.js';
 export { pairVerdict, type PairVerdict, type PairVerdictInput, type PairVerdictWords } from './pair-verdict.js';
 export { markChange, markKey, MARKS, markToast, type RunMark } from './run-marks.js';

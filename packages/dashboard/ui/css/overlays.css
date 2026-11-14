@@ -112,7 +112,7 @@
 @media (max-width: 640px) { .dialog .rmp .pn small.gpath { display: none; } }
 .form.one label + label { margin-top: 10px; }
 /* Apply fix names each golden it copies: goldens/ before the name, as the path it becomes; the field's edge is its frame's */
-.dialog .gnames { margin: 14px 0 0; }
+.dialog .gnames, .dialog .updwhy { margin: 14px 0 0; }
 .dialog .gnames label code { font-size: 11px; color: var(--dim); }
 .gnin { display: flex; align-items: center; border-radius: var(--r-control); border: 1px solid var(--field); background: var(--panel); }
 .gnin:focus-within { border-color: var(--accent-line); }

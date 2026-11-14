@@ -45,6 +45,8 @@ export interface HistoryCell {
   note: string | null;
   /** `test --update` re-recorded it there (the ring). */
   updated: boolean;
+  /** Why it was updated there, where the update kept a reason (`test --update --reason`): the latest one. */
+  reason?: string;
   runId: string | null;
   at: number | null;
 }
@@ -105,6 +107,12 @@ function dropOf(store: StoreOf<'tests'>, r: TestResult, columns: ReadonlySet<str
   return drop;
 }
 
+/** The reason the latest update among a revision's results kept, as a cell's field; none where none kept one. */
+function reasonOf(results: readonly TestResult[]): { reason?: string } {
+  const reason = results.find((x) => x.data?.updated?.reason)?.data?.updated?.reason;
+  return reason ? { reason } : {};
+}
+
 /**
  * A golden's cells, one for each revision of the table (`revisions`, oldest first), from its results
  * newest first (`list`): the newest result in each column, ringed when any session there updated
@@ -128,6 +136,7 @@ export function historyCells(store: StoreOf<'tests'>, list: readonly TestResult[
       drop: r && dropped ? dropOf(store, r, o.columns) : null,
       note: r ? o.note(r) : null,
       updated: here.some((x) => !!x.data?.updated),
+      ...reasonOf(here),
       runId: r ? o.runId(r) : null,
       at: r?.at ?? null,
     };

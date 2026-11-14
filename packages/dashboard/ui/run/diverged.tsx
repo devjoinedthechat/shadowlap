@@ -1,3 +1,4 @@
+import { reasonField } from '../update-reason.js';
 import { useState } from 'react';
 import type { NextStepKey } from '../../src/next-step.js';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
@@ -49,7 +50,7 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
   const r = run.run;
   const acts = jobsOffered(app, run, test);
   const add = acts.normalizer;
-  const addNormalizer = () => startTestsJob(app, JOB_KINDS.normalizeAndTest, { runId: r.runId, ...sentEstimate(prices.normalize) }, { ...bannerNormalizerAsk(test), estimate: prices.normalize });
+  const addNormalizer = (reason = '') => startTestsJob(app, JOB_KINDS.normalizeAndTest, { runId: r.runId, ...reasonField(reason), ...sentEstimate(prices.normalize) }, { ...bannerNormalizerAsk(test), estimate: prices.normalize });
   const ask: DivergedAsk | null = !test
     ? null
     : dialog === 'update'
@@ -57,7 +58,7 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
       : dialog === 'normalize' && add?.kind === 'job' && add.asks
         ? { kind: 'normalize', name: goldenName(test.golden), steps: add.asks, estimate: prices.normalize }
         : null;
-  const dialogs = ask && test && DivergedDialogs ? <DivergedDialogs ask={ask} onNormalize={addNormalizer} onClose={() => setDialog(null)} onUpdate={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: test.golden, ...sentEstimate(prices.update) })))} /> : null;
+  const dialogs = ask && test && DivergedDialogs ? <DivergedDialogs ask={ask} onNormalize={addNormalizer} onClose={() => setDialog(null)} onUpdate={(reason) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: test.golden, ...reasonField(reason), ...sentEstimate(prices.update) })))} /> : null;
   return {
     acts,
     /** What its jobs bill, as their cards say it and they keep it. */

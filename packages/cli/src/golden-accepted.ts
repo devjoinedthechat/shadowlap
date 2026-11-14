@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentCallsOf, comparePair, forkEnd, loadApiRequest, normalizeConversation, type CallRecord, type DivergenceReport, type Normalizer, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { acceptedWords, agentCallsOf, comparePair, forkEnd, loadApiRequest, normalizeConversation, type CallRecord, type DivergenceReport, type Normalizer, type RunRecord, type StoreOf } from '@shadowlap/engine';
 
 /**
  * A golden's accepted changes: who replaced it, when and why, kept beside its pack in
@@ -155,7 +155,5 @@ export function takenOut(divergence: DivergenceReport | null | undefined, accept
   return out;
 }
 
-/** An accepted change in a line: `accepted 2026-11-14 by dev@example.com: <reason> (fix fx-01M3…)`. */
-export function acceptanceLine(a: Acceptance): string {
-  return `accepted ${a.at.slice(0, 10)}${a.by ? ` by ${a.by}` : ''}: ${a.reason}${a.fix ? ` (fix ${a.fix})` : ''}`;
-}
+/** An accepted change in a line, in the engine's words: `accepted 2026-11-14 by dev@example.com: <reason> (fix fx-01M3…)`. */
+export const acceptanceLine = (a: Acceptance): string => acceptedWords(a);

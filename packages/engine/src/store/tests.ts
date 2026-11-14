@@ -4,6 +4,7 @@
  * session ran for, where it stands, and what the comment on it carried; the process running a
  * session not ended yet (test_session_owners); and the runs and revisions a test or a bisect reads.
  */
+import type { TakenOutNote } from '../accepted.js';
 import { isObject } from '../is-object.js';
 import { currentOwner, type RunOwner } from '../liveness.js';
 import type { GateResult } from '../stats.js';
@@ -149,7 +150,9 @@ export interface TestResultData {
   /** For a failure: the last lines the agent printed, as `test --markdown` shows them (at most 20, cut short). */
   output?: string;
   /** `test --update` re-recorded the golden: the run it replaced, the new one, its calls, and what the agent sends differently. */
-  updated?: { from: string | null; to: string; calls: number; changes?: string[] };
+  updated?: { from: string | null; to: string; calls: number; changes?: string[]; decides?: string[]; reason?: string };
+  /** A golden that diverged: the sentences its request takes out that an accepted change put in (its accepted.jsonl), each with when, by whom and why it was accepted. */
+  takesOut?: TakenOutNote[];
   /**
    * The golden's injection gate (`"injection"` under its tests entry): the result kept for it, the
    * attempts by verdict, what the gate allows, and whether it passed; `skipped` says why it planted

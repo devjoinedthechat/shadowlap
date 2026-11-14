@@ -2,7 +2,7 @@ import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateResult, Store, type StoredCheck } from '@shadowlap/engine';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
-import { failedRunsHref, goldenReports, switchCause, withFailedRuns, withStepHints, type TestsAnswer } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, switchCause, takenOutLines, withFailedRuns, withStepHints, type TestsAnswer } from '../src/golden-report.js';
 import { issueKey } from '../src/issue-keys.js';
 import { links } from '../src/links.js';
 import type { NextStep } from '../src/next-step.js';
@@ -537,6 +537,19 @@ describe('a request part on its own', () => {
     const line = one(dd, 'p.rpcause');
     expect(shownText(line).replace(/\u00a0/g, ' ')).toBe('The config change of migration mg-01M5000000 switched its model: claude-sonnet-4-5 → claude-sonnet-5-5.');
     expect(line.querySelectorAll('a').map((a) => [a.getAttribute('href'), a.textContent])).toEqual([['#/changes/migrate/mg-01M5000000000000000000000C', 'mg-01M5000000']]);
+  });
+
+  it('says what the change takes out of an accepted one, a line a sentence under the diff, in the server’s words, the sentence as code', async () => {
+    const takenOut = takenOutLines([{ sentence: 'Escalate refunds above $100.', at: '2026-11-14T10:00:00.000Z', by: null, reason: 'a $240 refund went out against policy' }, { sentence: 'Be brief.', at: '2026-11-15T10:00:00.000Z', by: null, reason: 'answers ran long' }], false);
+    const dd = await drawPart({ kind: 'request', runId: null, callNo: 1, against: null, bodies: BODIES, followed: FOLLOWED, takenOut });
+    await r!.until('the diff', () => dd.querySelectorAll('.rpdiff .jd .jl').length > 0);
+    expect(dd.children.map((c) => c.className)).toEqual(['diffpanel jdp rpdiff', 'rpc rpcause', 'rpc rpcause', 'rperrw q']);
+    const lines = dd.querySelectorAll('p.rpcause');
+    expect(lines.map((l) => shownText(l).replace(/\u00a0/g, ' '))).toEqual([
+      'This change takes out what an accepted change put in: Escalate refunds above $100., accepted 2026-11-14: a $240 refund went out against policy',
+      'This change takes out what an accepted change put in: Be brief., accepted 2026-11-15: answers ran long',
+    ]);
+    expect(lines.map((l) => l.querySelectorAll('code').map((c) => c.textContent))).toEqual([['Escalate refunds above $100.'], ['Be brief.']]);
   });
 
   it('draws only what followed where the divergence kept no changes: no diff panel, nothing asked', async () => {

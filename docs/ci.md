@@ -454,6 +454,7 @@ The JSON report carries the same under the result's `takesOut`, and the Markdown
 - **Sentences are matched whole.** A sentence reworded counts as taken out, and the note says so before the rule is lost by accident.
 - **`shadowlap fix apply` keeps a reason too.** Each golden it copies gets the fix as its reason, so a change that takes a fix's sentence out names the fix.
 - **`--reason` needs `--update`**, and applies to every golden that update replaces.
+- **The dashboard asks for it** in [Update golden's dialog](./dashboard.md#actions-on-tests), and shows the note in the golden's report on Tests.
 
 ### Which goldens are updated
 

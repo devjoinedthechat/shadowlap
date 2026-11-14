@@ -1,4 +1,4 @@
-import { baselineWords, checkLine, checkStatus, decisionsName, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofParts, rateBound, safe, safeLines, shortSessionId, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type ProofParts, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { acceptedWords, baselineWords, checkLine, checkStatus, decisionsName, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofParts, rateBound, safe, safeLines, TAKEN_OUT_HEAD, shortSessionId, testResultVerdict, unavailableStop, type AttemptReport, type TakenOutNote, type InjectionGateData, type InjectionReport, type PlantReport, type ProofParts, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import { crashError, type CrashError } from './crash-error.js';
 import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
@@ -50,9 +50,11 @@ export type ReportPart =
    * drawn with no notes, under `against`, the recording's call they're compared with. Then what followed from it, in grey:
    * the offline refusal the agent exited on, with the body it got. A divergence that kept no changes has no `runId`,
    * `bodies` or `against`, only what followed. `cause`, where an applied migration left the golden waiting at that call: the
-   * migration whose config change switched its model (`switchCause`), said once, on the Request's line.
+   * migration whose config change switched its model (`switchCause`), said once, on the Request's line. `takenOut`, where the
+   * request takes out what an accepted change put in (the golden's accepted.jsonl): a line for each sentence, with when and
+   * why that change was accepted (`takenOutLines`).
    */
-  | { kind: 'request'; runId: string | null; callNo: number; against: { runId: string; callNo: number } | null; bodies: { was: unknown; now: unknown } | null; followed: Followed | null; cause?: Piece[] }
+  | { kind: 'request'; runId: string | null; callNo: number; against: { runId: string; callNo: number } | null; bodies: { was: unknown; now: unknown } | null; followed: Followed | null; cause?: Piece[]; takenOut?: Piece[][] }
   /** A crash: the exception it died of, the file it was raised in (in the project where it can be), and the lines it printed last. */
   | ({ kind: 'error' } & CrashError)
   /** Which of the row's checks to draw, in the row's order: the row's own component draws them. */
@@ -142,7 +144,7 @@ const lines = (text: string, tone: (line: string) => ReportTone): ReportLine[] =
  * a leading `::` reads as it does in a CI log. A golden that couldn't run prints its line alone, and
  * an injection gate no tail. The notes the CLI prints under the line aren't kept with the result.
  */
-export function printedLines(name: string, r: TestResult): ReportLine[] {
+export function printedLines(name: string, r: TestResult, names = false): ReportLine[] {
   const inconclusive = testResultVerdict(r) === 'inconclusive';
   const out: ReportLine[] = [{ text: `${inconclusive ? '?' : '✗'} ${safe(name)}: ${safe(r.reason ?? (inconclusive ? 'inconclusive' : 'failed'))}`, tone: inconclusive ? 'y' : 'no' }];
   const data = r.data;
@@ -155,7 +157,21 @@ export function printedLines(name: string, r: TestResult): ReportLine[] {
   if (data.details) out.push(...lines(safeLines(data.details, '    '), (l) => (/^\s*- /.test(l) ? 'del' : /^\s*\+ /.test(l) ? 'add' : '')));
   const tail = r.failure === 'injection' || data.injection ? null : outputTail(data.output ?? '');
   if (tail) out.push(...lines(safeLines(tail, '    │ '), () => 'dim'));
+  // What the change takes out of an accepted one, as the CLI prints it under the golden.
+  if (data.takesOut?.length) {
+    out.push({ text: `    ! ${TAKEN_OUT_HEAD}`, tone: 'y' });
+    for (const t of data.takesOut) out.push({ text: `        ${safe(JSON.stringify(t.sentence))}`, tone: '' }, { text: `        ${safe(acceptedWords(named(t, names)))}`, tone: 'dim' });
+  }
   return out;
+}
+
+/** An accepted change with who accepted it only where names show. */
+const named = (t: TakenOutNote, names: boolean): TakenOutNote => (names ? t : { ...t, by: null });
+
+/** What a diverging request takes out of an accepted change, a line a sentence: the engine's lead, the sentence as code, then when and why it was accepted. */
+export function takenOutLines(notes: readonly TakenOutNote[] | undefined, names: boolean): Piece[][] {
+  const lead = `${TAKEN_OUT_HEAD[0]!.toUpperCase()}${TAKEN_OUT_HEAD.slice(1)} `;
+  return (notes ?? []).map((t) => [lead, { code: t.sentence }, `, ${acceptedWords(named(t, names))}`]);
 }
 
 const upstream = (r: TestResult): string | null => (r.data?.upstreamRequests === undefined ? null : plural(r.data.upstreamRequests, 'upstream request'));
@@ -258,6 +274,8 @@ function failureHint(failure: TestResult['failure'], reason: string): HintKey {
 }
 
 export interface ReportInput {
+  /** People's names show: a team store is configured. Without it, who accepted a change is left out. */
+  names?: boolean;
   store: StoreOf<'recording' | 'tests' | 'injection' | 'decisions'>;
   /** The goldens on disk, for the recording a golden replays and the checks it has now. */
   goldens: readonly GoldenSource[];
@@ -331,7 +349,8 @@ function divergenceParts(f: From, d: DivergenceView): Built {
   // A golden an applied migration left waiting says the switch once, on its Request's line, and its hint only why Update golden leads.
   const switched = switchOf(f.left, div);
   const request = requestPart(f, div);
-  if (request) parts.push(switched ? { ...request, cause: switchCause(switched) } : request);
+  const takenOut = takenOutLines(r.data?.takesOut, i.names ?? false);
+  if (request) parts.push({ ...request, ...(switched ? { cause: switchCause(switched) } : {}), ...(takenOut.length ? { takenOut } : {}) });
   return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint: switched ? { key: 'switch' } : divergenceHint(d) };
 }
 
@@ -571,7 +590,7 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput, lef
   if (answered?.found) built.parts.push({ kind: 'commit', found: answered.found });
   else if (answered?.missed) built.parts.push({ kind: 'missed', missed: answered.missed });
   const sub = [r.data?.updated ? `updated${r.revision ? ` at ${r.revision}` : ''}` : null, ...built.sub].filter((s): s is string => !!s);
-  return { golden: row.path, name: row.name, verdict, head: built.head, sub, parts: built.parts, open: built.open !== undefined ? built.open : openOf(from), failedRuns: null, hint: built.hint, printed: printedLines(row.name, r) };
+  return { golden: row.path, name: row.name, verdict, head: built.head, sub, parts: built.parts, open: built.open !== undefined ? built.open : openOf(from), failedRuns: null, hint: built.hint, printed: printedLines(row.name, r, i.names ?? false) };
 }
 
 /**

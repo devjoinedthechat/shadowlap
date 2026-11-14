@@ -31,6 +31,7 @@ import { GoldensTable } from '../tests/Table.js';
 import { leadStep, staleSub } from '../tests/lead.js';
 import { Verdict, type LeadPress } from '../tests/Verdict.js';
 import { bisectLive, runTestsCard, testsJob, updatesCard } from './tests-cards.js';
+import { reasonField } from '../update-reason.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 
 /**
@@ -175,8 +176,8 @@ export function TestsPage() {
           has={hasKind}
           estimate={open.estimate}
           onClose={() => setOpen(null)}
-          onUpdate={() => start(JOB_KINDS.testUpdate, open.paths.length === 1 ? { golden: open.paths[0] } : { goldens: open.paths }, undefined, open.estimate)}
-          onInstead={(i) => (i.run === 'normalize-update-all' ? start(JOB_KINDS.testUpdate, { goldens: i.goldens, normalize: true }, undefined, open.estimate) : start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden }, divergedAsk(view, i.golden, i.run)))}
+          onUpdate={(reason) => start(JOB_KINDS.testUpdate, { ...(open.paths.length === 1 ? { golden: open.paths[0] } : { goldens: open.paths }), ...reasonField(reason) }, undefined, open.estimate)}
+          onInstead={(i, reason) => (i.run === 'normalize-update-all' ? start(JOB_KINDS.testUpdate, { goldens: i.goldens, normalize: true, ...reasonField(reason) }, undefined, open.estimate) : start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden, ...(i.run === 'normalize-update' ? reasonField(reason) : {}) }, divergedAsk(view, i.golden, i.run)))}
         />
       ) : null}
       {open?.kind === 'bisect' ? (

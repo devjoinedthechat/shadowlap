@@ -1,3 +1,4 @@
+import { reasonField } from '../update-reason.js';
 import { useEffect, useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
@@ -153,7 +154,7 @@ function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'u
       <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
       </TestsJobButton>
-      {asking ? <StepDialogPart ask={{ kind: 'update', step, onOk: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: step.golden }))) }} onClose={() => setAsking(false)} /> : null}
+      {asking ? <StepDialogPart ask={{ kind: 'update', step, onOk: (reason) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: step.golden, ...reasonField(reason) }))) }} onClose={() => setAsking(false)} /> : null}
     </>
   );
 }

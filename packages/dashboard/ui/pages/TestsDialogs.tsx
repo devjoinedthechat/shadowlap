@@ -26,9 +26,9 @@ import { bisectCard } from './tests-cards.js';
  * Update golden, or Update goldens for every diverged one. `has` says which jobs the server runs;
  * `onInstead` runs the lime way on beside Update anyway, when there is one.
  */
-export function UpdateGoldensDialog({ view, paths, has, estimate, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; estimate?: Estimate | null | undefined; onUpdate: () => unknown; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => unknown; onClose: () => void }) {
+export function UpdateGoldensDialog({ view, paths, has, estimate, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; estimate?: Estimate | null | undefined; onUpdate: (reason: string) => unknown; onInstead: (instead: NonNullable<UpdatePlan['instead']>, reason: string) => unknown; onClose: () => void }) {
   const plan = updatePlan(view, paths, has);
-  return <UpdateGoldenDialog plan={plan} estimate={estimate} onUpdate={onUpdate} {...(plan.instead ? { onInstead: () => onInstead(plan.instead!) } : {})} onClose={onClose} />;
+  return <UpdateGoldenDialog plan={plan} estimate={estimate} onUpdate={onUpdate} {...(plan.instead ? { onInstead: (reason: string) => onInstead(plan.instead!, reason) } : {})} onClose={onClose} />;
 }
 
 /**
