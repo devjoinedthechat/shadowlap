@@ -103,6 +103,8 @@ The change can also be a request field instead of code: `--model` and `--set key
 
 A fix inside a tool needs `--live-tool <name>`. A tool call whose arguments didn't change is served from the recording, so without the flag the fixed code never runs. The report says so when it happens: *read_policy changed since the recording; pass --live-tool read_policy to run it live*.
 
+The warning reads the tool's own function. A change in code the tool calls, such as a helper or a constant in another file, changes no request and no function Shadowlap sees: every run replays clean, and the change is accepted with no warning. Name the tool with `--live-tool` whenever the change is in what a tool does or reads.
+
 ## Good runs against their own baseline
 
 A good run is no evidence on its own. One that passes 90% of the time unchanged fails a gate between 90% and 70% from time to time. Judged by the gate alone, a perfect change would be rejected when there were several such runs, and one that slid from 99% to 84% under the change would still pass the gate two times in three.
@@ -445,7 +447,7 @@ A footprint is `{ inputTokens, outputTokens, cost }`, with `cost` null when a mo
 ## Limits
 
 - **Replays run in today's environment.** A replay re-runs a run's recorded command, but in the environment verify runs in, not the one the run was recorded in. If what makes a run *that* run comes from an environment variable (which customer, which ticket), every run replays with today's value. Pass it as an argument instead, where the recorded command keeps it.
-- **A tool's own code runs only with `--live-tool`**: a call whose arguments didn't change is served from the recording ([a fix inside a tool](#a-fix-inside-a-tool)).
+- **A tool's own code runs only with `--live-tool`**: a call whose arguments didn't change is served from the recording ([a fix inside a tool](#a-fix-inside-a-tool)). A change in code the tool calls is not warned about.
 - **A person's answers come in the order given.** After the fork no one is there to type, so each attempt gets a person's recorded answers in order, whatever the agent then asked. Where the change alters the conversation, they may not fit it. The report warns when an attempt got any ([reading the report](#reading-the-report)).
 - **A short history knows little**: against 50 attempts, a run at 90% with no drop is kept 18.9% of the time ([against history](#against-history)).
 
