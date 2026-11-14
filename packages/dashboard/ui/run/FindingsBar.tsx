@@ -216,6 +216,7 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
     notRecorded: run.notRecorded ?? null,
     checks: p.checks,
     fix: run.fix ?? null,
+    fixRole: run.fixRole ?? null,
     upstreamRequests: run.summary.upstreamRequests,
     spent: run.summary.cost.spent,
     crash: p.offers?.crash ?? null,
@@ -250,7 +251,7 @@ function fixLink(x: Draw, step?: string): ReactNode {
   const fix = x.run.fix;
   if (!fix) return null;
   if (x.leads('fix')) {
-    const st = fixStatusWords(fix.status);
+    const st = fixStatusWords(fix);
     return (
       <span className={`st ${st.tone}`} title={`“${fix.title}” is ${st.why}`}>
         <i />
@@ -462,6 +463,18 @@ function ChecksFinding({ b, x, s }: { b: Of<'checks'>; x: Draw; s: Slot }) {
   );
 }
 
+/** A good run of a fix: that it is, and the way to the fix (`fixLink`), muted, as nothing is wrong with it. */
+function KeptFinding({ b, x, s }: { b: Of<'kept'>; x: Draw; s: Slot }) {
+  return (
+    <section className={cls('n', s)}>
+      <span className="bk">good run</span>
+      <Why>{b.why}</Why>
+      <span className="end">{fixLink(x)}</span>
+      {s.more}
+    </section>
+  );
+}
+
 /** Its weight's colour: amber to look at, muted for a test replay its golden passed since, else red. */
 const failedTone = (b: Of<'failed'>): string => (bannerSeverity(b) === 1 ? 'inc' : b.fixedBy ? 'n' : 'blame');
 
@@ -508,6 +521,8 @@ function BannerFinding({ b, x, s }: { b: BannerView; x: Draw; s: Slot }) {
       return <ChecksFinding b={b} x={x} s={s} />;
     case 'failed':
       return <FailedFinding b={b} x={x} s={s} />;
+    case 'kept':
+      return <KeptFinding b={b} x={x} s={s} />;
   }
 }
 

@@ -1,5 +1,6 @@
-import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, labelledFixes, lostRange, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedSaid, unsettledFirst } from '@shadowlap/engine';
-import { fixHref, isUnblamedFailure, runHref, toolsCalled } from './fix-shared.js';
+import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, fixRecords, labelledFixes, lostRange, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedSaid, unsettledFirst } from '@shadowlap/engine';
+import { changeWords } from './fix-list.js';
+import { brokenOf, fixHref, type FixPr, type FixRung, isUnblamedFailure, prOf, rungOf, runHref, toolsCalled } from './fix-shared.js';
 import type { RunIndex } from './run-index.js';
 
 /** A run's fix, as its page shows it: the fix it fails in, and what blame found of it. */
@@ -11,6 +12,13 @@ export interface FixRef {
   status: FixStatus;
   label: string | null;
   check: string;
+  /** Where it stands on the ladder Fixes says (`rungOf`): open, blamed, verified, applied, or merged with its pull request. */
+  rung: FixRung;
+  pr: FixPr | null;
+  /** Why an applied fix doesn't hold (`brokenOf`), as Fixes and Needs a look say it; null when it holds, or isn't applied. */
+  broken: string | null;
+  /** For an open fix, what changed and what verify made of it, as Needs a look says it (`changeWords`); null where nothing changed. */
+  change: string | null;
 }
 
 /** What a run page's blame banner says: lost at #n (or around or between two calls), model call k of m, the confidence, and in a few words what asking again did. */
@@ -50,7 +58,8 @@ export interface FixForRun {
 
 /** A fix as a run's page and its next step name it. */
 export function fixRef(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix): FixRef {
-  return { fixId: fix.fixId, href: fixHref(fix.fixId), title: fix.title, status: fix.status, label: fixLabelInfo(store, fix).label, check: fix.check.text };
+  const rec = fixRecords(store, fix);
+  return { fixId: fix.fixId, href: fixHref(fix.fixId), title: fix.title, status: fix.status, label: fixLabelInfo(store, fix).label, check: fix.check.text, rung: rungOf(rec), pr: prOf(rec), broken: brokenOf(rec), change: fix.status === 'open' ? changeWords(rec) : null };
 }
 
 /**

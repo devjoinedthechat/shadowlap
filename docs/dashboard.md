@@ -514,7 +514,8 @@ What each step does:
 
 - **Run tests** runs the whole session, as Tests' header does, at its estimate. Its hover says the checks changed since this test, which the session judges as they stand, and its finding names the checks gone.
 - **Edit check…** opens the [check builder](#making-a-check) on the golden, at the check. The golden's own recording fails it, so either the check is wrong, or the golden needs an update because the agent should do this. An exported copy offers none.
-- **Open fix**: its hover names the fix, and the failure's finding says how the fix stands, *fix open* or *fix verified*, where it linked it.
+- **Open fix**: its hover names the fix, and the failure's finding says how the fix stands, where it linked it, as Fixes says it. It reads *fix open* (with what changed, if anything), *fix verified*, *fix applied* or *fix merged · PR #138*, and *fix broken* in red for an applied fix that doesn't hold.
+- **A good run of a fix**, one a repair or a verify of it kept, says so in its finding when nothing else is found, with **Fix →**.
 - **Run blame** isn't offered on a run that made no model call, or on one that was stopped: blame needs a run that fails again as recorded. On a capture, it asks for your command first.
 - **Compare with parent** leads for a fork, and for an attempt: a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result.
 - **Update golden**: a change it was made for reads as a changed system prompt, a tool's definition or the model, which go into every request.

@@ -57,7 +57,10 @@ export interface BannerInput {
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
   checks: ReadonlyArray<JudgedCheck & { label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
-  fix: { id: string; status: string; title: string } | null;
+  /** The fix the run fails in, or keeps passing for (`fixRole` `good`), with how it stands where the server says (FixView). */
+  fix: { id: string; status: string; title: string; rung?: string | null; broken?: string | null; change?: string | null } | null;
+  /** How the run takes part in its fix (`RunDetail.fixRole`): `good`, a run a repair or a verify of it kept. */
+  fixRole?: string | null;
   upstreamRequests: number;
   /** What the run spent live, in dollars, which a test that went live from its fork says. */
   spent?: number;
@@ -176,7 +179,9 @@ export type Banner =
    * as the label instead, the failure in its `why`: `stopped` and `inconclusive` need a look (amber), `not rescued` is a
    * failure. `fixedBy`: the run that passed since, for a test replay its golden's next replay passed, whose `why` says so.
    */
-  | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState; fixedBy?: string };
+  | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState; fixedBy?: string }
+  /** A run a fix keeps passing (a good run a repair or a verify of it kept), with the way to the fix. */
+  | { kind: 'kept'; fix: { id: string; status: string; title: string }; why: string };
 
 /** What made a fork diverge, in words. */
 export const DIVERGED: Readonly<Record<string, string>> = {
@@ -736,9 +741,21 @@ function fixedBanner(i: BannerInput, by: string): Banner | null {
   return { kind: 'failed', lead: crash?.line ?? failure.replace(/^check failed: /, ''), why: fixedByWords(by), fix: i.fix, blamed: true, fixedBy: by };
 }
 
-/** How the fix that lists a failed run stands, in the finding's words; null when none does. */
+/**
+ * How the fix that lists a failed run stands, in the finding's words, as Fixes says it: open with
+ * what changed (or no change yet), fixed and how far (verified, applied, merged), or applied and
+ * broken since. Null when none lists it.
+ */
 function fixState(fix: BannerInput['fix']): string | null {
-  return fix ? (fix.status === 'open' ? `no change yet for “${fix.title}”` : `fixed: “${fix.title}”, ${fix.status}`) : null;
+  if (!fix) return null;
+  if (fix.status === 'open') return fix.change ? `“${fix.title}”: ${fix.change}` : `no change yet for “${fix.title}”`;
+  if (fix.status === 'applied' && fix.broken) return `“${fix.title}” is applied but doesn’t hold · ${fix.broken}`;
+  return `fixed: “${fix.title}”, ${fix.rung === 'merged' ? 'merged' : fix.status}`;
+}
+
+/** A run that passed which a fix keeps passing (a good run of it), when nothing else is found: it says so, with the way to the fix. */
+function keptBanner(i: BannerInput): Banner | null {
+  return i.fixRole === 'good' && i.fix ? { kind: 'kept', fix: { id: i.fix.id, status: i.fix.status, title: i.fix.title }, why: `a good run of “${i.fix.title}”: a change for it must keep this run passing` } : null;
 }
 
 /**
@@ -756,7 +773,7 @@ export function ownBanner(i: BannerInput): Banner | null {
   // An attempt of blame, verify or --repeat is one sample of many: it says so, and how it came out.
   if (i.attempt) return attemptBanner(i, i.attempt, null);
   if (d && !forkedTest(i)) return i.type === 'test' ? divergedBanner(i, d) : forkBanner(i, d);
-  return lostBanner(i.blame) ?? checksBanner(i) ?? (i.interrupted ? { kind: 'interrupted', why: interruptedWhy(i) } : null) ?? failedBanner(i);
+  return lostBanner(i.blame) ?? checksBanner(i) ?? (i.interrupted ? { kind: 'interrupted', why: interruptedWhy(i) } : null) ?? failedBanner(i) ?? keptBanner(i);
 }
 
 /** What the run did that Shadowlap did not record: a finding of its own, so it never hides the failure after it. */

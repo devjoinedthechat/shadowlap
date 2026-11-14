@@ -188,6 +188,10 @@ describe('the run’s banner', () => {
     const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };
     expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ lead: 'the agent exited with an error', why: 'no change yet for “Confirmation email sent twice”', fix });
     expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ lead: 'the agent exited with an error', why: 'fixed: “Confirmation email sent twice”, verified' });
+    // How the fix stands, as Fixes says it: merged with its pull request; applied, and broken since; open with a change.
+    expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified', rung: 'merged' } })).toMatchObject({ why: 'fixed: “Confirmation email sent twice”, merged' });
+    expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'applied', rung: 'applied', broken: 'shadowlap test failed on its goldens' } })).toMatchObject({ why: '“Confirmation email sent twice” is applied but doesn’t hold · shadowlap test failed on its goldens' });
+    expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, change: 'prompt change, not verified yet' } })).toMatchObject({ why: '“Confirmation email sent twice”: prompt change, not verified yet' });
     // A blame that placed it on no call says how it stands as its label, in the engine's word, and what that stands on.
     expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'from any model call · the run was interrupted', fix: null, blamed: true, label: 'not rescued' });
     expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · before it found the call', blamed: true, label: 'stopped' });
@@ -298,6 +302,14 @@ describe('blame and checks on a run', () => {
     expect(normalizeOutcome({ kind: 'lost', callNo: 4, range })).toEqual({ kind: 'lost', callNo: 4, range: gradual });
     // One from a pack whose range is no two calls in order reads as lost at the call.
     expect(normalizeOutcome({ kind: 'lost', callNo: 4, range: { from: 6, to: 4, gradual: true } })).toEqual({ kind: 'lost', callNo: 4 });
+  });
+
+  it('takes how the server says a run’s fix stands, and that the run is a good run of it', () => {
+    const f = normalizeFix({ role: 'good', fix: { fixId: 'fx-1', title: 't', status: 'applied', href: '#/fixes/fx-1', check: 'c', rung: 'merged', pr: { number: 42, url: 'https://github.com/example/agent/pull/42', state: 'merged' }, broken: 'shadowlap test failed on its goldens', change: null } });
+    expect(f).toMatchObject({ role: 'good', fix: { id: 'fx-1', status: 'applied', rung: 'merged', pr: { number: 42 }, broken: 'shadowlap test failed on its goldens', change: null } });
+    // A good run of a fix says so, with the way to it, where nothing else is found.
+    const passed: BannerInput = { status: 'completed', type: 'recording', divergence: null, intervention: null, rescued: null, blame: null, notRecorded: null, checks: [], fix: null, upstreamRequests: 15 };
+    expect(bannerFor({ ...passed, fix: { id: 'fx-1', status: 'verified', title: 'Refund over the limit' }, fixRole: 'good' })).toEqual({ kind: 'kept', fix: { id: 'fx-1', status: 'verified', title: 'Refund over the limit' }, why: 'a good run of “Refund over the limit”: a change for it must keep this run passing' });
   });
 
   it('takes the server’s checks with their counts, else the stored ones', () => {

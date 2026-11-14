@@ -123,6 +123,12 @@ function normalizeBlame(v: unknown): BlameView | null {
 
 const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];
 
+/** How a fix stands, as the server's FixRef says it: its rung, its pull request's number, why an applied one doesn't hold, what changed for an open one. */
+function fixStanding(f: Record<string, unknown>): Pick<FixView, 'rung' | 'pr' | 'broken' | 'change'> {
+  const pr = isObject(f.pr) ? { number: int(f.pr.number) } : null;
+  return { rung: str(f.rung), pr, broken: str(f.broken), change: str(f.change) };
+}
+
 /**
  * The fix a run belongs to, in either shape: `{id, status, title}`, or how the run takes part in
  * Fixes as the fixes read model says it (`{role, fix: {fixId, title, status, href}, blame}`).
@@ -136,7 +142,7 @@ export function normalizeFix(v: unknown): { fix: FixView | null; role: string | 
   const role = typeof v.role === 'string' && FIX_ROLES.includes(v.role) ? v.role : null;
   if (!role) return none;
   const f = v.fix;
-  const fix = isObject(f) && typeof f.fixId === 'string' ? { id: f.fixId, status: str(f.status) ?? 'open', title: str(f.title) ?? f.fixId, href: str(f.href), check: str(f.check) } : null;
+  const fix = isObject(f) && typeof f.fixId === 'string' ? { id: f.fixId, status: str(f.status) ?? 'open', title: str(f.title) ?? f.fixId, href: str(f.href), check: str(f.check), ...fixStanding(f) } : null;
   const b = v.blame;
   let blame: BlameView | null = null;
   if (role === 'failing' && isObject(b)) {

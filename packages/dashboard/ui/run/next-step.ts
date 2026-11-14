@@ -105,7 +105,7 @@ function stepForm(step: NextStep): boolean {
  * dialog says the rest.
  */
 export function stepCard(step: NextStep): StepCard {
-  const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
+  const own = step.key === 'fix' ? fixStatusWords({ status: step.status, ...step.standing }).why : step.key === 'blame' ? blameTitle(step.offer) : null;
   return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step, stepForm(step)) };
 }
 
@@ -125,12 +125,24 @@ export function stepCostLine(step: NextStep): { price: string; parts: string[]; 
   return { price, parts, estimate: step.estimate };
 }
 
+/** A fix as the run page names how it stands: its status, and where the server says them, its rung on Fixes' ladder, its pull request, why an applied one doesn't hold and what changed for an open one. */
+export interface FixStandingOf {
+  status: string;
+  rung?: string | null;
+  pr?: { number: number | null } | null;
+  broken?: string | null;
+  change?: string | null;
+}
+
 /**
- * A fix's status as the run page's Open fix says it on hover and its banner beside it: open until a
- * change is verified, then verified, then applied.
+ * A fix's status as the run page's Open fix says it on hover and its banner beside it, as Fixes
+ * says it: open until a change is verified (with what changed, when something did), then verified,
+ * then applied, or merged with its pull request; an applied fix that doesn't hold is broken, in red.
  */
-export function fixStatusWords(status: string): { tone: 'warn' | 'ok'; text: string; why: string } {
-  if (status === 'open') return { tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' };
-  if (status === 'applied') return { tone: 'ok', text: 'fix applied', why: 'applied: its change is in your working tree' };
-  return { tone: 'ok', text: `fix ${status}`, why: `${status}: a change fixed its failing runs, ready to apply` };
+export function fixStatusWords(fix: FixStandingOf): { tone: 'warn' | 'ok' | 'err'; text: string; why: string } {
+  if (fix.status === 'applied' && fix.broken) return { tone: 'err', text: 'fix broken', why: `applied, but it doesn’t hold: ${fix.broken}` };
+  if (fix.status === 'open') return { tone: 'warn', text: 'fix open', why: fix.change ? `open: ${fix.change}` : 'open: no change has been verified for it yet' };
+  if (fix.rung === 'merged') return { tone: 'ok', text: fix.pr?.number != null ? `fix merged · PR #${fix.pr.number}` : 'fix merged', why: 'merged: its change shipped with its pull request' };
+  if (fix.status === 'applied') return { tone: 'ok', text: 'fix applied', why: 'applied: its change is in your working tree' };
+  return { tone: 'ok', text: `fix ${fix.status}`, why: `${fix.status}: a change fixed its failing runs, not applied yet` };
 }

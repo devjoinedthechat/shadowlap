@@ -119,13 +119,23 @@ describe('the run page’s next step', () => {
     expect(lime(page)).toEqual(['Open fix']);
     const open = page.byText('.rhead .actions a', 'Open fix');
     expect(open.props.href).toBe(verified.href);
-    expect(tip(open)).toMatchObject({ t: `“${verified.title}”`, s: 'verified: a change fixed its failing runs, ready to apply' });
+    // Verified and not applied: never "ready to apply", which a patch merged or in the working tree already isn't.
+    expect(tip(open)).toMatchObject({ t: `“${verified.title}”`, s: 'verified: a change fixed its failing runs, not applied yet' });
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     // The banner says how the fix stands instead of linking it again.
     expect(shownText(page.one('.banner .bk'))).toBe('lost at');
     expect(page.all('.banner a').some((a) => a.textContent === 'Fix →')).toBe(false);
     expect(page.one('.banner .st').className).toBe('st ok');
     expect(page.one('.banner .st').textContent).toBe('fix verified');
+  });
+
+  it('says on the run page a fix applied whose goldens failed since is broken, in red, never applied in lime', async () => {
+    const broken = { ...verified, status: 'applied', rung: 'applied', broken: 'shadowlap test failed on its goldens' };
+    const run = detail({ state: failedState, fix: broken, blame: lost, next: { ...FIX, status: 'applied', standing: { rung: 'applied', pr: null, broken: broken.broken, change: null } } });
+    page = await render(both(run));
+    expect(tip(page.byText('.rhead .actions a', 'Open fix'))).toMatchObject({ s: 'applied, but it doesn’t hold: shadowlap test failed on its goldens' });
+    expect(page.one('.banner .st').className).toBe('st err');
+    expect(page.one('.banner .st').textContent).toBe('fix broken');
   });
 
   it('says a run lost gradually around two calls so in its banner, each call one to select, never lost at the first', async () => {
@@ -141,9 +151,18 @@ describe('the run page’s next step', () => {
     expect(selected).toEqual([7]);
   });
 
-  it('says an open fix is open, in amber', () => {
-    expect(fixStatusWords('open')).toEqual({ tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' });
-    expect(fixStatusWords('applied').text).toBe('fix applied');
+  it('says an open fix is open, in amber, and how a fix stands as Fixes says it', () => {
+    expect(fixStatusWords({ status: 'open' })).toEqual({ tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' });
+    expect(fixStatusWords({ status: 'open', change: 'prompt change, not verified yet' }).why).toBe('open: prompt change, not verified yet');
+    expect(fixStatusWords({ status: 'applied' }).text).toBe('fix applied');
+    // Applied, but its goldens failed since: broken, in red, never "applied" in lime.
+    expect(fixStatusWords({ status: 'applied', rung: 'applied', broken: 'shadowlap test failed on its goldens' })).toEqual({ tone: 'err', text: 'fix broken', why: 'applied, but it doesn’t hold: shadowlap test failed on its goldens' });
+    // Merged with its pull request: it shipped, and nothing waits to apply.
+    expect(fixStatusWords({ status: 'verified', rung: 'merged', pr: { number: 42 } })).toEqual({ tone: 'ok', text: 'fix merged · PR #42', why: 'merged: its change shipped with its pull request' });
+    // Verified, not applied: never "ready to apply", which a patch in the working tree already isn't.
+    expect(fixStatusWords({ status: 'verified', rung: 'verified' })).toEqual({ tone: 'ok', text: 'fix verified', why: 'verified: a change fixed its failing runs, not applied yet' });
+    // Open fix's card on the header says the same.
+    expect(stepCard({ ...FIX, status: 'applied', standing: { rung: 'applied', pr: null, broken: 'shadowlap test failed on its goldens', change: null } }).sub).toBe('applied, but it doesn’t hold: shadowlap test failed on its goldens');
   });
 
   it('blames a failure nobody blamed, with what it bills on its hover, and the banner doesn’t offer it again', async () => {
