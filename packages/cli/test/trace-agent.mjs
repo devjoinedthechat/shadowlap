@@ -3,7 +3,9 @@
 // calls the trace could serve. API_VERSION names another API version than this SDK's release does,
 // as a later release of the SDKs names 2026-10-21.
 //
-//   [API_VERSION=2026-10-21] node trace-agent.mjs ["question"]
+// AGENT_SYSTEM replaces the system prompt, as a fix to it would.
+//
+//   [API_VERSION=2026-10-21] [AGENT_SYSTEM=…] node trace-agent.mjs ["question"]
 import Anthropic from '@anthropic-ai/sdk';
 import { tool } from '@shadowlap/sdk';
 
@@ -11,7 +13,7 @@ const version = process.env.API_VERSION;
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? 'test-key', maxRetries: 0, ...(version ? { defaultHeaders: { 'anthropic-version': version } } : {}) });
 const lookupOrder = tool('lookup_order', { effect: 'read' }, async ({ order_id }) => ({ order_id, amount: 240, status: 'delivered', source: 'ran live' }));
 const tools = [{ name: 'lookup_order', description: 'Look an order up by its id.', input_schema: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] } }];
-const system = 'You are a support agent. Look the order up before you answer.';
+const system = process.env.AGENT_SYSTEM || 'You are a support agent. Look the order up before you answer.';
 const messages = [{ role: 'user', content: process.argv[2] ?? 'Where is my order A-1042?' }];
 
 for (let turn = 0; turn < 5; turn++) {
