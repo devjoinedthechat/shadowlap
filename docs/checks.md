@@ -6,6 +6,9 @@ One `expect` object holds the checks wherever a run is judged:
 
 - **A golden** takes it under `tests` in `shadowlap.config.json` ([CI mode](./ci.md#outcome-checks)).
 - **A command** takes it with `--expect`: [`replay`](./cli.md#checks-on-a-replay), [`blame`](./blame.md), [`verify`](./verify.md), [`repair`](./repair.md), [`bisect`](./cli.md#bisect) and [`check`](#try-a-check-on-your-recordings).
+- **A change or a fix** takes it with `--expect` too: [`decisions`](./decisions.md#then-verify) with `--then-verify` or `--verify`, [`migrate`](./decisions.md#migrate), and [`fix check`](./cli.md#fix-check), which requires it.
+- **A golden that forks** from production traffic takes it with [`coverage --pack --fork`](./coverage.md#keep-what-the-agent-no-longer-does), and keeps it in its entry under `tests`.
+- **An import** judges each run it makes by every [`calls` rule](#rules-on-calls) under `tests`, and keeps the verdict on the run. When the rules change, the run is judged again ([`shadowlap import`](./cli.md#import)).
 
 A run can exit 0, stay within every count and budget, and still do the wrong thing: refund more than the order came to, refund before looking the order up, refund when policy says escalate. Those are rules about the calls themselves, and `calls` and `when` say them.
 
@@ -16,7 +19,7 @@ The keys an `expect` object takes:
 | `tools` | Each tool was called the given number of times, optionally only counting calls with given arguments ([details](./ci.md#outcome-checks)) |
 | `modelCalls`, `toolCalls` | The run made that many model calls, or tool calls |
 | `inputTokens`, `outputTokens`, `cost` | The run's model requests stay within the budget |
-| `output`, `answer` | What the agent printed, or the last model response, includes and excludes the given text |
+| `output`, `answer` | What the agent printed (stdout and stderr), or the last model response, includes and excludes the given text, case ignored |
 | [`calls`](#rules-on-calls) | Every call of a tool meets a rule: the tools it comes after, and its arguments, compared with values from earlier calls |
 | [`when`](#conditions) | Its checks hold once a call matched a condition; until then they are not applicable |
 | [`judge`](#judge-checks) | A model answers a question about the run the way that passes |
@@ -72,9 +75,9 @@ An object whose keys are all operators is a predicate, and every operator in it 
 | `in` | equals one item of a list: one given (`["USD", "GBP"]`), one a reference reads (`"@list_contacts.result.emails"`), or the values a reference with `*` reaches |
 | `includes` | is text that contains the operand, or a list with the operand as an item |
 | `startsWith`, `endsWith` | is text that starts or ends with the operand |
-| `not` | doesn't match the predicate or value it holds: `{ "not": { "in": "@lookup_customer.result.*" } }` |
+| `not` | doesn't match the predicate, or the literal object or list, it holds: `{ "not": { "in": "@lookup_customer.result.*" } }`. A plain value is refused: use `!=` |
 
-Text is compared as it is, case included. There are no regular expressions: a check should never be the slow part of a test, and a pattern can take minutes on the wrong input.
+A predicate compares text as it is, case included, unlike `output` and `answer`. There are no regular expressions: a check should never be the slow part of a test, and a pattern can take minutes on the wrong input.
 
 Some values can't be decided, and the rule fails and says so:
 
@@ -179,8 +182,8 @@ A judge check has these fields:
 
 | Field | Meaning | Default |
 |---|---|---|
-| `name` | Letters, digits, `.`, `_` and `-`, up to 64. The verdict is kept under it, so each judge in an `expect` has its own | — |
-| `question` | Answered `yes` or `no` | — |
+| `name` | Up to 64 letters, digits, `.`, `_` and `-`, the first a letter or digit. Unique in its `expect`: the verdict is kept under it | — |
+| `question` | At most 2,000 characters, answered `yes` or `no` | — |
 | `of` | What the judge reads: `answer`, the last model response; `output`, what the agent printed; or `run`, the conversation and the tool calls | `answer` |
 | `model` | The judge's model, by its name or with its provider before it (below) | — |
 | `pass` | The answer that passes: `yes` or `no` | `yes` |
@@ -197,7 +200,7 @@ Where the verdict comes from depends on the command:
 
 - **`shadowlap check`** reads the verdict a recording holds.
 - **`shadowlap test` and `bisect`** on a golden that may fork, and `bisect --fork`, ask a judge only in attempts that passed their other checks, live where what it reads changed. Where another check failed, the attempt fails whatever the judge would say, so its judge check is not applicable and makes no call.
-- **`blame`, `verify` and `repair`** fork every attempt, so they ask a judge live. One no attempt can ask (no key for its provider, and no upstream set for it) they refuse before they start, since every attempt would read inconclusive and none could pass.
+- **`blame`, `verify` and `repair`** fork every attempt, so they ask a judge live. One no attempt can ask (no key for its provider, and no upstream set for it) they refuse before they start, as `bisect --fork` does, since every attempt would read inconclusive and none could pass.
 
 ## How a check comes out
 
@@ -245,7 +248,9 @@ shadowlap check --expect @refund-rule.json
 A check that fails a run labelled `good`, or passes one labelled `bug`, says so under the totals.
 
 - **Without `--expect`**, each recording is judged by its own entry under `tests`.
+- **With no recordings named**, it judges every finished recording in the store. Name runs by id, or by `label:<name>`.
 - **Packs** work too: `shadowlap check goldens/*`.
+- **A recording whose checks all read not applicable** (a `when` whose condition never held) is counted apart, as `1 not applicable`, never as passed.
 - **A check on the agent's output** can't be judged from a recording, which doesn't keep it: such a recording reads inconclusive.
 
 See [the reference](./cli.md#check).
@@ -279,7 +284,7 @@ The check builder shows the golden's checks as reports label them, the rule bein
 Some rules are left alone:
 
 - **A tool the agent has but that no recording called yet:** a rule that guards against a refund belongs on a golden that never refunds.
-- **A count that allows none** (`"delete_account": 0`).
+- **A count that allows none** (`"delete_account": 0`), while no recording shows which tools its model was offered. Once one does, such a count on a tool no recording called or offered is named like any other rule.
 
 A value a rule reads that no recorded call of its tool has, such as a misspelt `result.totl`, is named with the key it most likely meant. A rule that reads it fails on every call, and a condition on it can't be decided. `shadowlap check` notes such a value too, among the calls it judged.
 

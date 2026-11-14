@@ -153,7 +153,7 @@ shadowlap ls --tree
 shadowlap ui 01M2NH0DMC        # the terminal UI; press ? for keys, : for actions
 ```
 
-`show` prints the run's timeline, one row per call. `ls --tree` lists your runs, newest first, with each fork under the run it came from. `ui` opens the run in the [terminal UI](./tui.md).
+`show` prints the run's timeline, one row per call. `ls --tree` takes your 50 newest runs (`-n` sets how many) and lists them oldest first, each fork under the run it came from. `ui` opens the run in the [terminal UI](./tui.md).
 
 ## 6. Record your own agent
 

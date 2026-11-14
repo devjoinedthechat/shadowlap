@@ -74,11 +74,12 @@ A divergence prints the report; a live call is refused with a 503 that names the
 
 These flags change how it runs:
 
-| Flag       | What it does                                                  | Default                         |
-| ---------- | ------------------------------------------------------------- | ------------------------------- |
-| `--online` | Allows live calls after a divergence, if you really want them | Off: a live call fails the pack |
-| `--cwd`    | Sets the working directory for the recorded commands          | The current directory           |
-| `--writes` | Sets the write policy                                         | `block`                         |
+| Flag                 | What it does                                                  | Default                         |
+| -------------------- | ------------------------------------------------------------- | ------------------------------- |
+| `--online`           | Allows live calls after a divergence, if you really want them | Off: a live call fails the pack |
+| `--cwd`              | Sets the working directory for the recorded commands          | The current directory           |
+| `--writes`           | Sets the write policy                                         | `block`                         |
+| `--allow-unrecorded` | Lets the unrecorded tools it names run again for real         | None                            |
 
 A `*` in the last part of a path is expanded by `shadowlap test` itself, so `'goldens/*'` works without a shell.
 
@@ -163,6 +164,15 @@ The golden passes once there is none: with WebFetch disallowed, MCP servers kept
 | `"guard": { "accept": ["claude-code"] }` in `shadowlap.config.json`, or `guard-accept: claude-code` on the [GitHub Action](#github-actions) | The CLI as it is, while every Node and Python process keeps block |
 | `--guard warn` (the Action's `guard: warn`) | Every connection the guard can't watch |
 
+### Unrecorded tools
+
+A tool the agent runs without wrapping it is never recorded, so a replay would run it again for real ([tools Shadowlap did not record](./how-it-works.md#tools-shadowlap-did-not-record)). Before any golden runs, `shadowlap test` reads which such tools each golden's model called:
+
+- **one that writes, or whose effect is unknown**: `shadowlap test` exits 2 and runs no golden, naming each golden that holds one;
+- **a read**: a warning, and its replay runs it for real.
+
+Wrap the tool where the agent runs it, and record the golden again. If running it again is safe, declare it a read under `tools.unrecorded` in `shadowlap.config.json`. Or pass `--allow-unrecorded <names>`, names separated by commas, to let one `shadowlap test` run it anyway.
+
 ### Keys
 
 A golden that replays offline needs no model key, so a job without secrets, such as a pull request's from a fork, tests it.
@@ -170,7 +180,7 @@ A golden that replays offline needs no model key, so a job without secrets, such
 **The placeholder.** An agent whose client takes its key from the environment, as `new Anthropic()`, `new OpenAI()` and Google's clients do, would refuse to send anything without one. So its replay gets a [placeholder](./how-it-works.md#keys), `shadowlap-offline-replay-placeholder`, for each provider its recording called whose credentials the job lacks:
 
 - placeholder AWS credentials for Bedrock;
-- Azure OpenAI's only for a recording whose environment held `AZURE_OPENAI_API_KEY` or `AZURE_API_KEY`, in that variable.
+- Azure OpenAI's, Claude on Microsoft Foundry's and that of OpenAI's SDK on Bedrock only for a recording whose environment held the key, in that variable: `AZURE_OPENAI_API_KEY` or `AZURE_API_KEY`, `ANTHROPIC_FOUNDRY_API_KEY`, and `AWS_BEARER_TOKEN_BEDROCK`.
 
 A placeholder never takes the place of a key or another credential the job has. The replay is offline, so nothing carrying one leaves the machine; the sidecar refuses a live call that would carry one anyway.
 
@@ -389,7 +399,7 @@ shadowlap test goldens/refund-flow --update
 
 `shadowlap test` prints this command after its totals when a golden diverged on more than a value that changes every run. Each golden that diverged is then updated:
 
-1. **It is re-recorded live** from its first call, with every write tool stubbed: the agent is told each write succeeded, and nothing is sent.
+1. **It is re-recorded live** from its first call, with every write tool stubbed: the agent is told each write succeeded, and nothing is sent. As `shadowlap run` records, it runs under `--guard warn`, not the test's `block`, unless you give `--guard`.
 2. **Its checks run on the re-recording.** Only when the agent exits 0 and they pass does the re-recorded pack replace the old one, in your working tree.
 3. **It is replayed offline** like any other golden, and you review the change in your pull request.
 
@@ -430,12 +440,14 @@ Each golden it replaces gets a line in `accepted.jsonl`, in its folder, to commi
 
 | Field | Meaning |
 |---|---|
-| `at`, `by` | When it was accepted, and by whom: `SHADOWLAP_AUTHOR`, `ci` in CI, else git's `user.email` |
+| `at`, `by` | When it was accepted, and by whom: `SHADOWLAP_AUTHOR`, `ci` in CI, else git's `user.email`, else the OS user name, else `null` |
 | `reason` | The reason given |
 | `from`, `to`, `code` | The recording replaced, the one accepted, and the code it was accepted at |
 | `changed`, `decides` | What the agent sends differently, and what it does differently, as the update printed them |
 | `added` | A hash of each sentence the change added to the system prompt |
 | `fix` | The fix it came with, for a golden [`fix apply`](./cli.md#fix) copied |
+
+For a golden `fix apply` copied, `from` is the run the fix fixed, and `code` is `null`.
 
 The file holds no prompt text. A pack is written under the project's redaction rules, and the sentences are kept as hashes so the file is no way around them.
 
@@ -597,7 +609,7 @@ Such a gate only warns when it runs out of attempts, until the plan reads a decl
 
 | Output            | Meaning                                                                                      |
 | ----------------- | -------------------------------------------------------------------------------------------- |
-| `passed`          | The recordings that passed                                                                   |
+| `passed`          | The recordings that passed or were let through                                               |
 | `failed`          | Every recording that fails the step: each failure, and each inconclusive one, as below       |
 | `inconclusive`    | The recordings whose verdict is inconclusive, whatever the `inconclusive` input made of them |
 | `diverged`        | The recordings that failed because the agent sent a different request                        |
@@ -609,7 +621,7 @@ Such a gate only warns when it runs out of attempts, until the plan reads a decl
 | `report-markdown` | The path of the Markdown report                                                              |
 | `junit`           | The path of the JUnit XML report                                                             |
 
-**What `failed` counts.** It counts each failure, and each inconclusive one unless `inconclusive` is `warn` or, left empty, it is a gate against history whose golden has too few sessions yet.
+**What `failed` counts.** It counts each failure, and each inconclusive one unless `inconclusive` is `warn` or, left empty, it is a gate against history whose golden has too few sessions yet. Every other recording counts in `passed`, so an inconclusive one let through counts in both `passed` and `inconclusive`.
 
 A verdict is inconclusive for a gate that ran out of attempts between its bounds, a check that could not be decided, an injection gate that showed too little to say, or a provider unavailable too many attempts in a row.
 
@@ -1226,6 +1238,7 @@ A pack from anywhere else, outside the repository or not added to it, runs its c
 | A golden diverges on its first CI run | A value the agent makes anew on every run, such as a request id | Add the normalizer the report suggests, or `shadowlap calibrate` before you pack |
 | `ended early` | The agent stopped before its recording did | If that is on purpose, re-record it with `--update` ([ends early](#a-replay-that-ends-early)) |
 | The run was not watched | A connection the guard can't watch, such as the Claude Code CLI's | `guard-accept: claude-code`, or `guard: warn` ([the network guard](#the-network-guard)) |
+| `shadowlap test` exits 2 on a tool Shadowlap never recorded | A golden's model called an unrecorded tool that writes, or may | Wrap it and record the golden again, declare it a read under `tools.unrecorded`, or pass `--allow-unrecorded` ([unrecorded tools](#unrecorded-tools)) |
 | A golden that may go live fails, even with a clean replay | No key for its provider in the job | Pass the providers' keys to the step as environment variables ([keys](#keys)) |
 | An injection gate is *inconclusive* on a pull request from a fork | A fork gets no secrets, so every attempt's model call fails | `--inconclusive warn`, or run it where the key is ([injection gates](#injection-gates)) |
 | The step warns about the version | The action's tag and `version:` name different releases | Set `version:` to the version the warning names ([the CLI it installs](#the-cli-it-installs)) |

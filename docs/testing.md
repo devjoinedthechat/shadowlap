@@ -204,14 +204,16 @@ A replay is offline. When a test sends a request its recording doesn't have, the
 ShadowlapReplayDiverged: diverged from its recording at call 1 (tool lookup)
 
 ✗ Diverged at call 1 (tool lookup): 0 calls replayed before divergence
+  compared with run 01M2R0K4BV…, call 1
   ~ $.args.topic
       - "hello"
       + "goodbye"
+…
 
 If the change is intended, record the test again with SHADOWLAP_RECORD=all. To inspect the replay: shadowlap dashboard 01M2R0QYWC…
 ```
 
-- **Intended change:** record again with `SHADOWLAP_RECORD=all`, and review the recording it makes in the pull request. (A golden that `shadowlap test` replays is updated with [`shadowlap test --update`](./ci.md#update-a-golden-after-an-intended-change) instead.)
+- **Intended change:** record again with `SHADOWLAP_RECORD=all`, and review the recording it makes in the pull request. A golden that `shadowlap test` replays is updated with [`shadowlap test --update`](./ci.md#update-a-golden-after-an-intended-change) instead, and [`--reason "<why>"`](./ci.md#say-why) keeps the why beside it, in `accepted.jsonl`.
 - **An id or another value made on every run:** add the [normalizer](./normalizers-and-redaction.md) the report suggests. It applies to every recording, old ones included. Today's date needs none: dates near a run's start already match.
 - **To look closer:** the diverged replay stays in the local store, so `shadowlap dashboard <run>` opens it next to its recording. Clean replays are not kept.
 
