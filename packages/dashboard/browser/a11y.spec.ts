@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { links as built } from '../src/links.js';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
-import { contrast, dash, demoId, focusedLabel, openPage, RESET_RETRY, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
+import { contrast, dash, demoId, focusedLabel, openPage, patched, RESET_RETRY, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
 
 /**
@@ -49,6 +49,31 @@ test('the Overview has no serious or critical axe violation on a laptop or a pho
     // A piece too long for any line breaks where it must; the demo project's path, in its Project added entry, is drawn as its last folders.
     const past = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w, main#view .arow .at')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
     expect(past, `at ${width}px`).toEqual([]);
+  }
+});
+
+test('an activity entry whose reference is longer than any line breaks inside its column, beside Needs a look and on a phone', async ({ page }) => {
+  // A team store's address with its endpoint, as Push from CI's entry names it: no line of the feed holds it whole.
+  const ref = 's3://northwind-agent-runs/support-agent?endpoint=https://objects.eu-central-1.example.com:9000';
+  await page.route('**/api/activity*', (route) => patched<{ items: object[] }>(route, (feed) => ({ ...feed, items: [{ id: 'long-ref', at: Date.now(), kind: 'setting', text: 'Push from CI on', ref, actor: 'dana@northwind.example' }, ...feed.items] })));
+  for (const width of [1440, 1200, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/', 'main#view .ovg');
+    const code = page.locator('main#view .feed code', { hasText: 'objects.eu-central-1.example.com' });
+    await expect(code).toHaveText(ref);
+    const past = await code.evaluate((el) => {
+      const feed = el.closest('.feed')!.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      const lines = new Set([...el.getClientRects()].map((r) => Math.round(r.top))).size;
+      return { right: Math.round(box.right - feed.right), left: Math.round(feed.left - box.left), lines, height: Math.round(box.height) };
+    });
+    // Inside the feed on both sides, on more lines than one.
+    expect(past.right, `at ${width}px`).toBeLessThanOrEqual(0);
+    expect(past.left, `at ${width}px`).toBeLessThanOrEqual(0);
+    expect(past.height, `at ${width}px`).toBeGreaterThan(20);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
+    const over = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
+    expect(over, `at ${width}px`).toEqual([]);
   }
 });
 

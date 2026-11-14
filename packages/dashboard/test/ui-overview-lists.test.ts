@@ -322,6 +322,13 @@ describe('the Overview’s layout', () => {
     expect(value('.feed .at', 'white-space')).toBe('nowrap');
   });
 
+  it('keeps what an entry names in one piece where a line holds it, and breaks it inside its column where none does', () => {
+    // One piece that goes to the next line whole, and no wider than its column: a bucket's address with its endpoint breaks inside.
+    expect(['display', 'max-width', 'white-space', 'overflow-wrap'].map((p) => value('.feed .w code', p))).toEqual(['inline-block', '100%', 'normal', 'anywhere']);
+    // Flush with the words where it starts a line: no margin of its own.
+    expect(value('.feed .w code', 'margin-left')).toBeNull();
+  });
+
   it('opens Usage in the list’s column: its calls beside its cache, over the spend chart at the column’s width', () => {
     expect(value('.ugrid', 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))');
     expect(value('.ugrid .uspend', 'grid-column')).toBe('1 / -1');
