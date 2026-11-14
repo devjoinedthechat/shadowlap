@@ -80,7 +80,7 @@ function UpstreamValue({ text, note }: { text: string; note: string | null }) {
 
 const LEDGER_ROWS = { keyOf: (c: RunDetail['calls'][number]) => c.callNo, shapeOf: () => 'row', estimate: () => 39 };
 export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: number | null }) {
-  const { client, meta, exported, actionsOff, toast, runs } = useApp();
+  const { client, meta, exported, toast, runs } = useApp();
   const r = run.run;
   const s = run.summary;
   const lineage = useLoad(() => client.lineage(r.runId), r.runId);
@@ -138,12 +138,6 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       cur = cur.parentRunId ? byId.get(cur.parentRunId) : undefined;
     }
   }
-  // Its notes, on its calls and on the run; a note added here brings the run's own back as the server keeps them (api.ts `addNote`).
-  const [own, setOwn] = useState<{ runId: string; notes: RunNote[] } | null>(null);
-  const kept = r.meta?.notes ?? [];
-  const notes = own?.runId === r.runId ? [...kept.filter((n) => n.callNo !== null), ...own.notes].sort((a, b) => a.at - b.at) : kept;
-  const canNote = !exported && !actionsOff;
-  const labels = r.meta?.labels ?? [];
   const rules = prov?.mask?.rules ?? meta?.redactRules;
   // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
   const uncounted = prov?.mask?.why ?? null;
@@ -269,32 +263,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
             </Copy>
           )}
           <Copy className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</Copy>
-          {labels.length || notes.length || canNote ? (
-            <>
-              <h2>Labels and notes</h2>
-              {labels.length ? (
-                <p className="muted">
-                  {labels.map((l) => (
-                    <span className="chip" key={l}>
-                      {l}
-                    </span>
-                  ))}
-                </p>
-              ) : null}
-              {notes.length ? (
-                <div className="notes">
-                  {notes.map((n, i) => (
-                    <div className="note" key={i}>
-                      {n.callNo !== null ? <b>#{n.callNo}</b> : null} {n.text}
-                      <small>{stamp(n.at)}</small>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {/* A note on the whole run, as `shadowlap note` without --call writes one: a call's is added in its details. */}
-              <NoteForm runId={r.runId} callNo={null} onSaved={(n) => setOwn({ runId: r.runId, notes: n })} />
-            </>
-          ) : null}
+          <LabelsAndNotes run={r} />
         </section>
       </div>
       {ledger ? (
@@ -366,6 +335,46 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Its labels, and its notes on its calls and on the run, with the form that writes a note on the
+ * whole run, as `shadowlap note` without --call does (a call's is added in its details). A note saved
+ * here brings the run's own back as the server keeps them (api.ts `addNote`). Nothing where there are
+ * none and none can be written: an exported copy, a read-only dashboard.
+ */
+function LabelsAndNotes({ run: r }: { run: RunDetail['run'] }) {
+  const { exported, actionsOff } = useApp();
+  const [own, setOwn] = useState<{ runId: string; notes: RunNote[] } | null>(null);
+  const kept = r.meta?.notes ?? [];
+  const notes = own?.runId === r.runId ? [...kept.filter((n) => n.callNo !== null), ...own.notes].sort((a, b) => a.at - b.at) : kept;
+  const labels = r.meta?.labels ?? [];
+  if (!labels.length && !notes.length && (exported || actionsOff)) return null;
+  return (
+    <>
+      <h2>Labels and notes</h2>
+      {labels.length ? (
+        <p className="muted">
+          {labels.map((l) => (
+            <span className="chip" key={l}>
+              {l}
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {notes.length ? (
+        <div className="notes">
+          {notes.map((n, i) => (
+            <div className="note" key={i}>
+              {n.callNo !== null ? <b>#{n.callNo}</b> : null} {n.text}
+              <small>{stamp(n.at)}</small>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <NoteForm runId={r.runId} callNo={null} onSaved={(n) => setOwn({ runId: r.runId, notes: n })} />
+    </>
   );
 }
 

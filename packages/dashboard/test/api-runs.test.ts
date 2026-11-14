@@ -79,7 +79,7 @@ describe('a test replay in the lists', () => {
     expect(row((await body({ kind: 'runs-page', options: {}, team: null })).runs)).toMatchObject(want);
     // An exported copy's list.
     const html = exportHtml({ store: s, runIds: [replay, rec], uiDir, now: NOW }).html;
-    const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1]!.split('<\\/').join('</')) as StaticPayload;
+    const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1].split('<\\/').join('</')) as StaticPayload;
     expect(row((data.responses['runs'] as { runs: RunRow[] }).runs)).toMatchObject(want);
     // A recording carries none.
     expect((await body({ kind: 'recent', read: {} })).runs.find((r) => r.runId === rec)).toMatchObject({ test: null });

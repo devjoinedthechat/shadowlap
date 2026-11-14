@@ -251,6 +251,11 @@ function useAncestors(run: RunDetail): RunDetail[] {
   return chain;
 }
 
+/** Where Show diff opens: at the call picked where it may differ from the recording's; a copy keeps only where the run left it. */
+function diffAtOf(run: RunDetail, row: CallRow | null, exported: boolean): number | null {
+  return exported ? null : diffCallOf(run, row);
+}
+
 /** What changed a run's conversation: a fork, or a test's replay that diverged, which changed its request without forking (the message says "this replay"). */
 const changedBy = (run: RunDetail): 'fork' | 'replay' => (run.run.meta?.test ? 'replay' : 'fork');
 
@@ -294,8 +299,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     setTabState(t);
   };
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
-  // Show diff opens at the call picked where it may differ from the recording's; a copy keeps only where the run left it.
-  const diffAt = exported ? null : diffCallOf(run, selectedRow);
+  const diffAt = diffAtOf(run, selectedRow, exported);
   // A finding's diff in the inspector's place, until it is hidden or a call is picked (InspectorPanel.tsx).
   const { panel, showDiff, onToggleDiff, showChange, onToggleChange, close: closePanel } = useFindingPanel(runId, diffAt);
   const filterRef = useRef<HTMLInputElement>(null);

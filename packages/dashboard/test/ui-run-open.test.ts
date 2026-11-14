@@ -335,7 +335,7 @@ describe('a long replay’s header while its pages come', () => {
     // Its verdict by checks and its next step, which a warming answer leaves to their own reads.
     const outcome = () => Promise.resolve({ judged: null });
     const nextStep = () => Promise.resolve({ next: null });
-    return { client: { ...client, run: () => Promise.resolve(run), calls, outcome, nextStep } as unknown as Client, details };
+    return { client: { ...client, run: () => Promise.resolve(run), calls, outcome, nextStep }, details };
   }
   const notWaited = () => r!.all('.rhead .metrics .metric').map((m) => `${m.querySelector('b')?.textContent ?? ''} ${m.querySelector('span')?.textContent ?? ''}`).find((t) => t.endsWith(' not waited')) ?? null;
 

@@ -184,7 +184,7 @@
       "StoreSetup": 50
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
-      "ProvenanceView": 87
+      "ProvenanceView": 81
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
       "RunHeader": 56
@@ -384,7 +384,7 @@
       "StoreSetup": 215
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
-      "ProvenanceView": 266
+      "ProvenanceView": 243
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
       "PaletteDialog": 167

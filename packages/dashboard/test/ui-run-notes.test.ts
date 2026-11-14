@@ -134,7 +134,7 @@ describe('the notes on a run’s page', () => {
     expect(said).toEqual([[RUN, null, 'Refunded twice: escalate to billing.']]);
     await r.until('the note', () => r!.all('.prov .notes .note').length === 2);
     // The note on #3 stays, and the run's own comes after it.
-    expect(r.all('.prov .notes .note').map((n) => n.textContent!.replace(/\s+/g, ' ').trim().split(/(?=[A-Z][a-z]{2} \d)/)[0]!.trim())).toEqual(['#3 the policy lookup timed out', 'Refunded twice: escalate to billing.']);
+    expect(r.all('.prov .notes .note').map((n) => n.textContent.replace(/\s+/g, ' ').trim().split(/(?=[A-Z][a-z]{2} \d)/)[0].trim())).toEqual(['#3 the policy lookup timed out', 'Refunded twice: escalate to billing.']);
     expect(toasts).toContain('Note saved on the run');
   });
 

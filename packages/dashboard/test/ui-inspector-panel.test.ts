@@ -154,7 +154,7 @@ describe('a finding’s diff in the inspector’s place', () => {
     expect(page.one('#ibody .jdh').textContent).toBe('−Recorded request #9\u00a0· P+This run’s request #9');
     // Never "the first that changed": it is a call past where the run left its recording.
     await page.until('its words', () => page!.all('#ibody .hint').length === 1);
-    expect(page.one('#ibody .hint').textContent!.replace(/\u00a0/g, ' ')).toContain('The request at #9 differs from the recording’s #9.');
+    expect(page.one('#ibody .hint').textContent.replace(/\u00a0/g, ' ')).toContain('The request at #9 differs from the recording’s #9.');
     expect(page.one('#ibody .hint').textContent).not.toContain('first');
     expect(asked).toEqual(['S #9']);
   });
