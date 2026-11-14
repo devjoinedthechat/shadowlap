@@ -6,6 +6,8 @@ import { applyLeft, fixRecords, markFixApplied, quoteArgv, recordEvent, repairPa
 import { fieldChange } from '@shadowlap/dashboard';
 import { EXIT } from './exit-codes.js';
 import { planCopies, type GivenName, type GoldenCopy } from './fix-apply-names.js';
+import { ACCEPTED_FILE, addedSentences, appendAcceptance, decidesOtherwise, systemPromptOf } from './golden-accepted.js';
+import { readPackHead } from './goldens.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
 import { ApplyError, APPLY, applyToBytes, checkTreeFile, git, putIn, shown } from './patch-apply.js';
 import { physicalPath } from './real-path.js';
@@ -192,6 +194,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     // recordings are on the machine that ran it, and none is copied.
     const elsewhere = pulled ? paths.goldens.length : 0;
     result.goldens.push(...copyGoldens(plan.copies, o));
+    acceptCopies(store, fix, result.goldens, o);
     if (elsewhere) o.log(`  ${elsewhere === 1 ? 'the recording' : `the ${elsewhere} recordings`} the fixed code made ${elsewhere === 1 ? 'stays' : 'stay'} on the machine that ran ${repair.repairId}, which came with a pull: commit ${elsewhere === 1 ? 'it' : 'them'} from there`);
     if (unread) o.log(`  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- ${shownInRepo(o.cwd, root, file)}), then ${o.build ? `rebuild (${o.build}) and ` : ''}check your goldens against it with shadowlap test`);
 
@@ -253,6 +256,29 @@ function copyGoldens(copies: readonly GoldenCopy[], o: ApplyOptions): ApplyResul
     o.log(copied ? `  copied ${shown(o.cwd, to)}${basename(to) === c.run ? '' : ` from ${c.run}`}` : `  already there: ${shown(o.cwd, to)}`);
   }
   return done;
+}
+
+/**
+ * Each golden apply copied says why it is there: the fix, as an accepted change beside its pack
+ * (golden-accepted.ts), with what the fixed recording does differently from the run it fixes and
+ * the sentences the fix added to the prompt. A later change that takes one of them out is told
+ * which fix put it in, where its golden diverges.
+ */
+function acceptCopies(store: Store, fix: StoredFix, goldens: ApplyResult['goldens'], o: ApplyOptions): void {
+  const by = resolveAuthor({ cwd: o.cwd });
+  let kept = 0;
+  for (const g of goldens.filter((x) => x.copied)) {
+    const dir = resolve(o.cwd, g.to);
+    const head = readPackHead(dir);
+    if ('error' in head) continue;
+    const fixed = store.findRun(g.run);
+    const golden = store.findRun(head.runId);
+    const both = fixed && golden ? { fixed, golden } : null;
+    const added = both ? addedSentences(systemPromptOf(store, store.getCalls(both.fixed.runId)), systemPromptOf(store, store.getCalls(both.golden.runId))) : [];
+    appendAcceptance(dir, { at: new Date().toISOString(), by, reason: fix.title, from: fixed?.runId ?? null, to: head.runId, code: null, fix: fix.fixId, changed: [], decides: both ? decidesOtherwise(store, both.fixed, both.golden) : [], added });
+    kept++;
+  }
+  if (kept) o.log(`  ${kept === 1 ? 'it says' : 'each says'} why it is there, the fix, in its ${ACCEPTED_FILE}: a change that takes the fix out is told so`);
 }
 
 /** `shadowlap test` on the goldens, its output passed on line by line. True when every one passed. */

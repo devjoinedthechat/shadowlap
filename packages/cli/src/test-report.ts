@@ -70,8 +70,10 @@ export interface PackResult {
   gate: GateResult | null;
   /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
   expect: Record<string, unknown> | null;
-  /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
-  updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
+  /** `--update` re-recorded it: the run it replaced, the new one, its calls, what the agent sends differently, what it does differently (`decides`), and the `reason` it was accepted with (`--reason`). */
+  updated: { from: string | null; to: string; calls: number; changes?: string[]; decides?: string[]; reason?: string } | null;
+  /** A golden that diverged: the sentences its request takes out that an accepted change put in (accepted.jsonl), each with when, by whom and why it was accepted. Absent with none. */
+  takesOut?: Array<{ sentence: string; at: string; by: string | null; reason: string; fix?: string }>;
   /** Its judge checks' calls over every attempt, apart from the agent's: how many came from the recording, how many went live, and what they cost. Null without one (always printed). */
   judge?: JudgeSummary | null;
   /** Its injection gate ("injection" under its tests entry): attempts by verdict, what it allows, whether it passed. Null without one; the report always prints it. */
@@ -220,6 +222,13 @@ function inconclusiveNote(unsure: readonly PackResult[], given: 'fail' | 'warn' 
   return `Inconclusive means ${causes.join('; or ')}. ${inconclusiveRule(unsure, given)}${unjudged ? ' Record a judge\'s verdict with `shadowlap test <recording> --update` where the judge can be asked.' : ''}${gated ? ' More attempts settle a gate: raise its `max`, or run `shadowlap test <recording> --max-attempts <n> --continue` once, which carries its attempts over.' : ''}`;
 }
 
+/** A diverged golden's sentences that an accepted change put in and its request takes out, each with who accepted it and why, for the Markdown report. */
+function takesOutLines(r: PackResult): string[] {
+  if (!r.takesOut?.length) return [];
+  const item = (t: NonNullable<PackResult['takesOut']>[number]) => `- ${markdownCode(safeText(t.sentence))}, accepted ${safeText(t.at.slice(0, 10))}${t.by ? ` by ${safeText(t.by)}` : ''}: ${safeText(t.reason)}${t.fix ? ` (fix ${safeText(t.fix)})` : ''}`;
+  return ['This change takes out what an accepted change put in:', '', ...r.takesOut.map(item), ''];
+}
+
 /**
  * The job summary: the results table, each failure's checks, details and output, and what to do.
  * `given` is the `--inconclusive` the session was given, null with none, which the summary names as
@@ -253,6 +262,7 @@ export function markdownReport(report: TestReport, given: 'fail' | 'warn' | null
     if (r.checks?.length) lines.push(...r.checks.map(markdownCheck), '');
     const details = moreThanMessage(r);
     if (details) lines.push(fence(details), '');
+    lines.push(...takesOutLines(r));
     if (r.output) lines.push('Agent output, last lines:', '', fence(r.output), '');
     lines.push('</details>');
   }

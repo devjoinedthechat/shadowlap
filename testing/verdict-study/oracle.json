@@ -1,0 +1,7 @@
+{
+  "calls": [{ "tool": "issue_refund", "after": "lookup_order", "args": { "amount": { "<=": "@lookup_order.result.amount" } } }],
+  "when": [
+    { "if": { "tool": "lookup_order", "result": { "amount": { ">": 100 } } }, "then": { "tools": { "escalate": ">= 1", "issue_refund": 0 } } },
+    { "if": { "tool": "lookup_order", "result": { "amount": { "<=": 100 } } }, "then": { "tools": { "issue_refund": 1, "escalate": 0 } } }
+  ]
+}

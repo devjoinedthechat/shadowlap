@@ -349,9 +349,6 @@
     "packages/cli/src/commands/inspect.ts": {
       "register": 360
     },
-    "packages/cli/src/commands/testing.ts": {
-      "register": 160
-    },
     "packages/cli/src/commands/training.ts": {
       "register": 298
     },

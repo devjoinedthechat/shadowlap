@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { InvalidArgumentError, type Command } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { ACTIONS, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, outputTail, noVerdicts, proofCall, proofLine, proofOf, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type AttemptReport, type InjectionGateData, type PlantReport, type RunRecord, type StoreOf, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
+import { ACTIONS, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, outputTail, noVerdicts, proofCall, proofLine, proofOf, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type AttemptReport, type InjectionGateData, type PlantReport, type Normalizer, type RunRecord, type StoreOf, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { sessionPullRequest, sessionSource } from '../baseline-branch.js';
 import { testChaos } from '../chaos-session.js';
@@ -12,6 +12,7 @@ import { EXIT, signalExit, usageError } from '../exit-codes.js';
 import { shortFixId } from '../fix-format.js';
 import { confirmGolden, goldenNeedsConsent } from '../golden-consent.js';
 import { formatChecks, inconclusiveFor, junitCase, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
+import { acceptanceLine, ACCEPTED_FILE, addedSentences, appendAcceptance, decidesOtherwise, readAcceptances, systemPromptOf, takenOut } from '../golden-accepted.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, isPack, rawExpectFor } from '../goldens.js';
 import { gateLetsThrough, gateLine, injectionGate } from '../injection.js';
@@ -45,6 +46,8 @@ export interface TestFlags {
   markdown?: string;
   annotations?: boolean;
   update?: boolean;
+  /** With --update: why the change is meant, kept beside each golden it replaces. */
+  reason?: string;
   online?: boolean;
   writes: WritePolicy;
   cwd?: string;
@@ -134,6 +137,8 @@ function parseTest(command: Command, opts: GlobalOpts, packArgs: string[], flags
   const tests = loadTests(projectDir);
   const cwd = resolve(flags.cwd ?? projectDir);
   if (flags.maxAttempts !== undefined && (flags.maxAttempts < 1 || flags.maxAttempts > GATE_MAX_ATTEMPTS)) throw new InvalidArgumentError(`--max-attempts must be a whole number from 1 to ${GATE_MAX_ATTEMPTS}`);
+  if (flags.reason !== undefined && !flags.update) throw new InvalidArgumentError('--reason says why a golden is updated: give it with --update');
+  if (flags.reason !== undefined && !flags.reason.trim()) throw new InvalidArgumentError('--reason needs the reason, in a few words');
   if (flags.continue && flags.update) throw new InvalidArgumentError('--continue adds attempts to an inconclusive gate, --update re-records a golden: give one or the other');
   const { dirs: packs, unmatched } = expandRecordings(packArgs, projectDir);
   if (unmatched.length) {
@@ -395,6 +400,7 @@ class Session {
     let injection = first.injection;
     this.show(golden, outcome);
     this.printGate(injection);
+    const takesOut = this.takenOut(packDir, outcome);
     const forked = !outcome.failure && spec?.fork ? (outcome.result?.shown.ended.summary.divergence ?? null) : null;
     const takeover = forked ? this.takeoverAt(packDir) : null;
     const early = forked && takeover !== null && forked.callNo < takeover ? { at: forked.callNo, takeover } : null;
@@ -415,7 +421,7 @@ class Session {
       }
       ({ outcome, injection, updated } = after);
     }
-    await this.keep(packDir, prepared, { outcome, injection, updated, early, made });
+    await this.keep(packDir, prepared, { outcome, injection, updated, early, made, takesOut });
   }
 
   /** Every replay counts towards the session's upstream requests, an updated golden's first one too. */
@@ -477,6 +483,20 @@ class Session {
     const { warned, counted } = this.inconclusiveOf(golden, o);
     const note = warned ? `${warned}: until then an inconclusive only warns (--inconclusive fail counts it), or give it a gate on fixed rates, "good" and "bad", which needs no history` : counted;
     printGolden(note ? { ...o, notes: [...(o.notes ?? []), note] } : o, suffix);
+  }
+
+  /**
+   * A golden that diverged on a request that takes out what an accepted change put in: each
+   * sentence with who accepted it and why it is there, printed under the divergence, before anyone
+   * updates the golden again.
+   */
+  private takenOut(packDir: string, o: GoldenOutcome): PackResult['takesOut'] {
+    if (o.kind !== 'diverged') return undefined;
+    const found = takenOut(o.result?.shown.ended.summary.divergence, readAcceptances(packDir));
+    if (!found.length) return undefined;
+    process.stdout.write(p.yellow(`    ! this change takes out what an accepted change put in:\n`));
+    for (const t of found) process.stdout.write(`        ${safe(JSON.stringify(t.sentence))}\n        ${p.dim(safe(acceptanceLine(t.acceptance)))}\n`);
+    return found.map((t) => ({ sentence: t.sentence, at: t.acceptance.at, by: t.acceptance.by, reason: t.acceptance.reason, ...(t.acceptance.fix ? { fix: t.acceptance.fix } : {}) }));
   }
 
   private printGate(d: InjectionGateData | null): void {
@@ -554,9 +574,9 @@ class Session {
     const changes = requestChanges(this.store, before, u.run, divergence, normalizers);
     process.stdout.write(`      re-recorded as run ${shortId(u.run.runId)}: ${describeChange(u.before, u.after!)} · ${updateReceipt(u.summary)}\n`);
     if (changes.length) process.stdout.write(`      what changed: ${safe(changes.join(' · '))}\n`);
-    process.stdout.write(`      replaced ${safe(golden)} in the working tree; review the change in your pull request\n`);
+    const { decides, reason } = this.accept(packDir, golden, { before, after: u.run, changes, normalizers });
     recordEvent(this.store, { kind: 'golden.updated', actor: this.actor, runId: u.run.runId, ref: golden, data: { session: this.session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0, changes } });
-    const updated = { from: before.runId, to: u.run.runId, calls: u.after!.total, changes };
+    const updated = { from: before.runId, to: u.run.runId, calls: u.after!.total, changes, ...(decides.length ? { decides } : {}), ...(reason ? { reason } : {}) };
     // The new golden, replayed as the next test will replay it. Cut short, the result is the
     // replay that diverged, with the update it led to.
     const again = this.replayed(await testGolden(packDir, golden, spec, ctx), made);
@@ -572,10 +592,30 @@ class Session {
     return { outcome: regated.outcome, injection: regated.injection, updated };
   }
 
+  /**
+   * A golden replaced by --update: what its new recording does differently from the old one, said,
+   * and with --reason the change kept beside it as accepted (golden-accepted.ts), so a later change
+   * that takes it out is told why it is there.
+   */
+  private accept(packDir: string, golden: string, c: { before: RunRecord; after: RunRecord; changes: string[]; normalizers: readonly Normalizer[] }): { decides: string[]; reason: string | undefined } {
+    const decides = decidesOtherwise(this.store, c.before, c.after, c.normalizers);
+    if (decides.length) process.stdout.write(`      what it does differently: ${safe(decides.slice(0, 4).join(' · '))}${decides.length > 4 ? ` and ${decides.length - 4} more` : ''}\n`);
+    process.stdout.write(`      replaced ${safe(golden)} in the working tree; review the change in your pull request\n`);
+    const reason = this.request.flags.reason?.trim();
+    if (!reason) {
+      process.stdout.write(p.dim(`      no reason was kept: with --reason "<why>", a later change that takes this one out is told why it is there\n`));
+      return { decides, reason };
+    }
+    const added = addedSentences(systemPromptOf(this.store, this.store.getCalls(c.before.runId)), systemPromptOf(this.store, this.store.getCalls(c.after.runId)));
+    appendAcceptance(packDir, { at: new Date().toISOString(), by: this.actor, reason, from: c.before.runId, to: c.after.runId, code: this.revision, changed: c.changes, decides, added });
+    process.stdout.write(`      accepted${this.actor ? ` by ${safe(this.actor)}` : ''}: ${safe(reason)} (kept in ${safe(golden)}/${ACCEPTED_FILE})\n`);
+    return { decides, reason };
+  }
+
   /** A golden's result, kept in the session's history and its reports, and its runs pushed with --push. */
-  private async keep(packDir: string, { golden, spec, expect }: Prepared, r: { outcome: GoldenOutcome; injection: InjectionGateData | null; updated: Updated; early: { at: number; takeover: number } | null; made: string[] }): Promise<void> {
+  private async keep(packDir: string, { golden, spec, expect }: Prepared, r: { outcome: GoldenOutcome; injection: InjectionGateData | null; updated: Updated; early: { at: number; takeover: number } | null; made: string[]; takesOut: PackResult['takesOut'] }): Promise<void> {
     const { flags } = this.request;
-    const { outcome, injection, updated, early, made } = r;
+    const { outcome, injection, updated, early, made, takesOut } = r;
     for (const a of outcome.result?.attempts ?? []) emitJobEvent({ type: 'run', runId: a.ended.summary.runId, role: a.failure ? 'failing' : 'passing' });
     this.store.addTestResult({
       sessionId: this.session.sessionId,
@@ -590,7 +630,7 @@ class Session {
     });
     const decided = this.inconclusiveOf(golden, outcome);
     this.cases.push(junitCase(outcome, decided.mode));
-    this.results.push(packResult(outcome, { expect, updated, inconclusive: decided.mode, warned: decided.warned, counted: decided.counted, injection }));
+    this.results.push({ ...packResult(outcome, { expect, updated, inconclusive: decided.mode, warned: decided.warned, counted: decided.counted, injection }), ...(takesOut ? { takesOut } : {}) });
     this.tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
     if (!flags.update && early) this.forkedEarly.push({ packDir, golden, ...early });
     const divergence = outcome.result?.shown.ended.summary.divergence;

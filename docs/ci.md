@@ -393,7 +393,7 @@ shadowlap test goldens/refund-flow --update
 2. **Its checks run on the re-recording.** Only when the agent exits 0 and they pass does the re-recorded pack replace the old one, in your working tree.
 3. **It is replayed offline** like any other golden, and you review the change in your pull request.
 
-Only the pack's own files are replaced (`run.json`, `calls.jsonl` and `blobs/`); anything else you keep in the golden's folder, such as a README, stays as it is. The re-recorded pack is written under `.shadowlap/` first, so an update that is interrupted leaves the old golden.
+Only the pack's own files are replaced (`run.json`, `calls.jsonl` and `blobs/`); anything else you keep in the golden's folder, such as a README or its [`accepted.jsonl`](#say-why), stays as it is. The re-recorded pack is written under `.shadowlap/` first, so an update that is interrupted leaves the old golden.
 
 It prints the checks, the calls and what the re-recording cost, then what the agent sends differently: the system prompt, the tools and the models, and the change in the request that made the golden diverge:
 
@@ -404,11 +404,56 @@ It prints the checks, the calls and what the re-recording cost, then what the ag
       ✓ issue_refund called 0 times
       re-recorded as run 01K5CQ9T2W: 31 calls, was 30 · model calls 11 → 12 · escalate 0 → 1, issue_refund 1 → 0 · $0.072 live · 12 upstream requests
       what changed: system prompt changed · call 3 (api POST /v1/messages): ~ $.system
+      what it does differently: issue_refund is no longer called · escalate is called
       replaced goldens/refund-flow in the working tree; review the change in your pull request
+      no reason was kept: with --reason "<why>", a later change that takes this one out is told why it is there
 ✓ refund-flow: 31/31 replayed, 12.4k input tokens not re-spent (updated)
 ```
 
+**What it does differently** compares the re-recording with the golden it replaces, call by call: a write made or no longer made first, then reads, then the words of its last answer. It is one recording against another, so it shows what changed in this run, not how often.
+
 Updating calls the providers, so it needs their credentials, like `shadowlap run`. The session then replays each updated golden offline, as the next test will, and records how that replay came out, marked updated. A golden that diverged on a value made anew on every run diverges again there, and fails ([below](#a-value-made-anew-on-every-run)).
+
+### Say why
+
+A re-recorded golden shows what the agent does, never why. `--reason` keeps the why beside the golden:
+
+```sh
+shadowlap test goldens/refund-flow --update --reason "refunds above the limit go to a manager"
+```
+
+```text
+      accepted by dev@example.com: refunds above the limit go to a manager (kept in goldens/refund-flow/accepted.jsonl)
+```
+
+Each golden it replaces gets a line in `accepted.jsonl`, in its folder, to commit with it:
+
+| Field | Meaning |
+|---|---|
+| `at`, `by` | When it was accepted, and by whom: `SHADOWLAP_AUTHOR`, `ci` in CI, else git's `user.email` |
+| `reason` | The reason given |
+| `from`, `to`, `code` | The recording replaced, the one accepted, and the code it was accepted at |
+| `changed`, `decides` | What the agent sends differently, and what it does differently, as the update printed them |
+| `added` | A hash of each sentence the change added to the system prompt |
+| `fix` | The fix it came with, for a golden [`fix apply`](./cli.md#fix) copied |
+
+The file holds no prompt text. A pack is written under the project's redaction rules, and the sentences are kept as hashes so the file is no way around them.
+
+**A later change that takes the sentence out is told why it is there.** When a golden diverges on a request that lacks a sentence an accepted change added, `shadowlap test` names it under the divergence:
+
+```text
+✗ refund-flow: diverged at call 1 (api POST /v1/messages)
+    …
+    ! this change takes out what an accepted change put in:
+        "Escalate refunds above $100."
+        accepted 2026-11-14 by dev@example.com: refunds above the limit go to a manager
+```
+
+The JSON report carries the same under the result's `takesOut`, and the Markdown report lists it with the failure, so a job summary shows it. The test fails as any divergence does: the note is for whoever decides whether to update the golden again.
+
+- **Sentences are matched whole.** A sentence reworded counts as taken out, and the note says so before the rule is lost by accident.
+- **`shadowlap fix apply` keeps a reason too.** Each golden it copies gets the fix as its reason, so a change that takes a fix's sentence out names the fix.
+- **`--reason` needs `--update`**, and applies to every golden that update replaces.
 
 ### Which goldens are updated
 
@@ -1161,7 +1206,8 @@ On other CI systems, run the CLI directly. `--junit`, `--json` and `--markdown` 
 
 - **Values an agent makes anew on every run** (a request id, a per-run UUID, a temp path) diverge on the first CI run. Run [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate) on a recording before you pack it, or add the [normalizer](./normalizers-and-redaction.md) the report suggests; normalizers apply at match time, so old goldens keep working.
 - **Today's date in a prompt** needs neither: [dates near a run's start](./normalizers-and-redaction.md#dates-and-times) already match.
-- **Intended changes** to a prompt fail the test, which is the point. [Update the golden](#update-a-golden-after-an-intended-change) with `shadowlap test --update`, and review the re-recording in the pull request like any other snapshot. `shadowlap show --json` of the two runs diffs well.
+- **Intended changes** to a prompt fail the test, which is the point. [Update the golden](#update-a-golden-after-an-intended-change) with `shadowlap test --update --reason "<why>"`, and review the re-recording in the pull request like any other snapshot. `shadowlap show --json` of the two runs diffs well.
+- **A reason outlives the snapshot.** The [reason kept beside a golden](#say-why) is shown when a later change takes out what it put in, so a rule added after a failure is not tidied away unnoticed.
 - **The outcome, not the requests.** When what matters is the outcome rather than the exact requests, mark the recording [`fork`](#recordings-that-fork-on-purpose) and give it checks instead.
 - **Tool fixes** don't change requests, so they don't fail the test; the recorded result is still served. If the fix should change behavior, re-record.
 - **Keep goldens small and specific.** The repository's 30-call reference run packs to 79 files and 64 KB.
