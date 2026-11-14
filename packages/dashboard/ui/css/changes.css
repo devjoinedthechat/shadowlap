@@ -73,13 +73,16 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 .dmx { container: matrix / inline-size; margin-top: 28px; }
 .dmkey { grid-column: 2 / -1; min-width: 0; padding: 0 11px 12px; }
 .dmg { display: grid; grid-template-columns: minmax(170px, 270px) minmax(0, max-content) minmax(180px, 1fr); }
+/* a migration's What changes draws it compact, a run and its cells alone: two columns, so a run's cells sit beside its
+   own label, never under the next run's */
+.dmx.compact .dmg { grid-template-columns: minmax(170px, 270px) minmax(0, 1fr); }
 .dmh, .dmr { display: contents; }
 .dmh > span, .dmr > div { min-width: 0; padding: 10px 11px; }
 .dmh > span:first-child, .dmr > div:first-child { padding-left: 0; }
 .dmh > span:last-child, .dmr > div:last-child { padding-right: 0; }
 .dmh > span { padding-top: 0; padding-bottom: 8px; border-bottom: 1px solid var(--line); font: 500 11px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dmr > div { display: flex; flex-direction: column; justify-content: center; gap: 2px; border-top: 1px solid var(--line); }
-.dmh + .dmr > div { border-top: 0; }
+.dmh + .dmr > div, .dmx.compact .dmr:first-child > div { border-top: 0; }
 .dmr.open > div { background: var(--sel); }
 .dmr.open > div:first-child { box-shadow: -12px 0 0 var(--sel); } .dmr.open > div:last-child { box-shadow: 12px 0 0 var(--sel); }
 /* a run in focus from j and k, drawn across its cells as an open one is, with the bar at its left */
@@ -134,13 +137,14 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 .dnotes li + li { margin-top: 4px; }
 /* below 760px of room a row stacks: its label, its cells, what changed most */
 @container (max-width: 760px) {
-  .dmg { grid-template-columns: minmax(0, 1fr); }
+  .dmg, .dmx.compact .dmg { grid-template-columns: minmax(0, 1fr); }
   .dmh { display: none; }
   .dmkey { grid-column: 1 / -1; padding: 0 0 12px; }
   .dmr > div { border-top: 0; padding: 0; }
   .dmr > div:first-child { border-top: 1px solid var(--line); padding-top: 12px; }
   .dmr > div:last-child { padding-bottom: 14px; }
   .dmr > div + div { padding-top: 8px; }
+  .dmx.compact .dmr:first-child > div:first-child { border-top: 0; }
   .dmr.krow > div, .dmr.krow > div:first-child, .dmr.krow > div:last-child { box-shadow: -9px 0 0 var(--sel), -12px 0 0 var(--ink), 12px 0 0 var(--sel); }
 }
 /* forced colours: a cell and its swatch edged in the text colour, left as recorded the edge alone, not asked dashed in it,
@@ -218,7 +222,8 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 /* the retirement table's source, a link in the line's grey words: underlined softly, as a fix's about line's is, so more than its ink tells it */
 .mgstart .mgsrc a.dlink { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .mgstart .mgsrc a.dlink:hover { text-decoration-color: currentColor; }
-.dmx.compact { margin-bottom: 8px; }
+/* with no key or column heads over it, the compact matrix starts under its section's heading */
+.dmx.compact { margin: 0 0 8px; }
 .mgsteps { list-style: none; margin: 0; padding: 0; }
 .mgsteps li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 4px 0; font-size: 13.5px; color: var(--ink); }
 .mgsteps .dsd { font: 600 11px var(--body); }
