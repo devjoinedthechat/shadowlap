@@ -150,7 +150,7 @@ describe('Find breaking commit from the calendar', () => {
   it('says the failure it starts from: its id, what it is, its command and when it ran', async () => {
     await shown(createElement(FindCommitDialog, { runId: RUN, choices: choices(), failure, onClose: () => undefined }));
     const first = r!.all('.dialog .dfacts > div')[0]!;
-    expect(text(first.querySelector('dt'))).toBe('Failure');
+    expect(text(first.querySelectorAll('dt')[0])).toBe('Failure');
     expect(first.querySelector('dd a')!.getAttribute('href')).toBe(`#/run/${RUN}`);
     expect(text(first)).toContain(RUN.slice(0, 10));
     expect(text(first)).toContain('fork @17');

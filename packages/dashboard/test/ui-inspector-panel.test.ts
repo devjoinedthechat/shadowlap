@@ -1,6 +1,7 @@
 import { act, createElement, useCallback, useLayoutEffect, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Client, RunDetail } from '../ui/api.js';
+import type { CallRow } from '../ui/types.js';
 import type { RequestDiff } from '../src/request-diff.js';
 import { FindingPanel } from '../ui/components/FindingPanel.js';
 import { ResultsToggle } from '../ui/components/ResultsToggle.js';
@@ -159,7 +160,7 @@ describe('a finding’s diff in the inspector’s place', () => {
   });
 
   it('opens a call picked that the replay served from the recording, or none past where it left it, where it left it', () => {
-    const row = (callNo: number, origin: string, outcome: 'ok' | 'error' = 'ok') => ({ callNo, origin, outcome, scope: null });
+    const row = (callNo: number, origin: CallRow['origin'], outcome: 'ok' | 'error' = 'ok'): Pick<CallRow, 'callNo' | 'origin' | 'outcome' | 'scope'> => ({ callNo, origin, outcome, scope: null });
     const forked = { run: { divergence: { type: 'request_changed', callNo: 7 } } } as unknown as RunDetail;
     // Made live after the fork, or answered by an override, or failed: its request may differ.
     expect([diffCallOf(forked, row(9, 'live')), diffCallOf(forked, row(10, 'overridden')), diffCallOf(forked, row(11, 'live', 'error'))]).toEqual([9, 10, 11]);
