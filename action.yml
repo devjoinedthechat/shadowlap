@@ -84,7 +84,7 @@ inputs:
 
 outputs:
   passed:
-    description: Recordings that passed.
+    description: Recordings that passed, or were let through (an inconclusive one the inconclusive input lets pass counts here and in inconclusive).
     value: ${{ steps.test.outputs.passed }}
   failed:
     description: Recordings that fail the step - diverged, made a live call, exited with an error, or failed a check or an injection gate - and inconclusive ones, unless inconclusive is warn or, left empty, the recording's gate against history ran out of attempts with fewer than 30 sessions behind it, until the plan reads a decline or a drop in them (99 to 1). The Alerts workflow posts when it isn't 0.
