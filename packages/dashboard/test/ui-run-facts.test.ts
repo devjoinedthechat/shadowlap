@@ -36,6 +36,8 @@ describe('a run’s first fact', () => {
     expect(fact({ tools: 1, attempt: { tone: 'n', text: 'interrupted' } })).toEqual(['mu', 'interrupted', 'Stopped before it ended', null]);
     expect(fact({ tools: 1, attempt: { tone: 'no', text: 'failed' } })).toEqual(['err', 'failed', 'Failed', null]);
     expect(fact({ tools: 1, attempt: { tone: 'inc', text: 'inconclusive', why: 'send_email called 1 time' } })).toEqual(['warn', 'inconclusive', 'Inconclusive', 'send_email called 1 time']);
+    // One its provider was unavailable for (the CLI keeps `unavailable`, with passed false) neither passed nor failed.
+    expect(fact({ tools: 1, attempt: attemptOutcome({ status: 'failed', checks: [] }, { verdict: 'inconclusive', unavailable: true }) })).toEqual(['warn', 'inconclusive', 'Inconclusive', 'provider unavailable']);
     // A run that is no attempt keeps its own words.
     expect(fact({ tools: 1 })[1]).toBe('no checks');
   });

@@ -57,10 +57,15 @@ export function runLikeOf(d: RunDetail): RunLike {
 
 const whole = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 
-/** How blame or verify judged an attempt, as its record keeps it: its verdict, or for one kept before attempts had one, whether it passed. */
-function keptVerdict(v: { passed?: unknown; verdict?: unknown }): NonNullable<AttemptInput['verdict']> | null {
-  if (v.verdict === 'passed' || v.verdict === 'failed' || v.verdict === 'inconclusive') return v.verdict;
-  return typeof v.passed === 'boolean' ? (v.passed ? 'passed' : 'failed') : null;
+/**
+ * How blame or verify judged an attempt, as its record keeps it: its verdict, or for one kept before
+ * attempts had one, whether it passed. One its provider was unavailable for (`unavailable`, kept with
+ * passed false) neither passed nor failed, as the engine reads it (keptAttemptVerdict): inconclusive.
+ */
+function keptVerdict(v: { passed?: unknown; verdict?: unknown }): Pick<AttemptInput, 'verdict' | 'unavailable'> {
+  if (v.verdict === 'unavailable') return { verdict: 'inconclusive', unavailable: true };
+  if (v.verdict === 'passed' || v.verdict === 'failed' || v.verdict === 'inconclusive') return { verdict: v.verdict };
+  return { verdict: typeof v.passed === 'boolean' ? (v.passed ? 'passed' : 'failed') : null };
 }
 
 /**
@@ -87,8 +92,8 @@ export function attemptOf(d: { run: Pick<RunDetail['run'], 'meta'>; attemptPlace
     return typeof t.of === 'string' && t.of ? { kind: 'test', k: place ? place.k : whole(t.attempt), n, golden: typeof t.golden === 'string' ? t.golden : null } : null;
   }
   const k = place ? place.k : whole(rep?.attempt);
-  if (m.probe && typeof m.probe === 'object') return { kind: 'probe', k, n, callNo: whole(m.probe.callNo), verdict: keptVerdict(m.probe) };
-  if (m.verify && typeof m.verify === 'object') return { kind: 'verify', k, n, role: typeof m.verify.role === 'string' ? m.verify.role : null, verdict: keptVerdict(m.verify) };
+  if (m.probe && typeof m.probe === 'object') return { kind: 'probe', k, n, callNo: whole(m.probe.callNo), ...keptVerdict(m.probe) };
+  if (m.verify && typeof m.verify === 'object') return { kind: 'verify', k, n, role: typeof m.verify.role === 'string' ? m.verify.role : null, ...keptVerdict(m.verify) };
   if (rep) return { kind: 'repeat', k, n, count: whole(rep.of) };
   return null;
 }

@@ -183,6 +183,16 @@ describe('an attempt', () => {
     expect(bannerFor({ ...base, divergence: forcedAt5, rescued: { callNo: 5 } })).toMatchObject({ of: 'rescued', why: 'rescued #5: the model was asked #5 again, the request as recorded · writes stubbed' });
   });
 
+  it('reads one its provider was unavailable for as inconclusive, never failed, and says why', () => {
+    // As blame and verify mark it (the CLI's markUnavailable): verdict `unavailable`, passed false.
+    const unavailable = attemptOf({ run: { meta: { probe: { of: REFUND, callNo: 5, passed: false, verdict: 'unavailable' }, repeat: { group: 'g-5', attempt: 2, of: 4 } } }, attemptPlace: { k: 2, n: 3 } });
+    expect(unavailable).toEqual({ kind: 'probe', k: 2, n: 3, callNo: 5, verdict: 'inconclusive', unavailable: true });
+    expect(attemptOf({ run: { meta: { verify: { role: 'target', passed: false, verdict: 'unavailable' }, repeat: { group: 'g', attempt: 1, of: 80 } } }, attemptPlace: { k: 1, n: 12 } })).toMatchObject({ verdict: 'inconclusive', unavailable: true });
+    const failed = { ...base, status: 'failed' as const, divergence: forcedAt5, intervention: diverge[0], interventions: diverge, attempt: unavailable! };
+    expect(bannerFor(failed)).toMatchObject({ outcome: { tone: 'inc', text: 'inconclusive', why: 'provider unavailable' }, why: 'resampled #5, attempt 2 of 3: the model was asked #5 again, the request as recorded · writes stubbed · provider unavailable' });
+    expect(attemptOutcome({ status: 'failed', checks: [] }, unavailable!)).toEqual({ tone: 'inc', text: 'inconclusive', why: 'provider unavailable' });
+  });
+
   it('comes out as its checks and exit say when nothing kept a verdict on it: failed, inconclusive (amber) or interrupted (grey)', () => {
     expect(attemptOutcome({ status: 'completed', checks: [] })).toEqual({ tone: 'ok', text: 'passed' });
     expect(attemptOutcome({ status: 'failed', checks: [] })).toEqual({ tone: 'no', text: 'failed' });
