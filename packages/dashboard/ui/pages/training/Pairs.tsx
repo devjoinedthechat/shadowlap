@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { PairGroupView, TrainingView } from '../../api.js';
 import { Chips } from '../../components/bits.js';
-import { CodeText, Copy, Words } from '../../components/Copy.js';
+import { asWords, CodeText, Copy, Words } from '../../components/Copy.js';
 import { Section } from '../../components/Section.js';
 import { plural, shortId } from '../../format.js';
 import { useListKeys } from '../../list-keys.js';
@@ -55,7 +55,7 @@ export function PairsTab({ view }: { view: TrainingView }) {
                 <span className={`sn${s.made ? '' : ' zero'}`}>{s.made}</span>
                 <span>
                   <b>{s.label}</b>
-                  <span className="rsub">{s.why}</span>
+                  <span className="rsub">{asWords(s.why)}</span>
                 </span>
                 {s.made && s.confidence ? <span className="conf">{s.confidence}</span> : null}
               </a>
@@ -69,7 +69,7 @@ export function PairsTab({ view }: { view: TrainingView }) {
                 <span className="ct">{c.level === 'high' ? 'High' : 'Medium'}</span>
                 <span>
                   <b>{c.title}</b>
-                  <span className="rsub">{c.sub}</span>
+                  <span className="rsub">{asWords(c.sub)}</span>
                 </span>
               </div>
             ))}

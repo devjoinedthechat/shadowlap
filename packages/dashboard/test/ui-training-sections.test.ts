@@ -179,6 +179,20 @@ describe('Training → Pairs', () => {
     expect(r.one('.pg1 .prun').textContent).toBe('01M5GS3GZR#5');
   });
 
+  it('keeps a hyphenated word whole in a source’s line and a confidence level’s, so a narrow line never breaks one at its hyphen', async () => {
+    const v = view();
+    // As the server words a verify's source: a held-out run named beside the target's.
+    v.pairs.sources[1] = { ...v.pairs.sources[1], why: 'Target 01M7BXZMMM failed 1 of 18; held-out 01M7BXZKFW failed 1 of 18.' };
+    v.pairs.confidence[0] = { ...v.pairs.confidence[0], sub: 'A blame’s fork passed where the recording failed, on a held-out run too.' };
+    r = await page(app(v), 'pairs');
+    await r.until('the page', () => r!.all('.pgroup').length > 0);
+    const whole = (line: { querySelectorAll(selector: string): Array<{ textContent: string }> }) => line.querySelectorAll('ts-w').map((w) => w.textContent);
+    expect(whole(r.all('.srcs .rsub')[1])).toContain('held-out');
+    expect(whole(r.all('.lrows .rsub')[0])).toContain('held-out');
+    // The line as the server wrote it, its tallies glued.
+    expect(r.all('.srcs .rsub')[1].textContent.replace(/\u00a0/g, ' ')).toBe('Target 01M7BXZMMM failed 1 of 18; held-out 01M7BXZKFW failed 1 of 18.');
+  });
+
   it('puts the pairs and where they come from in the keys’ reach, a row each', async () => {
     r = await page(app(view()), 'pairs');
     await r.until('the page', () => r!.all('.pgroup').length > 0);
