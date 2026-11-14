@@ -46,6 +46,8 @@ export interface Action {
      * followed by what was typed in a field labelled `text` (`error:` + `connection reset`).
      */
     choices?: Array<{ value: string; label: string; text?: string }>;
+    /** Why the CLI would refuse what was typed, in its words, before anything runs; null when it takes it. Absent: it takes any answer. */
+    check?: (value: string) => string | null;
     build: (value: string) => string[];
   };
   /** Whether the action creates a run that should be opened when it finishes. */
@@ -295,6 +297,9 @@ function packAction(id: string): Action {
   };
 }
 
+/** A request field as `replay --set` takes it after the call (run-agent.ts): a key, a dotted path, then `=` and the value. */
+const SET_FIELD = /^[A-Za-z_][\w.]*=[\s\S]*$/;
+
 /** Flags that only name a policy or a call: safe to run again from a stored record. */
 const REPLAY_FLAGS: Record<string, RegExp> = {
   '--inject': /^\d+=[\s\S]+$/,
@@ -480,6 +485,20 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
         group: 'call',
         hint: `Calls before #${n} replay; from here the new model answers live.`,
         prompt: { label: `Model from #${n} on:`, placeholder: model ?? 'claude-opus-5', build: (v) => ['replay', id, '--model', `${n}:${v}`] },
+        opensRun: true,
+      },
+      {
+        key: 'd',
+        label: ACTIONS.setRequestField.label,
+        flag: `--set ${n}:…`,
+        group: 'call',
+        hint: `Calls before #${n} replay; from here each request sets the field where its provider keeps it, such as temperature=1 for a model that answers the same at 0, and the model answers live.`,
+        prompt: {
+          label: `Request field to set from #${n} on (key=value; the value is JSON or a string, a dotted key a path):`,
+          placeholder: 'temperature=1',
+          check: (v) => (SET_FIELD.test(v.trim()) ? null : `--set expects <call>:<key>=<value>, got "${n}:${v.trim()}"`),
+          build: (v) => ['replay', id, '--set', `${n}:${v.trim()}`],
+        },
         opensRun: true,
       },
       {

@@ -32,6 +32,7 @@ export const ACTIONS = {
   // (run-actions.ts); Force <tool> live names its tool.
   injectInstruction: { label: 'Inject instruction…', doing: 'Forking' },
   switchModel: { label: 'Switch model from here…', doing: 'Forking' },
+  setRequestField: { label: 'Set request field from here…', doing: 'Forking' },
   useChangedPrompt: { label: 'Use changed prompt from here', doing: 'Forking' },
   failWithStatus: { label: 'Fail with HTTP status…', doing: 'Forking' },
   overrideResult: { label: 'Override result…', doing: 'Forking' },

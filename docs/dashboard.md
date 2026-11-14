@@ -2236,6 +2236,8 @@ A job that bills nothing, such as a replay offline, starts at once on every sett
 | A recorded user input | **Override user reply…**, **Run live from here** |
 | The whole run | **Repeat 5 times** (`--repeat 5`), **Replay with writes stubbed**, **Run error-path presets…** (`--chaos`), **Run injection test…**, **Find breaking commit…** |
 
+A model call also offers **Set request field from here…**: it asks for `key=value`, such as `temperature=1`, and forks with `--set <n>:<key>=<value>`, refusing another shape in the CLI's words.
+
 The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
 - **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it goes by [Spending](#spending), asking in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.

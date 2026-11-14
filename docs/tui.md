@@ -219,6 +219,7 @@ The menu's actions:
 | --- | --- | --- | --- |
 | `i` | Inject instruction… (asks for text) | model call | `… --inject <n>=<text> --inject-as user` |
 | `m` | Switch model from here… (asks for a model) | model call | `… --model <n>:<model>` |
+| `d` | Set request field from here… (asks for `key=value`, refusing another shape as the CLI does) | model call | `… --set <n>:<key>=<value>` |
 | `g` | Use changed prompt from here | model call | `… --prompt-from <n>` |
 | `f` | Fail with HTTP status… (asks for a status) | model call | `… --fail-at <n>=<status>` |
 | `o` | Override result… (opens with the recorded result to edit) | tool call | `… --override <n>=<json>` |

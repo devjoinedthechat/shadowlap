@@ -461,7 +461,7 @@ selected call, one line each with its flag on the right:
 
 | At | The fork menu offers |
 |---|---|
-| A model call | Inject instruction…, Switch model from here…, Use changed prompt from here, Fail with HTTP status…, Run live from here |
+| A model call | Inject instruction…, Switch model from here…, Set request field from here…, Use changed prompt from here, Fail with HTTP status…, Run live from here |
 | A tool call | Override result… (opening with the recorded result to edit), Fail with tool error…, Plant instruction… (reads only), Force *tool* live, Run live from here |
 | A recorded user input | Override user reply…, Run live from here |
 | The whole run | Repeat 5 times, by [Spending](./dashboard.md#spending) on a fork, whose attempts run live; Replay with writes stubbed; Find breaking commit… |
