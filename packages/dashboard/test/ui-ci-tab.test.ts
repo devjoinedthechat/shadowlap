@@ -414,11 +414,44 @@ describe('Settings → CI', () => {
     expect(r!.one('.settab .verdict p').textContent).toContain('not valid JSON');
     const unread = r!.all('.settab .cilist li').find((li) => li.textContent.startsWith('which goldens run live'))!;
     expect(unread.querySelector('i')!.getAttribute('class')).toBe('warn');
+    // What a part needs is open where a row of it is amber: what the workflow leaves out is not folded away. The other lists stay folded.
+    expect(r!.all('.settab .cifold').map((f) => [f.querySelector('button .k')!.textContent, f.querySelectorAll('.cilist li i.warn').length > 0, f.querySelector('button')!.getAttribute('aria-expanded'), f.querySelector('.cilist')!.hasAttribute('hidden')])).toEqual([
+      ['it needs', false, 'false', true],
+      ['it needs', true, 'true', false],
+      ['it never', false, 'false', true],
+      ['it needs', true, 'true', false],
+      ['a golden fails when', true, 'false', true],
+    ]);
     expect(shownFile()).toContain("#   shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
     expect(plain(r!.one('#workflow .cistore span'))).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
     const problem = served({}, DEFAULTS_FILE, { goldens: [], configError }).problem;
     expect(problem).toBeTruthy();
     expect(r!.one('#workflow .fieldnote').textContent).toBe(problem);
+  });
+
+  it('opens what a part needs when a row of it turns amber while the tab is shown, and leaves it folded once folded by hand', async () => {
+    const over: Partial<CiContext> = {};
+    await open(fakeServer(DEFAULTS_FILE, over));
+    const needs = () => r!.one('#alerts .cimain .cifold');
+    const shown = () => [needs().querySelector('button')!.getAttribute('aria-expanded'), needs().querySelector('.cilist')!.hasAttribute('hidden')];
+    expect(shown()).toEqual(['false', true]);
+    try {
+      // The config can't be read from here on: the next answer, asked for by a switch, has an amber row.
+      Object.assign(over, { goldens: [], configError: 'shadowlap.config.json: not valid JSON (Unexpected end of JSON input)' });
+      await r!.click(r!.one('#alerts .setrow .switch[aria-labelledby="onlyMain-name"]'));
+      await r!.until('the amber row', () => needs().querySelectorAll('.cilist li i.warn').length === 1);
+      expect(shown()).toEqual(['true', false]);
+      await r!.click(needs().querySelector('button')!);
+      expect(shown()).toEqual(['false', true]);
+      // Another answer with the row still amber, known by the session it brings, opens nothing again.
+      Object.assign(over, { session: SESSION });
+      await r!.click(r!.one('#alerts .setrow .switch[aria-labelledby="onlyMain-name"]'));
+      await r!.until('the next answer', () => r!.all('#workflow p.muted').some((p) => plain(p) === sessionLine(SESSION)));
+      expect(needs().querySelectorAll('.cilist li i.warn')).toHaveLength(1);
+      expect(shown()).toEqual(['false', true]);
+    } finally {
+      delete keptFor('support-agent').onlyMain;
+    }
   });
 });
 
@@ -622,6 +655,13 @@ describe('Settings → Gates', () => {
     } finally {
       delete keptFor('support-agent').inconclusive;
     }
+  });
+
+  it('leads with can’t read while shadowlap.config.json can’t be read, as the CI tab does', async () => {
+    const configError = 'shadowlap.config.json: not valid JSON (Unexpected end of JSON input)';
+    await openGates(fakeServer(DEFAULTS_FILE, { goldens: [], configError }));
+    expect(plain(r!.one('.settab .verdict h2'))).toBe('can’t read Fix shadowlap.config.json to change these settings');
+    expect(r!.one('.settab .verdict p').textContent).toContain('not valid JSON');
   });
 
   it('is where a link to a gate’s kind from when Gates was CI’s last panel goes on to, its kind kept', async () => {

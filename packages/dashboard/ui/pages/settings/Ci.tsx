@@ -13,7 +13,7 @@ import { href } from '../../route.js';
 import { useServedParts } from '../../served-parts.js';
 import type { CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
-import { ListFold, Select } from './CiList.js';
+import { ListFold, Needs, Select } from './CiList.js';
 import { YourWorkflow } from './CiWorkflow.js';
 import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
 import { useCiWorkflows } from './ci-read.js';
@@ -29,7 +29,8 @@ import { ruleWords } from '../../components/Verdict.js';
  * action, each with its switch in its header: Pull request comment, Fix on failure and Alerts, their
  * settings on the left and what lands on the right. A part that is off is its header and one line,
  * what happens without it, with Show settings; each list (what it needs, what it never does, what
- * fails a golden) opens from its name and count. A gate's figures to try are a tab of their own,
+ * fails a golden) opens from its name and count, what a part needs open already while a row of it
+ * is amber. A gate's figures to try are a tab of their own,
  * Gates (Gates.tsx). The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked
  * again as you pick: the switches start as the repository's workflow sets them, and the file is the
  * repository's with only what they own changed. While shadowlap.config.json can't be read, the tab
@@ -165,7 +166,7 @@ function PullRequestComment({ o, view, toggle }: { o: CiWorkflowOptions; view: C
             {ACTIONS.previewPrComment.label}
           </ActionButton>
         </div>
-        <ListFold name="it needs" rows={view.comment.needs} />
+        <Needs rows={view.comment.needs} />
       </div>
       {open && PrCommentDialog ? <PrCommentDialog preview={preview.data} onClose={() => setOpen(false)} /> : null}
     </Section>
@@ -199,7 +200,7 @@ function FixOnFailure({ o, view, set, onSwitch }: { o: CiWorkflowOptions; view: 
             </div>
             <Select id="cifixRepairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
           </div>
-          <ListFold name="it needs" rows={f.needs} />
+          <Needs rows={f.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">{f.preview.example ? 'what lands in GitHub · example' : 'what lands in GitHub'}</span>
@@ -302,7 +303,7 @@ function Alerts({ o, view, set, toggle }: { o: CiWorkflowOptions; view: CiWorkfl
             </div>
             <input id="alertSecret" className="inp" type="text" spellCheck={false} autoComplete="off" aria-labelledby="alertSecret-name" aria-describedby="alertSecret-help" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
           </div>
-          <ListFold name="it needs" rows={a.needs} />
+          <Needs rows={a.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">what lands in Slack</span>
