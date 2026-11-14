@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ABOUT_FROM } from '../../../engine/src/about.js';
-import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail } from '../api.js';
+import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail, RunNote } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { CopyButton, Org } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
@@ -14,6 +14,7 @@ import { navigate } from '../router.js';
 import { kindWord } from '../runs.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
+import { NoteForm } from './Inspector.js';
 import { modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
 import { lineageRunLike } from './view-model.js';
 import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes, tallyProviders, upstreamParts } from './provenance.js';
@@ -79,7 +80,7 @@ function UpstreamValue({ text, note }: { text: string; note: string | null }) {
 
 const LEDGER_ROWS = { keyOf: (c: RunDetail['calls'][number]) => c.callNo, shapeOf: () => 'row', estimate: () => 39 };
 export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: number | null }) {
-  const { client, meta, exported, toast, runs } = useApp();
+  const { client, meta, exported, actionsOff, toast, runs } = useApp();
   const r = run.run;
   const s = run.summary;
   const lineage = useLoad(() => client.lineage(r.runId), r.runId);
@@ -137,7 +138,11 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       cur = cur.parentRunId ? byId.get(cur.parentRunId) : undefined;
     }
   }
-  const notes = r.meta?.notes ?? [];
+  // Its notes, on its calls and on the run; a note added here brings the run's own back as the server keeps them (api.ts `addNote`).
+  const [own, setOwn] = useState<{ runId: string; notes: RunNote[] } | null>(null);
+  const kept = r.meta?.notes ?? [];
+  const notes = own?.runId === r.runId ? [...kept.filter((n) => n.callNo !== null), ...own.notes].sort((a, b) => a.at - b.at) : kept;
+  const canNote = !exported && !actionsOff;
   const labels = r.meta?.labels ?? [];
   const rules = prov?.mask?.rules ?? meta?.redactRules;
   // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
@@ -264,7 +269,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
             </Copy>
           )}
           <Copy className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</Copy>
-          {labels.length || notes.length ? (
+          {labels.length || notes.length || canNote ? (
             <>
               <h2>Labels and notes</h2>
               {labels.length ? (
@@ -276,14 +281,18 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                   ))}
                 </p>
               ) : null}
-              <div className="notes">
-                {notes.map((n, i) => (
-                  <div className="note" key={i}>
-                    {n.callNo !== null ? <b>#{n.callNo}</b> : null} {n.text}
-                    <small>{stamp(n.at)}</small>
-                  </div>
-                ))}
-              </div>
+              {notes.length ? (
+                <div className="notes">
+                  {notes.map((n, i) => (
+                    <div className="note" key={i}>
+                      {n.callNo !== null ? <b>#{n.callNo}</b> : null} {n.text}
+                      <small>{stamp(n.at)}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {/* A note on the whole run, as `shadowlap note` without --call writes one: a call's is added in its details. */}
+              <NoteForm runId={r.runId} callNo={null} onSaved={(n) => setOwn({ runId: r.runId, notes: n })} />
             </>
           ) : null}
         </section>

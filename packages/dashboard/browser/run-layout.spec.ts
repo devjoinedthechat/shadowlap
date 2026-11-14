@@ -320,3 +320,26 @@ test('Show diff opens at a call picked that the fork made live, its request agai
   await expect(panel.locator('.fhead .ct')).toHaveText(`Diff at #${live}`);
   await expect(panel.locator('.diffpanel')).toBeVisible();
 });
+
+test('Provenance writes a note on the whole run where the run’s notes are listed, from the keyboard', async ({ page }) => {
+  const id = demoId('ticket');
+  const sent: unknown[] = [];
+  // Answered here, so nothing is written to the demo every test shares: the run's own notes, as the server keeps them.
+  await page.route(new RegExp(`/api/runs/${id}/notes$`), (route) => {
+    const body = route.request().postDataJSON() as { callNo: number | null; text: string };
+    sent.push(body);
+    return route.fulfill({ json: { notes: [{ callNo: null, text: body.text, at: Date.now() }] } });
+  });
+  await openPage(page, `/run/${id}/provenance`, 'main#view .prov');
+  const field = page.getByRole('textbox', { name: 'A note on this run' });
+  await field.focus();
+  await page.keyboard.type('Escalated to billing after the refund audit.');
+  await page.keyboard.press('Tab');
+  await expect(page.locator(':focus')).toHaveText('Add note');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('main#view .prov .notes .note', { hasText: 'Escalated to billing after the refund audit.' })).toBeVisible();
+  expect(sent).toEqual([{ callNo: null, text: 'Escalated to billing after the refund audit.' }]);
+  // A note on a call stays listed with it.
+  await expect(page.locator('main#view .prov .notes .note b', { hasText: '#17' })).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
+});

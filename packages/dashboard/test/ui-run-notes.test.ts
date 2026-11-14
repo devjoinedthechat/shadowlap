@@ -116,4 +116,33 @@ describe('the notes on a run’s page', () => {
     expect(row('Provider').textContent).toBe('openai via openrouter.ai 3 calls');
     expect(row('Guard').textContent).toBe('warn · no preload loaded');
   });
+
+  it('writes a note on the whole run in Provenance, where its notes are read, as `shadowlap note` without --call does', async () => {
+    addressBar(`#/run/${RUN}/1/provenance`);
+    const said: Array<[string, number | null, string]> = [];
+    const toasts: string[] = [];
+    // The server keeps a note on a call already, and answers a note on the run with the run's notes alone (api.ts `addNote`).
+    const noted = { ...answer(), run: { ...answer().run, meta: { ...answer().run.meta, notes: [{ callNo: 3, text: 'the policy lookup timed out', at: T + 3 }] } } } as unknown as RunDetail;
+    const note = (runId: string, callNo: number | null, text: string) => (said.push([runId, callNo, text]), Promise.resolve({ notes: [{ callNo: null, text, at: T + 20 }] }));
+    const writing = { ...app, client: { ...client, run: () => Promise.resolve(noted), note }, toast: (t: string) => void toasts.push(t) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: writing }, createElement(RunPage, { id: RUN, call: 1, view: 'provenance' })));
+    await r.until('Provenance', () => r!.all('.prov form.addnote').length === 1);
+    const form = r.one('.prov form.addnote');
+    expect(form.querySelector('textarea')!.getAttribute('aria-label')).toBe('A note on this run');
+    await r.type(form.querySelector('textarea')!, 'Refunded twice: escalate to billing.');
+    await r.fire(form, 'submit');
+    expect(said).toEqual([[RUN, null, 'Refunded twice: escalate to billing.']]);
+    await r.until('the note', () => r!.all('.prov .notes .note').length === 2);
+    // The note on #3 stays, and the run's own comes after it.
+    expect(r.all('.prov .notes .note').map((n) => n.textContent!.replace(/\s+/g, ' ').trim().split(/(?=[A-Z][a-z]{2} \d)/)[0]!.trim())).toEqual(['#3 the policy lookup timed out', 'Refunded twice: escalate to billing.']);
+    expect(toasts).toContain('Note saved on the run');
+  });
+
+  it('offers no note on the run on a dashboard that changes nothing, and none in a copy', async () => {
+    addressBar(`#/run/${RUN}/1/provenance`);
+    const off = { ...app, actionsOff: 'this dashboard is read-only' } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: off }, createElement(RunPage, { id: RUN, call: 1, view: 'provenance' })));
+    await r.until('Provenance', () => r!.all('.prov dt').some((d) => d.textContent === 'Guard'));
+    expect(r.all('.prov form.addnote')).toHaveLength(0);
+  });
 });

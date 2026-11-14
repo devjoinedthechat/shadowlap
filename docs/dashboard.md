@@ -919,7 +919,7 @@ Provenance is the run's record. It shows:
 - **Its lineage**, with how each run stands (what a failed one failed, in red; an interrupted one in grey) and its revision.
 - **What a copy made at this point applies**, and what it would mask.
 - **Each call's fingerprint and blobs.**
-- **Its labels and notes.**
+- **Its labels and notes**, with **Add note** for a note on the whole run.
 
 **Copy show --json** copies what `shadowlap show <run> --json` prints.
 
@@ -991,7 +991,7 @@ On a failed model call, the input tokens are what its request held, `in the requ
 
 ### Labels and notes
 
-Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. Both offer the labels runs carry as you type, most used first. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details.
+Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. Both offer the labels runs carry as you type, most used first. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details, and on the whole run with **Add note** in Provenance, where the run's notes are listed, as `shadowlap note` does without `--call`.
 
 The **good/bad key** labels a run `good` or `bad` in one press:
 

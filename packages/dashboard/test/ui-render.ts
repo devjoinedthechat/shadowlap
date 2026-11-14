@@ -500,7 +500,7 @@ export interface FakeEvent {
 }
 
 /** React's prop for each event type it hears. */
-const HANDLER: Record<string, string> = { click: 'onClick', mousedown: 'onMouseDown', mouseup: 'onMouseUp', mousemove: 'onMouseMove', pointerenter: 'onPointerEnter', keydown: 'onKeyDown', input: 'onChange', change: 'onChange', focusin: 'onFocus', focusout: 'onBlur', drop: 'onDrop' };
+const HANDLER: Record<string, string> = { click: 'onClick', mousedown: 'onMouseDown', mouseup: 'onMouseUp', mousemove: 'onMouseMove', pointerenter: 'onPointerEnter', keydown: 'onKeyDown', input: 'onChange', change: 'onChange', focusin: 'onFocus', focusout: 'onBlur', drop: 'onDrop', submit: 'onSubmit' };
 
 function dispatch(doc: FakeDocument, win: FakeWindow, target: FakeElement, type: string, init: Partial<FakeEvent>): FakeEvent {
   let stopped = false;
