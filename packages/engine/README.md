@@ -1,6 +1,6 @@
 # @shadowlap/engine
 
-The library [Shadowlap](https://github.com/devjoinedthechat/shadowlap)'s CLI, sidecar, dashboard and terminal UI are built on: the SQLite store, packs, fingerprints and matching, normalizers, diffs and reports, gates, and the replay state machine.
+The library [shadowlap](https://github.com/devjoinedthechat/shadowlap)'s CLI, sidecar, dashboard and terminal UI are built on: the SQLite store, packs, fingerprints and matching, normalizers, diffs and reports, gates, and the replay state machine.
 
 ```sh
 npm install @shadowlap/engine

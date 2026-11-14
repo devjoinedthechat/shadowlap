@@ -8,6 +8,6 @@ labels: enhancement
 
 The debugging or CI situation, not the feature.
 
-**What would you expect Shadowlap to do?**
+**What would you expect shadowlap to do?**
 
 **Provider / framework / SDK involved, if any**

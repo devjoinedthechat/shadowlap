@@ -1,8 +1,8 @@
 # How it works
 
-This page explains the mechanism under every Shadowlap command: how a run is recorded, how a replay
+This page explains the mechanism under every shadowlap command: how a run is recorded, how a replay
 matches each call to the recording, and where a fork goes live. Read it when a replay does something
-you didn't expect, or before you build on Shadowlap.
+you didn't expect, or before you build on shadowlap.
 
 ## The loop
 
@@ -23,7 +23,7 @@ The words the rest of the docs use for the parts of that loop:
 
 | Term | Meaning |
 |---|---|
-| **Run** | One execution of the agent under Shadowlap, a recording or a replay. The [store](#storage) keeps every run |
+| **Run** | One execution of the agent under shadowlap, a recording or a replay. The [store](#storage) keeps every run |
 | **Recording** | A run `shadowlap run` made: every call the agent made, and what it heard back |
 | **Call** | One intercepted operation: a model request (`api`), a `tool` call, a `clock` read or a `random` value |
 | **Replay** | A run of the agent's real code against a recording, every unchanged call served from it |
@@ -115,7 +115,7 @@ sidecar on a connection of its own:
   `setGlobalDispatcher` included, which ignores `NO_PROXY`.
 
 One thing still follows that dispatcher: a WebSocket opened with Node's own `WebSocket`, a Realtime
-connection. Use undici's `EnvHttpProxyAgent` there, which honours the `NO_PROXY` Shadowlap sets.
+connection. Use undici's `EnvHttpProxyAgent` there, which honours the `NO_PROXY` shadowlap sets.
 
 ### WebSockets and telemetry
 
@@ -209,7 +209,7 @@ same prompt) may receive each other's recorded responses. The set is right; the 
 guaranteed. Run each branch in a [scope](./sdk.md#scopes) and each keeps its own answers. Within one
 scope the limit remains, which only matters when the identical requests' answers are used differently.
 
-Around a fork, arrival order does matter, and only there. Calls that reach Shadowlap before the first
+Around a fork, arrival order does matter, and only there. Calls that reach shadowlap before the first
 changed call are still served from the recording; calls after it follow the fork policy.
 
 So when a turn issues a changed `read` and an unchanged `write` concurrently, the write is either
@@ -317,14 +317,14 @@ the same way.
 as long as the agent waited then, and closed without the rest. So an agent whose client gives up as
 soon times out as it did, and one that would wait longer sees the connection cut where it was.
 
-**A cut stream** reaches the agent as it arrived and then breaks, as it would without Shadowlap.
+**A cut stream** reaches the agent as it arrived and then breaks, as it would without shadowlap.
 
 **A provider or a declared HTTP host** that can't be reached, or that breaks off before its answer is
 whole, breaks the agent's connection the same way (an HTTP/2 stream is reset). Its client reports a
-connection error and retries as it would without Shadowlap. The call is recorded with no answer and
+connection error and retries as it would without shadowlap. The call is recorded with no answer and
 why, and the run's summary names the host.
 
-One break isn't the host's own: an HTTP/1.1 connection Shadowlap kept from an earlier call, closed by
+One break isn't the host's own: an HTTP/1.1 connection shadowlap kept from an earlier call, closed by
 the host just as the next call goes out on it. That call goes once more, on a fresh connection.
 
 **An answer the sidecar gives itself** is recorded with its bytes and headers. It answers a call an
@@ -355,7 +355,7 @@ Tools declare what they do to the world outside their arguments:
 `effect` is required. The only safe default would be `write`, and making that implicit would hide a
 decision the developer must make.
 
-## Tools Shadowlap did not record
+## Tools shadowlap did not record
 
 A recording keeps every model answer, and each answer names the tools the model asked for: Anthropic's
 `tool_use`, OpenAI's `tool_calls`, the Responses API's `function_call`, Gemini's `functionCall`.
@@ -365,10 +365,10 @@ A recording keeps every model answer, and each answer names the tools the model 
   server reached without [`shadowlap mcp`](./mcp.md)) ran in the agent unseen. A replay, which serves
   the answer that asked for it, runs it again for real.
 
-Shadowlap reads the run for these, so it finds tools a scan of the code misses:
+shadowlap reads the run for these, so it finds tools a scan of the code misses:
 
 ```text
-! The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real
+! The model called 2 tools shadowlap did not record: they ran in your agent unseen, and a replay runs them for real
     lookup_kb  3 calls from model call #2 · "lookup" only looks
     Bash       14 calls from model call #3 · a Claude Code built-in that runs a command
   Bash writes, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.
@@ -487,7 +487,7 @@ kept, and runs every other tool live by design, so it is never refused.
 
 A fork's model answers live, so it can ask for a tool the recording never called. An agent that runs
 that tool itself, unwrapped, runs it for real. Nothing refused it up front, since the recording held no
-call of it, and nothing stubs it, whatever `--writes` does to the writes Shadowlap records.
+call of it, and nothing stubs it, whatever `--writes` does to the writes shadowlap records.
 
 So every attempt says what it ran unrecorded:
 
@@ -499,7 +499,7 @@ So every attempt says what it ran unrecorded:
 
 ## The network guard
 
-Only calls that go through Shadowlap can be replayed. A tool that isn't wrapped (a direct database
+Only calls that go through shadowlap can be replayed. A tool that isn't wrapped (a direct database
 client, a raw `fetch`) would execute during a replay with nothing to say so.
 
 The guard closes that hole without code changes. `run`, `replay`, `test` and every command that
@@ -515,7 +515,7 @@ connection and every UDP datagram the process sends:
 The sidecar is allowed, and so is a
 [`shadowlap mcp --listen`](./mcp.md#under-the-network-guard) proxy of yours that records the agent's
 tool calls, once it proves it is running when the agent connects. Anything else is a side effect
-Shadowlap cannot replay:
+shadowlap cannot replay:
 
 | Mode | What happens | Default for |
 |---|---|---|
@@ -524,7 +524,7 @@ Shadowlap cannot replay:
 | `--guard off` | Nothing is intercepted | — |
 
 The guard also runs during recording, so a recording's summary already tells you which hosts your
-agent talks to outside Shadowlap, before you ever replay. The run keeps the list too, for its page in
+agent talks to outside shadowlap, before you ever replay. The run keeps the list too, for its page in
 the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from).
 
 ### Allowing a target
@@ -587,7 +587,7 @@ What each mode does with a run the guard couldn't watch:
 | Mode            | A run the guard couldn't watch                                                                   |
 |-----------------|--------------------------------------------------------------------------------------------------|
 | `--guard block` | Fails with that line: `shadowlap test` fails its golden, and `shadowlap replay` exits 1          |
-| `--guard warn`  | The summary names them all, and says a connection that bypassed Shadowlap could have gone unseen |
+| `--guard warn`  | The summary names them all, and says a connection that bypassed shadowlap could have gone unseen |
 | `--guard off`   | Expects nothing                                                                                  |
 
 - **To accept a run the guard can't watch**, replay it with `--guard warn` (the GitHub Action's `guard`
@@ -748,7 +748,7 @@ three classes:
    result changes call 9, a different tool result injected at call *k*. The unchanged prefix replays;
    the suffix runs live with writes fenced.
 3. **Changes that alter every request.** The top-level system prompt and tool definitions are sent
-   with every model call, so editing them diverges at call 1. Shadowlap still provides the diff, a fork
+   with every model call, so editing them diverges at call 1. shadowlap still provides the diff, a fork
    whose writes are fenced, and the lineage, but no token savings. No design can serve a recorded
    response to a request the model never saw.
 
@@ -814,7 +814,7 @@ What a provider takes is counted in base64, as the request carries it:
 
 Some can't be carried in its place:
 
-- **A file the recording holds no whole copy of** (uploaded in parts, or around Shadowlap) is sent as
+- **A file the recording holds no whole copy of** (uploaded in parts, or around shadowlap) is sent as
   it was, and the summary says it fails with another account's key.
 - **What a request names by its id alone** gets the same line, with no way to carry it in its place: a
   file in a code interpreter's `file_ids` or Anthropic's `container_upload`, and a vector store a file

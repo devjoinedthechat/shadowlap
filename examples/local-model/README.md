@@ -1,4 +1,4 @@
-# Shadowlap with a local model
+# shadowlap with a local model
 
 An on-call triage agent built on the [OpenAI Agents SDK](https://github.com/openai/openai-agents-js). It reads last night's alert logs, decides which ones are real incidents, and opens a ticket for each. The model is Qwen 2.5 7B served by [Ollama](https://ollama.com), so nothing here needs an API key.
 
@@ -16,7 +16,7 @@ alias shadowlap="node $PWD/../../packages/cli/bin/shadowlap.js"
 export SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434
 ```
 
-`SHADOWLAP_UPSTREAM_OPENAI` tells Shadowlap where to forward the agent's OpenAI-format requests. The agent itself only reads `OPENAI_BASE_URL`, which `shadowlap run` points at its recording proxy.
+`SHADOWLAP_UPSTREAM_OPENAI` tells shadowlap where to forward the agent's OpenAI-format requests. The agent itself only reads `OPENAI_BASE_URL`, which `shadowlap run` points at its recording proxy.
 
 ## Record
 
@@ -62,11 +62,11 @@ shadowlap replay 01M2P9PVCP --writes stub \
 
 ```
 → open_ticket {"service":"checkout-api","severity":"sev2","summary":"High latency and 502 errors in checkout-api due to upstream payments-gateway issues.",…}
-  Opened INC-DRYRUN (sev2, not filed: a Shadowlap replay)
+  Opened INC-DRYRUN (sev2, not filed: a shadowlap replay)
 → open_ticket {"service":"payments-gateway","severity":"sev2","summary":"Connection pool exhaustion and rollback due to canary deployment issues.",…}
-  Opened INC-DRYRUN (sev2, not filed: a Shadowlap replay)
+  Opened INC-DRYRUN (sev2, not filed: a shadowlap replay)
 → open_ticket {"summary":"Certificate auto-renewal failure for api.example.com, certificate expires in 6 days.",…,"severity":"sev3"}
-  Opened INC-DRYRUN (sev3, not filed: a Shadowlap replay)
+  Opened INC-DRYRUN (sev3, not filed: a shadowlap replay)
 …
 ⑂ Forked at call 11: 10 calls replayed, then 4 live, 3 writes stubbed; 4 upstream requests
 ✗ Diverged at call 11 (api POST /v1/chat/completions): 10 calls replayed before divergence

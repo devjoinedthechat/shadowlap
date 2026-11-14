@@ -1,4 +1,4 @@
-# Contributing to Shadowlap
+# Contributing to shadowlap
 
 Thanks for looking. The most useful contribution is a run against your own agent: open an issue with what diverged, what confused you, or what broke. This page covers setup, the tests, lint, commit messages and how a pull request is reviewed.
 
@@ -87,12 +87,12 @@ Your own `~/.shadowlap` is left alone too. The run sets `SHADOWLAP_HOME` to a te
 
 A run started at the root has that setup from `vitest.config.ts`. So does one started in a suite's folder or its `test` folder, as in `cd packages/dashboard && npx vitest run test/<file>`. Each has a `vitest.config.mjs` that gives the root's setup the suite's tests. Vitest reads only the config in the folder it starts in, so a run started anywhere else has neither a home of its own nor the guard below.
 
-A guard in each test file's process (`testing/home-guard.mjs`) fails the test that reaches the real home's Shadowlap files:
+A guard in each test file's process (`testing/home-guard.mjs`) fails the test that reaches the real home's shadowlap files:
 
 - **A write there** is refused, however its path gets there: through a link, with a trailing slash or `..`, or relative to the working folder. So is a write in the home the environment names while `SHADOWLAP_HOME` is unset or relative.
-- **A process** that would keep Shadowlap's files there isn't started. A test that runs the CLI keeps `process.env` in the environment it gives it, or sets a `SHADOWLAP_HOME` or `HOME` of its own.
+- **A process** that would keep shadowlap's files there isn't started. A test that runs the CLI keeps `process.env` in the environment it gives it, or sets a `SHADOWLAP_HOME` or `HOME` of its own.
 
-What changes in the real `~/.shadowlap` while the tests run fails the run under CI. Elsewhere it is only reported, as your own Shadowlap may write there meanwhile.
+What changes in the real `~/.shadowlap` while the tests run fails the run under CI. Elsewhere it is only reported, as your own shadowlap may write there meanwhile.
 
 ### The golden recording
 

@@ -1,6 +1,6 @@
 # SDK conformance suite
 
-Twenty-one scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
+Twenty-one scenarios every shadowlap SDK must pass, run against a real sidecar on an in-memory store.
 No API keys, no network, no model calls: only tools, the clock and randomness.
 
 The protocol being tested is specified in [docs/protocol.md](../../docs/protocol.md).

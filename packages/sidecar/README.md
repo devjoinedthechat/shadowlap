@@ -1,6 +1,6 @@
 # @shadowlap/sidecar
 
-The proxy `shadowlap run` starts beside an agent: it records and replays the agent's model calls byte for byte, and answers the tool, clock and random calls of [Shadowlap](https://github.com/devjoinedthechat/shadowlap)'s SDKs.
+The proxy `shadowlap run` starts beside an agent: it records and replays the agent's model calls byte for byte, and answers the tool, clock and random calls of [shadowlap](https://github.com/devjoinedthechat/shadowlap)'s SDKs.
 
 ```sh
 npm install @shadowlap/sidecar @shadowlap/engine

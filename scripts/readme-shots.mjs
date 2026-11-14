@@ -483,7 +483,7 @@ try {
       { ...fix, hold: 8 },
       { ...patch, hold: 7.2 },
     ],
-    title: 'The Shadowlap dashboard, from a failed run to its fix: the call blame found, the fix and its proof',
+    title: 'The shadowlap dashboard, from a failed run to its fix: the call blame found, the fix and its proof',
     desc: 'Runs › Failed lists one issue, issue_refund called with amount 240: three runs, each lost at model call #5. The newest opens at that call, where blame found the run lost, and asked again the model escalates instead. Open fix shows the fix: blame, repair’s prompt change and verify’s verdict, every failing run fixed and every good run kept. Show patch shows the prompt change.',
   });
   const walkFile = join(outDir, 'dashboard-walkthrough.svg');
@@ -493,7 +493,7 @@ try {
   if (walkBytes > WALK.maxBytes) throw new Error(`readme-shots: dashboard-walkthrough.svg is ${(walkBytes / 1024).toFixed(0)} KB, over the ${WALK.maxBytes / 1024} KB it may weigh`);
 
   // ---- the terminal UI: the same runs, as `shadowlap ui` draws them ----
-  // The UI's own app, here in this process. What Shadowlap keeps for a machine is the story's folder's,
+  // The UI's own app, here in this process. What shadowlap keeps for a machine is the story's folder's,
   // as it is for the story's commands; and the colours are the ones it asks for, whatever this
   // process's own terminal can show: Ink colours through the chalk it loads, set here to 24 bits.
   const { App } = await import('@shadowlap/tui');
@@ -617,7 +617,7 @@ try {
         rows: TUI.rows,
         scenes,
         still,
-        title: 'The Shadowlap terminal UI: a failed run where blame found it lost, the runs, and a fork with what it did differently',
+        title: 'The shadowlap terminal UI: a failed run where blame found it lost, the runs, and a fork with what it did differently',
         desc: 'The newest refund that failed is open at model call #5, where blame found it lost, and says how it stands: blame confirmed it fails, and its fix is applied. The run tree lists the recordings and their forks; two refunds read lost at #5. The fork of the ticket run opens where it left its parent, at call 17, with what it did differently: send_email is called with other arguments, and issue_refund is no longer called. At call 16, lookup_policy, whose result the fork overrode, the fork menu offers Override result first, then to fail the call, force it live or run live from there, and to blame, repair or verify the run.',
       };
       for (const { file, svg } of [

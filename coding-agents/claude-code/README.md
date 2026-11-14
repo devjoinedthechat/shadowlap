@@ -1,9 +1,9 @@
-# Shadowlap for Claude Code
+# shadowlap for Claude Code
 
 A Claude Code plugin with two skills that teach Claude to work on an AI agent with the `shadowlap`
 CLI:
 
-- **`setup-agent`** sets Shadowlap up for an agent: it finds the agent and its tools, marks what each
+- **`setup-agent`** sets shadowlap up for an agent: it finds the agent and its tools, marks what each
   tool does to the world, records a first run, makes its replay clean, keeps good runs as goldens and
   adds the CI check.
 - **`debug-agent`** checks every change to the agent's prompt, tools, model or code against what the
@@ -23,7 +23,7 @@ shadowlap skill install
 ```
 
 That writes the copy that came with the CLI to `.claude/skills/shadowlap/`: commit it. Nothing is
-downloaded, and the skills name the commands your CLI takes. After upgrading Shadowlap,
+downloaded, and the skills name the commands your CLI takes. After upgrading shadowlap,
 `shadowlap skill install --force` brings it to the new version.
 
 For every project on your machine instead, from the repository, which is its own plugin

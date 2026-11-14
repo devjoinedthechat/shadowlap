@@ -14,7 +14,7 @@ Commands run, in order. If it involves a recording, `shadowlap show <run>` outpu
 
 **Environment**
 
-- Shadowlap version (`shadowlap --version`):
+- shadowlap version (`shadowlap --version`):
 - OS and Node version:
 - SDK and language (e.g. `@anthropic-ai/sdk` 0.126, Python 3.12):
 - Framework, if any:

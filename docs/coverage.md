@@ -85,7 +85,7 @@ That replay is packed into `goldens/<first tool>-<writes>-<key>`, with your reda
 
 In the folder's name, the tools are at most 3, each once, lowercased with `-` for anything but letters and digits, and cut at 48 characters. `<key>` is the key's first 6 characters, so the uncovered behaviour at the top of this page goes to `goldens/lookup-order-issue-refund-3f9a2c`. When that folder is taken, `-2`, `-3` and so on are added.
 
-`--guard <mode>` sets the [network guard](./how-it-works.md#the-network-guard) for the replays `--pack` makes. `block`, the default, refuses a connection that bypasses Shadowlap; `warn` or `off` lets it through.
+`--guard <mode>` sets the [network guard](./how-it-works.md#the-network-guard) for the replays `--pack` makes. `block`, the default, refuses a connection that bypasses shadowlap; `warn` or `off` lets it through.
 
 ### The command
 

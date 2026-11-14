@@ -129,7 +129,7 @@ Record the verdict with `shadowlap test <golden> --update`, or pack the golden a
 The recording may hold a verdict for the check's question that doesn't answer the request a replay sends. The reason then says which of these it is:
 
 - `the recording's verdict was given on other material: it read "…" where it now reads "…"`: what the judge would read changed, at the line shown. A value that changes every run and that no normalizer masks (an id the agent prints, say) does this: add a [normalizer](./normalizers-and-redaction.md#normalizers) for it, then `--update`.
-- `the recording's verdict was given to an older form of the judge's request`: Shadowlap changed what it sends a judge since the verdict was recorded. `--update` asks again.
+- `the recording's verdict was given to an older form of the judge's request`: shadowlap changed what it sends a judge since the verdict was recorded. `--update` asks again.
 
 ### Other reasons
 
@@ -224,7 +224,7 @@ The verdict's schema goes in:
 
 The verdict is read from the answer's text, in a code fence or a sentence too.
 
-Each check's request is kept with the check's name, a digest of what it asks (its question, what it reads, its model), and the version of the request Shadowlap sends. So a renamed check still finds its verdict, a changed question never reads an old one, and a verdict recorded before Shadowlap changed what it sends a judge says so.
+Each check's request is kept with the check's name, a digest of what it asks (its question, what it reads, its model), and the version of the request shadowlap sends. So a renamed check still finds its verdict, a changed question never reads an old one, and a verdict recorded before shadowlap changed what it sends a judge says so.
 
 ## Matched byte for byte
 
@@ -245,7 +245,7 @@ A judge's calls are made in the scope `shadowlap:judge`. They are recorded in th
 - **Replay strictness leaves them out.** A judge call never forks a replay, never counts as replayed, and a recorded one that wasn't asked again is no call the agent left out, so a replay never [ends early](./ci.md#a-replay-that-ends-early) on one. A missing judge call means "ask the judge live", not "the agent changed".
 - **Nothing that measures the agent counts them.** Their own part is summed apart, as `judge` (below).
 - **No flag names one.** `--fail-at`, `--set`, `--model`, `--inject` and `--prompt-from` refuse a judge's call by name and count the agent's model calls only; no flag rewrites a judge's request or forces it live.
-- **Only Shadowlap makes them.** The scope takes a token no agent's environment holds, and any scope under `shadowlap:` is refused to an agent's call: name the agent's scopes another way.
+- **Only shadowlap makes them.** The scope takes a token no agent's environment holds, and any scope under `shadowlap:` is refused to an agent's call: name the agent's scopes another way.
 
 What measures the agent, and leaves a judge's calls out:
 
@@ -299,7 +299,7 @@ The store keeps them: each run's checks with their verdicts, and each golden's r
 - **A judge is a model, so it can be wrong.** Read its reasons. Across fork attempts, `repeat` and `passes`, or a [gate](./gating.md), decide how many verdicts must pass.
 - **A judge only judges what it reads.** For order, arguments and counts, the other checks are exact and free; a judge is for what they can't say, such as whether a reply explains itself. What the normalizers and the date masking hide from the run and the output, it doesn't see.
 - **The verdict is the recording's.** A clean replay is judged on the material its recording had. So changing what a judge reads (its question, its model, the redaction rules, the normalizers) asks it live again, or reads not judged offline until the golden is updated.
-- **Its model retires too.** `shadowlap doctor` names a judge whose model its provider retires, by the [retirement table](./decisions.md#model-retirements) that ships with Shadowlap, with what to ask instead. Give the check another model and record its verdicts again with `test --update`. The retirement notices on recordings leave a judge's calls out: they are no model the agent uses.
+- **Its model retires too.** `shadowlap doctor` names a judge whose model its provider retires, by the [retirement table](./decisions.md#model-retirements) that ships with shadowlap, with what to ask instead. Give the check another model and record its verdicts again with `test --update`. The retirement notices on recordings leave a judge's calls out: they are no model the agent uses.
 - **Providers.** A judge is asked through Anthropic, OpenAI or Gemini (or a server that speaks one of their APIs, through `SHADOWLAP_UPSTREAM_*`), not through Bedrock, Vertex AI or Azure.
 
 ## See also

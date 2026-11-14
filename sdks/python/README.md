@@ -1,6 +1,6 @@
-# Shadowlap SDK for Python
+# shadowlap SDK for Python
 
-Wrap your agent's tools once with their effect, so [Shadowlap](https://github.com/devjoinedthechat/shadowlap) records every call and a replay serves it from the recording instead of running it again.
+Wrap your agent's tools once with their effect, so [shadowlap](https://github.com/devjoinedthechat/shadowlap) records every call and a replay serves it from the recording instead of running it again.
 
 ```sh
 pip install shadowlap
@@ -18,14 +18,14 @@ def issue_refund(order_id: str, amount: float) -> dict:
     return payments.refund(order_id, amount)
 ```
 
-Record and replay with the `shadowlap` command, which this package installs: it runs the Shadowlap CLI from npm at the package's own version (an npm install of that version on your `PATH`, or `npx`), so it needs Node.js 22.16 or later, not 23, and says how to get it when there is none.
+Record and replay with the `shadowlap` command, which this package installs: it runs the shadowlap CLI from npm at the package's own version (an npm install of that version on your `PATH`, or `npx`), so it needs Node.js 22.16 or later, not 23, and says how to get it when there is none.
 
 ```sh
 shadowlap run -- python agent.py    # record a run, with your usual key
 shadowlap replay <run>              # a clean replay: 0 upstream requests, no real key
 ```
 
-Model calls need no code changes: `shadowlap run` routes the Anthropic, OpenAI and Gemini SDKs through its sidecar, and captures Azure OpenAI, Gemini Enterprise Agent Platform (Vertex AI) and Bedrock clients inside the process. Outside Shadowlap every wrapper is a passthrough, so decorated tools ship unchanged.
+Model calls need no code changes: `shadowlap run` routes the Anthropic, OpenAI and Gemini SDKs through its sidecar, and captures Azure OpenAI, Gemini Enterprise Agent Platform (Vertex AI) and Bedrock clients inside the process. Outside shadowlap every wrapper is a passthrough, so decorated tools ship unchanged.
 
 - `effect` is required: `pure` (depends only on its arguments), `read` (reads outside state) or `write` (changes it). After a fork, `read` tools run live and a `write` raises `ShadowlapWriteBlocked`, unless the replay stubs writes, returning what `on_fork` gives, or allows them. Coroutine functions, async generators (a streaming tool keeps streaming) and objects with an async `__call__` work too, under asyncio, trio and anyio.
 - `now()`, `random()` and `uuid()` record the clock and randomness, so a replay sees the values the run saw.

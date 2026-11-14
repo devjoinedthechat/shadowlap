@@ -1,6 +1,6 @@
 # Instructions for coding agents
 
-What a coding agent needs to know to set Shadowlap up for an agent and debug it, packaged as two
+What a coding agent needs to know to set shadowlap up for an agent and debug it, packaged as two
 skills in the [Agent Skills](https://agentskills.io/specification) format: `setup-agent` and
 `debug-agent`. The section to paste in [docs/agents.md](../docs/agents.md) is a shorter version of
 the second. CI runs every command they name against the repository's reference agent

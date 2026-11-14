@@ -4,7 +4,7 @@
 that went wrong in production becomes a recording you can replay your own code against. Nothing
 about the agent changes, and nothing about the proxy's behaviour changes.
 
-Shadowlap records by sitting in front of the agent, which suits a laptop and CI. In production
+shadowlap records by sitting in front of the agent, which suits a laptop and CI. In production
 nobody re-points their agent at a dev tool. But plenty of teams already route model traffic through
 a gateway, and a gateway is the same thing: something in the request path that sees the real bytes.
 
@@ -104,7 +104,7 @@ golden covers.
 ## Keeping the volume down
 
 Everything the proxy serves is written, which is rarely what you want. Two things help, and both are
-outside Shadowlap on purpose:
+outside shadowlap on purpose:
 
 - Point `SHADOWLAP_CAPTURE_DIR` at a directory with a short retention.
 - Set it only on the workers or the models you care about.

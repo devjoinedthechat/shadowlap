@@ -514,7 +514,7 @@ function render({ rows, W, H }, animated) {
     ...(animated ? [...css, '@media (prefers-reduced-motion:reduce){.a{animation:none!important;opacity:1!important}.c{display:none}}'] : []),
   ].join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="title desc">
-<title id="title">Shadowlap in a terminal: a refund agent recorded, replayed exactly, blamed to the model call that lost the run, and replayed with the fix</title>
+<title id="title">shadowlap in a terminal: a refund agent recorded, replayed exactly, blamed to the model call that lost the run, and replayed with the fix</title>
 <desc id="desc">${esc(transcript)}</desc>
 <style>
 ${style}

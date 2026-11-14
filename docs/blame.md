@@ -379,7 +379,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#blame) lists 
 | `cost` | object | What the search spent: `{ attempts, unavailable, spent, upstreamRequests, unknownModels }` |
 | `stopReason` | string or null | Why it stopped early; `provider unavailable: …` for a provider that stayed unavailable |
 | `judge` | object or null | `{ spent, upstreamRequests }`: what [judge checks](./judges.md)' calls cost; `null` when no judge was asked live |
-| `warnings` | array | What the replays warned about, such as a connection that bypassed Shadowlap |
+| `warnings` | array | What the replays warned about, such as a connection that bypassed shadowlap |
 | `fix` | object or null | `{ fixId, title, status, opened }`: the [fix](#fixes) the blame opened (`opened: true`) or joined |
 
 Some fields need more than a line:
@@ -471,7 +471,7 @@ Blame refuses a run it can't search, and says why:
 | *does not replay as recorded* | `diverged` | The replay forks by itself, so a probe could not tell a changed answer from a changed prefix | [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate), then blame again |
 | *forked at call n instead* | `prefix` | An attempt ran a prefix the recording doesn't hold | As above. Branches that run at once need [scopes](./sdk.md#scopes) |
 | *made no model calls* | `no-model-calls` | There is no model answer to blame, or none in the `--scope` given | Check the scope names blame lists |
-| *did not replay through Shadowlap* | `bypassed` | The recording has model calls and the replay made none | Replay in the environment you recorded in |
+| *did not replay through shadowlap* | `bypassed` | The recording has model calls and the replay made none | Replay in the environment you recorded in |
 
 A Ctrl-C before the first probe ends it with `interrupted`. With `--json`, a refusal prints the `runId`, `outcome` `error`, `error.reason` and `error.message`, and `judge` for what [judge checks](./judges.md) spent before it refused.
 
@@ -479,7 +479,7 @@ A Ctrl-C before the first probe ends it with `interrupted`. With `--json`, a ref
 
 **A check that can't be decided as recorded** is such as a judge with no verdict, or a `when` whose condition reads a value the run doesn't have. Fix it at the source, such as the path a condition reads: `shadowlap doctor` names one no recorded call has.
 
-**A replay that bypassed Shadowlap** means the agent reached its model some other way. That is often a local server Shadowlap was told about when recording (`SHADOWLAP_UPSTREAM_OPENAI`), but not for the replay.
+**A replay that bypassed shadowlap** means the agent reached its model some other way. That is often a local server shadowlap was told about when recording (`SHADOWLAP_UPSTREAM_OPENAI`), but not for the replay.
 
 ## Limits
 

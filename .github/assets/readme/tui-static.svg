@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1050" height="564" viewBox="0 0 1050 564" role="img" aria-labelledby="title desc">
-<title id="title">The Shadowlap terminal UI: a failed run where blame found it lost, the runs, and a fork with what it did differently</title>
+<title id="title">The shadowlap terminal UI: a failed run where blame found it lost, the runs, and a fork with what it did differently</title>
 <desc id="desc">The newest refund that failed is open at model call #5, where blame found it lost, and says how it stands: blame confirmed it fails, and its fix is applied. The run tree lists the recordings and their forks; two refunds read lost at #5. The fork of the ticket run opens where it left its parent, at call 17, with what it did differently: send_email is called with other arguments, and issue_refund is no longer called. At call 16, lookup_policy, whose result the fork overrode, the fork menu offers Override result first, then to fail the call, force it live or run live from there, and to blame, repair or verify the run.</desc>
 <style>
 text{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","DejaVu Sans Mono",monospace;font-size:13px;fill:#eeede6;white-space:pre}

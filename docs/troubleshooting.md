@@ -92,7 +92,7 @@ These go wrong without a divergence in the report. Where a symptom links, its se
 | "Replay clean", but a tool you fixed behaves as before | Its call key is unchanged (same arguments), so the recorded result is served | Pass `--live-tool <name>`. The report warns when a tool's source hash changed since the recording |
 | [A tool ran during a replay, though nothing diverged](#a-tool-ran-during-a-replay) | It isn't wrapped: only calls through the SDK (`tool()`, an adapter) are recorded | Wrap it with a `write` effect, or replay with `--guard block` |
 | [A database write ran under `--guard block`, and no host is listed for it](#a-database-write-ran-under---guard-block) | The client connects from C, out of the network guard's sight | Wrap the calls as `write` tools, or point the client at a local instance |
-| [The summary says no Shadowlap preload loaded](#no-shadowlap-preload-loaded) | The network guard watched none of the agent's connections | Remove what kept the preload out. On another runtime, wrap tools and use `--guard warn` |
+| [The summary says no shadowlap preload loaded](#no-shadowlap-preload-loaded) | The network guard watched none of the agent's connections | Remove what kept the preload out. On another runtime, wrap tools and use `--guard warn` |
 | A write ran after the fork | `--writes allow` was set, or the tool isn't wrapped | Leave out `--writes allow`, or wrap the tool |
 | [`ShadowlapWriteBlocked` crashed the agent](#shadowlapwriteblocked-crashed-the-agent) | The agent doesn't catch tool errors | Catch them, or replay with `--writes stub` and an `onFork` value |
 | A replay diverges at call 1, everything identical but one field | A normalizer may be scoped to the wrong `kind`, `name` or path | Compare with `shadowlap normalize ls`. Rules scoped to a tool name apply to that tool only |
@@ -106,10 +106,10 @@ These go wrong without a divergence in the report. Where a symptom links, its se
 
 The tool isn't wrapped: only calls through the SDK (`tool()`, an adapter) are recorded. What happens to an unwrapped tool depends on who calls it:
 
-- **A tool the model called** that writes, or may, is refused before a replay starts, and one that reads is named at its end ([tools Shadowlap did not record](./how-it-works.md#tools-shadowlap-did-not-record)).
+- **A tool the model called** that writes, or may, is refused before a replay starts, and one that reads is named at its end ([tools shadowlap did not record](./how-it-works.md#tools-shadowlap-did-not-record)).
 - **Calls the agent's own code makes**, such as direct database clients, unwrapped HTTP calls and file writes, are invisible to replay and will run.
 
-The run summary lists the hosts such calls reached (`… bypassed Shadowlap …`). Wrap them with a `write` effect, or replay with `--guard block` to refuse them outright. File writes don't go over the network and aren't caught, so wrap those too.
+The run summary lists the hosts such calls reached (`… bypassed shadowlap …`). Wrap them with a `write` effect, or replay with `--guard block` to refuse them outright. File writes don't go over the network and aren't caught, so wrap those too.
 
 ### A database write ran under `--guard block`
 
@@ -121,7 +121,7 @@ The summary lists no host for it, because the client opens its connection in C, 
 
 Wrap the calls as tools with a `write` effect, so a replay serves them from the recording and fences them after a fork. Or point the client at a local instance while you replay. Clients written in the language itself (`asyncpg`, `pymongo`, `redis`, `pg`, `mysql2`) connect through it and are guarded. See [what the guard can't see](./how-it-works.md#what-it-cant-see).
 
-### No Shadowlap preload loaded
+### No shadowlap preload loaded
 
 The run made model or tool calls, but no Node or Python process of the agent said its preload loaded. So the network guard watched none of its connections, and under `--guard block` the run failed for it.
 
@@ -131,7 +131,7 @@ The summary line names the cause when the command shows one:
 |---|---|
 | Bun or Deno | They load no Node preload |
 | Python with `-I`, `-E` or `-S` | These skip `PYTHONPATH` or `site` |
-| `env -i`, `sudo` or a container | They start the agent without Shadowlap's environment |
+| `env -i`, `sudo` or a container | They start the agent without shadowlap's environment |
 | `opentelemetry-instrument` | Its own `sitecustomize` comes first |
 
 Otherwise, check two things:
@@ -155,7 +155,7 @@ Use `EnvHttpProxyAgent` instead. It takes the proxy from `HTTP_PROXY` and `HTTPS
 
 ### A Node agent never starts
 
-The agent fails with `node: --import= is not allowed in NODE_OPTIONS`, and the CLI says the agent's Node is too old for Shadowlap's guard. Shadowlap loads its guard and in-process capture into a Node agent through `--import` in `NODE_OPTIONS`, which Node takes from 18.18 on.
+The agent fails with `node: --import= is not allowed in NODE_OPTIONS`, and the CLI says the agent's Node is too old for shadowlap's guard. shadowlap loads its guard and in-process capture into a Node agent through `--import` in `NODE_OPTIONS`, which Node takes from 18.18 on.
 
 Run the agent on Node 18.18 or later. Two things can pick an older Node than the one `shadowlap` runs on:
 

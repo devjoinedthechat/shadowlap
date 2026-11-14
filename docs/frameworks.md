@@ -1,7 +1,7 @@
 # Frameworks
 
 If your tools are defined through a framework, declare each tool's effect once with an adapter. This
-page shows the setup for each framework Shadowlap supports, and what its recordings can and can't
+page shows the setup for each framework shadowlap supports, and what its recordings can and can't
 do.
 
 ## Supported frameworks
@@ -17,15 +17,15 @@ model calls need no adapter ([how adapters work](#how-adapters-work)).
 | [LangChain and LangGraph](#langchain-and-langgraph) | TypeScript | An adapter wraps the tool instance | `withEffect` from `@shadowlap/adapters/langchain` |
 | [Anthropic tool runner](#anthropic-tool-runner) | TypeScript | An adapter wraps the definition `betaZodTool` takes | `withEffect` from `@shadowlap/adapters/anthropic` |
 | [Claude Agent SDK](#claude-agent-sdk) | TypeScript | The SDK's hooks fence the built-in tools; an adapter wraps in-process MCP tools | `withFence` and `withEffects` from `@shadowlap/adapters/claude-agent-sdk` |
-| [Pydantic AI](#pydantic-ai) | Python | Shadowlap's decorator, innermost | `tool` from `shadowlap` |
+| [Pydantic AI](#pydantic-ai) | Python | shadowlap's decorator, innermost | `tool` from `shadowlap` |
 | [OpenAI Agents SDK](#openai-agents-sdk-python) | Python | The SDK's own `function_tool`, with an effect | `function_tool` from `shadowlap.adapters.openai_agents` |
 | [LangChain and LangGraph](#langchain-and-langgraph-python) | Python | An adapter wraps the tool instance | `with_effect` from `shadowlap.adapters.langchain` |
-| [Google ADK](#google-adk) | Python | Shadowlap's decorator on plain functions | `tool` from `shadowlap`, and `report_to_model` |
-| [LlamaIndex](#llamaindex) | Python | Shadowlap's decorator, under `FunctionTool` | `tool` from `shadowlap` |
-| [Microsoft Agent Framework](#microsoft-agent-framework) | Python | Shadowlap's decorator on plain functions | `tool` from `shadowlap` |
-| [Strands](#strands) | Python | Shadowlap's decorator, under Strands' `@tool` | `tool` from `shadowlap` |
-| [smolagents](#smolagents) | Python | Shadowlap's decorator, under smolagents' `@tool` | `tool` from `shadowlap` |
-| [Agno](#agno) | Python | Shadowlap's decorator on plain functions | `tool` from `shadowlap` |
+| [Google ADK](#google-adk) | Python | shadowlap's decorator on plain functions | `tool` from `shadowlap`, and `report_to_model` |
+| [LlamaIndex](#llamaindex) | Python | shadowlap's decorator, under `FunctionTool` | `tool` from `shadowlap` |
+| [Microsoft Agent Framework](#microsoft-agent-framework) | Python | shadowlap's decorator on plain functions | `tool` from `shadowlap` |
+| [Strands](#strands) | Python | shadowlap's decorator, under Strands' `@tool` | `tool` from `shadowlap` |
+| [smolagents](#smolagents) | Python | shadowlap's decorator, under smolagents' `@tool` | `tool` from `shadowlap` |
+| [Agno](#agno) | Python | shadowlap's decorator on plain functions | `tool` from `shadowlap` |
 | [CrewAI](#crewai) | Python | An adapter wraps the tool instance | `with_effect` from `shadowlap.adapters.crewai` |
 | [Claude Agent SDK](#claude-agent-sdk) | Python | The SDK's hooks fence the built-in tools; an adapter wraps in-process MCP tools | `with_fence` and `with_effects` from `shadowlap.adapters.claude_agent_sdk` |
 
@@ -42,7 +42,7 @@ listed, see [anything else](#anything-else).
 - **Model calls** need no adapter. Under `shadowlap run` the sidecar records them through the provider
   base URL a framework's client reads, or, for a client that reads none, by capturing the provider's
   host in the agent's process.
-- **Hosts Shadowlap doesn't know.** A model the framework sends to such a host (Hugging Face's router,
+- **Hosts shadowlap doesn't know.** A model the framework sends to such a host (Hugging Face's router,
   Groq) is recorded once the project's config
   [declares that host](./providers.md#hosts-of-another-providers-format) in the format it speaks.
 
@@ -76,7 +76,7 @@ await generateText({ model, tools, prompt });
 - **A streaming tool** (`async *execute`) still streams: its progress values reach the UI as they
   come, and every value it yields is recorded in order. A replay yields them again, the last of them
   the result the model is shown.
-- **An aborted stream** stops the tool, as it does without Shadowlap, and the recording ends at the
+- **An aborted stream** stops the tool, as it does without shadowlap, and the recording ends at the
   last value it had passed on.
 - **After a fork,** a blocked write reaches the model as the tool's error, as the AI SDK passes on any
   tool that threw, and `generateText` or `streamText` goes on to the agent's answer.
@@ -94,7 +94,7 @@ The model calls need nothing more, whichever way the agent names its model:
 and cost. A replay gets a placeholder `AI_GATEWAY_API_KEY`. Record, replay, forks, tests and checks
 work on them as on any model call, and a tool the agent didn't wrap is found from the model's answers.
 
-A change Shadowlap would make to the request itself takes a provider's own API. So for the gateway's
+A change shadowlap would make to the request itself takes a provider's own API. So for the gateway's
 calls:
 
 - `--inject`, `--set`, `--model` and `--prompt-from` are refused before anything runs;
@@ -119,7 +119,7 @@ const searchWeb = tool(withEffect({ name: 'search_web', description: 'Search', p
   gives any tool that failed. `run()` goes on to the agent's answer, streamed (`{ stream: true }`) or
   not.
 - **Trace export.** The SDK's trace export goes to `api.openai.com` while recording, as it does
-  without Shadowlap; a replay answers it itself and stays clean.
+  without shadowlap; a replay answers it itself and stays clean.
 
 ## Mastra
 
@@ -155,7 +155,7 @@ The agent's model calls need nothing more. Mastra's model router builds the clie
 | `openai/…` | Recorded through `OPENAI_BASE_URL`, which `shadowlap run` sets |
 | `anthropic/…` | Recorded through `ANTHROPIC_BASE_URL`, which `shadowlap run` sets |
 | `google/…` | Captured in the process at Google's host |
-| One the router sends elsewhere (`groq/…`, `openrouter/…`) | Not recorded: they go to a host Shadowlap doesn't know, and `shadowlap init` names any your agents use |
+| One the router sends elsewhere (`groq/…`, `openrouter/…`) | Not recorded: they go to a host shadowlap doesn't know, and `shadowlap init` names any your agents use |
 
 A replay's placeholder key goes in the variable the recording held it in,
 `GOOGLE_GENERATIVE_AI_API_KEY` for Google.
@@ -231,7 +231,7 @@ async for message in query(prompt=prompt, options=with_fence(ClaudeAgentOptions(
 
 - **Your own hooks.** `withFence` runs the options' own PreToolUse and PostToolUse hooks inside its
   own, and keeps their other hooks beside it.
-- **Production.** Outside Shadowlap the fence answers as the options' own hooks would, so the same
+- **Production.** Outside shadowlap the fence answers as the options' own hooks would, so the same
   options serve production.
 - **Model calls.** Claude Code's model calls are recorded through `ANTHROPIC_BASE_URL`, like any
   Anthropic client's.
@@ -285,7 +285,7 @@ the next model call:
 
 **Permissions decide as they did.** A call that `canUseTool` or a permission rule refused while
 recording is recorded as not run. On replay a read is left to them to refuse again; a write is
-refused with Shadowlap's own words, so the run forks at the next model call.
+refused with shadowlap's own words, so the run forks at the next model call.
 
 **Only the SDK's hooks are fenced.** Claude Code run on its own (`claude -p`) and Codex run their
 built-in tools where no SDK hook reaches: their model calls are recorded, their tools aren't, and a
@@ -383,7 +383,7 @@ stubbed, and stops the session, saying why.
 
 The Claude Code CLI runs with no network guard. Both SDKs run Claude Code's native `claude` program,
 which loads no Node or Python preload, so the [network guard](./how-it-works.md#the-network-guard)
-can't watch a connection it makes itself. Its model calls go through Shadowlap
+can't watch a connection it makes itself. Its model calls go through shadowlap
 (`ANTHROPIC_BASE_URL`), and so does WebSearch, which asks the model API to search.
 
 The fence tells the sidecar the CLI runs, as a preload says it loaded, with what the query leaves it
@@ -396,12 +396,12 @@ Each path is closed when:
 
 | Path | Closed when |
 |---|---|
-| The model API, past Shadowlap | The CLI's `ANTHROPIC_BASE_URL` is the one Shadowlap gave the agent, and it runs on none of `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX` or `_FOUNDRY` |
+| The model API, past shadowlap | The CLI's `ANTHROPIC_BASE_URL` is the one shadowlap gave the agent, and it runs on none of `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX` or `_FOUNDRY` |
 | WebFetch, which fetches each page itself | `disallowedTools` (`disallowed_tools`) has `WebFetch`, or a `tools` list leaves it out |
 | An MCP server over the network (`http`, `sse`) | None is configured where the CLI reads one (below) |
 | The claude.ai connectors | No claude.ai login brings them, or a setting turns them off (below) |
 | Its nonessential traffic (updates, telemetry, error reports) | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set, to any value but an empty one |
-| A program the CLI starts | It is Python, or a stdio server is Shadowlap's own [`shadowlap mcp`](./mcp.md) (below) |
+| A program the CLI starts | It is Python, or a stdio server is shadowlap's own [`shadowlap mcp`](./mcp.md) (below) |
 | An HTTP hook (`type: "http"`) | None is configured: the CLI posts it itself |
 | Its OpenTelemetry export | `CLAUDE_CODE_ENABLE_TELEMETRY` is off, or no exporter is `otlp` (below) |
 
@@ -420,13 +420,13 @@ An organization's `managed-mcp.json` takes MCP over: only its servers and the pr
 `strictMcpConfig`, `ENABLE_CLAUDEAI_MCP_SERVERS=false` or `disableClaudeAiConnectors: true` turns them
 off.
 
-**Nonessential traffic.** Under Shadowlap, `withFence` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+**Nonessential traffic.** Under shadowlap, `withFence` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 to `1` where the CLI reads it, the query's `env` or else the process's, unless it is set there
-already. Outside Shadowlap it touches no environment.
+already. Outside shadowlap it touches no environment.
 
 **Programs the CLI starts:** a stdio MCP server, a command hook, or a settings file's
 `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh` or `otelHeadersHelper`. A
-Python one loads Shadowlap's preload from the `PYTHONPATH` the CLI passes on.
+Python one loads shadowlap's preload from the `PYTHONPATH` the CLI passes on.
 
 - **Node and native programs.** The CLI the SDK bundles passes its environment on to these but
   `NODE_OPTIONS`, so a Node program it starts (`node`, `npx`) loads no preload, and a native one never
@@ -535,7 +535,7 @@ Parameters a framework injects are never recorded, in any Python framework:
 
 ## Pydantic AI
 
-Put Shadowlap's decorator innermost:
+Put shadowlap's decorator innermost:
 
 ```python
 from shadowlap import tool
@@ -672,7 +672,7 @@ agent = Agent(client=OpenAIChatClient(model="gpt-5"), instructions="Research, th
 
 ## Strands
 
-Give Strands functions under its own `@tool`, with Shadowlap's underneath.
+Give Strands functions under its own `@tool`, with shadowlap's underneath.
 
 ```python
 from strands import Agent, tool as strands_tool
@@ -697,7 +697,7 @@ agent = Agent(model=model, tools=[search_web, send_email])
 
 ## smolagents
 
-Give smolagents functions under its own `@tool`, with Shadowlap's underneath.
+Give smolagents functions under its own `@tool`, with shadowlap's underneath.
 
 ```python
 from smolagents import ToolCallingAgent, tool as smol_tool
@@ -770,7 +770,7 @@ researcher = Agent(role="Researcher", tools=[with_effect(search_web, "read"), wi
 
 Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a
 stand-in. Each framework's own agent loop runs as a user writes it, on a real model client with
-nothing in the agent naming Shadowlap, in front of a scripted model API. It runs one of two ways:
+nothing in the agent naming shadowlap, in front of a scripted model API. It runs one of two ways:
 
 - through the CLI: `shadowlap run`, then `replay --strict`, then a fork on another request;
 - for Google ADK and the case named last for a Python framework below, through a sidecar the test

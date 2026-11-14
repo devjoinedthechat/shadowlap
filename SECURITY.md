@@ -1,6 +1,6 @@
 # Security
 
-Shadowlap sits between your agent and your model provider, stores what passes through, and replays it by running commands. This page says how to report a vulnerability, what Shadowlap protects and from whom, and the checks behind each claim. Please report vulnerabilities privately.
+shadowlap sits between your agent and your model provider, stores what passes through, and replays it by running commands. This page says how to report a vulnerability, what shadowlap protects and from whom, and the checks behind each claim. Please report vulnerabilities privately.
 
 - [Reporting a vulnerability](#reporting-a-vulnerability)
 - [Scope](#scope)
@@ -41,7 +41,7 @@ Reports about any of these are in scope:
 
 ## Threat model
 
-Shadowlap runs on your machine and in your CI, with your permissions. Within that, it protects:
+shadowlap runs on your machine and in your CI, with your permissions. Within that, it protects:
 
 - **Your credentials.** A model key is forwarded upstream and never stored. Cloud credentials stay on each machine, and the GitHub Action keeps its tokens from the agent.
 - **Your recordings.** The store is readable only by you. Every copy that leaves your machine masks credentials, and every export applies your redaction rules.
@@ -59,7 +59,7 @@ It treats these as hostile:
 | Anyone who can write to the bucket | Change a run, a fix's patch or the steps a fix runs | [The team store](#the-team-store) |
 | What the agent or the model writes | Start a run with a command of its choosing, or plant a link, a mention or a workflow command | [Consent](#consent-before-running-someone-elses-command), [the GitHub Action](#the-github-action) |
 
-Shadowlap is not a sandbox. A replayed agent runs with your permissions, and a process running as you can do what you can. [Known limits](#known-limits) lists what Shadowlap doesn't protect against.
+shadowlap is not a sandbox. A replayed agent runs with your permissions, and a process running as you can do what you can. [Known limits](#known-limits) lists what shadowlap doesn't protect against.
 
 ## The sidecar
 
@@ -68,7 +68,7 @@ The sidecar is the local proxy every recording and replay goes through. It liste
 ### Who can reach it
 
 - **Loopback and a session token.** The sidecar binds to `127.0.0.1` on a random port and requires a per-session token in every URL.
-- **The `Host` it answers.** It answers only requests that name it in `Host` by a loopback address, or that in-process capture redirected to it. Those keep the `Host` of the host they were for, and name that host, one Shadowlap captures, in `x-shadowlap-upstream`.
+- **The `Host` it answers.** It answers only requests that name it in `Host` by a loopback address, or that in-process capture redirected to it. Those keep the `Host` of the host they were for, and name that host, one shadowlap captures, in `x-shadowlap-upstream`.
 - **DNS rebinding.** The `Host` check blocks DNS rebinding, as the dashboard's check does.
 
 ### Where it forwards
@@ -97,7 +97,7 @@ Node and Python agents get a preloaded capture module. It sends to the sidecar t
 
 `SHADOWLAP_CAPTURE=off` turns the module off. What it forwards:
 
-- **Signed requests** are forwarded unchanged unless an intervention changes them. Then each is signed again with the credentials the agent signed with, when Shadowlap can read them from the environment or the shared files, and otherwise refused with the reason.
+- **Signed requests** are forwarded unchanged unless an intervention changes them. Then each is signed again with the credentials the agent signed with, when shadowlap can read them from the environment or the shared files, and otherwise refused with the reason.
 - **A redirect the Node module follows for `fetch`**: a request sent on to another origin goes without its `authorization`, `cookie` and `proxy-authorization`, as `fetch` itself drops them.
 - **The headers the module adds for the sidecar alone** (`x-shadowlap-upstream`, `x-shadowlap-scope`, `x-shadowlap-failures`) never go anywhere else. A redirect a captured call's answer gives to another host is sent without them, whether the Node module follows it or Python's httpx or requests does, which copy a request's headers onto it.
 
@@ -108,7 +108,7 @@ Node and Python agents get a preloaded capture module. It sends to the sidecar t
 
 ## Credentials and masking
 
-Shadowlap forwards a model call's credentials upstream and never stores them. It stores a captured call with its credentials masked, and every copy that leaves your machine masks them again. [Credentials](docs/normalizers-and-redaction.md#credentials) lists every rule: each header, name, body shape and command-line form.
+shadowlap forwards a model call's credentials upstream and never stores them. It stores a captured call with its credentials masked, and every copy that leaves your machine masks them again. [Credentials](docs/normalizers-and-redaction.md#credentials) lists every rule: each header, name, body shape and command-line form.
 
 ### Model calls
 
@@ -191,7 +191,7 @@ Which commands give one:
 
 **A placeholder is never sent.** The sidecar answers a live call that carries one, in any header, in an AWS signature or in the query string, with `a live call needs a real key: set ANTHROPIC_API_KEY, or keep the replay offline` instead of forwarding it. That holds whatever the upstream: a provider, a gateway, a model server on this machine or a mock. A call to a host declared under `http` that passes one on is answered the same way.
 
-**Key names, never values.** A run keeps the names of the key variables its environment held (`keyEnv`), never a value. A reader of a pack takes from it only the providers and variables Shadowlap knows.
+**Key names, never values.** A run keeps the names of the key variables its environment held (`keyEnv`), never a value. A reader of a pack takes from it only the providers and variables shadowlap knows.
 
 ### What masking costs
 
@@ -214,11 +214,11 @@ What is stored is the same either way, and the call is answered once it is.
 
 ## The store on disk
 
-Recordings live in `./.shadowlap/`, which gets its own `.gitignore` so they stay out of version control. Shadowlap keeps the store readable only by you, and opens none that someone else could have swapped.
+Recordings live in `./.shadowlap/`, which gets its own `.gitignore` so they stay out of version control. shadowlap keeps the store readable only by you, and opens none that someone else could have swapped.
 
 | File | Mode |
 |---|---|
-| The store directory Shadowlap makes | `0700`, readable only by you |
+| The store directory shadowlap makes | `0700`, readable only by you |
 | The database and its WAL files | `0600` |
 | `.shadowlap/active.json` | `0600` |
 
@@ -234,7 +234,7 @@ A store is opened only when all of these hold, checked before anything is writte
 
 ## Packs, captures and pulled runs
 
-A pack can come from anyone: a colleague, an issue attachment, a pull request. A capture can come from anywhere a pack can, and a pull brings runs from a bucket others write to. Shadowlap treats each as hostile until checked.
+A pack can come from anyone: a colleague, an issue attachment, a pull request. A capture can come from anywhere a pack can, and a pull brings runs from a bucket others write to. shadowlap treats each as hostile until checked.
 
 ### Packs
 
@@ -316,7 +316,7 @@ A run that fails the checks is skipped. A pulled run is marked imported, so repl
 
 ## Consent before running someone else's command
 
-A pack records the command that produced it, and replaying re-runs that command. So Shadowlap marks each run whose command someone else chose, and asks before it runs that command.
+A pack records the command that produced it, and replaying re-runs that command. So shadowlap marks each run whose command someone else chose, and asks before it runs that command.
 
 | Run | Runs without asking | Otherwise |
 |---|---|---|
@@ -352,7 +352,7 @@ A golden's replay runs the command its pack recorded, and so does every command 
 An imported capture's run carries no command. A capture says what was sent, not what sent it, so there is nothing to execute. The run is marked imported, and its recorded command is the non-runnable placeholder `<no-recorded-command>`.
 
 - **Replaying it** needs a command you supply after `--`. `shadowlap replay` without one, and `shadowlap test` on a golden packed from it, refuse rather than run the placeholder.
-- **In the dashboard**, its replay asks for your command. What you type is split on the server and placed only after `--`, where `shadowlap replay` takes the agent's command; it never becomes one of Shadowlap's own arguments.
+- **In the dashboard**, its replay asks for your command. What you type is split on the server and placed only after `--`, where `shadowlap replay` takes the agent's command; it never becomes one of shadowlap's own arguments.
 - **It is your command**, so it runs without the consent an imported pack's command needs.
 
 ### Jobs in the dashboard
@@ -429,7 +429,7 @@ So a recorded prompt, tool name or error cannot rewrite your terminal or disguis
 
 ## The team store
 
-The team store is a bucket you own. Shadowlap hosts nothing for it, and nothing calls home. [The team store page](docs/team.md) covers setting one up.
+The team store is a bucket you own. shadowlap hosts nothing for it, and nothing calls home. [The team store page](docs/team.md) covers setting one up.
 
 - **Credentials stay on each machine.** Every machine reaches the bucket with its own credentials, found where the cloud's own tools keep them. `shadowlap.config.json` names only the bucket.
 - **A committed config can't send credentials elsewhere.** Google and Azure credentials, whose signatures don't name the host, are sent only to the cloud's own addresses over https or to this machine. An `?endpoint=` anywhere else is refused.
@@ -475,7 +475,7 @@ A pull request's CI job doesn't write to the team's runs.
 - **One rewrite, one file.** A pull takes a fix only when each repair's patch is the one rewrite its accepted candidate makes, to that candidate's file alone and in place.
 - **Checked again.** `shadowlap fix apply` checks it again before `git apply`, so an edit in the bucket can't make it write any other file.
 - **Never a recording.** That file is never one of a recording: a pack's `run.json` holds the command a replay of it runs, which `shadowlap test` runs without asking once the repository tracks the pack.
-- **Never Shadowlap's or git's files.** Nor is it `shadowlap.config.json`, or anything in `.shadowlap` or in git's own folder, whatever its case, trailing dots, stream or short name.
+- **Never shadowlap's or git's files.** Nor is it `shadowlap.config.json`, or anything in `.shadowlap` or in git's own folder, whatever its case, trailing dots, stream or short name.
 - **No more than a repair here.** `fix apply` puts it in only as a rewrite a repair would make in your working tree, read where the patch goes. It refuses one to a value that runs, such as `package.json`'s scripts or dependencies, and a pull leaves out one to a dot-folder's config (`.github`, `.claude/settings.json`), a Dockerfile or a script.
 - **Read before it runs.** Its confirm dialog shows the patch. Nothing on this machine runs the code it put in (no build, test or replay of your goldens) until you have read it.
 
@@ -483,10 +483,10 @@ So a recorded command never changes through a repair, which only ever rewrites t
 
 **A pulled fix's steps run only from checked fields, and only after a yes.** A pull marks every blame and verdict it brings as pulled, a mark that stays on this machine.
 
-- **Built from checked fields.** Blame again, Run more attempts and Verify again build their arguments from the report and the flags kept beside it: each a flag Shadowlap allows, with a value of its shape. Never from a command line the fix carries.
+- **Built from checked fields.** Blame again, Run more attempts and Verify again build their arguments from the report and the flags kept beside it: each a flag shadowlap allows, with a value of its shape. Never from a command line the fix carries.
 - **No hidden characters.** None runs again with a value that holds a control or format character or a line or paragraph separator. A pull refuses a fix whose text holds one.
 - **None of the teammate's commands.** A pulled one runs without a teammate's `--build`, `--base` and command after `--`.
-- **A bounded budget.** It spends no more than twice what Shadowlap runs by itself, as the table below gives.
+- **A bounded budget.** It spends no more than twice what shadowlap runs by itself, as the table below gives.
 - **Only after you confirm.** It runs only once you confirm the exact command line, which the question shows. A pulled step's page offers the command made here to copy, never the one a teammate ran.
 
 | Pulled step | At most |
@@ -526,7 +526,7 @@ A rewrite has to keep exactly the placeholders of the text it replaces, and add 
 - **No linked `.shadowlap`.** A `.shadowlap`, or a `.shadowlap/repairs` in it, that is a link is refused, since a repository could ship one to send what a repair writes elsewhere. It is refused before the repair takes its lock, and again when it writes its report, patch and recordings.
 - **A teammate's repair.** A pull writes a teammate's repair's files through no such link either.
 
-**An older Shadowlap's journal.** Older versions tried candidates in the working tree, and left a journal when a repair died. Repair puts one back only when git says it is your checkout's own (a file it doesn't track, reached through no link), since a repository can ship one. It writes it only into the repository's own files, as a candidate is written, so no journal makes repair write a file outside the repository.
+**An older shadowlap's journal.** Older versions tried candidates in the working tree, and left a journal when a repair died. Repair puts one back only when git says it is your checkout's own (a file it doesn't track, reached through no link), since a repository can ship one. It writes it only into the repository's own files, as a candidate is written, so no journal makes repair write a file outside the repository.
 
 **Note:** A process running as you that rewrites the worktree as repair works crosses no boundary this guards: it could write those files itself.
 
@@ -598,7 +598,7 @@ None of that text starts a line of the job's log either. The runner would read s
 
 ## MCP
 
-`shadowlap mcp` is a proxy that records, replays and fences an agent's MCP tool calls, in the run of the Shadowlap command that started the agent. It trusts only a loopback address, or a file you own and alone can read, to say where that run is.
+`shadowlap mcp` is a proxy that records, replays and fences an agent's MCP tool calls, in the run of the shadowlap command that started the agent. It trusts only a loopback address, or a file you own and alone can read, to say where that run is.
 
 ### Finding the run
 
@@ -610,9 +610,9 @@ None of that text starts a line of the job's log either. The runner would read s
 | `~/.shadowlap/agents/<pid>.json` | it is a regular file you own, readable by you alone, naming the process it is filed under and that process's parent, pointing at loopback |
 | `.shadowlap/active.json` | on the same terms, naming a process still running; read only where the process tree can't be read |
 
-- **The agents file.** Shadowlap writes one for each agent it starts, in an owner-only folder, and it carries the session token. It is in the `agents` folder of `SHADOWLAP_HOME` when that is set, and in the project's `.shadowlap/agents` when the folder can't be written.
-- **No run to record into.** Started under a Shadowlap command that runs agents but unable to record into its run, it refuses write tools and passes reads through unrecorded.
-- **Nothing pointing at Shadowlap.** It passes tool calls straight through, and says why. [Finding the run](docs/mcp.md#finding-the-run) has the detail.
+- **The agents file.** shadowlap writes one for each agent it starts, in an owner-only folder, and it carries the session token. It is in the `agents` folder of `SHADOWLAP_HOME` when that is set, and in the project's `.shadowlap/agents` when the folder can't be written.
+- **No run to record into.** Started under a shadowlap command that runs agents but unable to record into its run, it refuses write tools and passes reads through unrecorded.
+- **Nothing pointing at shadowlap.** It passes tool calls straight through, and says why. [Finding the run](docs/mcp.md#finding-the-run) has the detail.
 
 ### `shadowlap mcp --listen`
 
@@ -620,7 +620,7 @@ None of that text starts a line of the job's log either. The runner would read s
 
 - **Loopback only.** It takes only a loopback address, and answers only requests that name that address in `Host` and, from a browser, in `Origin`. So a web page can't reach the server through it.
 - **Any local process can.** Any process on this machine that can reach the port can reach the server through it, with the `--header` values the proxy holds.
-- **Its registration.** It registers its address while it runs, in `~/.shadowlap/mcp` (in `SHADOWLAP_HOME` when that is set), with a key it keeps. The network guard of the agents Shadowlap commands start lets them reach it: every command's agents when it was started on its own, its own command's alone when started under one.
+- **Its registration.** It registers its address while it runs, in `~/.shadowlap/mcp` (in `SHADOWLAP_HOME` when that is set), with a key it keeps. The network guard of the agents shadowlap commands start lets them reach it: every command's agents when it was started on its own, its own command's alone when started under one.
 - **When a registration counts.** Only when it is read from that folder, is the user's own, owner-only and not a link, in an owner-only folder, and names the process it is filed under, which is running, at a loopback address.
 - **It proves it runs.** A connection goes on only once what answers at that address proves it holds the registration's key. So one left behind by a proxy that died, even after its process id is reused, or planted, lets nothing through.
 
@@ -629,7 +629,7 @@ None of that text starts a line of the job's log either. The runner would read s
 The CLI sends nothing unless `SHADOWLAP_TELEMETRY_URL` names a collector, and it has no default endpoint.
 
 - **What it would send** is listed field by field in [Telemetry](docs/telemetry.md). It never includes prompts, tool names, arguments or results, file paths, hostnames, run ids or model names.
-- **The collector** installs nothing but Shadowlap's engine, which has no dependencies of its own.
+- **The collector** installs nothing but shadowlap's engine, which has no dependencies of its own.
 - **Closed sets.** The collector rejects any event with a field outside its allowlist or a value outside its closed sets, and any time before 2025 or more than a day ahead of its own clock.
 - **Turning it off**: `SHADOWLAP_TELEMETRY=0` or `DO_NOT_TRACK=1`.
 
@@ -642,7 +642,7 @@ The CLI sends nothing unless `SHADOWLAP_TELEMETRY_URL` names a collector, and it
 - **A body stored compressed as it came isn't masked**: a request body the agent compressed, and an answer under two content encodings at once (`gzip, br`), which the sidecar passes on as it came, without its `content-encoding`.
 - **Rules for encoded secrets.** Write a [redaction rule](docs/normalizers-and-redaction.md) for a secret left encoded: every copy applies the rules. No rule reads a body stored as bytes (compressed, UTF-16), and a push applies none, so keep a key out of those.
 - **The network guard is not a sandbox.** A replayed agent runs with your permissions, and the guard can't see a socket a C library opens.
-- **A process running as you** crosses no boundary Shadowlap guards. It could rewrite a worktree as repair works, and on a runner it can read the tokens the Action's process holds.
+- **A process running as you** crosses no boundary shadowlap guards. It could rewrite a worktree as repair works, and on a runner it can read the tokens the Action's process holds.
 - **`shadowlap mcp --listen`** lets any process on this machine that can reach its port use the `--header` values the proxy holds.
 - **Anyone who can write to the bucket** can change a run there, though not a replay here. Versions keep its earlier state, and an object lock keeps those versions from being deleted.
 - **A store in a repository you cloned** is someone else's data, like a pack. A store is normally ignored by git, but a repository can force-add one. Don't replay runs from a checkout you don't trust.
