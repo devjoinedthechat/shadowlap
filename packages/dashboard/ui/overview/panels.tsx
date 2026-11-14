@@ -36,16 +36,38 @@ export function WatchLive({ runId, about, calls }: { runId: string; about: strin
 export const ACTIVITY_SHOWN = 8;
 
 /**
- * The latest entries of the activity feed, a row each as a run's row reads: its glyph, what happened,
- * and when at its end. With a team store each names who did it. Each ends on what it happened to: a
- * run by its id, with its about line on hover, else the fix, verdict, file or rule as it is. A tally
- * or why a preview settled nothing stays one piece where the line wraps, and a folder's path is its
- * last folders, whole on hover. What an entry names is inline code (`Code`): whole where a line
- * holds it, else broken after a slash, as a bucket's address with its endpoint is. A recording pulses while something records it (`live`, as the top
- * bar's chip has it): the feed goes by the run's stored status, which a killed recorder leaves at
- * running.
+ * The latest entries of the activity feed, a row each (ActivityRows), with All activity → to the
+ * whole feed (pages/Activity.tsx), where older entries come a page at a time.
  */
 export function ActivityCard({ items, error = null, retry, now, byPerson, live }: { items: readonly ActivityItem[] | null; error?: Error | null; retry?: () => void; now: number; byPerson: boolean; live: readonly LiveRun[] }) {
+  return (
+    <Section
+      title="Activity"
+      sub="latest"
+      className="ovfeed"
+      actions={
+        <a className="more" href={href.activity()}>
+          All activity →
+        </a>
+      }
+    >
+      {error && !items ? <ErrorState retry={retry}>The activity feed could not be read: {error.message}</ErrorState> : null}
+      <ActivityRows items={items} now={now} byPerson={byPerson} live={live} />
+    </Section>
+  );
+}
+
+/**
+ * Activity entries, a row each as a run's row reads: its glyph, what happened, and when at its end.
+ * With a team store each names who did it. Each ends on what it happened to: a run by its id, with
+ * its about line on hover, else the fix, verdict, file or rule as it is. A tally or why a preview
+ * settled nothing stays one piece where the line wraps, and a folder's path is its last folders,
+ * whole on hover. What an entry names is inline code (`Code`): whole where a line holds it, else
+ * broken after a slash, as a bucket's address with its endpoint is. A recording pulses while
+ * something records it (`live`, as the top bar's chip has it): the feed goes by the run's stored
+ * status, which a killed recorder leaves at running. j and k walk the entries that lead somewhere.
+ */
+export function ActivityRows({ items, now, byPerson, live }: { items: readonly ActivityItem[] | null; now: number; byPerson: boolean; live: readonly LiveRun[] }) {
   const recording = new Set(live.map((l) => l.runId));
   const aboutOf = useAbouts();
   const box = useRef<HTMLDivElement>(null);
@@ -53,42 +75,39 @@ export function ActivityCard({ items, error = null, retry, now, byPerson, live }
   const linked = useMemo(() => (items ?? []).filter((a) => activityHref(a)), [items]);
   const inFocus = useListKeys({ rows: linked, keyOf: (a) => a.id, root: box, open: (a) => navigate(activityHref(a)!) });
   return (
-    <Section title="Activity" sub="latest" className="ovfeed">
-      {error && !items ? <ErrorState retry={retry}>The activity feed could not be read: {error.message}</ErrorState> : null}
-      <div className="feed" ref={box}>
-        {items && !items.length ? <div className="empty">Nothing yet. Recordings, replays, forks, tests and fixes show here.</div> : null}
-        {(items ?? []).map((a) => {
-          const line = activityLine(a.text, a.runId ?? a.ref);
-          const words = shortPaths(line.text);
-          const to = activityHref(a);
-          const body = (
-            <>
-              <EventIcon kind={activityGlyph(a.kind)} live={!!a.live && !!a.runId && recording.has(a.runId)} outcome={a.outcome} />
-              {/* A path drawn as its last folders is whole on its hover. */}
-              <span className={`w${a.rule ? ' gv' : ''}`} title={words === line.text ? undefined : line.text}>
-                {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
-                {byPerson && a.actor ? ' ' : null}
-                <DotPieces text={activityKeep(words)} max={a.rule ? 44 : 24} cut={keepPieces} aboutOf={aboutOf} />
-                {/* What it happened to wraps as one piece after the words, never dragging the last word with it; one too long for a line breaks as inline code does. */}
-                {line.code ? ' ' : null}
-                {line.code && a.runId ? <Id id={line.code} about={aboutOf(line.code)} /> : line.code ? <Code>{line.code}</Code> : null}
-              </span>
-              <span className="at">{whenShortOrClock(a.at, now)}</span>
-            </>
-          );
-          // An entry with nowhere to go (a preview of a change, which no page shows yet) is a plain row, never a link back here.
-          return to ? (
-            <a key={a.id} className={inFocus === a.id ? 'krow' : undefined} href={to} data-rowkey={a.id} data-tip={ruleTip(line.text.split(': ')[0]!, a.rule)}>
-              {body}
-            </a>
-          ) : (
-            <div key={a.id} className="plain">
-              {body}
-            </div>
-          );
-        })}
-      </div>
-    </Section>
+    <div className="feed" ref={box}>
+      {items && !items.length ? <div className="empty">Nothing yet. Recordings, replays, forks, tests and fixes show here.</div> : null}
+      {(items ?? []).map((a) => {
+        const line = activityLine(a.text, a.runId ?? a.ref);
+        const words = shortPaths(line.text);
+        const to = activityHref(a);
+        const body = (
+          <>
+            <EventIcon kind={activityGlyph(a.kind)} live={!!a.live && !!a.runId && recording.has(a.runId)} outcome={a.outcome} />
+            {/* A path drawn as its last folders is whole on its hover. */}
+            <span className={`w${a.rule ? ' gv' : ''}`} title={words === line.text ? undefined : line.text}>
+              {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
+              {byPerson && a.actor ? ' ' : null}
+              <DotPieces text={activityKeep(words)} max={a.rule ? 44 : 24} cut={keepPieces} aboutOf={aboutOf} />
+              {/* What it happened to wraps as one piece after the words, never dragging the last word with it; one too long for a line breaks as inline code does. */}
+              {line.code ? ' ' : null}
+              {line.code && a.runId ? <Id id={line.code} about={aboutOf(line.code)} /> : line.code ? <Code>{line.code}</Code> : null}
+            </span>
+            <span className="at">{whenShortOrClock(a.at, now)}</span>
+          </>
+        );
+        // An entry with nowhere to go (a preview of a change, which no page shows yet) is a plain row, never a link back here.
+        return to ? (
+          <a key={a.id} className={inFocus === a.id ? 'krow' : undefined} href={to} data-rowkey={a.id} data-tip={ruleTip(line.text.split(': ')[0]!, a.rule)}>
+            {body}
+          </a>
+        ) : (
+          <div key={a.id} className="plain">
+            {body}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

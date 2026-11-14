@@ -521,6 +521,7 @@ const unaskedCard = async (page: Page): Promise<void> => {
 
 export const ROUTES: readonly RouteState[] = [
   route('/', 'overview'),
+  route('/activity', 'main#view .actfeed .feed > a'),
   route('/runs', 'main#view table.runst tbody tr'),
   ...['capture', 'test', 'failed'].map((t) => route(`/runs?types=${t}`)),
   route('/runs?q=label%3Agood'),

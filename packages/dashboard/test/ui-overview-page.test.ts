@@ -2,12 +2,14 @@ import { act, createElement, useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
-import type { ActivityItem, Client, NeedsLookRow, OverviewSummary, RunListItem } from '../ui/api.js';
+import type { ActivityItem, ActivityPage as FeedPage, Client, NeedsLookRow, OverviewSummary, RunListItem } from '../ui/api.js';
 import { handOnAtEnd, headingRef, notingJobFrom } from '../ui/focus-manager.js';
 import { dropRowScope, rowScopeNow, takeRowScope } from '../ui/list-keys.js';
 import { ISSUE_ASK } from '../ui/page-ask.js';
+import { ACTIVITY_PAGE, ActivityPage, mergeActivity } from '../ui/pages/Activity.js';
 import { OverviewPage } from '../ui/pages/Overview.js';
-import { href } from '../ui/route.js';
+import { href, navSection, parseRoute, routeHref } from '../ui/route.js';
+import { pageTitle } from '../ui/title.js';
 import { useRoute } from '../ui/router.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -119,6 +121,9 @@ describe('the Overview’s header and its layout', () => {
     expect(r!.all('.ovg > section > header h2').map(text)).toEqual(['Activity']);
     expect(r!.all('.ovg section > header h2').map(text)).toEqual(['Needs a look', 'Usage', 'Activity']);
     expect(activity.mock.calls.map((c) => c[0])).toEqual([8]);
+    // Older entries are the whole feed's, a page at a time.
+    const all = r!.one('.ovfeed header a.more');
+    expect([text(all), all.getAttribute('href')]).toEqual(['All activity →', '#/activity']);
     // The newest runs are the sidebar's: the page links to none of the ten.
     expect(r!.all('.ovg a').map((a) => a.getAttribute('href')).filter((to) => to?.startsWith('#/run/'))).toEqual([href.run(rid(1))]);
   });
@@ -266,5 +271,73 @@ describe('a retiring model’s row', () => {
       'Billed by your provider',
     ]);
     expect(text(r!.one('.dialog .cmdline'))).toContain(step.command);
+  });
+});
+
+/** An entry of the whole feed as it stores it, `n` minutes old. */
+const entry = (n: number): ActivityItem => ({ id: `e:${n}`, at: NOW - n * 60_000, kind: 'clean', text: `Replay clean · ${n}/30 · 0 upstream`, runId: `01M5H3${String(n).padStart(4, '0')}QJ8V2W3X4Y5Z6A7B` });
+
+describe('the activity page’s address', () => {
+  it('is #/activity, under the Overview in the nav, titled as a page of it', () => {
+    expect(parseRoute('#/activity')).toEqual({ page: 'activity' });
+    expect(parseRoute('#/activity/more')).toEqual({ page: 'notfound', path: 'activity/more' });
+    expect(routeHref({ page: 'activity' })).toBe('#/activity');
+    expect(navSection({ page: 'activity' })).toBe('overview');
+    expect(pageTitle({ page: 'activity' })).toBe('Activity · Overview');
+  });
+});
+
+describe('the activity page', () => {
+  /** The page over a feed of `pages` (the newest first), counting each read by the cursor it asked from. */
+  async function shown(pages: FeedPage[]): Promise<{ asked: Array<string | null> }> {
+    const asked: Array<string | null> = [];
+    const byCursor = new Map<string | null, FeedPage>(pages.map((p, i) => [i ? pages[i - 1].next : null, p]));
+    const client = { activity: (limit: number, before?: string | null) => (expect(limit).toBe(ACTIVITY_PAGE), asked.push(before ?? null), Promise.resolve(byCursor.get(before ?? null) ?? { items: [], next: null })), teamStore: () => Promise.resolve(null) } as unknown as Client;
+    r = await render(createElement(AppContext.Provider, { value: { client, live: [], tick: 0, feeds: {}, meta: null, exported: false, runs: [], runsTick: 0 } as unknown as AppState }, createElement(ActivityPage)));
+    return { asked };
+  }
+
+  it('lists the newest entries as the Overview draws them, then brings older ones a page at a time from where the last page ended, and says where the feed starts', async () => {
+    const one: FeedPage = { items: [entry(1), entry(2)], next: 'c1' };
+    const two: FeedPage = { items: [entry(3)], next: 'c2' };
+    const three: FeedPage = { items: [entry(4)], next: null };
+    const { asked } = await shown([one, two, three]);
+    await r!.until('the newest page', () => r!.all('.feed > a').length === 2);
+    expect(r!.one('.ph h1').textContent).toBe('Activity');
+    expect(r!.all('.feed > a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${entry(1).runId!}`, `#/run/${entry(2).runId!}`]);
+    const older = () => r!.one('.actfeed button.attn-more');
+    expect(older().textContent).toBe(`Show ${ACTIVITY_PAGE} older`);
+    await r!.click(older());
+    await r!.until('the second page', () => r!.all('.feed > a').length === 3);
+    await r!.click(older());
+    await r!.until('the third page', () => r!.all('.feed > a').length === 4);
+    expect(asked).toEqual([null, 'c1', 'c2']);
+    // The oldest is in: no more to show, and it says so.
+    expect(r!.all('.actfeed button.attn-more')).toHaveLength(0);
+    expect(r!.one('.actfeed .actend').textContent).toBe('The start of the feed: nothing older.');
+  });
+
+  it('reads its newest page again as the feed moves, keeping what it read before, so an entry pushed past the newest page stays', async () => {
+    let newest: FeedPage = { items: [entry(2), entry(3)], next: 'c1' };
+    const asked: Array<string | null> = [];
+    const client = { activity: (_limit: number, before?: string | null) => (asked.push(before ?? null), Promise.resolve(before ? { items: [entry(4)], next: null } : newest)), teamStore: () => Promise.resolve(null) } as unknown as Client;
+    let move: (n: number) => void = () => undefined;
+    function Host() {
+      const [events, setEvents] = useState(0);
+      move = setEvents;
+      return createElement(AppContext.Provider, { value: { client, live: [], tick: 0, feeds: { events }, meta: null, exported: false } as unknown as AppState }, createElement(ActivityPage));
+    }
+    r = await render(createElement(Host));
+    await r.until('the newest page', () => r!.all('.feed > a').length === 2);
+    // A newer entry lands: the newest page now ends on #2, and #3 would fall between it and the next page.
+    newest = { items: [entry(1), entry(2)], next: 'c0' };
+    await act(async () => move(1));
+    await r.until('read again', () => r!.all('.feed > a').length === 3);
+    expect(r.all('.feed > a').map((a) => a.getAttribute('data-rowkey'))).toEqual(['e:1', 'e:2', 'e:3']);
+    expect(asked).toEqual([null, null]);
+  });
+
+  it('keeps each entry once, newest first, whichever page brought it', () => {
+    expect(mergeActivity([entry(1), entry(2)], [entry(2), entry(3)]).map((a) => a.id)).toEqual(['e:1', 'e:2', 'e:3']);
   });
 });

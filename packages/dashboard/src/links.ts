@@ -201,6 +201,8 @@ export function parseRunsQuery(query: string): RunsFilterRead | null {
 
 export const links = {
   overview: (): string => '#/',
+  /** The activity feed whole, older entries a page at a time: the Overview shows its newest. */
+  activity: (): string => '#/activity',
   /**
    * Runs, filtered when the link asks: words (`q`), a chip (`types`), a sort, and days (`from`, `to`),
    * in that order, so a filter always writes one link, which `parseRunsQuery` reads back.

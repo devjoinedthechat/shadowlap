@@ -172,6 +172,8 @@ a.kcell:hover { background: var(--hover); }
 
 .feed .w .actor { color: var(--ink); font-weight: 500; }
 
+/* the activity feed whole: where it starts, under its oldest entry */
+.panel.sec .actend { margin: 10px 0 0; font-size: var(--fs-quiet); }
 .attn-more { display: block; width: 100%; padding: 10px 18px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--ink); font: 500 12.5px var(--body); text-align: left; cursor: pointer; }
 .attn-more:hover { background: var(--hover); }
 

@@ -41,7 +41,7 @@ const PART = 100 * KB;
 const COPY = 900 * KB;
 
 /** The pages the shell routes to, by their chunk's name: the list grows as pages land. */
-const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training'];
+const PAGES = ['Activity', 'Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training'];
 /**
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * A run's status loads its card (outcome-card) as the pointer or the focus first reaches it.

@@ -92,6 +92,8 @@ export function pageTitle(route: Route, facts: TitleFacts = {}): string {
   switch (route.page) {
     case 'overview':
       return 'Overview';
+    case 'activity':
+      return 'Activity · Overview';
     case 'runs':
       return 'Runs';
     case 'run': {

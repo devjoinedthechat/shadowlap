@@ -265,8 +265,8 @@ export interface Client extends ChangesApi, TestsApi {
   importSources(): Promise<ImportSources | null>;
   /** Sends a file for a job to use (`POST /api/uploads`). */
   upload(file: Blob, name: string): Promise<UploadView>;
-  /** The newest entries of the activity feed. */
-  activity(limit: number): Promise<ActivityPage>;
+  /** The activity feed, newest first, `limit` entries a page: the newest, or those older than `before` (a page's `next`). */
+  activity(limit: number, before?: string | null): Promise<ActivityPage>;
 
   // ---- Fixes (`/api/fixes`)
   /** Every fix in to-do order, with the counts the chips show, what they took and the failing runs nobody has blamed. */
@@ -525,7 +525,7 @@ export function createClient(token: string): Client {
       if (!res.ok) throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
       return body as UploadView;
     },
-    activity: (limit) => request<ActivityPage>(`activity?limit=${limit}`),
+    activity: (limit, before) => request<ActivityPage>(`activity?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`),
     changes: async (since) => {
       if (hasChanges === false) return null;
       try {

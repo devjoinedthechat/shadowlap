@@ -246,6 +246,8 @@ The activity feed is what happened in the project, newest first: the Overview sh
 
 When it happened is at the entry's end: the time today, else the day. A folder's path reads as its last folders (*…/demo/support-agent*), with the whole path on hover.
 
+**All activity →**, beside its title, opens the whole feed (`#/activity`) with its newest 50 entries. **Show 50 older** brings each older page, until it says *The start of the feed: nothing older.* The page reads its newest entries again as the feed moves, and keeps those it read before.
+
 Most of it comes from the runs themselves:
 
 - Recordings started and finished, and clean replays.
