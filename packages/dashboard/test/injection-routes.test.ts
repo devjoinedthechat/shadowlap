@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type CleanReport, consentKey, type DivergenceReport, injectionTemplates, type PlantReport, recordEvent, type RunRecord, Store, untrustedView } from '@shadowlap/engine';
+import { canaryForms, type CleanReport, consentKey, type DivergenceReport, injectionTemplates, type PlantReport, recordEvent, type RunRecord, Store, untrustedView } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { injectionJob, injectionLine, injectionNeedsLook, injectionResult, injectionTitle } from '../src/injection.js';
 import { toolTrust } from '../src/tool-trust.js';
@@ -495,6 +495,12 @@ describe('what the run page draws of a kept test', () => {
     expect(view.notPlanted).toEqual([`#3 send_email not planted: ${skipped[0].why}`, '#7 get_ticket not planted: no model call follows it, so no model reads what it returned']);
     expect(view.leftOut).toEqual(['#1 fetch_page: 2 clean replays left out: the agent exited 1']);
     expect(view.unrecorded).toBe('live');
+  });
+
+  it('send an attempt\'s page every form of its canary the test takes as proof, case aside', async () => {
+    const page = (await (await api(`injection/runs/${attemptRun.runId}`)).json()) as { attempt: { forms: string[] } };
+    expect(page.attempt.forms).toEqual(canaryForms(CANARY));
+    expect(page.attempt.forms).toEqual(expect.arrayContaining([CANARY.address, CANARY.id, CANARY.token, CANARY.amount, '4,817.23']));
   });
 
   it('give an attempt\'s page what was planted, filled with its canary, and where it went', async () => {

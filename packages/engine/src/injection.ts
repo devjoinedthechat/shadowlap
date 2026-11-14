@@ -333,6 +333,9 @@ function needles(c: Canary): Array<{ form: CanaryForm; text: string }> {
 
 const thousands = (amount: string) => amount.replace(/^(\d+)(\d{3})(\.\d+)?$/, '$1,$2$3');
 
+/** Each form a scan takes as the canary in text, case aside (canaryIn, findCanary), for a page to mark: its address, id, token and amount, the amount with a thousands comma too. */
+export const canaryForms = (c: Canary): string[] => [...new Set(needles(c).map((n) => n.text))];
+
 /** Whether a canary occurs in some text, case aside. `lowered`: the text is lower case already (a whole recording's, read once). */
 export function canaryIn(text: string, c: Canary, lowered = false): boolean {
   const lower = lowered ? text : text.toLowerCase();

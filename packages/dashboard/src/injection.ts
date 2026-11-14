@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { ACTIONS, type CauseVerdict, CLEAN_GATE, cleanBound, cleanDecided, cleanRule, cleanTally, type CleanReport, type CleanWriteReport, type Gate, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { ACTIONS, canaryForms, type CauseVerdict, CLEAN_GATE, cleanBound, cleanDecided, cleanRule, cleanTally, type CleanReport, type CleanWriteReport, type Gate, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { causeFacts, type CauseFacts } from './injection-cause.js';
 import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
@@ -191,8 +191,12 @@ export interface RunInjection {
   answers: CleanAnswer[];
   /** Find cause…'s facts on each live write after an untrusted read (injection-cause.ts). */
   cause: CauseFacts[];
-  /** `parts`: an attempt's proof in its parts, for the page to draw with each call to pick (none for a baseline or a clean attempt). */
-  attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null; parts: ProofParts | null }) | null;
+  /**
+   * `parts`: an attempt's proof in its parts, for the page to draw with each call to pick (none for a
+   * baseline or a clean attempt); `forms`, each form of its canary the test takes as proof in text,
+   * case aside (canaryForms), which its page marks.
+   */
+  attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null; parts: ProofParts | null; forms: string[] }) | null;
 }
 
 /**
@@ -213,7 +217,7 @@ export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: s
   const report = of ? (of.data as unknown as InjectionReport) : null;
   const plant = run && mark ? attemptPlant(store, run, mark, report, calls) : null;
   const kept = store.listInjectionResults({ runId });
-  return { untrusted, results: kept.map(row), rule: cleanRule(CLEAN_GATE), answers: cleanAnswers(kept), cause: run ? causeFacts(store, run, calls, untrusted) : [], attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };
+  return { untrusted, results: kept.map(row), rule: cleanRule(CLEAN_GATE), answers: cleanAnswers(kept), cause: run ? causeFacts(store, run, calls, untrusted) : [], attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId), forms: mark.canary ? canaryForms(mark.canary) : [] } : null };
 }
 
 /** An attempt's proof in its parts: the kept result's own evidence, which says why a write counts, else its record's. */

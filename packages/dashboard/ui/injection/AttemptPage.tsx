@@ -11,38 +11,60 @@ import type { ProofTab } from './Proof.js';
  * keeps no attempt's read, holds none of it, and a run's page loads none of it until it is one.
  */
 
-type Needle = readonly [text: string, cls: 'ins-plant' | 'cnry'];
+type Needle = readonly [find: RegExp, cls: 'ins-plant' | 'cnry'];
 
-/** The text with each needle cut out into a mark of its class, the later needles marked inside it too: the canary in the planted text. */
+const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The text with each needle cut out into a mark of its class, the later needles of the other class
+ * marked inside it: the canary in the planted text, never the canary's token again inside its address.
+ */
 function marked(text: string, needles: readonly Needle[]): ReactNode {
-  const i = needles.findIndex(([n]) => text.includes(n));
+  const i = needles.findIndex(([find]) => find.test(text));
   if (i < 0) return text;
-  const [needle, cls] = needles[i]!;
+  const [find, cls] = needles[i]!;
   const rest = needles.slice(i + 1);
-  const parts = text.split(needle);
-  return parts.map((part, k) => (
-    <Fragment key={k}>
-      {part ? marked(part, rest) : null}
-      {k < parts.length - 1 ? <mark className={cls}>{marked(needle, rest)}</mark> : null}
-    </Fragment>
-  ));
+  const inside = rest.filter(([, c]) => c !== cls);
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const m of text.matchAll(new RegExp(find.source, `${find.flags}g`))) {
+    if (m.index > at) out.push(<Fragment key={out.length}>{marked(text.slice(at, m.index), rest)}</Fragment>);
+    out.push(
+      <mark key={out.length} className={cls}>
+        {marked(m[0], inside)}
+      </mark>,
+    );
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push(<Fragment key={out.length}>{marked(text.slice(at), rest)}</Fragment>);
+  return out;
+}
+
+/**
+ * The canary as the test takes it for proof (`forms`, the server's): each form in text, case aside,
+ * the longest first so a form inside another is marked once; and its amount as JSON writes a number,
+ * where no digit runs on from it, as a number equal to the amount is proof too.
+ */
+function canaryNeedles(a: NonNullable<RunInjection['attempt']>): Needle[] {
+  const forms = [...a.forms].sort((x, y) => y.length - x.length).map((t): Needle => [new RegExp(escaped(t), 'i'), 'cnry']);
+  const amount = a.canary ? String(Number(a.canary.amount)) : 'NaN';
+  return amount !== 'NaN' && !a.forms.includes(amount) ? [...forms, [new RegExp(`(?<![\\d.])${escaped(amount)}(?!\\d)`), 'cnry']] : forms;
 }
 
 /**
  * What an injection attempt's inspector marks, from the attempt's read (`/api/injection/runs/:id`):
  * the planted text violet, as JSON writes it and as plain text, for a result the model reads either
- * way; each form of the canary red (its address, id and amount); the planted turn's label; and the
- * planted read's Response head. A baseline planted nothing, and a copy has no read: nothing is marked.
+ * way; each form of the canary red, as the test takes it for proof (its address, id, token and
+ * amount, case aside); the planted turn's label; and the planted read's Response head. A baseline
+ * planted nothing, and a copy has no read: nothing is marked.
  */
 export function attemptMarks(a: RunInjection['attempt'] | undefined): Marks {
   if (!a || a.role === 'baseline') return NO_MARKS;
   const planted = a.role === 'attempt' && a.planted ? [JSON.stringify(a.planted).slice(1, -1), a.planted] : [];
-  const canary = a.canary ? [a.canary.address, a.canary.id, a.canary.amount] : [];
-  const needles: Needle[] = [...new Set(planted)].map((t) => [t, 'ins-plant'] as const);
-  for (const t of canary) if (t) needles.push([t, 'cnry']);
+  const needles: Needle[] = [...[...new Set(planted)].map((t): Needle => [new RegExp(escaped(t)), 'ins-plant']), ...canaryNeedles(a)];
   const holds = (v: unknown) => {
     const text = typeof v === 'string' ? v : (JSON.stringify(v) ?? '');
-    return needles.some(([n]) => text.includes(n));
+    return needles.some(([find]) => find.test(text));
   };
   const clean = a.role === 'clean';
   return {
