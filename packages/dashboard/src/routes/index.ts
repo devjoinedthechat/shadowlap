@@ -53,6 +53,8 @@ import * as userSettings from './user-settings.js';
 import * as editor from './editor.js';
 // Needs a look's advice put away (Dismiss) and brought back (Restore), in this project's store alone.
 import * as dismissals from './dismissals.js';
+// Settings → Project's Health: shadowlap doctor as a job.
+import * as health from './health.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -110,6 +112,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   estimates,
   editor,
   dismissals,
+  health,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

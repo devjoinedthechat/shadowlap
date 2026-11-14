@@ -66,6 +66,8 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
+  // Settings → Project's Health: shadowlap doctor, its checks listed on the page.
+  doctor: 'doctor',
   // The team store (overview-runs): push and pull (Runs, and Settings → Store), and a run's share link.
   push: 'push',
   pull: 'pull',

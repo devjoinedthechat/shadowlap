@@ -1,3 +1,4 @@
+import { doctorChecks, doctorSum } from './doctor.js';
 import { appliedStatus } from './fixes/model.js';
 import { ownArgs } from './job-title.js';
 import { ACTIONS } from './labels.js';
@@ -215,7 +216,18 @@ function coverageStatus(job: EndedJob, code: number): JobWords | null {
   return packed ? { text: `${packed} of ${pack.length} packed · exit ${code}`, tone: 'warn' } : { text: `not packed · exit ${code}`, tone: 'err' };
 }
 
+/**
+ * Check setup (`shadowlap doctor`): its checks summed up in its own words, `1 problem, 2 warnings ·
+ * exit 1` in red, `2 warnings, nothing blocking · exit 0` in amber, `everything looks fine · exit 0`.
+ */
+function doctorStatus(job: EndedJob, code: number): JobWords | null {
+  const checks = job.kind === 'doctor' ? doctorChecks(job.result) : null;
+  if (!checks) return null;
+  const sum = doctorSum(checks);
+  return { text: `${sum.text} · exit ${code}`, tone: sum.tone };
+}
+
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return doctorStatus(job, code) ?? fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
 }

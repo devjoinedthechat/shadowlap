@@ -278,6 +278,13 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .set dd.setwarn .ln { display: block; }
 /* what the server ignored in this machine's settings file, and why: a look */
 .setrow .spendsay .spendbad { color: var(--cq-amber); overflow-wrap: anywhere; }
+/* Health: shadowlap doctor's checks, a row each: its status, what it looked at, what it found, and what to do */
+.set ul.doctor { list-style: none; margin: 0; padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.doctor li { display: grid; grid-template-columns: 84px minmax(110px, max-content) minmax(0, 1fr); column-gap: 12px; align-items: baseline; padding: 5px 0; font-size: 12.5px; }
+.doctor li b { font: 500 12.5px var(--mono); color: var(--ink); }
+.doctor li .dd { color: var(--dim); overflow-wrap: anywhere; }
+.doctor li .dfix { grid-column: 3; color: var(--faint); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .doctor li { grid-template-columns: 84px minmax(0, 1fr); } .doctor li .dd, .doctor li .dfix { grid-column: 2; } }
 .spendset { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .spendf { position: relative; display: inline-flex; align-items: center; }
 .setrow .spendf span { position: absolute; left: 11px; display: inline; margin: 0; color: var(--dim); font: 12.5px var(--mono); pointer-events: none; }

@@ -254,8 +254,10 @@ describe('editing shadowlap.config.json', () => {
         await send('POST', 'settings/calibrate/write', { jobId: 'any' }, ro),
         await send('POST', 'jobs', { kind: 'calibrate' }, ro),
         await send('POST', 'jobs', { kind: 'gc' }, ro),
+        // It runs no job, a setup check that changes nothing neither.
+        await send('POST', 'jobs', { kind: 'doctor' }, ro),
       ];
-      expect(edits.map((r) => r.status)).toEqual([403, 403, 403, 403, 403, 403, 403]);
+      expect(edits.map((r) => r.status)).toEqual([403, 403, 403, 403, 403, 403, 403, 403]);
       expect(readFileSync(join(project, 'shadowlap.config.json'), 'utf8')).toBe(before);
       expect(store.listEvents()).toEqual([]);
       // Reading stays open: every tab, and the preview.
@@ -577,6 +579,14 @@ describe('calibrate', () => {
     } finally {
       await d2.close();
     }
+  });
+});
+
+describe('Health', () => {
+  it('checks the setup with shadowlap doctor as a job, whose drawer shows its checks as the CLI prints them', async () => {
+    const started = (await (await job({ kind: 'doctor' })).json()) as JobView;
+    expect([started.args, started.title]).toEqual([['doctor'], 'Checking setup']);
+    await waitJob(started.id);
   });
 });
 

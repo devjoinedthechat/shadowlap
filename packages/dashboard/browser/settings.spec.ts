@@ -8,7 +8,8 @@ import { dash, openPage, sideways } from './dashboard.js';
  * box of its own), the tabs keep one row with the one shown in view, a row's label and line sit
  * over its control, a rule removed comes back from its toast's Undo, the file as it was, and
  * Settings → CI's workflow and, on Gates, a gate's odds, shown, scroll nothing sideways; nor does
- * the CI tab with the part and the lists it folds opened, nor Settings → Store's Pull runs… dialog.
+ * the CI tab with the part and the lists it folds opened, nor Settings → Store's Pull runs… dialog,
+ * nor Settings → Project's Health once it has checked the setup.
  */
 
 const TABS = ['matching', 'redaction', 'ci', 'gates', 'agents', 'tools', 'project', 'store'];
@@ -59,6 +60,21 @@ test('Settings → Store says when this machine last pushed and pulled, and Pull
   await runs.fill('01k5cq4n7g');
   await dialog.getByRole('switch', { name: 'Pull requests’ runs too' }).click();
   await expect(command).toHaveText('$shadowlap pull 01K5CQ4N7G --include-pr');
+  expect(await sideways(page)).toBe(0);
+});
+
+test('Health checks the setup with shadowlap doctor and lists its checks under it, summed up as the drawer sums them, scrolling nothing sideways on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, '/settings/project', 'main#view .setrow.health');
+  await page.locator('main#view .setrow.health').getByRole('button', { name: 'Check setup' }).click();
+  const rows = page.locator('main#view ul.doctor li');
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  expect(await rows.count()).toBeGreaterThan(3);
+  expect(await rows.locator('.st').allTextContents()).toEqual(expect.arrayContaining(['ok']));
+  // The same sum on the page as in the drawer, in doctor's words.
+  const sum = (await page.locator('#health-help').textContent())!.replace(/\u00a0/g, ' ');
+  expect(sum).toMatch(/^(\d+ problems?(, \d+ warnings?)?|\d+ warnings?, nothing blocking|Everything looks fine)\.$/);
+  await expect(page.locator('section.drawer')).toContainText(sum.slice(1, -1));
   expect(await sideways(page)).toBe(0);
 });
 

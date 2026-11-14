@@ -11,12 +11,13 @@ import { Section } from '../../components/Section.js';
 import { Code, Words } from '../../components/Copy.js';
 import { DotParts } from '../../components/DotParts.js';
 import { SpendingRow } from './SpendingRow.js';
+import { HealthRow } from './Health.js';
 
 /**
  * Project: what Shadowlap is here (its version, its licence, no account), then the project's name,
  * store, runs and attempts, the store's size and the dashboard's address, what is data as code, and
  * what the server ignored of this machine's settings and why (MachineRow); Spending, when a billed
- * job asks before it starts (SpendingRow); Clean up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
+ * job asks before it starts (SpendingRow); Health, `shadowlap doctor`'s checks (HealthRow); Clean up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
  * "Free X" for what deleted runs left unused); and Remove project…, which opens the projects
  * feature's own dialog, here in the page.
  */
@@ -91,6 +92,7 @@ export function ProjectTab() {
         <MachineRow warnings={machine} />
       </dl>
       <SpendingRow shown={machine} />
+      <HealthRow />
       <div className="pbody setfoot">
         <ActionButton
           className="btn"

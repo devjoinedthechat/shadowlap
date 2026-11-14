@@ -1960,7 +1960,7 @@ Credentials in a copied config:
 
 ### Project
 
-*Project* starts with the Shadowlap version: *open source, Apache-2.0 · no account, no limits on runs*. It shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store. Under *This machine*, it says in amber what the server ignored of this machine's settings, and why: a relative `SHADOWLAP_HOME`.
+*Project* starts with the shadowlap version: *open source, Apache-2.0 · no account, no limits on runs*. It shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store. Under *This machine*, it says in amber what the server ignored of this machine's settings, and why: a relative `SHADOWLAP_HOME`.
 
 **Spending** is the row that sets when a billed job asks first: **Always ask**, **$0.50**, **$2** or **Never ask**, or an amount typed in dollars, kept once you press Enter or leave the field. See [Spending](#spending).
 
@@ -1970,6 +1970,8 @@ Credentials in a copied config:
 - **Until you change it**, it says *The default, until you change it.*
 - **What the server ignored** shows under it in amber, with why: a `settings.json` that isn't JSON, or a value that is no threshold.
 - **Change**, in a dialog's footer, opens this row with the field focused.
+
+**Health** runs [`shadowlap doctor`](./cli.md#doctor) with **Check setup**, as a job: Node and its SQLite, the guard, Python, the store and the configuration. The newest check's results stay listed under it, each with *ok*, *warning* or *problem*, what it found and what to do. Its line sums them up as `doctor` does (*1 problem, 2 warnings*), and so do the drawer and the toast. It changes nothing. A read-only dashboard has no Health.
 
 ### Store
 

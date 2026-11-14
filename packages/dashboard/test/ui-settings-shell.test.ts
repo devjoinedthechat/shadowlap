@@ -45,19 +45,31 @@ const project = {
   cleanup: { olderThanDays: 30 },
 } as unknown as ProjectSettings;
 
-function app(o: { matching?: MatchingSettings; version?: string | null; warnings?: string[] } = {}): AppState {
+/** A check as shadowlap doctor makes one (cli/src/doctor.ts `Check`). */
+interface Checked {
+  name: string;
+  verdict: 'ok' | 'warn' | 'fail';
+  detail: string;
+  fix?: string;
+}
+
+function app(o: { matching?: MatchingSettings; version?: string | null; warnings?: string[]; doctor?: Checked[]; started?: Array<[string, unknown]>; actionsOff?: string; kinds?: string[] } = {}): AppState {
   const never = () => new Promise<never>(() => undefined);
   const settings = { matching: async () => o.matching ?? matching(), project: async () => project, redaction: never, codingAgents: never, tools: never, store: never, spending: never };
   // The project list, with what the server ignored of this machine's settings; none from a server that serves one store.
   const projects = { list: async () => (o.warnings ? { items: [], notice: null, warnings: o.warnings } : null) };
+  // The jobs the server keeps, newest first: a setup check that ended, its checks its result.
+  const jobs = async () => (o.doctor ? [{ id: 'jdoc', kind: 'doctor', title: 'Checking setup', done: true, total: 14, project: { id: 'research-agent', name: 'research-agent' } }] : []);
+  const job = async (id: string) => ({ id, kind: 'doctor', done: true, result: { checks: o.doctor }, lines: [] });
+  const startJob = async (kind: string, body: unknown) => (o.started?.push([kind, body]), {});
   return {
-    client: { settings, projects, startJob: async () => ({}), storeSetup: { view: never }, teamStore: async () => null, jobs: async () => [], ciWorkflows: never },
+    client: { settings, projects, startJob, storeSetup: { view: never }, teamStore: async () => null, jobs, job, ciWorkflows: never },
     meta: { version: 'version' in o ? o.version : '0.1.0', project: { id: 'research-agent', name: 'research-agent', path: '/work/research-agent' } },
     runs: [],
     feeds: {},
     jobs: [],
-    actionsOff: null,
-    hasKind: () => true,
+    actionsOff: o.actionsOff ?? null,
+    hasKind: (kind: string) => o.kinds?.includes(kind) ?? true,
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
@@ -205,6 +217,46 @@ describe('Settings → Project', () => {
     await r.until('This machine', () => r!.all('.settab dl.kvs dt').length === 7);
     expect(r.all('.settab dl.kvs dt').at(-1)!.textContent).toBe('This machine');
     expect(r.all('.settab dl.kvs dd.setwarn .ln').map((l) => l.textContent)).toEqual(warnings);
+  });
+
+  it('lists the newest setup check’s checks under Health, summed up as doctor sums them, and checks again with Check setup', async () => {
+    // As doctor reports them: a Node it runs on, a guard folder without its files, and no Python.
+    const checks: Checked[] = [
+      { name: 'node', verdict: 'ok', detail: 'v22.16.0 (shadowlap 0.1.0)' },
+      { name: 'network guard', verdict: 'fail', detail: 'missing node-guard.mjs, sitecustomize.py in /opt/shadowlap/guard/', fix: 'Reinstall the shadowlap package; the guard directory ships with it.' },
+      { name: 'python', verdict: 'warn', detail: 'no python3 or python on PATH', fix: 'Only needed for Python agents; the Python SDK requires Python ≥ 3.9.' },
+    ];
+    const started: Array<[string, unknown]> = [];
+    addressBar('#/settings/project');
+    r = await page('project', app({ doctor: checks, started }));
+    await r.until('its checks', () => r!.all('.settab ul.doctor li').length === 3);
+    expect(r.one('#health-help').textContent.replace(/\u00a0/g, ' ')).toBe('1 problem, 1 warning.');
+    const rows = r.all('.settab ul.doctor li');
+    expect(rows.map((li) => [li.querySelector('.st')!.textContent, li.querySelector('b')!.textContent, li.querySelector('.dfix')?.textContent ?? null])).toEqual([
+      ['ok', 'node', null],
+      ['problem', 'network guard', 'Reinstall the shadowlap package; the guard directory ships with it.'],
+      ['warning', 'python', 'Only needed for Python agents; the Python SDK requires Python ≥ 3.9.'],
+    ]);
+    expect(rows.map((li) => li.querySelector('.st')!.className)).toEqual(['st ok', 'st err', 'st warn']);
+    const check = r.byText('.settab .health .btn', 'Check setup');
+    expect(JSON.parse(check.getAttribute('data-tip')!)).toMatchObject({ t: 'Check setup', cmd: '$ shadowlap doctor' });
+    check.click();
+    await r.until('the job', () => started.length > 0);
+    expect(started).toEqual([['doctor', {}]]);
+  });
+
+  it('says what Health checks before it ran, and offers none on a read-only dashboard or where the server runs no doctor', async () => {
+    addressBar('#/settings/project');
+    r = await page('project', app());
+    await r.until('Health', () => r!.all('.settab .health').length === 1);
+    expect(r.one('#health-help').textContent.replace(/\u00a0/g, ' ')).toBe('Checks Node, the store, the network guard and the configuration, as shadowlap doctor does, each problem with what to do.');
+    expect(r.all('.settab ul.doctor')).toHaveLength(0);
+    for (const off of [{ actionsOff: 'This dashboard is read-only' }, { kinds: ['gc', 'calibrate'] }]) {
+      await r.unmount();
+      r = await page('project', app(off));
+      await r.until('Project', () => r!.all('.settab dl.kvs dt').length > 0);
+      expect(r.all('.settab .health')).toHaveLength(0);
+    }
   });
 
   it('says what Shadowlap is here without a version when the dashboard has none', async () => {
