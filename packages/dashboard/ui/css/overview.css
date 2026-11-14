@@ -106,6 +106,9 @@ a.kpi { display: block; text-decoration: none; color: inherit; }
 .livebtn .pulse::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid var(--o-live); animation: livering 1.8s ease-out infinite; }
 
 .livebtn .lc { padding-left: 10px; border-left: 1px solid var(--line2); font: 12.5px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+/* several recording: each names its run by its short id, as the sidebar's rows do; they stay beside the title (useRoomBeside) */
+.ph .lives { display: contents; }
+.livebtn.named code.rnm { font: 500 12.5px var(--mono); }
 
 /* overview: this week at a glance */
 .kpi .kv { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; }

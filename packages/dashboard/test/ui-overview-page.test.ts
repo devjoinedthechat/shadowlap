@@ -103,10 +103,14 @@ async function overview(first: Shown, more: Partial<Client> = {}): Promise<{ sho
 }
 
 describe('the Overview’s header and its layout', () => {
-  it('has Watch live for each recording in progress, up to three, and a link to Runs for the rest', async () => {
+  it('has Watch live for each recording in progress, up to three, each naming its run, and a link to Runs for the rest', async () => {
     const rec = (n: number) => ({ runId: rid(n), command: `node refund_agent.mjs T-88${n}`, calls: n, startedAt: NOW - n * 60_000, about: null });
     await overview({ summary: { ...week, today: { ...week.today, recording: [1, 2, 3, 4, 5].map(rec) } } });
     expect(r!.all('a.btn.livebtn').map((a) => a.getAttribute('href'))).toEqual([1, 2, 3].map((n) => href.run(rid(n))));
+    // Several recording: each says which run it is by its short id, its tail in ink as the sidebar draws it, and Watch live to a screen reader.
+    expect(r!.all('a.btn.livebtn .lt code.rnm.rl').map(text)).toEqual([1, 2, 3].map((n) => rid(n).slice(0, 10)));
+    expect(r!.all('a.btn.livebtn').map(text)).toEqual([1, 2, 3].map((n) => `Watch live ${rid(n).slice(0, 10)} ${n} call${n === 1 ? '' : 's'}`));
+    expect(r!.all('a.btn.livebtn .lt .sr').map(text)).toEqual(['Watch live', 'Watch live', 'Watch live']);
     const rest = r!.all('.ph .actions a.btn:not(.livebtn)');
     expect(rest.map((a) => [text(a), a.getAttribute('href')])).toEqual([['2 more recording', href.runs({ q: 'status:live' })]]);
   });
@@ -115,6 +119,8 @@ describe('the Overview’s header and its layout', () => {
     const recording = { runId: '01M5GRZNA5PJ6DHP9G395YMSJG', command: 'node refund_agent.mjs T-8813', calls: 9, startedAt: NOW - 60_000, about: { text: 'My blender arrived broken', from: 'user' as const } };
     await overview({ summary: { ...week, today: { ...week.today, recording: [recording] } }, live: [{ runId: recording.runId, calls: 12 }] as AppState['live'] });
     const live = r!.one('a.btn.livebtn');
+    // One recording keeps its words: Watch live, no id.
+    expect([text(live.querySelector('.lt')!), live.querySelectorAll('code')]).toEqual(['Watch live', []]);
     expect(live.getAttribute('title')).toBe('Recording 01M5GRZNA5 · My blender arrived broken');
     expect(live.getAttribute('href')).toBe(href.run(recording.runId));
     expect(text(live.querySelector('.lc')!)).toBe('12 calls');
