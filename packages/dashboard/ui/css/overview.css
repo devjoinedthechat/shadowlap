@@ -80,12 +80,15 @@
 .feed .at { font: 11px var(--mono); color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .feed .ic { transform: translateY(2.5px); }
 .feed .w { color: var(--dim); font-size: var(--fs-quiet); overflow-wrap: anywhere; }
-/* an entry is read whole, never cut to a few lines; its run's id, or the fix, verdict or file it names, wraps as one piece
-   after its words, so it never drags the last word down with it, and starts its line where the words start theirs; one
-   longer than any line (a bucket's address with its endpoint) breaks inside itself where it must, never running past its
-   column. At 320px (a 1280px window zoomed to 400%) a part kept whole may wrap, so nothing scrolls sideways; a piece too
-   long for any line breaks where it must (a folder's path is drawn as its last folders, so it is none) */
-.feed .w code { display: inline-block; max-width: 100%; font-size: 11px; color: var(--faint); white-space: normal; overflow-wrap: anywhere; vertical-align: baseline; }
+/* an entry is read whole, never cut to a few lines; its run's id, or the fix, verdict or file it names, is one piece that
+   goes to the next line whole after its words, so it never drags the last word down with it, and starts that line where
+   the words start theirs. One longer than any line (a bucket's address with its endpoint) is inline code that breaks
+   (code.ts-cb): between its pieces, after a slash, each piece going to the next line whole; only a piece no line holds
+   breaks inside, so nothing runs past its column. At 320px (a 1280px window zoomed to 400%) a part kept whole may wrap,
+   so nothing scrolls sideways; a piece too long for any line breaks where it must (a folder's path is drawn as its last
+   folders, so it is none) */
+.feed .w code { display: inline-block; max-width: 100%; font-size: 11px; color: var(--faint); vertical-align: baseline; }
+.feed .w code.ts-cb:not(.whole) ts-p { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; vertical-align: baseline; }
 @media (max-width: 340px) { .feed .w .nw { white-space: normal; } }
 
 @media (max-width: 640px) {

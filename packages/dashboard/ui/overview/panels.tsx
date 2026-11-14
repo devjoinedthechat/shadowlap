@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react';
+import { Code } from '../components/Copy.js';
 import { Id } from '../components/Id.js';
 import { EventIcon } from '../components/RunIcon.js';
 import { Section } from '../components/Section.js';
@@ -39,7 +40,8 @@ export const ACTIVITY_SHOWN = 8;
  * and when at its end. With a team store each names who did it. Each ends on what it happened to: a
  * run by its id, with its about line on hover, else the fix, verdict, file or rule as it is. A tally
  * or why a preview settled nothing stays one piece where the line wraps, and a folder's path is its
- * last folders, whole on hover. A recording pulses while something records it (`live`, as the top
+ * last folders, whole on hover. What an entry names is inline code (`Code`): whole where a line
+ * holds it, else broken after a slash, as a bucket's address with its endpoint is. A recording pulses while something records it (`live`, as the top
  * bar's chip has it): the feed goes by the run's stored status, which a killed recorder leaves at
  * running.
  */
@@ -67,9 +69,9 @@ export function ActivityCard({ items, error = null, retry, now, byPerson, live }
                 {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
                 {byPerson && a.actor ? ' ' : null}
                 <DotPieces text={activityKeep(words)} max={a.rule ? 44 : 24} cut={keepPieces} aboutOf={aboutOf} />
-                {/* What it happened to wraps as one piece after the words, never dragging the last word with it. */}
+                {/* What it happened to wraps as one piece after the words, never dragging the last word with it; one too long for a line breaks as inline code does. */}
                 {line.code ? ' ' : null}
-                {line.code && a.runId ? <Id id={line.code} about={aboutOf(line.code)} /> : line.code ? <code>{line.code}</code> : null}
+                {line.code && a.runId ? <Id id={line.code} about={aboutOf(line.code)} /> : line.code ? <Code>{line.code}</Code> : null}
               </span>
               <span className="at">{whenShortOrClock(a.at, now)}</span>
             </>

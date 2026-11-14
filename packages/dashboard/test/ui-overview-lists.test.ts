@@ -297,6 +297,21 @@ describe('the Overview’s Activity', () => {
     // Words with no path to shorten carry no hover of their own.
     expect(r.one('.feed > a .w').getAttribute('title')).toBeNull();
   });
+
+  it('sets what an entry names as inline code: a short name one piece, a bucket’s address with its endpoint in pieces a line may break between', async () => {
+    const address = 's3://northwind-agent-runs/support-agent?endpoint=https://objects.eu-central-1.example.com:9000';
+    const named: ActivityItem[] = [
+      { id: 'a', at: NOW - 1000, kind: 'setting', text: 'Push from CI on', ref: address },
+      { id: 'b', at: NOW - 2000, kind: 'project', text: 'Golden packed', ref: 'goldens/refund-flow' },
+    ];
+    r = await render(createElement(AppContext.Provider, { value: { actionsOff: null, runs: [] } as unknown as AppState }, createElement(ActivityCard, { items: named, now: NOW, byPerson: false, live: [] })));
+    const codes = r.all('.feed .w code');
+    // Each as written, so a copy of it is exact.
+    expect(codes.map((c) => c.textContent)).toEqual([address, 'goldens/refund-flow']);
+    expect(codes.map((c) => c.className)).toEqual(['ts-cb', 'ts-code']);
+    // The address's pieces: a line breaks after its bucket's slash, never inside `//`; the stylesheet lets the rest break inside.
+    expect(codes[0].querySelectorAll('ts-p').map((x) => x.textContent)).toEqual(['s3://northwind-agent-runs/', 'support-agent?endpoint=https://objects.eu-central-1.example.com:9000']);
+  });
 });
 
 describe('the Overview’s layout', () => {
@@ -323,10 +338,11 @@ describe('the Overview’s layout', () => {
   });
 
   it('keeps what an entry names in one piece where a line holds it, and breaks it inside its column where none does', () => {
-    // One piece that goes to the next line whole, and no wider than its column: a bucket's address with its endpoint breaks inside.
-    expect(['display', 'max-width', 'white-space', 'overflow-wrap'].map((p) => value('.feed .w code', p))).toEqual(['inline-block', '100%', 'normal', 'anywhere']);
-    // Flush with the words where it starts a line: no margin of its own.
-    expect(value('.feed .w code', 'margin-left')).toBeNull();
+    // One piece that goes to the next line whole, and no wider than its column, flush with the words: no margin of its own.
+    expect(['display', 'max-width', 'margin-left'].map((p) => value('.feed .w code', p))).toEqual(['inline-block', '100%', null]);
+    // Inline code no line holds breaks between its pieces, as everywhere: each piece is one box that goes to the next line
+    // whole, and breaks inside only where it is wider than the column.
+    expect(['display', 'max-width', 'white-space', 'overflow-wrap'].map((p) => value('.feed .w code.ts-cb:not(.whole) ts-p', p))).toEqual(['inline-block', '100%', 'normal', 'anywhere']);
   });
 
   it('opens Usage in the list’s column: its calls beside its cache, over the spend chart at the column’s width', () => {
