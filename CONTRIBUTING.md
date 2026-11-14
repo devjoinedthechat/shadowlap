@@ -188,7 +188,7 @@ The repository's main folders and files:
 | `packages/collector` | The self-hostable telemetry collector |
 | `sdks/python/shadowlap/_capture.py` · `litellm_callback.py` | Capturing model calls at a gateway already in the request path, for `shadowlap import litellm` |
 | `action.yml` · `action/` | The GitHub Action |
-| `testing/` | The scripted mock APIs, the reference agent, the golden recording, the framework and live-provider suites, and the conformance suite |
+| `testing/` | The scripted mock APIs, the reference agent, the golden recording, the framework and live-provider suites, the conformance suite, and the [verdict study](testing/verdict-study/README.md) |
 | `docs/` | The documentation |
 
 Some of these need a note:
