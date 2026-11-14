@@ -188,7 +188,7 @@ The header says the week in four facts, the first three each a link: *4 failures
 
 ### Needs a look
 
-**Needs a look** lists every item to act on, under quiet heads: Setup, Failing, Ready to ship, Tests, Security and Housekeeping, in that order. A group shows only with rows. A row says what it is about, and the whole row opens it. Its step sits at its end, small and plain, and runs or asks from the row as the same step does on the page the row opens.
+**Needs a look** lists every item to act on, under quiet heads: Setup, Failing, Ready to ship, Tests, Security and Housekeeping, in that order. A group shows only with rows. A row says what it is about, and the whole row opens it. Its step sits at its end, small and plain, and runs or asks from the row as the same step does on the page the row opens. The first row's step is lime, as the page's first thing to do, and plain while it waits.
 
 | Group | A row | Its step |
 | --- | --- | --- |

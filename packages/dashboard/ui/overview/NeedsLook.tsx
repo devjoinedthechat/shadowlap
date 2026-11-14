@@ -20,10 +20,10 @@ import { type AboutOf, DotPieces, Pieces, useAbouts } from './words.js';
  * Needs a look, the Overview's one list: every item, in its groups, as an inbox reads. A group's
  * head is quiet, with the count of what is left in it (none when nothing is); a row is its icon, what
  * it is about (the whole row opens it), and its step at its end, small and plain, which runs or asks
- * from here (steps.tsx); its last column, which every row keeps so the steps share one right edge,
- * holds Dismiss on advice (Dismiss.tsx). A group ends with what was dismissed from it, folded under
- * Dismissed (n). Its words stay whole where a line wraps, and a run it names is named as every run
- * is, its id with its about line on hover.
+ * from here (steps.tsx), the first row's the page's lime; its last column, which every row keeps so
+ * the steps share one right edge, holds Dismiss on advice (Dismiss.tsx). A group ends with what was
+ * dismissed from it, folded under Dismissed (n). Its words stay whole where a line wraps, and a run
+ * it names is named as every run is, its id with its about line on hover.
  */
 
 const HEADS = new Map<string, string>(LOOK_GROUPS);
@@ -32,6 +32,8 @@ interface RowProps {
   x: NeedsLookRow;
   /** Put away: muted, with Restore in its step's place, and no ×. */
   off: boolean;
+  /** The first row left to look at: its step is the page's lime. */
+  lead: boolean;
   wait: LookWait | null;
   version: string;
   aboutOf: AboutOf;
@@ -40,7 +42,7 @@ interface RowProps {
   onRestore: (x: NeedsLookRow) => void;
 }
 
-const LookRow = memo(function LookRow({ x, off, wait, version, aboutOf, focused, onDismiss, onRestore }: RowProps) {
+const LookRow = memo(function LookRow({ x, off, lead, wait, version, aboutOf, focused, onDismiss, onRestore }: RowProps) {
   const own = x.runId && x.about?.text ? { id: shortId(x.runId), about: x.about.text } : null;
   const about: AboutOf = (id) => (own?.id === id ? own.about : aboutOf(id));
   return (
@@ -57,7 +59,7 @@ const LookRow = memo(function LookRow({ x, off, wait, version, aboutOf, focused,
           </span>
         ) : null}
       </a>
-      <span className="ast">{off ? <RestoreButton x={x} onRestore={onRestore} /> : <LookStepButton row={x} wait={wait} version={version} />}</span>
+      <span className="ast">{off ? <RestoreButton x={x} onRestore={onRestore} /> : <LookStepButton row={x} wait={wait} version={version} lead={lead} />}</span>
       <span className="adx">{x.advice && !off ? <DismissButton x={x} onDismiss={onDismiss} /> : null}</span>
     </div>
   );
@@ -108,9 +110,9 @@ interface RowsProps {
 }
 
 /** A group: its head, its rows left to look at, then its Dismissed (n) and, opened, the rows under it. */
-function LookGroup({ g, d, wait, version, aboutOf, inFocus }: Omit<RowsProps, 'box'> & { g: LookGroupRows; aboutOf: AboutOf; inFocus: string | null }) {
+function LookGroup({ g, d, wait, version, aboutOf, inFocus, lead }: Omit<RowsProps, 'box'> & { g: LookGroupRows; aboutOf: AboutOf; inFocus: string | null; lead: string | null }) {
   const open = d.open.has(g.group);
-  const row = (x: NeedsLookRow, off: boolean) => <LookRow key={x.key} x={x} off={off} wait={wait} version={version} aboutOf={aboutOf} focused={inFocus === x.key} onDismiss={d.dismiss} onRestore={d.restore} />;
+  const row = (x: NeedsLookRow, off: boolean) => <LookRow key={x.key} x={x} off={off} lead={x.key === lead} wait={wait} version={version} aboutOf={aboutOf} focused={inFocus === x.key} onDismiss={d.dismiss} onRestore={d.restore} />;
   return (
     <>
       <h3 className="agrp">
@@ -131,11 +133,13 @@ function Rows({ d, box, wait, version }: RowsProps) {
   const off = new Set(d.groups.flatMap((g) => g.dismissed.map((x) => x.key)));
   // The row of failed runs nobody has blamed opens its newest's issue there (`issue`).
   const inFocus = useListKeys({ rows: shown, keyOf: (x) => x.key, root: box, open: (x) => openIssue(x.href, x.issue ?? null), actions: (x) => lookScope(x, box, off.has(x.key)) });
+  // The first row left to look at: a row put away is none, wherever its fold stands.
+  const lead = d.groups.find((g) => g.open.length)?.open[0]?.key ?? null;
   return (
     <div className="attn" ref={box}>
       {d.left ? null : <EmptyLine>Nothing needs a look.</EmptyLine>}
       {d.groups.map((g) => (
-        <LookGroup key={g.group} g={g} d={d} wait={wait} version={version} aboutOf={aboutOf} inFocus={inFocus} />
+        <LookGroup key={g.group} g={g} d={d} wait={wait} version={version} aboutOf={aboutOf} inFocus={inFocus} lead={lead} />
       ))}
     </div>
   );

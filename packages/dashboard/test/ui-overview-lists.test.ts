@@ -15,8 +15,9 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * The Overview's Usage folds until asked for, and Needs a look shows every item under its group's
- * head, each row ending on its step, which runs from the row, or Open where nothing runs. The
- * activity feed is their aside, an entry a row as a run's row reads.
+ * head, each row ending on its step, which runs from the row, or Open where nothing runs; the first
+ * row's step is the page's lime. The activity feed is their aside, an entry a row as a run's row
+ * reads.
  */
 
 const app = (actionsOff: string | null = null) => ({ actionsOff, exported: false, meta: null }) as unknown as AppState;
@@ -110,7 +111,7 @@ describe('Needs a look', () => {
     expect(r.all('.arow').map((x) => [x.getAttribute('data-rowkey'), x.getAttribute('data-agrp')])).toEqual(rows.map((x) => [x.key, x.group]));
     expect(r.all('.arow .adx').map(text)).toEqual(['', '', '']);
     expect(r.all('.arow a.at').map((a) => a.getAttribute('href'))).toEqual(rows.map((x) => x.href));
-    // A step is small and plain, never lime; a row with none opens what it is about.
+    // A step is small and plain; a row with none opens what it is about, and where the first row is one, no step is lime.
     expect(r.all('.arow .ast').map(text)).toEqual(['Open →', 'Run blame', 'Push local runs']);
     expect(r.all('.arow .ast .btn').map((b) => b.className)).toEqual(['btn sm', 'btn sm']);
     // The run a row names is its id, with its about line on hover.
@@ -123,6 +124,32 @@ describe('Needs a look', () => {
     await r.unmount();
     r = await render(inApp(createElement(NeedsLook, { items: [], total: 0 })));
     expect(r.all('.ovattn .emptyline').map(text)).toEqual(['Nothing needs a look.']);
+  });
+
+  it('draws the first row’s step as the page’s lime, whatever its kind, and no other: the first row left to look at, plain while it waits, never a dismissed row’s Restore', async () => {
+    const steps = () => r!.all('.arow .ast .btn').map((b) => [text(b), b.className]);
+    const link: NeedsLookRow = { ...rows[0], step: { of: 'link', label: 'Open proof', href: '#/run/01M5H2EWWY8P621C63CJPVEM4A/3' } };
+    // A step that is a link, a run's job and the store's: the first is lime, each after it plain.
+    r = await render(within(running({ jobs: async () => [] }), createElement(NeedsLook, { items: [link, rows[1], rows[2]], total: 3 })));
+    expect(steps()).toEqual([
+      ['Open proof', 'btn sm lime'],
+      ['Run blame', 'btn sm'],
+      ['Push local runs', 'btn sm'],
+    ]);
+    await r.unmount();
+    // A step that waits is plain, as every lime that waits is: here a job this dashboard doesn't run.
+    r = await render(within({ ...running({ jobs: async () => [] }), hasKind: () => false }, createElement(NeedsLook, { items: [rows[1]], total: 1 })));
+    expect(r.one('.arow .ast .btn').getAttribute('aria-disabled')).toBe('true');
+    expect(steps()).toEqual([['Run blame', 'btn sm']]);
+    await r.unmount();
+    // The first row put away: the next is the first left to look at, and Restore is never lime.
+    const away: NeedsLookRow = { ...rows[2], group: 'failing', key: 'attn:away', advice: { key: 'local', facts: ['01M5H2EWWY8P621C63CJPVEM4A'], until: 'Until another run is only on this machine', dismissed: true } };
+    r = await render(within(running({ jobs: async () => [] }), createElement(NeedsLook, { items: [away, rows[1]], total: 1 })));
+    await r.click(r.one('.aoff .linkbtn'));
+    expect(steps()).toEqual([
+      ['Run blame', 'btn sm lime'],
+      ['Restore', 'btn sm quiet'],
+    ]);
   });
 
   it('ends a group on what was dismissed from it, folded under Dismissed (n), each row muted with Restore once opened', async () => {
@@ -172,7 +199,7 @@ describe('Needs a look', () => {
     }
   });
 
-  it('runs Tests’ whole session from a golden whose checks changed since, and opens the builder at the check from one whose recording fails a check added since, each plain', async () => {
+  it('runs Tests’ whole session from a golden whose checks changed since, and opens the builder at the check from one whose recording fails a check added since, each small and only the first lime', async () => {
     resetSpending(null);
     try {
       const golden = 'goldens/refund-in-limit';
@@ -186,7 +213,7 @@ describe('Needs a look', () => {
       const look = createElement(NeedsLook, { items: [row(2, runTests), row(1, editCheck)], total: 2 });
       r = await render(within(running({ jobs: async () => [], startJob, nextStep }), createElement(ServedPartsContext.Provider, { value: { CheckBuilder: Builder } }, look)));
       expect(r.all('.arow .ast .btn').map((b) => [text(b), b.className])).toEqual([
-        ['Run tests', 'btn sm'],
+        ['Run tests', 'btn sm lime'],
         ['Edit check…', 'btn sm'],
       ]);
       await r.click(r.byText('.arow .ast .btn', 'Run tests'));
