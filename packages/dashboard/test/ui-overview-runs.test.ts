@@ -46,11 +46,13 @@ describe('the Overview’s words', () => {
     const funnel = { failures: 12, blamed: 9, verified: 5, applied: 3, open: 3, readyToApply: 2, broken: 1, attempts: 232, spent: 3.46 };
     const facts = overviewFacts(outcomes, funnel, now, { attempts: 40, attemptsSpent: 1.2 });
     expect(facts.map((x) => [x.value, x.words])).toEqual([['4', 'failures reproduced'], ['1', 'fix verified'], ['2 of 7', 'goldens passing'], ['$16.24', 'spent live']]);
+    // Each part kept whole, so a card's line breaks between them, after a dot, never inside one.
+    const parts = (...p: string[]) => p.map((x) => x.replaceAll(' ', '\u00a0')).join(' · ');
     expect(facts.map((x) => JSON.parse(factTip(x) ?? '{}') as unknown)).toEqual([
-      { t: 'Failures reproduced', s: 'replayed exactly · 3 still open · 1 last week' },
-      { t: 'Fixes verified', s: 'none rejected · 232 attempts behind them, $3.46 spent live · of 12 failures, 9 blamed, 5 verified, 3 applied · 2 ready to apply · 1 applied that doesn’t hold · 1 last week' },
-      { t: 'Goldens passing', s: '3 regressions caught · 2 inconclusive · last run 10:02 · 5 of 7 last week' },
-      { t: 'Spent live, the last 7 days', s: '$1.20 of it by 40 attempts · $1.73 not re-spent · 29m not waited · $0.44 last week' },
+      { t: 'Failures reproduced', s: parts('replayed exactly', '3 still open', '1 last week') },
+      { t: 'Fixes verified', s: parts('none rejected', '232 attempts behind them, $3.46 spent live', 'of 12 failures, 9 blamed, 5 verified, 3 applied', '2 ready to apply', '1 applied that doesn’t hold', '1 last week') },
+      { t: 'Goldens passing', s: parts('3 regressions caught', '2 inconclusive', 'last run 10:02', '5 of 7 last week') },
+      { t: 'Spent live, the last 7 days', s: parts('$1.20 of it by 40 attempts', '$1.73 not re-spent', '29m not waited', '$0.44 last week') },
     ]);
     // With no failure the funnel says nothing, and with no attempt neither does Spent live.
     expect([funnelParts({ ...funnel, failures: 0 }), attemptsPart({ attempts: 0, attemptsSpent: 0 })]).toEqual([[], null]);
@@ -59,7 +61,7 @@ describe('the Overview’s words', () => {
     const quiet = overviewFacts({ ...outcomes, fixesVerified: { value: 0, lastWeek: 0, rejected: 0 }, testsPassing: { ...outcomes.testsPassing, goldens: 1, passing: 1, regressions: 0, inconclusive: 0, lastWeek: null } }, { ...funnel, attempts: 0, spent: 0 }, now);
     expect(quiet[1]).toMatchObject({ value: '0', words: 'fixes verified' });
     expect(quiet[1]?.tone).toBeUndefined();
-    expect(quiet[2]).toMatchObject({ value: '1 of 1', words: 'golden passing', tip: { parts: ['no regressions', 'last run 10:02'] }, was: null });
+    expect(quiet[2]).toMatchObject({ value: '1 of 1', words: 'golden passing', tip: { parts: ['no\u00a0regressions', 'last\u00a0run\u00a010:02'] }, was: null });
     expect(overviewFacts({ ...outcomes, testsPassing: null }, { ...funnel, attempts: 0, spent: 0 }, now)[2]).toEqual({ value: '0', words: 'goldens yet', href: '#/tests' });
     // Needs a look keeps a tally, a model with what uses it, a date with its verb, a dot with the word before it and a
     // hyphenated name whole where its line wraps, and names a run by its short id, a piece of its own for its about line.
