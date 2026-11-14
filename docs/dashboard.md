@@ -895,6 +895,8 @@ Attempts are bundled:
 - **A golden with a gate** says what the gate made of its attempts, as Tests does, with its verdict, tally and bound, and its rule once under them.
 - **A verified run** has an icon saying how it came out. A verdict that doesn't count for the fix says so, *doesn't count*, with a plain icon.
 - **Under a run several fixes share**, such as a good run every repair kept, each bundle names its fix.
+- **A good run's baseline**, the same run under the code before the change, is a bundle of its own beside the change's (*verify · baseline*), counted apart and named so (*baseline · 2 of 3 passed · the code before the change at 35034be · accepted*), with a plain icon. Its attempts' pages say so too.
+- **A probe's attempt the provider was unavailable for** sits in its probe's bundle, unmarked, its note saying it was retried and never counted.
 
 Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 passed · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
 

@@ -75,11 +75,26 @@ describe('a good run kept against its baseline', () => {
       store.endRun(runId, 'completed');
       return { ...a, runId };
     });
-    report.runs[1] = { ...keptRun(good), attempts, passes: attempts.length };
+    // Its baseline's attempts, the same run at the base revision, filed under it too, as verify marks them (verify.ts `arm`).
+    const baseline = attempts.slice(0, 3).map((a, i) => {
+      const runId = `01M5G0000000000000000000C${i}`;
+      store.createRun({ runId, mode: 'replay', parentRunId: good, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_100 + i, meta: { verify: { role: 'good', passed: i > 0, verdict: i > 0 ? 'passed' : 'failed', arm: 'baseline', revision: '35034be' } } });
+      store.endRun(runId, i > 0 ? 'completed' : 'failed');
+      return { ...a, runId, passed: i > 0 };
+    });
+    report.runs[1] = { ...keptRun(good), attempts, passes: attempts.length, baselineRuns: baseline };
     report.kept = KEPT;
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: 2_000 });
-    const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
-    expect(bundle).toMatchObject({ verdictLine: `kept · ${report.runs[1].passes} of ${report.runs[1].attempts.length} passed, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
+    const verifies = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
+    const [bundle, base] = verifies;
+    expect(bundle).toMatchObject({ title: 'verify · good', verdictLine: `kept · ${report.runs[1].passes} of ${report.runs[1].attempts.length} passed, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
+    // The change's attempts are counted apart from its baseline's.
+    expect(bundle.attempts.map((a) => a.runId)).toEqual(attempts.map((a) => a.runId));
+    // The baseline's: a bundle of their own, named as the code before the change, with the verdict they counted towards, never a loose one read inconclusive.
+    expect(verifies).toHaveLength(2);
+    expect(base).toMatchObject({ title: 'verify · baseline', arm: 'baseline', change: 'the code before the change at 35034be', verdict: 'accepted', counts: true, role: 'good', passes: 2, verdictLine: 'baseline · 2 of 3 passed' });
+    expect(base.attempts.map((a) => a.runId)).toEqual(baseline.map((a) => a.runId));
+    expect(bundleLine(base, (usd) => `≈$${usd.toFixed(3)}`)).toBe('baseline · 2 of 3 passed · ≈$0.036 · the code before the change at 35034be · accepted');
   });
 });
 

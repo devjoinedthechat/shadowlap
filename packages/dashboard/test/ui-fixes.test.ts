@@ -417,6 +417,8 @@ describe('the Forks view’s bundles', () => {
 
   it('gives a verify the icon of how its run came out, inconclusive in amber, never a fork’s, and plain for one that doesn’t count for the fix', () => {
     expect(bundleGlyph({ kind: 'blame', verdict: null, counts: null }).kind).toBe('blame');
+    // A good run's baseline, the code before the change, decides nothing of its own: plain, and named so.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true, arm: 'baseline' })).toEqual({ kind: 'fixok', label: 'Verify’s baseline: the code before the change', plain: true });
     // A run the change fixed, under a verify that rejected it for another run: its own outcome.
     expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: true, tone: 'ok' })).toEqual({ kind: 'fixok', label: 'Verify attempts: the run held' });
     expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true, tone: 'no' }).kind).toBe('fixbad');
@@ -491,6 +493,8 @@ describe('the Forks view’s bundles', () => {
     expect([attempt('A', true), attempt('B', false), unsure].map(attemptMark)).toEqual([undefined, 'no', 'unsure']);
     // An attempt kept before attempts had a verdict reads as whether it passed.
     expect(attemptMark({ passed: false })).toBe('no');
+    // One the provider was unavailable for is no verdict at all: plain, and its note says it was never counted.
+    expect(attemptMark({ passed: false, verdict: 'inconclusive', unavailable: true })).toBeUndefined();
     expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree · inconclusive');
   });
 });

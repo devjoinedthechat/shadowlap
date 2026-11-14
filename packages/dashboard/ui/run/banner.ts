@@ -126,6 +126,8 @@ export interface AttemptInput {
   callNo?: number | null;
   /** A verify attempt's: the role of the run it replayed under the change. */
   role?: string | null;
+  /** A good run's baseline attempt (verify's `arm`): the same run under the code before the change, never the change. */
+  arm?: 'baseline';
   /** A test attempt's: the golden it tested. */
   golden?: string | null;
   /** How blame or verify judged it, as the record keeps it; a `--repeat`'s is worked out from its checks and exit. */
@@ -566,13 +568,14 @@ function probeAsked(i: BannerInput, a: AttemptInput | null, rescuedAt: number | 
 
 /**
  * A verify's attempt: the change it verified, a flag (`--model`, `--set`) naming itself, a change in
- * the code being in the request where the attempt forked, with the code it ran.
+ * the code being in the request where the attempt forked, with the code it ran. A good run's baseline
+ * attempt ran the code before the change, live from where the change's attempt forked: it says so.
  */
 function verifyAsked(i: BannerInput, a: AttemptInput, which: string | null): Asked {
   const d = i.divergence;
   const iv = madeBy(i);
-  const role = VERIFY_ROLES[a.role ?? ''];
-  const change = iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? `the change it verified is in the request${changedAt(d)}` : leftAs(d);
+  const role = a.arm === 'baseline' ? 'baseline' : VERIFY_ROLES[a.role ?? ''];
+  const change = a.arm === 'baseline' ? `the code before the change, ${leftAs(d)}` : iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? `the change it verified is in the request${changedAt(d)}` : leftAs(d);
   // One part, held together, as the bundle names it (`verify · target`): a wrapped line never parts it.
   const head = [`verify${role ? `\u00a0· ${role}` : ''}${which ? `, ${which}` : ''}`, i.codeVersion ? `code\u00a0${i.codeVersion}` : null].filter(Boolean).join(' · ');
   return { what: `${head}: ${change}`, callNo: d?.callNo ?? null, flag: iv ? flagText(iv) : null };

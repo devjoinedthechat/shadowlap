@@ -1,4 +1,4 @@
-import { fixLabelInfo, fixLinksOfRun, fixOfRun, keptAttemptVerdict, standingBasis, standingIn, pinWords, type AttemptVerdict, type StandingBasis, type RunRecord, type StoreOf, type StoredFix, type StoredRepair, type StoredVerdict, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { fixLabelInfo, fixLinksOfRun, fixOfRun, keptAttemptVerdict, standingBasis, standingIn, pinWords, type AttemptVerdict, type StandingBasis, type RunRecord, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
 import { probeLine, runsRule, verifiedLine, type VerdictTone } from './verdict.js';
 import { askedAgain, attemptNote, changeName, fixHref, ROLE, runHref, sprtGate, type VerifyRow } from './fix-shared.js';
 
@@ -14,6 +14,8 @@ export interface FixBundleAttempt {
   href: string;
   /** The fork blame rescued its run with: it shows as a fork of its own as well. */
   rescued: boolean;
+  /** An attempt the provider was unavailable for: retried, never counted, so its probe's tally leaves it out. Absent otherwise. */
+  unavailable?: true;
 }
 
 export interface FixBundle {
@@ -28,7 +30,10 @@ export interface FixBundle {
   /** For a probe: the model call asked again; the one blame named is where the run was lost. */
   callNo: number | null;
   blamed: boolean;
-  /** For verify: the change it checked, named as the Verify step's switch names it (`changeName`), how it came out, and the run's role. */
+  /**
+   * For verify: the change it checked, named as the Verify step's switch names it (`changeName`), how it
+   * came out, and the run's role. A good run's baseline attempts (`arm`) ran the code before the change.
+   */
   change: string | null;
   verdict: VerifyOutcome | null;
   role: VerifyRow['role'] | null;
@@ -61,6 +66,8 @@ export interface FixBundle {
    */
   href: string;
   fixId: string | null;
+  /** A good run's baseline attempts, the same run under the code before the change (`verify.arm`), bundled beside the change's and counted apart. Absent otherwise. */
+  arm?: 'baseline';
 }
 
 /** Runs the dashboard reads in one family at most, as the lineage endpoint does. */
@@ -163,76 +170,14 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
   const reads = fixReads(store);
   const linkedFix = reads.linkedFix;
 
-  // Blame: each blame of a run in the family whose probes are here (they fork from the run blamed), a
-  // bundle per probed call.
-  for (const id of probed) {
-    const r = family.get(id);
-    if (!r || r.meta?.probe || r.meta?.verify) continue;
-    for (const b of store.blamesOfRun(r.runId)) {
-      const fix = linkedFix(b.blameId, 'blame', r.runId) ?? fixOfRun(store, r.runId);
-      const rescuedRunId = b.report.contrast?.rescuedRunId ?? null;
-      const rescuedNote = b.report.contrast ? `passed · ${askedAgain(b.report.contrast.rescued)}` : 'passed';
-      const blamedCall = b.outcome === 'blamed' ? (b.report.blamed?.callNo ?? null) : null;
-      for (const p of b.report.probes) {
-        const attempts = p.attempts.filter((a) => exists(a.runId));
-        if (!attempts.length) continue;
-        for (const a of attempts) bundled.add(a.runId);
-        const v = probeLine(p, b.report);
-        out.push({
-          kind: 'blame',
-          key: `${b.blameId}:${p.callNo}`,
-          parentRunId: r.runId,
-          title: `blame · probe #${p.callNo}`,
-          callNo: p.callNo,
-          blamed: p.callNo === blamedCall,
-          change: null,
-          verdict: null,
-          role: null,
-          counts: null,
-          passes: attempts.filter((a) => a.passed).length,
-          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
-          spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
-          at: startedAt(attempts.map((a) => a.runId), b.at),
-          verdictLine: v.line,
-          tone: v.tone,
-          rule: v.rule,
-          href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
-          fixId: fix?.fixId ?? null,
-        });
-      }
-      // The check of the call the probes pinned: its pairs, both calls' attempts, as one bundle.
-      const check = b.report.pin;
-      const checked = check ? check.pairs.flatMap((x) => [x.at, x.next]).filter((a) => exists(a.runId)) : [];
-      if (check && checked.length) {
-        for (const a of checked) bundled.add(a.runId);
-        out.push({
-          kind: 'blame',
-          key: `${b.blameId}:check`,
-          parentRunId: r.runId,
-          title: `blame · check of #${check.callNo}`,
-          callNo: check.callNo,
-          blamed: false,
-          change: null,
-          verdict: null,
-          role: null,
-          counts: null,
-          passes: checked.filter((a) => a.passed).length,
-          attempts: checked.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
-          spent: checked.reduce((s2, a) => s2 + a.spent, 0),
-          at: startedAt(checked.map((a) => a.runId), b.at),
-          verdictLine: pinWords(check),
-          tone: check.verdict === 'pinned' ? 'ok' : 'y',
-          rule: null,
-          href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
-          fixId: fix?.fixId ?? null,
-        });
-      }
-    }
-  }
+  out.push(...blameBundles(store, family, probed, { bundled, linkedFix }));
 
   // Verify: each verdict on a run in the family, and each candidate a repair tried and dropped (its
   // check is kept in the repair's report, not as a verdict), a bundle per run it replayed.
   const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, counts: boolean | null, fix: StoredFix | null, href: string, at: number, rule: string) => {
+    // A good run's baseline attempts ran the code before the change: a bundle of their own beside the change's.
+    const base = (x.baselineRuns ?? []).filter((a) => exists(a.runId) && !bundled.has(a.runId));
+    if (base.length) out.push(baselineBundle(`${key}:baseline`, x, base, { verdict, counts, href, at, fixId: fix?.fixId ?? null }, family, bundled));
     const attempts = x.attempts.filter((a) => exists(a.runId) && !bundled.has(a.runId));
     if (!attempts.length) return;
     for (const a of attempts) bundled.add(a.runId);
@@ -331,6 +276,139 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
   }
   nameSharedBundles(store, out);
   return out.sort((a, b) => a.at - b.at || a.key.localeCompare(b.key));
+}
+
+/**
+ * Blame's bundles in a family: each blame of a run in it whose probes are here (they fork from the
+ * run blamed), a bundle per probed call, and the check of the call the probes pinned. An attempt blame
+ * marked the provider unavailable for is in no report's probe: it joins its probe's bundle, never
+ * counted, rather than make a bundle of its own beside it. Each attempt it bundles goes in `bundled`.
+ */
+function blameBundles(store: StoreOf<'recording' | 'fixes'>, family: ReadonlyMap<string, RunRecord>, probed: ReadonlySet<string>, o: { bundled: Set<string>; linkedFix: ReturnType<typeof fixReads>['linkedFix'] }): FixBundle[] {
+  const out: FixBundle[] = [];
+  const { bundled, linkedFix } = o;
+  const exists = (id: string) => family.has(id);
+  const startedAt = (ids: readonly string[], fallback: number) => Math.min(...ids.map((id) => family.get(id)?.startedAt ?? fallback), fallback);
+  const unavailable = unavailableProbes(family);
+  for (const id of probed) {
+    const r = family.get(id);
+    if (!r || r.meta?.probe || r.meta?.verify) continue;
+    for (const b of store.blamesOfRun(r.runId)) {
+      const fix = linkedFix(b.blameId, 'blame', r.runId) ?? fixOfRun(store, r.runId);
+      const rescuedRunId = b.report.contrast?.rescuedRunId ?? null;
+      const rescuedNote = b.report.contrast ? `passed · ${askedAgain(b.report.contrast.rescued)}` : 'passed';
+      const blamedCall = b.outcome === 'blamed' ? (b.report.blamed?.callNo ?? null) : null;
+      for (const p of b.report.probes) {
+        const attempts = p.attempts.filter((a) => exists(a.runId));
+        const down = (unavailable.get(`${r.runId}:${p.callNo}`) ?? []).filter((x) => !bundled.has(x.runId));
+        if (!attempts.length && !down.length) continue;
+        for (const a of [...attempts, ...down]) bundled.add(a.runId);
+        const v = probeLine(p, b.report);
+        out.push({
+          kind: 'blame',
+          key: `${b.blameId}:${p.callNo}`,
+          parentRunId: r.runId,
+          title: `blame · probe #${p.callNo}`,
+          callNo: p.callNo,
+          blamed: p.callNo === blamedCall,
+          change: null,
+          verdict: null,
+          role: null,
+          counts: null,
+          passes: attempts.filter((a) => a.passed).length,
+          attempts: [...attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })), ...down.map(unavailableAttempt)],
+          spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
+          at: startedAt([...attempts, ...down].map((a) => a.runId), b.at),
+          verdictLine: v.line,
+          tone: v.tone,
+          rule: v.rule,
+          href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
+          fixId: fix?.fixId ?? null,
+        });
+      }
+      // The check of the call the probes pinned: its pairs, both calls' attempts, as one bundle.
+      const pinned = pinBundle(b, r.runId, family, { bundled, fixId: fix?.fixId ?? null, blamedCall });
+      if (pinned) out.push(pinned);
+    }
+  }
+  return out;
+}
+
+/** The check of the call a blame's probes pinned, as one bundle: its pairs, both calls' attempts, those in the family; null with none there. */
+function pinBundle(b: StoredBlame, runId: string, family: ReadonlyMap<string, RunRecord>, o: { bundled: Set<string>; fixId: string | null; blamedCall: number | null }): FixBundle | null {
+  const check = b.report.pin;
+  const checked = check ? check.pairs.flatMap((x) => [x.at, x.next]).filter((a) => family.has(a.runId)) : [];
+  if (!check || !checked.length) return null;
+  for (const a of checked) o.bundled.add(a.runId);
+  return {
+    kind: 'blame',
+    key: `${b.blameId}:check`,
+    parentRunId: runId,
+    title: `blame · check of #${check.callNo}`,
+    callNo: check.callNo,
+    blamed: false,
+    change: null,
+    verdict: null,
+    role: null,
+    counts: null,
+    passes: checked.filter((a) => a.passed).length,
+    attempts: checked.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
+    spent: checked.reduce((s2, a) => s2 + a.spent, 0),
+    at: Math.min(...checked.map((a) => family.get(a.runId)?.startedAt ?? b.at), b.at),
+    verdictLine: pinWords(check),
+    tone: check.verdict === 'pinned' ? 'ok' : 'y',
+    rule: null,
+    href: o.fixId ? fixHref(o.fixId, 'blame') : runHref(runId, o.blamedCall),
+    fixId: o.fixId,
+  };
+}
+
+/** The runs in a family blame marked the provider unavailable for, by the probe they were attempts of (`<run>:<call>`). */
+function unavailableProbes(family: ReadonlyMap<string, RunRecord>): Map<string, RunRecord[]> {
+  const out = new Map<string, RunRecord[]>();
+  for (const r of family.values()) {
+    const p = r.meta?.probe;
+    if (p?.verdict !== 'unavailable' || typeof p.of !== 'string' || typeof p.callNo !== 'number') continue;
+    const key = `${p.of}:${p.callNo}`;
+    out.set(key, [...(out.get(key) ?? []), r]);
+  }
+  return out;
+}
+
+/** An attempt the provider was unavailable for, as its probe's bundle lists it: marked apart, its note saying it never counted. */
+const unavailableAttempt = (r: RunRecord): FixBundleAttempt => ({ runId: r.runId, passed: false, verdict: 'inconclusive', note: 'the provider was unavailable: retried, never counted', href: runHref(r.runId), rescued: false, unavailable: true });
+
+/**
+ * A good run's baseline attempts, as the Forks view bundles them beside the change's: named as the
+ * code before the change (at the base revision, where verify kept one), with the verdict they
+ * counted towards, and their own tally, in verify's words (`baseline 2 of 3`).
+ */
+function baselineBundle(key: string, x: VerifiedRun, base: VerifiedRun['attempts'], o: { verdict: VerifyOutcome; counts: boolean | null; href: string; at: number; fixId: string | null }, family: ReadonlyMap<string, RunRecord>, bundled: Set<string>): FixBundle {
+  for (const a of base) bundled.add(a.runId);
+  const passes = base.filter((a) => a.passed).length;
+  const revision = x.baseline?.revision;
+  return {
+    kind: 'verify',
+    key,
+    parentRunId: x.runId,
+    title: 'verify · baseline',
+    callNo: null,
+    blamed: false,
+    change: `the code before the change${revision ? ` at ${revision}` : ''}`,
+    verdict: o.verdict,
+    role: ROLE[x.role],
+    counts: o.counts,
+    passes,
+    attempts: base.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
+    spent: base.reduce((n, a) => n + a.spent, 0),
+    at: Math.min(...base.map((a) => family.get(a.runId)?.startedAt ?? o.at), o.at),
+    verdictLine: `baseline · ${passes} of ${base.length} passed`,
+    tone: null,
+    rule: null,
+    href: o.href,
+    fixId: o.fixId,
+    arm: 'baseline',
+  };
 }
 
 /**

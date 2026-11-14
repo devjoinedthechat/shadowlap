@@ -157,6 +157,9 @@ describe('an attempt', () => {
     const verify = { ...base, divergence: verifyFork, intervention: stub[0], interventions: stub, codeVersion: '35034be+dirty', attempt: { kind: 'verify' as const, k: 1, n: 3, role: 'target', verdict: 'passed' as const } };
     expect(bannerFor(verify)).toEqual({ kind: 'attempt', of: 'verify', callNo: 1, outcome: { tone: 'ok', text: 'passed' }, why: 'verify\u00a0· target, attempt\u00a01\u00a0of\u00a03 · code\u00a035034be+dirty: the change it verified is in the request (~ $.system) · writes stubbed', flag: null, diff: true });
     expect(bannerFor({ ...verify, attempt: { ...verify.attempt, role: 'holdout' } })).toMatchObject({ why: 'verify\u00a0· held-out, attempt\u00a01\u00a0of\u00a03 · code\u00a035034be+dirty: the change it verified is in the request (~ $.system) · writes stubbed' });
+    // A good run's baseline attempt ran the code before the change, never the change: it says so.
+    const forced = { callNo: 1, type: 'forced', name: 'POST /v1/messages', replayedBefore: 0 };
+    expect(bannerFor({ ...verify, divergence: forced, codeVersion: '35034be', attempt: { ...verify.attempt, role: 'good', arm: 'baseline' as const } })).toMatchObject({ why: 'verify\u00a0· baseline, attempt\u00a01\u00a0of\u00a03 · code\u00a035034be: the code before the change, forced live · writes stubbed' });
     // A role the record doesn't name (a run from someone else's pack) is left out, and so is a revision it doesn't keep.
     expect(bannerFor({ ...verify, codeVersion: null, attempt: { ...verify.attempt, role: null } })).toMatchObject({ why: 'verify, attempt\u00a01\u00a0of\u00a03: the change it verified is in the request (~ $.system) · writes stubbed' });
     // A change made with a flag (--model, --set) names itself.
@@ -200,6 +203,8 @@ describe('an attempt', () => {
     // One kept before attempts had a verdict: whether it passed.
     expect(attemptOf({ run: { meta: { probe: { of: REFUND, callNo: 5, passed: true }, repeat: { group: 'g-5', attempt: 3, of: 4 } } }, attemptPlace: { k: 3, n: 3 } })).toMatchObject({ verdict: 'passed' });
     expect(attemptOf({ run: { meta: { verify: { role: 'good', passed: false, verdict: 'inconclusive' }, repeat: { group: 'g', attempt: 1, of: 80 } } }, attemptPlace: { k: 1, n: 12 } })).toEqual({ kind: 'verify', k: 1, n: 12, role: 'good', verdict: 'inconclusive' });
+    // A good run's baseline attempt, the code before the change: verify marks it apart (`arm`).
+    expect(attemptOf({ run: { meta: { verify: { role: 'good', passed: true, verdict: 'passed', arm: 'baseline', revision: '35034be' }, repeat: { group: 'g-baseline', attempt: 2, of: 80 } } }, attemptPlace: { k: 2, n: 12 } })).toEqual({ kind: 'verify', k: 2, n: 12, role: 'good', verdict: 'passed', arm: 'baseline' });
     expect(attemptOf({ run: { meta: { repeat: { group: 'g', attempt: 3, of: 5 } } }, attemptPlace: { k: 3, n: 5 } })).toEqual({ kind: 'repeat', k: 3, n: 5, count: 5 });
     // Without the server's count (an older server), which attempt it is, of an unknown number: never the record's `of`, the most that could be made.
     expect(attemptOf({ run: { meta: { verify: { role: 'target', passed: true }, repeat: { group: 'g', attempt: 4, of: 80 } } } })).toMatchObject({ k: 4, n: null });

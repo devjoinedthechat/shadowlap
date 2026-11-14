@@ -605,9 +605,9 @@ export function bundledRuns(bundles: readonly FixBundle[]): Set<string> {
   return out;
 }
 
-/** An attempt's mark: none for a pass, amber for one that could not be judged (neither passed nor failed), red for a failure. */
-export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' | 'no' | undefined {
-  return a.passed ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
+/** An attempt's mark: none for a pass, or for one the provider was unavailable for (never counted); amber for one that could not be judged (neither passed nor failed), red for a failure. */
+export function attemptMark(a: { passed: boolean; verdict?: string; unavailable?: boolean }): 'unsure' | 'no' | undefined {
+  return a.passed || a.unavailable ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
 }
 
 /**
@@ -616,8 +616,10 @@ export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' 
  * verdict that doesn't count for the fix is no verdict on it, so its icon is a verify's, drawn plain
  * (`plain`), as its Verify step draws the verdict.
  */
-export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & { tone?: FixBundle['tone'] }): { kind: 'blame' | 'fixok' | 'fixbad' | 'warn'; label: string; plain?: true } {
+export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & { tone?: FixBundle['tone']; arm?: FixBundle['arm'] }): { kind: 'blame' | 'fixok' | 'fixbad' | 'warn'; label: string; plain?: true } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
+  // A good run's baseline, the code before the change, is no verdict of its own: plain, and named so.
+  if (b.arm === 'baseline') return { kind: 'fixok', label: 'Verify’s baseline: the code before the change', plain: true };
   if (b.counts === false) return { kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true };
   if (b.tone === 'ok') return { kind: 'fixok', label: 'Verify attempts: the run held' };
   if (b.tone === 'no') return { kind: 'fixbad', label: 'Verify attempts: the run failed' };

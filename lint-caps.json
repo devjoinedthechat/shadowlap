@@ -137,7 +137,7 @@
       "row": 56
     },
     "packages/dashboard/src/fix-bundles.ts": {
-      "fixBundles": 79
+      "fixBundles": 51
     },
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
@@ -364,9 +364,6 @@
     "packages/cli/src/verify.ts": {
       "runVerify": 286,
       "runVerify > verifyOne": 182
-    },
-    "packages/dashboard/src/fix-bundles.ts": {
-      "fixBundles": 177
     },
     "packages/dashboard/src/routes/projects.ts": {
       "register": 216
