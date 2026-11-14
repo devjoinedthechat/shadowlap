@@ -351,6 +351,41 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   }
 });
 
+test('a migration’s What changes sets each run’s cells beside its own label, and under it where a row stacks', async ({ page, request }) => {
+  const { origin, token } = dash();
+  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
+  const migration = sessions.find((s) => s.kind === 'migrate')?.href;
+  expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
+  /** Each row of the compact matrix as drawn: where its label and its cells sit. */
+  const rows = () =>
+    page.locator('main#view .dmx.compact .dmr').evaluateAll((all) =>
+      all.map((row) => {
+        const [label, cells] = [...row.children].map((c) => c.getBoundingClientRect());
+        return { parts: row.children.length, label: { top: Math.round(label!.top), bottom: Math.round(label!.bottom), left: Math.round(label!.left), right: Math.round(label!.right) }, cells: { top: Math.round(cells!.top), left: Math.round(cells!.left) } };
+      }),
+    );
+  // At a desk: a row is its label and its cells on one line of the grid, the cells to the label's right, each row under the one before.
+  await openPage(page, migration!.slice(1), 'main#view .dmx.compact button.dc');
+  const wide = await rows();
+  expect(wide.length).toBeGreaterThan(1);
+  for (const [i, r] of wide.entries()) {
+    expect(r.parts, `row ${i}`).toBe(2);
+    expect(r.cells.top, `row ${i}: its cells start with its label`).toBe(r.label.top);
+    expect(r.cells.left, `row ${i}: its cells are beside its label`).toBeGreaterThanOrEqual(r.label.right);
+    if (i) expect(r.label.top, `row ${i} is under row ${i - 1}`).toBeGreaterThanOrEqual(wide[i - 1]!.label.bottom);
+    expect(r.label.left, `row ${i}: every label starts the grid's first column`).toBe(wide[0]!.label.left);
+  }
+  // On a phone a row stacks: its cells under its own label, at the label's left edge.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, migration!.slice(1), 'main#view .dmx.compact button.dc');
+  const narrow = await rows();
+  for (const [i, r] of narrow.entries()) {
+    expect(r.cells.top, `row ${i}: its cells are under its label`).toBeGreaterThanOrEqual(r.label.bottom);
+    expect(r.cells.left, `row ${i}`).toBe(r.label.left);
+    if (i) expect(r.label.top, `row ${i} is under row ${i - 1}'s cells`).toBeGreaterThan(narrow[i - 1]!.cells.top);
+  }
+});
+
 test('a preview’s link opens Preview and a migration’s its report on Migrate, and neither Preview, Migrate, Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
   const { origin, token } = dash();
   const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json();
