@@ -70,8 +70,8 @@ export interface EstimatesApi {
   /** The models a preview's field offers beside the runs' own (`GET /api/model-choices`). It asks providers, so it can take a second. */
   modelChoices(): Promise<ModelChoicesView>;
   bisectEstimate(q: BisectQuery): Promise<Estimate>;
-  /** What Migrate to `to` bills on the goldens named (every golden for none), switching from `from`, and the newest preview of that switch. */
-  migrateEstimate(to: string, from: readonly string[], goldens: readonly string[]): Promise<MigrateEstimateView>;
+  /** What Migrate to `to` bills on the goldens and runs named, as its job asks them (every golden for none), switching from `from`, and the newest preview of that switch. */
+  migrateEstimate(to: string, from: readonly string[], goldens: readonly string[], runs?: readonly string[]): Promise<MigrateEstimateView>;
 }
 
 export function estimatesApi(request: Request): EstimatesApi {
@@ -91,7 +91,7 @@ export function estimatesApi(request: Request): EstimatesApi {
       return request(`decisions/${q(sessionId)}/estimates${parts.length ? `?${parts.join('&')}` : ''}`);
     },
     previewEstimates: (p) => request('decisions/estimates', { method: 'POST', body: JSON.stringify(previewBody(p)) }),
-    migrateEstimate: (to, from, goldens) => request(`migrate/estimate?${[`to=${q(to)}`, ...from.map((m) => `from=${q(m)}`), ...goldens.map((g) => `golden=${q(g)}`)].join('&')}`),
+    migrateEstimate: (to, from, goldens, runs = []) => request(`migrate/estimate?${[`to=${q(to)}`, ...from.map((m) => `from=${q(m)}`), ...goldens.map((g) => `golden=${q(g)}`), ...runs.map((id) => `run=${q(id)}`)].join('&')}`),
     modelChoices: () => request('model-choices'),
     bisectEstimate: (b) => request<{ estimate: Estimate }>(`estimates/bisect${query({ runId: b.runId, golden: b.golden, good: b.good, bad: b.bad })}`).then((r) => r.estimate),
   };

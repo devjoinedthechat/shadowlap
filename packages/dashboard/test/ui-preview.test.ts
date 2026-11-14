@@ -384,6 +384,26 @@ describe('the Preview page', () => {
     expect(started[0]).toEqual(['migrate', expect.objectContaining({ to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'] })]);
   });
 
+  it('prices Migrate to on the runs a preview of runs asked, as its job migrates them, never on every golden', async () => {
+    const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: [], runs: [a, b] } } } };
+    const priced: unknown[][] = [];
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const client = {
+      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }),
+      decisionSession: () => Promise.resolve(migrating),
+      estimates: { migrateEstimate: (...args: unknown[]) => (priced.push(args), Promise.resolve({ estimate: null, preview: null })) },
+      startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ jobId: 'j1', kind, status: 'running' })),
+    };
+    const p = await open(client as unknown as Partial<Client>);
+    await p.until('the price', () => priced.length > 0);
+    expect(priced).toEqual([['claude-haiku-4-5', ['claude-sonnet-4-5-20250929'], [], [a, b]]]);
+    await p.click(p.byText('.dverdict .actions button', 'Migrate to claude-haiku-4-5'));
+    await p.until('the ask', () => p.all('.dialog').length === 1);
+    await p.click(p.one('.dialog .dlg-ok'));
+    await p.until('the job', () => started.length === 1);
+    expect(started[0]).toEqual(['migrate', expect.objectContaining({ to: 'claude-haiku-4-5', runs: [a, b] })]);
+  });
+
   it('marks the message a forked run’s cell changed against its parent’s call, with Jump to change', async () => {
     const turns = (third: string) => Array.from({ length: 4 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', blocks: [{ type: 'text', text: i === 2 ? third : `message ${i + 1}` }] }));
     const at = (third: string) => ({ call: { callNo: 3, kind: 'api', outcome: 'ok' }, conversation: { turns: turns(third), fromCallNo: 3, n: null } });

@@ -142,6 +142,18 @@ describe('Migrate’s price', () => {
     expect(body.preview).toBeNull();
     expect((await api(dash, 'migrate/estimate?to=')).status).toBe(400);
   });
+
+  it('prices the runs it names, as its job migrates them, and never every golden for them', async () => {
+    // A run of the store no golden holds, its calls made with another model than the switch's.
+    const other = recordRun(store, [LOOKUP, REFUND, DONE], { model: 'claude-haiku-4-5' }).run.runId;
+    const ask = async (q: string) => ((await (await api(dash, `migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5${q}`)).json()) as { estimate: { usd: number | null; parts?: string[] } | null }).estimate;
+    const golden = await ask('');
+    expect(golden?.usd).toBeGreaterThan(0);
+    expect(await ask(`&run=${other}`)).toMatchObject({ usd: 0, parts: ['no golden’s call is made with claude-sonnet-4-5'] });
+    // The golden's own recording, named as a run, is priced as the golden is.
+    expect((await ask(`&run=${runId}`))?.usd).toBe(golden?.usd);
+    expect((await api(dash, 'migrate/estimate?to=claude-sonnet-5-5&run=01NOSUCHRUN00000000000000')).status).toBe(404);
+  });
 });
 
 describe('a migration’s applied state', () => {
