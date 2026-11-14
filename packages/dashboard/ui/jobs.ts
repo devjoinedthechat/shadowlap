@@ -96,6 +96,48 @@ export function forkDivergedEarly(job: JobLike, lines: readonly string[]): { cal
   return target && at && at.callNo < target.callNo ? { ...at, target } : null;
 }
 
+/**
+ * A Replay or a fork that stopped before its recording did, from the CLI's report ("✗ Ended early at
+ * call 11: 10 of 30 recorded calls replayed"): the recording's first call it never made, and a fork's
+ * flag that acts there or after, which never got to change the run. Null while it runs, for one that
+ * left its recording otherwise, and for a repeat, whose attempts say where each ended.
+ */
+export function replayEndedEarly(job: JobLike, lines: readonly string[]): { callNo: number; target: { callNo: number; flag: string } | null } | null {
+  const own = ownArgs(job.args);
+  if (!job.done || own[0] !== 'replay' || own.includes('--repeat')) return null;
+  const at = [...lines.join('\n').matchAll(/^\s*(?:✗\s*)?Ended early at call (\d+)/gm)].at(-1);
+  if (!at) return null;
+  const callNo = Number(at[1]);
+  const target = forkTarget(job.args);
+  return { callNo, target: target && target.callNo >= callNo ? target : null };
+}
+
+/** The line `replay` ends a replay that made no call with (engine report.ts `formatSummary`). */
+const NO_CALLS = /^\s*(?:⚠\s*)?Replayed \S+: no calls were made/m;
+
+/** The line a replay's summary says the agent's own failure with: what its exit code is then. */
+const AGENT_FAILED = /the agent process exited with an error/;
+
+/** Amber where the agent ended well (0; 3, a check that could not be decided), red where it didn't. */
+const agentTone = (code: number): JobWords['tone'] => (code === 0 || code === 3 ? 'warn' : 'err');
+
+/**
+ * How a Replay or a fork left its recording, which leads its status whatever the agent did after: it
+ * made no call at all; a Replay diverged, and went live, or ended early; a fork left it, or stopped,
+ * before the call its flag acts on, or ended early. Null where it left it nowhere it wasn't asked to.
+ */
+function leftStatus(job: JobLike, lines: readonly string[], code: number): JobWords | null {
+  const exit = `exit ${code}`;
+  const own = ownArgs(job.args);
+  if (own[0] === 'replay' && !own.includes('--repeat') && NO_CALLS.test(lines.join('\n'))) return { text: `no calls were made · ${exit}`, tone: agentTone(code) };
+  const diverged = replayDivergence(job, lines);
+  if (diverged) return { text: `diverged at #${diverged.callNo}${diverged.live ? ' · went live' : ''} · ${exit}`, tone: agentTone(code) };
+  const early = forkDivergedEarly(job, lines);
+  if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]!} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: agentTone(code) };
+  const ended = replayEndedEarly(job, lines);
+  return ended ? { text: `ended early at #${ended.callNo}${ended.target ? `, before ${FORK_WORDS[ended.target.flag]!} at #${ended.target.callNo}` : ''} · ${exit}`, tone: agentTone(code) } : null;
+}
+
 /** A run as the run list has it: enough to walk from a replay to the recording it came from. */
 export type RunLink = { runId: string; parentRunId: string | null; mode: string; status: string; imported: boolean };
 
@@ -172,13 +214,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   const code = job.code;
   if (code === null) return { text: 'stopped', tone: 'err' };
   const exit = `exit ${code}`;
-  // A Replay whose request differed from the recording didn't reproduce the run, whatever the agent
-  // did once it went live, so that leads: amber when the agent ended well, red when it didn't.
-  const diverged = replayDivergence(job, lines);
-  if (diverged) return { text: `diverged at #${diverged.callNo}${diverged.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
-  // So did a fork that left the recording before the call its flag acts on.
-  const early = forkDivergedEarly(job, lines);
-  if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]!} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
+  // A Replay that didn't reproduce the run, or a fork that left it before its flag acted, whatever the agent did after (leftStatus).
+  const left = leftStatus(job, lines, code);
+  if (left) return left;
   // A session, an update, a search, a verify or a repeat: in the words of its kind.
   const ending = jobEnding(job, all, code);
   if (ending) return ending;
@@ -192,8 +230,11 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
     return { text: `finished · ${exit}`, tone: 'ok' };
   }
   if (/check(s)? failed/i.test(all)) return { text: `check failed · ${exit}`, tone: 'err' };
+  // A Replay or a fork ends 3 on a check that could not be decided, its agent having ended well.
+  if (code === 3 && ownArgs(job.args)[0] === 'replay' && !AGENT_FAILED.test(all)) return { text: `inconclusive · ${exit}`, tone: 'warn' };
   if (/Diverged at call/.test(all) && !/Forked at call/.test(all)) return { text: `diverged · ${exit}`, tone: 'err' };
-  if (/the agent process exited with an error|--fail-at/.test(all)) return { text: `agent exited ${code}`, tone: 'warn' };
+  // The agent's own exit, as a replay's summary says it (after a failure --fail-at played in, say); never a command the CLI refused before it ran.
+  if (AGENT_FAILED.test(all)) return { text: `agent exited ${code}`, tone: 'warn' };
   return { text: exit, tone: 'err' };
 }
 

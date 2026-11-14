@@ -2620,6 +2620,12 @@ How a replay or a fork ended:
 - **Calibrate**, beside **Open replay**, replays the recording offline and proposes a normalizer for each value the agent makes anew on every run (a user id, a temporary path). Its drawer offers **Add normalizer**, and the next Replay is clean.
 - **A fork from the menu** says *forked*: diverging where its flag changed the run is what it was asked for.
 - **A fork that left the recording before the call its flag acts on** says that instead, *diverged at #3, before the inject at #17 · went live · exit 0*, in the same colours and with **Calibrate**. The calls before it did not replay, so what the flag changed is not the only difference.
+- **A Replay or a fork that stopped before its recording did** says *ended early at #11 · exit 0*, at the recording's first call it never made, as Runs says it. A fork whose flag acts at that call or after adds it: *ended early at #11, before the inject at #17*.
+- **A replay that made no call** says *no calls were made · exit 0*. Both read amber where the agent exited 0, and red where it failed.
+- **A check that couldn't be decided** ends a Replay or a fork *inconclusive · exit 3*, in amber. A divergence still leads, in amber too: the agent ended well.
+- **A Repeat**, and **Plant instruction…**, which replays its text three times, say how the attempts went. Ended 0, a Repeat says *identical* or *4 of 5 same path*, and Plant instruction *check passed*, or *replayed* where no check judged whether the agent obeyed.
+- **A Repeat where a check failed or couldn't be decided** says how many attempts passed: *failed · 3 of 5 attempts passed · exit 1*, or *inconclusive · 4 of 5 attempts passed · exit 3* in amber. An attempt that failed or never ran counts against it.
+- **A command the CLI refused** before it ran, such as a status `--fail-at` doesn't take, ends *Tried forking · exit 2*, its toast giving the CLI's reason.
 
 How a preview and its verify ended:
 

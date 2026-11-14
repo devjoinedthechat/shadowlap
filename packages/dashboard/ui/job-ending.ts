@@ -4,7 +4,7 @@ import { ACTIONS } from './labels.js';
 
 /**
  * How a job ended, in the words its own kind has for it: a session's verdict and tally, an update
- * that held or diverged again, the commit a search named, what a revert left, a verify's verdict, a repeat's paths. What
+ * that held or diverged again, the commit a search named, what a revert left, a verify's verdict, a repeat's paths or how many of its attempts passed. What
  * these don't name, `jobStatus` (jobs.ts) words from the CLI's own lines. An exit code is always the
  * job's real one. No DOM here: the tests import it.
  */
@@ -124,12 +124,45 @@ function previewStatus(job: EndedJob, code: number): JobWords | null {
   return code === 0 ? { text: 'finished · exit 0', tone: 'ok' } : code === 3 ? { text: 'inconclusive · exit 3', tone: 'warn' } : null;
 }
 
-/** Repeat: whether the attempts took one path. A repeat's failed check, or anything else non-zero, has the words of any replay. */
-function repeatStatus(job: EndedJob, all: string, code: number): JobWords | null {
+/** A check of an attempt's that failed or could not be decided; one kept before checks had a status reads as `ok` says. */
+const unpassed = (c: unknown): boolean => {
+  const r = asRecord(c);
+  return !!r && (r.status === 'failed' || r.status === 'inconclusive' || (r.status === undefined && r.ok === false));
+};
+
+/** A repeat's attempts as it reported them (`{ attempts: [{ exitCode, checks? }], report }`). */
+const attemptsOf = (job: EndedJob): Array<Record<string, unknown>> => {
+  const list = asRecord(job.result)?.attempts;
+  return Array.isArray(list) ? list.map(asRecord).filter((a): a is Record<string, unknown> => a !== null) : [];
+};
+
+/**
+ * A repeat that ended 1 (a check failed in an attempt, or an attempt failed or never ran) or 3 (a
+ * check could not be decided): how many of the attempts asked for passed, exiting 0 with no check
+ * failed or undecided, as a session tallies its goldens (`failed · 3 of 5 attempts passed · exit 1`).
+ */
+function attemptsTally(own: readonly string[], attempts: ReadonlyArray<Record<string, unknown>>, code: number): JobWords | null {
+  if (!attempts.length || (code !== 1 && code !== 3)) return null;
+  const asked = Number(own[own.indexOf('--repeat') + 1]);
+  const n = Math.max(attempts.length, Number.isInteger(asked) ? asked : 0);
+  const passed = attempts.filter((a) => a.exitCode === 0 && !(Array.isArray(a.checks) && a.checks.some(unpassed))).length;
+  const tally = `${passed} of ${n} attempt${n === 1 ? '' : 's'} passed`;
+  return code === 3 ? { text: `inconclusive · ${tally} · exit 3`, tone: 'warn' } : { text: `failed · ${tally} · exit 1`, tone: 'err' };
+}
+
+/**
+ * Repeat, and Plant instruction (a planted text replayed three times), by the attempts the command
+ * reported: ended 0, whether they took one path, and a planted instruction whether its checks passed,
+ * or with none to say whether the agent obeyed, no more than that it replayed; ended 1 or 3, how many
+ * passed (`attemptsTally`); stopped by a signal, interrupted.
+ */
+function repeatStatus(job: EndedJob, code: number): JobWords | null {
   const own = ownArgs(job.args);
-  if (code !== 0 || own[0] !== 'replay' || !own.includes('--repeat')) return null;
-  // Plant instruction: with no check to say whether the agent obeyed, all that can be said is that it replayed.
-  if (own.includes('--inject-result')) return /check(s)? passed/i.test(all) ? null : { text: 'replayed · exit 0', tone: 'ok' };
+  if (own[0] !== 'replay' || !own.includes('--repeat')) return null;
+  if (code === 130 || code === 143) return { text: `interrupted · exit ${code}`, tone: 'warn' };
+  const attempts = attemptsOf(job);
+  if (code !== 0) return attemptsTally(own, attempts, code);
+  if (own.includes('--inject-result')) return { text: `${attempts.some((a) => Array.isArray(a.checks) && a.checks.length > 0) ? 'check passed' : 'replayed'} · exit 0`, tone: 'ok' };
   const report = asRecord(asRecord(job.result)?.report);
   const paths = Array.isArray(report?.paths) ? (report.paths as Array<{ runIds?: unknown }>) : [];
   const runs = paths.map((p) => (Array.isArray(p.runIds) ? p.runIds.length : 0));
@@ -217,5 +250,5 @@ function coverageStatus(job: EndedJob, code: number): JobWords | null {
 
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
 }

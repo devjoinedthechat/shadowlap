@@ -658,7 +658,8 @@ describe('job drawer', () => {
     expect(jobStatus({ ...done(0), done: false }, [])).toEqual({ text: 'running', tone: '' });
     expect(jobStatus(done(0), ['✓ Replay clean: 30/30 calls replayed'])).toEqual({ text: 'reproduced · exit 0', tone: 'ok' });
     expect(jobStatus(done(1), ['✗ Diverged at call 1 (api POST /v1/messages)'])).toEqual({ text: 'diverged at #1 · exit 1', tone: 'err' });
-    expect(jobStatus(done(1), ['✗ check failed: issue_refund called 1×'])).toEqual({ text: 'check failed · exit 1', tone: 'err' });
+    // A replay's checks as the CLI prints them: their tally, then each.
+    expect(jobStatus(done(1), ['✗ 1 of 2 checks failed (--expect)', '  ✓ escalate called 1 time', '  ✗ issue_refund called 0 times, but called 1 time'])).toEqual({ text: 'check failed · exit 1', tone: 'err' });
     expect(jobStatus({ ...done(1), args: ['replay', 'X', '--fail-at', '19=529'] }, ['⑂ Forked at call 19', '  the agent process exited with an error'])).toEqual({ text: 'agent exited 1', tone: 'warn' });
     expect(jobStatus(done(null), [])).toEqual({ text: 'stopped', tone: 'err' });
     expect(lastLine(['a', '✓ Forked at call 17 · ran to the end', '  '])).toBe('Forked at call 17 · ran to the end');
