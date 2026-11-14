@@ -13,6 +13,7 @@ import { sessionLine } from '../ui/pages/settings/CiWorkflow.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import { keptFor } from '../ui/pages/settings/ci-kept.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { styleRules } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 import { withServed } from './ui-served-now.js';
 
@@ -20,9 +21,10 @@ import { withServed } from './ui-served-now.js';
  * Settings → CI as the page renders the server's answers: Your workflow first, where the
  * repository's file stands against the one the switches build, folded behind Show workflow, with
  * Write file and its ask while the two differ; then Pull request comment, Fix on failure and Alerts,
- * each with its switch in its header and its own needs; then Gates, which previews a gate's figures
- * and holds what an inconclusive golden does in CI. The fake server answers as the routes do: the
- * switches start from the repository's file, Write file writes it, and its Undo puts it back.
+ * each with its switch in its header and its own needs, a part that is off folded to one line and
+ * each list behind its name and count; and Gates, a tab of its own, which previews a gate's figures.
+ * The fake server answers as the routes do: the switches start from the repository's file, Write
+ * file writes it, and its Undo puts it back.
  */
 
 const goldens = [
@@ -245,6 +247,50 @@ describe('Settings → CI', () => {
     expect(toast).toHaveBeenLastCalledWith('Fix on failure is off · Your workflow is your repository’s again');
     expect(plain(r!.one('#workflow .wfstate'))).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#wfBox pre.wfcode span.add')).toHaveLength(0);
+  });
+
+  it('folds a part that is off to what happens without it, which Show settings opens for a look and its switch for good, and each list behind its name and count', async () => {
+    await open(fakeServer(DEFAULTS_FILE));
+    const fix = () => r!.one('#fix-on-failure');
+    const body = () => r!.one('#fix-on-failure .alertgrid');
+    const show = () => r!.one('#fix-on-failure .cioff button');
+    // Fix on failure is off as the file has it: its header, what happens without it, and Show settings.
+    expect(plain(r!.one('#fix-on-failure .cioff .offnote'))).toBe('Off: a failed check fails the build, and nobody opens a fix.');
+    expect([show().textContent, show().getAttribute('aria-expanded'), show().getAttribute('aria-controls') === body().getAttribute('id'), body().hasAttribute('hidden')]).toEqual(['Show settings', 'false', true, true]);
+    // The parts that are on have no such line: their panels are open.
+    expect(r!.all('#pr-comment .cioff, #alerts .cioff')).toHaveLength(0);
+    expect([r!.one('#pr-comment .cimain').hasAttribute('hidden'), r!.one('#alerts .alertgrid').hasAttribute('hidden')]).toEqual([false, false]);
+    // Show settings opens the panel for a look, the part still off; Hide settings folds it again.
+    await r!.click(show());
+    expect([show().textContent, show().getAttribute('aria-expanded'), body().hasAttribute('hidden'), fix().className]).toEqual(['Hide settings', 'true', false, 'panel sec set cip off']);
+    await r!.click(show());
+    expect([show().textContent, body().hasAttribute('hidden')]).toEqual(['Show settings', true]);
+    // Its switch opens it too, the line gone; off again, it folds.
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('Fix on failure on', () => fix().className === 'panel sec set cip');
+    expect([r!.all('#fix-on-failure .cioff').length, body().hasAttribute('hidden')]).toEqual([0, false]);
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('Fix on failure off', () => fix().className === 'panel sec set cip off');
+    expect(body().hasAttribute('hidden')).toBe(true);
+    // Each list is behind its name and how many rows it holds, the rows drawn and hidden until asked for.
+    const view = served({}, DEFAULTS_FILE);
+    const folds = () => r!.all('.settab .cifold');
+    const fold = (f: FakeElement) => [f.querySelector('button .k')!.textContent, f.querySelector('button .n')!.textContent, f.querySelector('button')!.getAttribute('aria-expanded'), f.querySelector('.cilist')!.hasAttribute('hidden')];
+    expect(folds().map(fold)).toEqual([
+      ['it needs', String(view.comment.needs.length), 'false', true],
+      ['it needs', String(view.fixOnFailure.needs.length), 'false', true],
+      ['it never', String(view.fixOnFailure.never.length), 'false', true],
+      ['it needs', String(view.alerts.needs.length), 'false', true],
+      ['a golden fails when', String(view.alerts.failures.length), 'false', true],
+    ]);
+    expect(folds().map((f) => f.querySelectorAll('.cilist li').length)).toEqual([view.comment.needs.length, view.fixOnFailure.needs.length, view.fixOnFailure.never.length, view.alerts.needs.length, view.alerts.failures.length]);
+    // One opened leaves the others as they are, and its button names the list it opens.
+    const fails = () => folds()[4];
+    await r!.click(fails().querySelector('button')!);
+    expect(folds().map((f) => f.querySelector('button')!.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false', 'true']);
+    expect([fails().querySelector('.cilist')!.hasAttribute('hidden'), fails().querySelector('button')!.getAttribute('aria-controls') === fails().querySelector('.cilist')!.getAttribute('id')]).toEqual([false, true]);
+    await r!.click(fails().querySelector('button')!);
+    expect(fails().querySelector('.cilist')!.hasAttribute('hidden')).toBe(true);
   });
 
   it('writes a workflow that isn’t there yet after asking, with every line it adds, and its Undo takes the file away again', async () => {
@@ -560,6 +606,9 @@ describe('Settings → Gates', () => {
     expect(plain(line().querySelector('span')!)).toMatch(/^Fails the step, as a failed one does/);
     expect(r!.all('#gates .seg').map((x) => x.getAttribute('aria-label'))).toEqual(['Kind of gate']);
     expect([line().querySelector('a')!.textContent, line().querySelector('a')!.getAttribute('href')]).toEqual(['Settings → CI', '#/settings/ci']);
+    // In CI heads it on a line of its own, as a part's heading does: its first letter is raised only there.
+    expect(r!.all('#gates .cimain > .k').map((k) => [k.textContent, k.className])).toEqual([['in CI', 'k gci']]);
+    expect(styleRules().filter((x) => !x.conditions.length && x.selectors.includes('.gatep .gci')).flatMap((x) => x.decls)).toContainEqual(['display', 'block']);
     await r!.unmount();
     // Warns, picked on the CI tab and not written: Gates reads it, and words its CI figure for a step that warns.
     await open(s);

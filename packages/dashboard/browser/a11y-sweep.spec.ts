@@ -532,8 +532,15 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   // Training's tabs: the word and its count.
   await openPage(page, '/training', 'main#view .stabs a');
   expect(await names(page, 'main#view .stabs', 'link')).toEqual([expect.stringMatching(/^Pairs [\d,]+$/), expect.stringMatching(/^Tasks [\d,]+$/)]);
-  // Settings: a control named by its row's label and described by its line.
+  // Settings: a control named by its row's label and described by its line. Fix on failure is off in the demo's workflow,
+  // so its panel is folded and its controls are out of reach until Show settings opens it.
   await openPage(page, '/settings/ci', 'main#view .settab > :not(.skel)');
+  await expect(page.locator('#cifixBudget')).toBeHidden();
+  await page.locator('#fix-on-failure').getByRole('button', { name: 'Show settings' }).click();
+  // A list's button says its name and how many rows it holds, and whether it is open.
+  const needs = page.locator('#alerts .cimain .cifold > button');
+  await expect(needs).toHaveAccessibleName(/^it needs \d+$/i);
+  await expect(needs).toHaveAttribute('aria-expanded', 'false');
   for (const id of ['alertSecret', 'cifixBudget', 'cifixRepairer']) {
     const control = page.locator(`#${id}`);
     await expect(control).toHaveCount(1);
