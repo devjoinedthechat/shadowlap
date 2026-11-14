@@ -1499,6 +1499,8 @@ With no golden yet, it offers to pack the newest run whose step is **Pack as gol
 
 A verdict leads, in one line: its word in its colour, *passed*, *failed* or *inconclusive*, then the tally of goldens that passed and the first failure named, as *2 of 3 goldens passed · refund-in-limit diverged at call 1*. With none failing, it is *inconclusive*, in amber, when a [gate](./gating.md) ran out of attempts between its bounds or a check couldn't decide.
 
+A golden the provider left undecided says so, never that a check couldn't be judged. It reads *inconclusive: the provider was unavailable* when the provider stayed unavailable too many attempts in a row, before or while it ran. Where attempts the provider cut short decide a count either way, it reads *inconclusive: 1 attempt cut short by the provider*. The [activity feed](#activity) says the same.
+
 - **Every golden passing** reads *All 4 goldens pass*, or *The golden passes*.
 - **The tally** can end on what wasn't tested: *· 1 golden not tested yet*, or *· 2 goldens tested only by their error-path presets*.
 - **Before any golden has replayed**, it reads *not run yet*, in grey: *3 goldens, none tested yet*, or *One golden, not tested yet*, then *Run tests replays each one offline* and the command. Where only their error-path presets ran, it reads *not replayed yet* (*3 goldens, none replayed yet*), and says which the presets ran on.

@@ -127,7 +127,7 @@
     "packages/dashboard/src/activity.ts": {
       "derived": 34,
       "replayEnd": 34,
-      "testEnd": 50
+      "testEnd": 49
     },
     "packages/dashboard/src/agent-skill.ts": {
       "installedCopy": 37
@@ -448,7 +448,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 896,
+    "packages/dashboard/src/tests.ts": 885,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/engine/src/pairs.ts": 818,
