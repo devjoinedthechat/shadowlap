@@ -1772,6 +1772,7 @@ The header's one button follows the tab: **Export pairs…** on Pairs, which ask
 - **Score model…** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
 - **Score model… is off** while a repair or an applied patch changes the working tree.
 - **Its card** says what an attempt of the model its dialog starts on costs. The dialog's Cost line is what the picks cost together (`20 attempts on the Anthropic API`), and the drawer says that total.
+- **The Cost line** also gives the tokens an attempt is priced from, as `tasks models` says them (*about 12.4k input and 820 output tokens an attempt*).
 
 A task whose test forks before its takeover opens that test's run where it forked. It offers **Update golden**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden. When the normalizer is the whole fix, it tests the golden again instead. If that test runs live (the golden is marked `fork`, or has an injection gate), the card and the dialog say what it bills, and the dialog's button is your yes. Without an estimate, the server's question shows in that dialog before anything runs.
 
@@ -3438,7 +3439,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | Endpoint | What it does |
 | --- | --- |
 | `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
-| `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
+| `GET /api/models` | Score model's picker: each model's price per attempt and last score, those left out and why, and the tokens an attempt is priced from |
 | `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `POST /api/decisions/estimates`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions, the retirement notices |
 | `GET /api/migrate/start`, `GET /api/migrate/estimate?to=&from=&golden=&run=` | Migrate's start page: retiring models with their goldens, scopes and checking migration, and the models in use; Migrate to's price on what its job asks |
 | `GET /api/model-choices` | The models a preview's switch can take, beside the ones its runs use |

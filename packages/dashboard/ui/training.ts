@@ -1,5 +1,5 @@
 import { consentAsked, type CostWords } from './actions.js';
-import { justNow } from './format.js';
+import { justNow, ktok } from './format.js';
 import { commandText } from './goldens.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
@@ -115,15 +115,28 @@ export function pickReplaces(dialog: ScoreDialogView | null, pick: string, endpo
 }
 
 /** What scoring bills: a model on this machine or your own endpoint nothing, a priced model about so much an attempt, one with no price by its provider. */
-export function scoreCost(dialog: ScoreDialogView | null, pick: string, attempts = 1, ready = 1): CostWords | null {
+export function scoreCost(dialog: ScoreDialogView | null, pick: string, attempts = 1, ready = 1, listed: Pick<ModelsView, 'tokens'> | null = null): CostWords | null {
   if (pick === ENDPOINT) return { price: 'Free', parts: ['runs at your endpoint, writes stubbed'] };
   const o = dialog ? pickedOption(dialog, pick) : null;
   if (!o) return null;
   if (o.local) return { price: 'Free', parts: [`runs at ${o.baseUrl ? `\`${o.baseUrl}\`` : 'this machine'}, writes stubbed`] };
-  if (o.perAttempt === null) return { price: 'Billed by your provider', parts: ['live from each takeover, writes stubbed'] };
+  // What a provider bills is priced from the tokens an attempt uses, which say so where there is no price.
+  const used = attemptTokens(listed?.tokens ?? null);
+  if (o.perAttempt === null) return { price: 'Billed by your provider', parts: [...(used ? [used] : []), 'live from each takeover, writes stubbed'] };
   const n = scoreRuns(o, attempts, ready);
   // In the engine's amount words, as the card and the drawer say the same total.
-  return { price: amountWords(o.perAttempt * n), parts: [`${n} ${n === 1 ? 'attempt' : 'attempts'} on the ${o.where}`, 'live from each takeover, writes stubbed'] };
+  return { price: amountWords(o.perAttempt * n), parts: [`${n} ${n === 1 ? 'attempt' : 'attempts'} on the ${o.where}`, ...(used ? [used] : []), 'live from each takeover, writes stubbed'] };
+}
+
+/**
+ * The tokens an attempt is expected to use after its takeover, which its price is worked out from, as
+ * `shadowlap tasks models` says them: `about 12.4k input and 820 output tokens an attempt`, cached input
+ * counted in. Null when the server knows none.
+ */
+export function attemptTokens(t: ModelsView['tokens']): string | null {
+  if (!t) return null;
+  const input = t.inputTokens + (t.cacheReadInputTokens ?? 0) + (t.cacheCreationInputTokens ?? 0);
+  return `about ${ktok(input)} input and ${ktok(t.outputTokens)} output tokens an attempt`;
 }
 
 /** How many attempts scoring runs: the attempts picked, for each task the model answers, or for each ready one. */

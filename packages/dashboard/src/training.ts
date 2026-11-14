@@ -472,12 +472,12 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
   };
 }
 
-/** `GET /api/models` (A7): every model to score, with its price per attempt and its last score, and Score a model's picker. */
+/**
+ * `GET /api/models` (A7): Score a model's picker, each model with its price per attempt and its last
+ * score, those it leaves out and why; the providers that couldn't be listed; and the tokens an
+ * attempt's price is worked out from, which its Cost line says.
+ */
 export interface ModelsView {
-  /** Ready tasks: the ones a model is scored on, whose tokens price an attempt. */
-  ready: number;
-  /** Every listed model, with its last score and which ready tasks it can answer (the picker offers only those that answer one). */
-  choices: Array<ModelChoice & { lastScore: number | null; reach: ModelReach }>;
   /** Providers that couldn't be listed, and why. */
   notes: ModelListing['notes'];
   /** The tokens an attempt is expected to use after its takeover, which the prices are estimated from. */
@@ -487,15 +487,7 @@ export interface ModelsView {
 }
 
 export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow[], listing: ModelListing): ModelsView {
-  const ready = tasks.filter((t) => t.status === 'ready');
-  const means = modelMeans(scores, new Set(ready.map((t) => t.golden)));
-  return {
-    ready: ready.length,
-    choices: listing.choices.map((c) => ({ ...c, lastScore: means.get(modelKey(c.id, c.baseUrl)) ?? null, reach: modelReach(c, tasks) })),
-    notes: listing.notes,
-    tokens: listing.tokens,
-    dialog: scoreDialogView(tasks, scores, listing),
-  };
+  return { notes: listing.notes, tokens: listing.tokens, dialog: scoreDialogView(tasks, scores, listing) };
 }
 
 /** Export pairs' dialog: its formats and levels, the file it writes, and how many redaction rules the copy applies. */
