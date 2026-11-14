@@ -27,7 +27,7 @@ import { useCallList } from '../run/call-list.js';
 import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
-import { blameOf, checksOf, endedEarly, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
+import { blameOf, checksOf, diffCallOf, endedEarly, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
 import { InspectorPlace, useFindingPanel, usePickInView, useResultsBodies } from '../run/InspectorPanel.js';
 import { useInjectionArrival } from '../injection/arrival.js';
 import { byKind } from '../run/kinds.js';
@@ -293,8 +293,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     lastTab = t;
     setTabState(t);
   };
+  const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
+  // Show diff opens at the call picked where it may differ from the recording's; a copy keeps only where the run left it.
+  const diffAt = exported ? null : diffCallOf(run, selectedRow);
   // A finding's diff in the inspector's place, until it is hidden or a call is picked (InspectorPanel.tsx).
-  const { panel, showDiff, onToggleDiff, showChange, onToggleChange, close: closePanel } = useFindingPanel(runId);
+  const { panel, showDiff, onToggleDiff, showChange, onToggleChange, close: closePanel } = useFindingPanel(runId, diffAt);
   const filterRef = useRef<HTMLInputElement>(null);
   // `/` filters the calls: from another view it opens Calls first, and the field takes focus once it is there.
   const [filterWanted, setFilterWanted] = useState(false);
@@ -317,7 +320,6 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const canMark = !exported && !actionsOff;
   const mark = useCallback((m: RunMark, from?: HTMLElement) => markRun(runId, labels, m, from), [markRun, runId, labels]);
 
-  const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${String(selected)}:${selectedRow?.outcome ?? 'pending'}`;
   const quick = useLoad<CallDetail>(() => (selected !== null && selectedRow ? client.call(runId, selected) : null), detailKey);
   // Deep in a long run still analysed, the details come at once from the calls around the call, its
@@ -376,7 +378,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} forkWait={forkWait} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} onTest={tests.menu} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} presets={presets} injection={injection.finding} cause={injection.cause} attempt={injection.attempt} onPick={pickProof} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} diffAt={diffAt} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} presets={presets} injection={injection.finding} cause={injection.cause} attempt={injection.attempt} onPick={pickProof} />
       <StripBar strip={{ calls: strip.calls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: strip.inScope, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {bar ? <ScopeBar run={run} scopes={scopeTree} scope={scope} judge={judge.size} onScope={setScope} /> : null}
       <div className="work">

@@ -7,6 +7,7 @@ import { ResultsToggle } from '../ui/components/ResultsToggle.js';
 import { claimCallFocus } from '../ui/focus-manager.js';
 import type { Matrix } from '../ui/matrix.js';
 import { InspectorPlace, useFindingPanel, usePickInView, warmDiff } from '../ui/run/InspectorPanel.js';
+import { diffCallOf } from '../ui/run/model.js';
 import { openResults, resetPanel } from '../ui/run/panel-state.js';
 import { closePanel } from '../ui/run/run-keys.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -28,12 +29,12 @@ const fork = (runId: string, divergence: unknown = at7) => ({ run: { runId, pare
 /** The server's answer for a run: its request #7 as recorded and as sent, or the call `at` where the diff shows another. */
 const answer = (at = 7): RequestDiff => ({ at, what: 'request', call: { kind: 'api', name: 'POST /v1/messages' }, against: { runId: 'P', callNo: at }, was: { a: 1 }, now: { a: 2 }, whole: true, leftOut: [], same: false, askedAgain: false, type: 'request_changed', path: '$.a', paths: [{ path: '$.a', what: null, fix: null }], updates: false, masked: [], outside: [], hints: [], flag: null, tool: null, next: null, test: false });
 
-/** Show diff's read as a client answers it: the answer for call `at`, or what `answers` says for each ask in turn (an error fails it, null is no diff). */
-type Ask = (runId: string) => Promise<RequestDiff | null>;
+/** Show diff's read as a client answers it: the answer for call `at` (or the call asked for), or what `answers` says for each ask in turn (an error fails it, null is no diff). */
+type Ask = (runId: string, callNo?: number) => Promise<RequestDiff | null>;
 function asker(asked: string[], at = 7, answers: Array<RequestDiff | null | Error> = []): Ask {
-  return (runId) => {
-    asked.push(runId);
-    const next = answers.length ? answers.shift()! : answer(at);
+  return (runId, callNo) => {
+    asked.push(callNo === undefined ? runId : `${runId} #${callNo}`);
+    const next = answers.length ? answers.shift()! : answer(callNo ?? at);
     return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
   };
 }
@@ -77,12 +78,12 @@ let picked: number[] = [];
  * selects the call, as the run page's does, and whose calls take the focus a pick hands them as they
  * draw.
  */
-function Page({ run, asked = [], at = 7, ask }: { run: RunDetail; asked?: string[]; at?: number; ask?: Ask }) {
-  return createElement(AppContext.Provider, { value: app(asked, at, ask) }, createElement(Place, { run }));
+function Page({ run, asked = [], at = 7, ask, diffAt = null }: { run: RunDetail; asked?: string[]; at?: number; ask?: Ask; diffAt?: number | null }) {
+  return createElement(AppContext.Provider, { value: app(asked, at, ask) }, createElement(Place, { run, diffAt }));
 }
 
-function Place({ run }: { run: RunDetail }) {
-  const p = useFindingPanel(run.run.runId);
+function Place({ run, diffAt }: { run: RunDetail; diffAt: number | null }) {
+  const p = useFindingPanel(run.run.runId, diffAt);
   const [selected, setSelected] = useState(7);
   useLayoutEffect(claimCallFocus);
   const pick = (n: number) => (picked.push(n), p.close(), setSelected(n));
@@ -141,6 +142,32 @@ describe('a finding’s diff in the inspector’s place', () => {
     await page.click(page.one('[data-act="diff"]'));
     await page.until('the diff again', () => page!.all('#ibody .jd').length === 1);
     expect(asked).toEqual(['T']);
+  });
+
+  it('opens at the call picked where it may differ from the recording’s, asking for that call alone', async () => {
+    const asked: string[] = [];
+    page = await render(createElement(Page, { run: fork('S'), asked, diffAt: 9 }));
+    await page.click(page.one('[data-act="diff"]'));
+    expect(page.one('.fhead .ct').textContent).toBe('Diff at #9');
+    await page.until('the diff', () => page!.all('#ibody .jd').length === 1);
+    expect(page.one('#ibody .jdh').textContent).toBe('−Recorded request #9\u00a0· P+This run’s request #9');
+    // Never "the first that changed": it is a call past where the run left its recording.
+    await page.until('its words', () => page!.all('#ibody .hint').length === 1);
+    expect(page.one('#ibody .hint').textContent!.replace(/\u00a0/g, ' ')).toContain('The request at #9 differs from the recording’s #9.');
+    expect(page.one('#ibody .hint').textContent).not.toContain('first');
+    expect(asked).toEqual(['S #9']);
+  });
+
+  it('opens a call picked that the replay served from the recording, or none past where it left it, where it left it', () => {
+    const row = (callNo: number, origin: string, outcome: 'ok' | 'error' = 'ok') => ({ callNo, origin, outcome, scope: null });
+    const forked = { run: { divergence: { type: 'request_changed', callNo: 7 } } } as unknown as RunDetail;
+    // Made live after the fork, or answered by an override, or failed: its request may differ.
+    expect([diffCallOf(forked, row(9, 'live')), diffCallOf(forked, row(10, 'overridden')), diffCallOf(forked, row(11, 'live', 'error'))]).toEqual([9, 10, 11]);
+    // Where it left the recording, before it, served from the recording, the judge's, or with none picked: where the server picks.
+    expect([diffCallOf(forked, row(7, 'live')), diffCallOf(forked, row(3, 'replayed')), diffCallOf(forked, row(12, 'replayed')), diffCallOf(forked, { ...row(13, 'live'), scope: 'shadowlap:judge' }), diffCallOf(forked, null)]).toEqual([null, null, null, null, null]);
+    // A replay that ended early made no call after the recording's it never made.
+    const early = { run: { divergence: { type: 'ended_early', callNo: 7 } } } as unknown as RunDetail;
+    expect(diffCallOf(early, row(9, 'live'))).toBeNull();
   });
 
   it('gives the inspector back on a pick of a call', async () => {

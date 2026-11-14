@@ -128,6 +128,8 @@ export interface BannerProps {
   offers: RunOffers | null;
   showDiff: boolean;
   onToggleDiff: () => void;
+  /** The call Show diff opens at, where the one picked may differ from the recording's (diffCallOf); none: where the run left it. */
+  diffAt?: number | null;
   /** The first bad commit's change, open in the inspector's place, and its Show change; none on a page that shows no change. */
   showChange?: boolean;
   onToggleChange?: () => void;
@@ -549,7 +551,7 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
     </button>
   );
   // The pointer or the focus on Show diff asks for its scripts and its answer, so it opens at once.
-  const warm = () => warmDiff(app.client, p.run.run.runId, p.run.run.status === 'running');
+  const warm = () => warmDiff(app.client, p.run.run.runId, p.run.run.status === 'running', p.diffAt ?? null);
   const diffToggle = (
     <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff} onPointerEnter={warm} onFocus={warm}>
       {p.showDiff ? 'Hide diff' : 'Show diff'}

@@ -9,7 +9,7 @@ import { useCallback, useSyncExternalStore } from 'react';
  * one at a time across runs, the newest opened, as the mock's Show diff is. A pick of a call gives the
  * inspector back on its own run's page only, never on the run you came from.
  */
-export type Panel = { runId: string; kind: 'diff' } | { runId: string; kind: 'change' } | { runId: string; kind: 'results'; key: string };
+export type Panel = { runId: string; kind: 'diff'; at?: number | null } | { runId: string; kind: 'change' } | { runId: string; kind: 'results'; key: string };
 
 /** The run whose diff or change is open, if any. */
 let diff: Panel | null = null;
@@ -35,10 +35,13 @@ export function usePanel(runId: string): Panel | null {
   return useSyncExternalStore(subscribe, read, read);
 }
 
-/** Opens a run's diff, or the change at its first bad commit (`kind`), in place of its results. Another run's diff or change closes; its results stay. */
-export function openDiff(runId: string, kind: 'diff' | 'change' = 'diff'): void {
+/**
+ * Opens a run's diff, at the call `at` where one is picked (diffCallOf), or the change at its first
+ * bad commit (`kind`), in place of its results. Another run's diff or change closes; its results stay.
+ */
+export function openDiff(runId: string, kind: 'diff' | 'change' = 'diff', at: number | null = null): void {
   results.delete(runId);
-  diff = { runId, kind };
+  diff = kind === 'diff' ? { runId, kind, at } : { runId, kind };
   changed();
 }
 

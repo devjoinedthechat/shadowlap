@@ -6,6 +6,7 @@ import { personName } from '../person.js';
 import type { BlameView, CallRow, CheckView, InjectionMark, RunDetail } from '../types.js';
 import { href } from '../route.js';
 import { countChecks, forkWords, type RunLike, type RunType } from '../runs.js';
+import { isJudge } from '../scopes.js';
 import type { AttemptInput } from './banner.js';
 import { modelCallOf, originOf } from './calls.js';
 
@@ -231,6 +232,18 @@ export const endedEarly = (d: { run: Pick<RunDetail['run'], 'divergence'> }): bo
 export function recordedAt(d: { run: Pick<RunDetail['run'], 'divergence' | 'parentRunId'> }, callNo: number): string | null {
   const v = d.run.divergence;
   return v?.type === 'ended_early' && v.callNo === callNo ? (v.counterpart?.runId ?? d.run.parentRunId) : null;
+}
+
+/**
+ * The call Show diff opens at where it isn't where the run left its recording: the call picked, made
+ * after that one and not served from the recording (made live, answered by an override, failed), so
+ * its request may differ from the recording's call of its number. Null opens it where the run left
+ * the recording, as the server picks it; a replay that ended early made no call after it.
+ */
+export function diffCallOf(d: { run: Pick<RunDetail['run'], 'divergence'> }, row: Pick<CallRow, 'callNo' | 'origin' | 'outcome' | 'scope'> | null): number | null {
+  const v = d.run.divergence;
+  if (!v || v.type === 'ended_early' || !row || row.callNo <= v.callNo || isJudge(row)) return null;
+  return originOf(row) === 'rep' ? null : row.callNo;
 }
 
 /** Where a replay forked or diverged; none for one that ended early, which forked at no call it made (an older server names the recording's). */

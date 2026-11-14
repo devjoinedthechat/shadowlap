@@ -301,3 +301,22 @@ test('a replayed call that ended in an error is drawn failed in Calls, as Runsâ€
   await expect(row.locator('td').first()).toHaveText('5');
   await expect(row.locator('.orgw')).toHaveText('failed');
 });
+
+test('Show diff opens at a call picked that the fork made live, its request against the recordingâ€™s call of its number', async ({ page }) => {
+  const id = demoId('override');
+  await openPage(page, `/run/${id}`, 'run');
+  // The fork's last call it made live, past where it left the recording.
+  const live = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll<HTMLElement>('#vbody table.calls tbody tr[data-call]')].filter((tr) => tr.querySelector('.orgw')?.textContent === 'live');
+    return Number(rows.at(-1)?.getAttribute('data-call'));
+  });
+  expect(live).toBeGreaterThan(0);
+  await page.locator(`#vbody table.calls tbody tr[data-call="${live}"]`).click();
+  await expect(page.locator('#vbody tr[aria-selected="true"]')).toHaveAttribute('data-call', String(live));
+  const asked = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith(`/runs/${id}/diff`) && new URL(r.url()).searchParams.get('call') === String(live));
+  await page.locator('#view [data-act="diff"]').click();
+  await asked;
+  const panel = page.locator('#insp.fpanel');
+  await expect(panel.locator('.fhead .ct')).toHaveText(`Diff at #${live}`);
+  await expect(panel.locator('.diffpanel')).toBeVisible();
+});
