@@ -486,10 +486,10 @@ function replayEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord): Activ
     return { ...item, kind: checks?.failed ? 'fail' : 'clean', text: parts.join(' · ') };
   }
   // A replay that made no calls at all (nothing went through Shadowlap) is not clean, and not a failure either.
-  // "Clean replay" is what its icon says: a replay that made no calls, or was stopped, gets the plain one.
-  if (run.status === 'completed') return { ...item, kind: checks?.failed ? 'fail' : 'rec', text: `Replay finished · no calls${outcome ? ` · ${outcome}` : ''}` };
+  // "Clean replay" is what its icon says: a replay that made no calls, or was stopped, gets a plain replay's, "Replay".
+  if (run.status === 'completed') return { ...item, kind: checks?.failed ? 'fail' : 'replay', text: `Replay finished · no calls${outcome ? ` · ${outcome}` : ''}` };
   const what = run.status === 'crashed' ? 'Replay interrupted' : 'Replay failed';
-  return { ...item, kind: run.status === 'crashed' ? 'rec' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
+  return { ...item, kind: run.status === 'crashed' ? 'replay' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
 }
 
 function imported(store: StoreOf<'recording'>, runs: RunRecord[], at: number): ActivityItem {

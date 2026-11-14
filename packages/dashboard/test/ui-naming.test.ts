@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { RunPicker } from '../ui/compare/RunPicker.js';
 import { EventIcon } from '../ui/components/RunIcon.js';
+import { activityGlyph } from '../ui/overview/model.js';
 import { ResponseDifferences } from '../ui/pages/Compare.js';
 import { matchPalette } from '../ui/palette.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
@@ -428,5 +429,9 @@ describe('an event’s icon', () => {
     expect(html('err')).toContain('class="glyph blame ic err"');
     expect(html('warn')).toContain('aria-label="Blame"');
     expect(renderToStaticMarkup(createElement(EventIcon, { kind: 'fixinc' }))).toContain('aria-label="Fix inconclusive"');
+    // A replay that isn't clean (it made no calls, or was stopped) is a replay on hover and to a screen reader, never "Recorded".
+    const replay = renderToStaticMarkup(createElement(EventIcon, { kind: activityGlyph('replay') }));
+    expect(replay).toContain('aria-label="Replay"');
+    expect(replay).toContain('class="glyph replay ic"');
   });
 });

@@ -4,8 +4,9 @@ import { Icon } from './Icon.js';
 
 /**
  * One set of icons for runs and events, each with the same words beside it or on hover: a pulsing
- * dot (recording now), a ring (recording), a crossed circle (failed), replay, fork, import (capture)
- * and tests, amber where a test was inconclusive (the kind `warn`, as the server sends it); events add
+ * dot (recording now), a ring (recording), a crossed circle (failed), replay (clean, in the replayed
+ * colour, or plain), fork, import (capture) and tests, amber where a test was inconclusive (the kind
+ * `warn`, as the server sends it); events add
  * Fixes (the loop: lime accepted, red rejected, amber inconclusive), a folder (project), sliders
  * (settings) and a target (training). An event's shape says what it was and its colour how it came
  * out (`outcome`): red what failed, amber what couldn't decide, stopped or needs a look.
@@ -17,6 +18,7 @@ export const EVENT_LABEL: Record<GlyphKind, string> = {
   fail: 'Failed',
   warn: 'Inconclusive',
   clean: 'Clean replay',
+  replay: 'Replay',
   fork: 'Fork',
   cap: 'Imported',
   test: 'Test',
@@ -48,6 +50,7 @@ function Mark({ kind }: { kind: GlyphKind }) {
         </svg>
       );
     case 'clean':
+    case 'replay':
       return <Icon name="replay" />;
     case 'fork':
       return <Icon name="fork" />;

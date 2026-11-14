@@ -71,7 +71,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .glyph.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--o-live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--o-live) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; }
 .glyph.live.done i { animation: none; box-shadow: none; }
-.glyph.rec, .glyph.test, .glyph.project, .glyph.setting { color: var(--dim); }
+.glyph.rec, .glyph.replay, .glyph.test, .glyph.project, .glyph.setting { color: var(--dim); }
 /* a clean replay's glyph in the replayed colour; an accepted fix's in passed's lime */
 .glyph.clean { color: var(--o-rep); }
 .glyph.fixok { color: var(--cq-lime); }
