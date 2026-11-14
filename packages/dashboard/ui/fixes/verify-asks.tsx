@@ -4,7 +4,6 @@ import { Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import type { VerifyStep } from '../types.js';
-import { VERIFY_CHANGE_TIP } from './lead.js';
 import { StopAtField, useStopAt } from './stop-at.js';
 
 /**
@@ -71,7 +70,7 @@ export function VerifyChangeAsk({ change, estimate, onRun, onClose }: { change: 
   const stop = useStopAt(null);
   const label = ACTIONS.verifyYourChange.label;
   return (
-    <Dialog title={label} lead={`${VERIFY_CHANGE_TIP}, under the fix’s check.`} doc="verify" command={stop.command(change.command)} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={() => onRun(stop.fields)} onClose={onClose}>
+    <Dialog title={label} lead="Verifies your change, the code as it is now, on the failing runs, the runs held out and the good runs kept, under the fix’s check." doc="verify" command={stop.command(change.command)} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={() => onRun(stop.fields)} onClose={onClose}>
       <StopAtField typed={stop.typed} setTyped={stop.setTyped} />
     </Dialog>
   );
