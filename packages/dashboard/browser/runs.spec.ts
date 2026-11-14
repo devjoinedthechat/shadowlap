@@ -241,3 +241,12 @@ test('Back and Forward take each view of Runs to where it was left, after a scro
   await expect.poll(() => rows.count()).toBeLessThan(every);
   await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(100);
 });
+
+test('a golden’s issue on Runs › Failed opens Tests with its report open, as Needs a look’s golden does', async ({ page }) => {
+  await openPage(page, '/runs?types=failed', 'main#view table.issues tbody tr');
+  const golden = page.locator('main#view table.issues tr.iss .it a', { has: page.locator('code.gn') }).first();
+  const name = (await golden.locator('code.gn').textContent())!;
+  await expect(golden).toHaveAttribute('href', `#/tests?report=${encodeURIComponent(name)}`);
+  await golden.click();
+  await expect(page).toHaveURL(/#\/tests/);
+});
