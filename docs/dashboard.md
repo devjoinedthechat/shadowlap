@@ -1090,7 +1090,7 @@ A revision no session ran every golden at says *No change d2e8a1f.*, with **Open
 
 ### Compare
 
-Compare puts any two runs side by side. Pick them on the row under the tabs, from lists of runs each by its id and its about line.
+Compare puts any two runs side by side. Pick them on the row under the tabs, **Run A** and **Run B**, from lists of runs each by its id and its about line. **Swap** compares them the other way round.
 
 #### The verdict
 
@@ -1298,7 +1298,7 @@ A migration's page (`#/changes/migrate/<id>`) is its report. The picker lists th
 The verdict is in Verdicts' words, or *applied* once applied. Under it come the headline (*claude-sonnet-5-5 keeps the run it verified passing*), the switch (*claude-sonnet-4-5 → claude-sonnet-5-5, 2 runs*) and the retirement, worded as of today. One lime button gives the next step:
 
 - **Apply config change**, where `migrate apply` would take it;
-- **Update goldens**, once applied, while a golden the switch left behind waits;
+- **Update goldens**, once applied, while a golden the switch left behind waits, its dialog asking why as Tests' does;
 - **Copy pull request body**, once none waits.
 
 | Section | What it shows |
@@ -1710,15 +1710,16 @@ Recordings that pytest and Vitest keep in `__recordings__/` run under their own 
 
 ## Training
 
-Training shows:
+Training has two tabs, each with its count:
 
-- **The preference pairs** blame, verify and `--repeat` left in the store, grouped per call: the answer that lost the run beside the ones that went on to pass, where each came from, and how sure it is.
-- **The goldens as tasks**: where a model takes over, what scores it, and whether it can be scored.
-- **Each scored model's mean**, with a pip per attempt that opens its run.
+- **Pairs** (`#/training`): the preference pairs blame, verify and `--repeat` left in the store, grouped per call. Each group shows the answer that lost the run beside the ones that went on to pass, where each came from, and how sure it is.
+- **Tasks** (`#/training/tasks`): the goldens as tasks, with where a model takes over, what scores it, and whether it can be scored. Each scored model's mean has a pip per attempt that opens its run.
+
+On Pairs, the **Confidence** chips (All, High, Medium) filter the groups. Under them, **Where they come from** lists each source with how many pairs it made, or why it made none. **Confidence** says what each level means: *High*, blame asked the call again and the run passed; *Medium*, a passing and a failing attempt first differ there.
 
 Its header's facts count the pairs, the tasks ready of all of them, the best mean score once a model is scored, and the pairs the last export wrote (*Exported*). Each says its makeup on hover.
 
-**Export pairs…** and **Score model…** run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs.
+The header's one button follows the tab: **Export pairs…** on Pairs, which asks the format and the confidence first, and **Score model…** on Tasks. Both run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs.
 
 - **Score model…** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
 - **Score model… is off** while a repair or an applied patch changes the working tree.
@@ -1849,6 +1850,8 @@ A gate's figures, and the odds of an inconclusive verdict, are on [Gates](#gates
 *Gates* (`#/settings/gates`) previews a gate's figures for a golden marked fork, from `GET /api/tests/gate`. Its kind is **fork · gate** or **fork · history**, and `#/settings/gates?gate=baseline` opens it on the second, as a rule under Tests' table does. The address it had as CI's last panel, `#/settings/ci?gate=baseline`, leads there too. You pick each figure: good, bad, risk and max, or drop, risk, window, min and max. Figures that differ from the defaults say what the defaults stand for, with **Reset**.
 
 Its preview says what the gate tells apart, what it takes for a golden on its own, and the odds of each verdict at six pass rates (seven against history), behind **Show odds of each verdict**. It says how often 100 such goldens of an agent that passes 95% of the time turn a CI run red for nothing, as `shadowlap test` plans the session. Figures the config would refuse say so, as *the config refuses it*. Under it, the figures come as the golden's entry in `shadowlap.config.json`, to copy.
+
+Until you change a figure, a line says these are the defaults, what `"gate": {}` stands for, and names the goldens that use them; once you do, **Reset** puts them back. While the server is offline, the preview pauses on the last it worked out.
 
 Under **In CI**, it says what an inconclusive golden does to the step as your workflow has it, with what you changed on the CI tab and haven't written. It has no switch of its own: **Settings → CI** leads to [CI](#ci), where Your workflow sets it.
 
@@ -2434,7 +2437,7 @@ Under the patch, the dialog asks a name for each golden it copies: *The golden f
 
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 
-- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`. Where the last replay of one diverged on a value that changes every run, its dialog leads with **Add normalizer and update**, as Tests' does, with **Update anyway** beside it.
+- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`. Where the last replay of one diverged on a value that changes every run, its dialog leads with **Add normalizer and update**, as Tests' does, with **Update anyway** beside it. Like Tests', it asks [why, optional](#actions-on-tests), and keeps the reason beside each golden.
 - When none does, the drawer ends on **Open goldens in Tests**, where the goldens it copied are.
 - An applied fix whose goldens failed its test holds again once a test session passes every one of them.
 
@@ -3153,7 +3156,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 | `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens for the goldens `update` names |
 | `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
-| `GET /api/ci/workflows?comment=&decisions=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
+| `GET /api/ci/workflows?comment=&decisions=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI and Gates: your workflow for those options |
 | `PUT /api/ci/workflow { options, expect, shown }` | Write file: the workflow those options build, written over the version read |
 | `POST /api/ci/workflow/undo { was }` | Write file's Undo: the file put back as it was, or removed |
 | `GET /api/ci/comment` | Settings → CI: the pull request comment as the Action would post it, from the last session that ran every golden |
@@ -3250,7 +3253,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 - the repository's workflow (`file`), whether it `exists`, the `version` read, and why Write file waits (`problem`);
 - one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the test `session` its line names: CI's, with `ci`, once CI pushed one, else the one the comment's preview reads;
 - for each part, what it needs and a preview of what lands;
-- what Gates sends (`gates`): the config's `suiteRisk`, and the goldens on each kind's defaults (`uses`).
+- what Gates reads (`gates`): the config's `suiteRisk`, and the goldens on each kind's defaults (`uses`).
 
 Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
 
@@ -3455,7 +3458,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, budget?, clean?, writes?, liveReads?, again?, yes? }` | `injection <run\|golden> --json` |
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
 | `migrate-apply { migrationId }` | `migrate apply`: the migration's config change into your working tree, its goldens replayed offline. Refused with `migrate apply`'s own words when it can't go in |
-| `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
+| `normalize-and-test { golden \| runId, path?, yes?, reason? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
 | `pack-test { runId?, golden?, gate?, version?, read?, yes? }` | Pack, then test: with `runId`, any ended run into `golden`; `yes` answers a recording from elsewhere or a live test. Once packed, the test alone |
 | `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
@@ -3469,7 +3472,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `store-set { url, provider }` | `store set --check` |
 | `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
-| `test-update { goldens, normalize? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
+| `test-update { goldens, normalize?, reason? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
 | `verify { fixId, left: true, yes? }` | Verify this run: the failing runs no accepted verdict checked |
 
@@ -3479,6 +3482,7 @@ What some of them do:
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why, and lists them in `live`; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
 - **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead. With `normalize: true`, it is Add normalizer and update for several goldens: it adds each rule in their divergences' `newRules` once, then updates them all. When none of them diverged on a value that changes every run, it is refused (400).
+- **`reason`**, on `test-update` and `normalize-and-test`: why the goldens change, given to each `test --update` as `--reason <why>`, which keeps it beside the golden. It is refused (400) when it isn't text, is longer than the limit, or starts with a dash.
 - **`revert`** reverts only the first bad commit Find breaking commit named for the golden's failure as it stands: any other `rev` is a 400. git gets the stored commit, never the request's, with `-m 1` for a merge. Its job's `git` says what git left: `done`, `untouched` where it refused, or `conflicts`. A test that would run live starts only with `yes`, as `test` does.
 - **Tests' jobs** (`test`, `test-update`, `bisect`, `normalize-and-test`, `revert`) run one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409).
 - **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.

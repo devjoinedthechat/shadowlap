@@ -674,8 +674,17 @@ header's facts show, each with its makeup on hover:
 A verify or `--repeat` pair is shown at the run it replayed, at the call made at the same point of the
 same path: the same user input, tool calls and results before it, whatever the prompt said. When that
 run never got there (the change verified added a step before the call), the group is headed by the
-attempt at its own call, *attempt of* the run it replayed. Every source is listed, the ones that made
-none with why.
+attempt at its own call, *attempt of* the run it replayed.
+
+The **Confidence** chips (All, High, Medium), each with its count, filter the groups. Under them:
+
+- **Where they come from** lists every source with how many pairs it made, or why it made none, and its
+  confidence. A row opens the source.
+- **Confidence** says what each level means. *High:* blame asked this call again, and the run passed,
+  so this answer decided the run. *Medium:* a passing and a failing attempt first differ here, and
+  nothing checked that this answer decided the run.
+
+Identical answers count once.
 
 **Export pairs…** asks for the format (*OpenAI preference fine-tuning* or *prompt, chosen, rejected (TRL)*) and the confidence, and
 shows the file it writes and the command. It then runs `export pairs` into
