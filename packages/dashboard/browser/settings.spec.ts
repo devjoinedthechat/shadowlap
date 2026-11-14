@@ -7,7 +7,7 @@ import { dash, openPage, sideways } from './dashboard.js';
  * Settings and Training on a phone, 390 px: no tab scrolls the page sideways (a table scrolls in a
  * box of its own), the tabs keep one row with the one shown in view, a row's label and line sit
  * over its control, a rule removed comes back from its toast's Undo, the file as it was, and
- * Settings → CI's workflow and a gate's odds, shown, scroll nothing sideways.
+ * Settings → CI's workflow and, on Gates, a gate's odds, shown, scroll nothing sideways.
  */
 
 const TABS = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
@@ -64,15 +64,42 @@ test('a redaction rule removed on a phone comes back from its toast’s Undo, sh
   }
 });
 
-test('Settings → CI on a phone: Write file in Your workflow’s header, and the file and the odds shown scroll nothing sideways', async ({ page }) => {
+test('Settings → CI on a phone: Write file in Your workflow’s header, and the file shown scrolls nothing sideways; on Gates, neither do a gate’s odds', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await openPage(page, '/settings/ci', 'main#view #gates .gsays');
+  await openPage(page, '/settings/ci', 'main#view #alerts .cilist');
   // The demo's repository has no workflow yet: Write file asks to add it.
   await expect(page.locator('#workflow header button', { hasText: 'Write file' })).toBeVisible();
   await page.locator('#workflow .wftog button[aria-controls="wfBox"]').click();
   await expect(page.locator('#wfBox pre.wfcode')).toBeVisible();
   expect(await sideways(page), 'Your workflow shown').toBe(0);
+  // A gate's figures are a tab of their own, the CI tab holding none of them.
+  await expect(page.locator('main#view #gates')).toHaveCount(0);
+  await openPage(page, '/settings/gates', 'main#view #gates .gsays');
   await page.locator('#gates .xbtn').click();
   await expect(page.locator('#gates table.godds')).toBeVisible();
   expect(await sideways(page), 'the odds shown').toBe(0);
+});
+
+test('a link to a gate’s kind opens Gates on it, the one CI’s address had too, and Gates leads to where an inconclusive golden is set', async ({ page }) => {
+  // As a rule under Tests' table links, from a page of the dashboard: history's figures, the address the tab's own once read.
+  const go = (hash: string) => page.evaluate((to) => void (location.hash = to), hash);
+  await openPage(page, '/tests', 'main#view table.gt');
+  await go('#/settings/gates?gate=baseline');
+  await expect(page.locator('#gates select[aria-label="Window"]')).toBeVisible();
+  await expect(page.locator('#gates header .seg button[aria-pressed="true"]')).toHaveText('fork · history');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/settings/gates');
+  await expect(page.locator('main#view nav.stabs a[aria-current="page"]')).toHaveText('Gates');
+  // From when Gates was CI's last panel, with the CI tab shown already: the same tab, on the kind it asks for.
+  await page.locator('#gates header .seg button', { hasText: 'fork · gate' }).click();
+  await expect(page.locator('#gates select[aria-label="Good"]')).toBeVisible();
+  await go('#/settings/ci');
+  await expect(page.locator('#workflow')).toBeVisible();
+  await go('#/settings/ci?gate=baseline');
+  await expect(page.locator('#gates select[aria-label="Window"]')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/settings/gates');
+  // What an inconclusive golden does in CI is Your workflow's to set: Gates says it and leads there.
+  const line = page.locator('#gates .setrow', { hasText: 'An inconclusive golden' });
+  await expect(line.locator('.seg')).toHaveCount(0);
+  await line.getByRole('link', { name: 'Settings → CI' }).click();
+  await expect(page.locator('#workflow [aria-labelledby="inconclusive-name"] button[aria-pressed="true"]')).toHaveText('Fails');
 });

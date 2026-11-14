@@ -117,11 +117,12 @@ describe('Settings’ shell', () => {
     expect(r.one('.ph .eyebrow').textContent).toBe('research-agent · project settings');
     expect(r.one('.ph h1').textContent).toBe('Settings');
     expect(r.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe('How this project records, replays and shares.');
-    // Links, as an address each, never the tabs pattern: seven, the one shown marked as the page.
+    // Links, as an address each, never the tabs pattern: eight, the one shown marked as the page.
     expect(r.all('nav.stabs a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Matching', '#/settings/matching'],
       ['Redaction', '#/settings/redaction'],
       ['CI', '#/settings/ci'],
+      ['Gates', '#/settings/gates'],
       ['Coding agents', '#/settings/agents'],
       ['Tools', '#/settings/tools'],
       ['Project', '#/settings/project'],

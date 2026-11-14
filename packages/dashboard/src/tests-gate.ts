@@ -3,13 +3,13 @@ import { answer, type ReadTable } from './read-registry.js';
 import type { GoldenSource } from './tests.js';
 
 /**
- * Gates on the server: what a gate's figures would do before they are saved, as Settings → CI's
- * Gates previews them (`GET /api/tests/gate`). Its answer is a function of its query alone, worked
+ * Gates on the server: what a gate's figures would do before they are saved, as Settings → Gates
+ * previews them (`GET /api/tests/gate`). Its answer is a function of its query alone, worked
  * out beside the server (`GATE_READS`): CI's figure plans a session, half a second for a gate
  * against history the first time its figures are seen.
  */
 
-/** What a gate would do, before it is saved: Settings → CI's preview of the gate's figures. */
+/** What a gate would do, before it is saved: Settings → Gates' preview of the gate's figures. */
 export interface GatePreview {
   gate: Gate;
   /** The gate's rule: `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. */
@@ -48,7 +48,7 @@ export interface GatePreview {
   defaults: { sprt: Omit<Gate & { kind: 'sprt' }, 'kind'>; baseline: Omit<Gate & { kind: 'baseline' }, 'kind'>; blame: Omit<Gate & { kind: 'sprt' }, 'kind'> };
 }
 
-/** What Settings → CI's Gates needs of the project: the suite's risk its CI figure splits, and each kind's goldens on the defaults. */
+/** What Settings → Gates needs of the project: the suite's risk its CI figure splits, and each kind's goldens on the defaults. */
 export interface CiGates {
   /** The config's `tests.suiteRisk`, else 5%: what the preview's `suiteRisk` sends. */
   suiteRisk: number;

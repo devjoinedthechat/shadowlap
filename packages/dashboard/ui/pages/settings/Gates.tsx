@@ -7,23 +7,32 @@ import { tipCard } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { Section } from '../../components/Section.js';
 import { SegmentedControl } from '../../components/Segmented.js';
+import { addressNow } from '../../dom.js';
 import { href } from '../../route.js';
 import { navigate } from '../../router.js';
-import type { CiWorkflowOptions, CiWorkflowsView, GatePreview } from '../../types.js';
+import type { CiWorkflowsView, GatePreview } from '../../types.js';
 import { useApp } from '../../state.js';
 import { Select } from './CiList.js';
+import { keptFor } from './ci-kept.js';
+import { useCiWorkflows } from './ci-read.js';
+import { ConfigProblem, LoadProblem, Loading } from './common.js';
+import { InconclusiveLine } from './inconclusive.js';
+import { ciShown } from './logic.js';
+import { gateLink, type GateKind } from './tabs.js';
 
 /**
- * Gates, the CI tab's last panel: try a gate's figures and copy the golden's entry. Each change
- * asks `GET /api/tests/gate` again (the server works out every figure, from the engine's own
- * rules): what the gate tells apart, what each extreme takes, the odds of each verdict, and how
- * often a CI run of 100 such goldens goes red for nothing, the session planned as `shadowlap test`
- * plans it at the config's suite risk. The page works out only which figures differ from the
- * defaults the answer names. Under `in CI`, what an inconclusive golden does in Your workflow.
- * `#/settings/ci?gate=<kind>` (a rule under Tests' table) opens it on that kind.
+ * Gates (`#/settings/gates`), a tab of its own: try a gate's figures and copy the golden's entry.
+ * Each change asks `GET /api/tests/gate` again (the server works out every figure, from the
+ * engine's own rules): what the gate tells apart, what each extreme takes, the odds of each
+ * verdict, and how often a CI run of 100 such goldens goes red for nothing, the session planned as
+ * `shadowlap test` plans it at the config's suite risk. The page works out only which figures
+ * differ from the defaults the answer names. Under `in CI`, what an inconclusive golden does in
+ * Your workflow, which the CI tab sets: its changes there, written or not, are read here too
+ * (ci-kept.ts), so the CI figure is the one the workflow as it stands would give.
+ * `#/settings/gates?gate=<kind>` (a rule under Tests' table) opens it on that kind.
  */
 
-type Kind = 'sprt' | 'baseline';
+type Kind = GateKind;
 type Figure = 'good' | 'bad' | 'risk' | 'max' | 'drop' | 'window' | 'min';
 
 const pct = (x: number) => `${+(x * 100).toFixed(1)}%`;
@@ -51,20 +60,6 @@ const KINDS = [
   { key: 'baseline' as const, label: 'fork · history' },
 ];
 
-/** What an inconclusive golden does in CI, as the action's `inconclusive` input takes it; Fails writes no input, so the step does as `shadowlap test` does. */
-const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
-  fail: <>Fails the step, as a failed one does, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them. Run more attempts can settle it.</>,
-  warn: (
-    <>
-      Lets the step pass with a warning: <code>inconclusive: warn</code>. Every report still says inconclusive.
-    </>
-  ),
-};
-const INCONCLUSIVE_TOAST: Record<'fail' | 'warn', string> = {
-  fail: 'An inconclusive golden fails the step, the default · a gate against fewer than 30 sessions only warns',
-  warn: 'An inconclusive golden warns · Your workflow says inconclusive: warn',
-};
-
 /** What was tried, kept while the dashboard is open: the kind, and each kind's figures that were changed. */
 const tried: { kind: Kind; figures: Record<Kind, Partial<Record<Figure, number>>> } = { kind: 'sprt', figures: { sprt: {}, baseline: {} } };
 
@@ -84,10 +79,10 @@ function useGateLink(open: (kind: Kind) => void): void {
   done.current = open;
   useEffect(() => {
     const read = () => {
-      const m = /^#\/settings\/ci\?(?:.*&)?gate=(sprt|baseline)(?:&|$)/.exec(location.hash);
-      if (!m) return;
-      navigate(href.settings('ci'), true);
-      done.current(m[1] as Kind);
+      const kind = gateLink(addressNow());
+      if (!kind) return;
+      navigate(href.settings('gates'), true);
+      done.current(kind);
     };
     read();
     window.addEventListener('hashchange', read);
@@ -95,23 +90,40 @@ function useGateLink(open: (kind: Kind) => void): void {
   }, []);
 }
 
-export function Gates({ view, o, set }: { view: CiWorkflowsView; o: CiWorkflowOptions; set: (patch: Partial<CiWorkflowOptions>) => void }) {
-  const { client, conn, toast } = useApp();
+/** The tab: Gates for the project shown, read again in another. */
+export function GatesTab() {
+  const project = useApp().meta?.project?.id ?? null;
+  return <GatesOf key={project ?? ''} project={project} />;
+}
+
+/** Gates for one project: what its workflow and its config say of gates, then the figures to try. */
+function GatesOf({ project }: { project: string | null }) {
+  // What the CI tab's switches were changed to and not yet written: an inconclusive golden's among them.
+  const kept = keptFor(project);
+  const { view, error, reload } = useCiWorkflows(kept);
+  if (!view) return error ? <LoadProblem error={error} retry={reload} /> : <Loading title="Gates" />;
+  return (
+    <>
+      {view.configError ? <ConfigProblem error={view.configError} /> : null}
+      <Gates view={view} inc={ciShown(kept, view).inconclusive ?? 'fail'} />
+      {error ? <p className="fieldnote err">{error.message}</p> : null}
+    </>
+  );
+}
+
+function Gates({ view, inc }: { view: CiWorkflowsView; inc: 'fail' | 'warn' }) {
+  const { client, conn } = useApp();
   const [kind, setKind] = useState<Kind>(tried.kind);
   const [figures, setFigures] = useState<Partial<Record<Figure, number>>>(() => ({ ...tried.figures[tried.kind] }));
   const [answer, setAnswer] = useState<{ preview: GatePreview | null; refused: string | null; error: string | null }>({ preview: null, refused: null, error: null });
   const [odds, setOdds] = useState(false);
-  const [scroll, setScroll] = useState(false);
   const off = conn === 'offline';
   const pick = (k: Kind) => {
     tried.kind = k;
     setKind(k);
     setFigures({ ...tried.figures[k] });
   };
-  useGateLink((k) => {
-    pick(k);
-    setScroll(true);
-  });
+  useGateLink(pick);
   const query = new URLSearchParams([...(kind === 'baseline' ? [['baseline', 'history']] : []), ...Object.entries(figures).map(([k, v]) => [k, String(v)]), ['suiteRisk', String(view.gates.suiteRisk)]]).toString();
   useEffect(() => {
     const stop = new AbortController();
@@ -125,13 +137,6 @@ export function Gates({ view, o, set }: { view: CiWorkflowsView; o: CiWorkflowOp
     );
     return () => stop.abort();
   }, [client, query]);
-  // A link's kind scrolls Gates into view once its preview is drawn.
-  useEffect(() => {
-    if (scroll && answer.preview) {
-      document.querySelector('#gates')?.scrollIntoView({ block: 'start' });
-      setScroll(false);
-    }
-  }, [scroll, answer.preview]);
   const p = answer.preview && answer.preview.gate.kind === kind ? answer.preview : null;
   const defaults = (p?.defaults[kind] ?? answer.preview?.defaults[kind] ?? {}) as Record<string, number>;
   const shown = (k: Figure): number | undefined => figures[k] ?? (p?.gate as Record<string, number> | undefined)?.[k] ?? defaults[k];
@@ -144,7 +149,6 @@ export function Gates({ view, o, set }: { view: CiWorkflowsView; o: CiWorkflowOp
   const changed = FIGURES[kind].some((f) => shown(f.k) !== defaults[f.k]);
   const stands = kind === 'sprt' ? '"gate": {}' : '"gate": { "baseline": "history" }';
   const uses = view.gates.uses[kind];
-  const inc = o.inconclusive ?? 'fail';
   return (
     <Section
       className="set cip gatep"
@@ -184,28 +188,7 @@ export function Gates({ view, o, set }: { view: CiWorkflowsView; o: CiWorkflowOp
             </Copy>
           )}
           <span className="k cineeds">in CI</span>
-          <div className="setrow tight">
-            <div>
-              <b id="inconclusive-name">An inconclusive golden</b>
-              <Copy as="span" id="inconclusive-help">
-                {INCONCLUSIVE_WORDS[inc]}
-              </Copy>
-            </div>
-            <SegmentedControl
-              items={[
-                { key: 'fail' as const, label: 'Fails' },
-                { key: 'warn' as const, label: 'Warns' },
-              ]}
-              value={inc}
-              labelledBy="inconclusive-name"
-              describedBy="inconclusive-help"
-              onChange={(k) => {
-                if (k === inc) return;
-                set({ inconclusive: k });
-                toast(INCONCLUSIVE_TOAST[k]);
-              }}
-            />
-          </div>
+          <InconclusiveLine inc={inc} />
         </div>
         {answer.refused ? (
           <div className="pbody teamside gprev">

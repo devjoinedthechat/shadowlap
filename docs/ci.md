@@ -1092,13 +1092,13 @@ They need:
 - its injection gate fails;
 - a gate, a judge or an injection test can't decide (inconclusive), unless the step says `inconclusive: warn`.
 
-With `inconclusive` left out, a gate against history whose golden has fewer than 30 sessions only warns, until the plan reads a decline or a drop in its sessions. Settings → CI's **An inconclusive golden**, under Gates, writes `inconclusive: warn` for **Warns**, and leaves the input out for **Fails**.
+With `inconclusive` left out, a gate against history whose golden has fewer than 30 sessions only warns, until the plan reads a decline or a drop in its sessions. Settings → CI's **An inconclusive golden**, under Your workflow, writes `inconclusive: warn` for **Warns**, and leaves the input out for **Fails**.
 
 **A config that can't be read.** While `shadowlap.config.json` can't be read, Settings → CI says so. Each step says in its `env` what it leaves out until the file is fixed: which goldens run live and their keys, and whether Fix on failure pushes.
 
 ## One job for all of it
 
-Fix on failure, Alerts and the team store's push are inputs and steps around one run of the goldens, so they go in one job: the action runs once, with `id: goldens`, and the steps you turned on follow it. The dashboard's Settings → CI writes the whole file from its switches: **Pull request comment**, **Fix on failure** and **Alerts**, with Gates' **An inconclusive golden**. The push follows Push from CI. Its **Write file** patches your repository's file in place, and changes only the lines those switches own.
+Fix on failure, Alerts and the team store's push are inputs and steps around one run of the goldens, so they go in one job: the action runs once, with `id: goldens`, and the steps you turned on follow it. The dashboard's Settings → CI writes the whole file from its switches: **Pull request comment**, **Fix on failure** and **Alerts**, with Your workflow's **An inconclusive golden**. The push follows Push from CI. Its **Write file** patches your repository's file in place, and changes only the lines those switches own.
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write, actions: write, id-token: write }

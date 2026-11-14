@@ -218,7 +218,7 @@ describe('Tests’ Last result', () => {
     }
   });
 
-  it('opens Settings → CI’s Gates on each rule’s own kind from its link, saying so on its card', async () => {
+  it('opens Settings → Gates on each rule’s own kind from its link, saying so on its card', async () => {
     const g = globalThis as { location?: unknown };
     g.location = { hash: '#/tests' };
     const history = { kind: 'baseline' as const, drop: 0.15, risk: 0.05, window: 10, min: 3, max: 40 };
@@ -240,10 +240,10 @@ describe('Tests’ Last result', () => {
       const ruleOf = (name: string) => v.rows.find((x) => x.name === name)!.last.gate!.rule!;
       const links = r.all('.gfoot p:not(.hkey) a.dlink');
       expect(links.map((a) => [a.textContent.replace(/\u00a0/g, ' '), a.getAttribute('href')])).toEqual([
-        [RULE, '#/settings/ci?gate=sprt'],
-        [ruleOf('drops').replace(/\u00a0/g, ' '), '#/settings/ci?gate=baseline'],
+        [RULE, '#/settings/gates?gate=sprt'],
+        [ruleOf('drops').replace(/\u00a0/g, ' '), '#/settings/gates?gate=baseline'],
       ]);
-      expect(links.map(tip)).toEqual([0, 1].map(() => ({ t: 'What this gate takes', s: 'its figures, the attempts they take and the odds of each verdict, on Settings → CI', rows: [] })));
+      expect(links.map(tip)).toEqual([0, 1].map(() => ({ t: 'What this gate takes', s: 'its figures, the attempts they take and the odds of each verdict, on Settings → Gates', rows: [] })));
     } finally {
       delete g.location;
     }
