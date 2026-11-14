@@ -472,6 +472,8 @@ describe('the drawers’ ways on', () => {
     r = await render(ended([userId]));
     await r.wait(0);
     await r.click(r.byText('button', 'Update goldens'));
+    // Its dialog is a part of its own, which loads the first time it is asked for.
+    await r.until('Update goldens’ dialog', () => r!.all('[role="dialog"]').length === 1);
     // The normalizer and the update in one job, lime; Update anyway plain, re-recording a value that diverges again.
     expect(footer()).toEqual([['Cancel', false], ['Update anyway', false], ['Add normalizer and update', true]]);
     expect(text(r.one('.advise p'))).toBe('refund-in-limit diverged on a value that is new every run. Add normalizer and update masks it first.');

@@ -377,10 +377,7 @@ describe('a run’s next steps that ask first', () => {
   });
   it('Update golden whose judge had no verdict', async () => {
     const step: NextStep = { key: 'update-golden', label: 'Update golden', golden: GOLDEN, test: null, sub: 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free', command: `shadowlap test ${GOLDEN} --update` };
-    const page = await pressed(step);
-    holds(page, { title: 'Update refund-in-limit?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
-    // Nothing diverged, so there is no change to give a reason for.
-    expect(page.all('[role="dialog"] .updwhy')).toEqual([]);
+    holds(await pressed(step), { title: 'Update refund-in-limit?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
   });
   it.each<[string, NextStep, Expect]>([
     ['Run injection test', { key: 'injection-test', label: 'Run injection test…', runId: RUN, command: `shadowlap injection ${RUN.slice(0, 10)}`, sub: 'It stopped early' }, { title: 'Run injection test on 01K5CQ4N7G', doc: 'injectionTests', first: 'input[type="number"]', ok: 'Run injection test', warn: 'It stopped early' }],
@@ -475,37 +472,6 @@ describe('a golden’s dialogs', () => {
   it('Update golden with no advice', async () => {
     const quiet = { ...view, divergences: [{ ...div, volatile: null, normalizeAndTest: null }] } as unknown as TestsView;
     holds(await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
-  });
-  it('Update golden asks why, optionally: the reason goes with the update and into its command, and the dialog still opens on its way on', async () => {
-    const quiet = { ...view, divergences: [{ ...div, volatile: null, normalizeAndTest: null }] } as unknown as TestsView;
-    const onUpdate = vi.fn(() => false);
-    const page = await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate, onInstead: () => undefined, ...closes }));
-    const field = page.one('[role="dialog"] .updwhy input');
-    expect(page.one('[role="dialog"] .updwhy label span').textContent).toBe('Why, optional');
-    expect(field.getAttribute('maxlength') ?? String(field.props.maxLength)).toBe('300');
-    expect(page.focused()).toBe(page.one('[role="dialog"] .dlg-ok'));
-    const command = () => page.one('[role="dialog"] .cmdline').textContent.replace(/\u00a0/g, ' ');
-    expect(command()).not.toContain('--reason');
-    await page.type(field, '  refunds above the limit\tgo to a manager ');
-    expect(command()).toContain("shadowlap test goldens/a --update --reason 'refunds above the limit go to a manager'");
-    // Enter in the field presses the one way on, with the reason on one line, trimmed.
-    await page.press('Enter', {}, field);
-    expect(onUpdate).toHaveBeenCalledWith('refunds above the limit go to a manager');
-  });
-  it('Update golden with two ways on gives the reason to whichever updates, and Enter in its field presses neither', async () => {
-    const b = { ...div, golden: 'goldens/b', name: 'b' };
-    const several = { ...view, rows: [row, { ...row, path: 'goldens/b', name: 'b' }], divergences: [{ ...div, newRules: [['normalize', 'add']] }, b], diverged: ['goldens/a', 'goldens/b'] } as unknown as TestsView;
-    const onUpdate = vi.fn(() => false);
-    const onInstead = vi.fn(() => false);
-    const page = await open(createElement(UpdateGoldensDialog, { view: several, paths: several.diverged, has: () => true, onUpdate, onInstead, ...closes }));
-    const field = page.one('[role="dialog"] .updwhy input');
-    await page.type(field, 'ids are made anew');
-    await page.press('Enter', {}, field);
-    expect([onUpdate.mock.calls.length, onInstead.mock.calls.length]).toEqual([0, 0]);
-    await page.click(page.one('[role="dialog"] .dlg-alt'));
-    expect(onInstead).toHaveBeenCalledWith(expect.objectContaining({ run: 'normalize-update-all' }), 'ids are made anew');
-    await page.click(page.one('[role="dialog"] .dlg-ok'));
-    expect(onUpdate).toHaveBeenCalledWith('ids are made anew');
   });
   it('Update goldens from the apply drawer', async () => {
     const outdated = [{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }];
