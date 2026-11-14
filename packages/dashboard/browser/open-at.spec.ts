@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, patched } from './dashboard.js';
+import { receiptDuration } from '../ui/format.js';
+import { dash, demoId, openPage, patched, RESET_RETRY } from './dashboard.js';
 
 /**
  * A long run opens on the call its address names, and keeps it in view while the rest of its pages
@@ -67,4 +68,22 @@ test('a replay that ended early opens where it stopped, and its finding names th
   await expect(finding.locator('.bk')).toHaveText('ended early at');
   await expect(finding.locator('a.bn')).toHaveAttribute('href', `#/run/${recording}/11`);
   await expect(page.locator('main#view table.calls .fk')).toHaveCount(0);
+});
+
+test('a long fork’s header says the time not waited of the whole run once every page is read, never its first calls’ as the run’s', async ({ page, request }) => {
+  const id = dash().runs.batchFork as string;
+  const { origin, token } = dash();
+  // Every replayed call's recorded duration, as each page of its calls says it with every fact.
+  let sum = 0;
+  for (let from: number | null = 1; from !== null; ) {
+    const res = await request.get(`${origin}/api/runs/${id}/calls?from=${from}&limit=500&whole=1`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY });
+    const p = (await res.json()) as { calls: Array<{ origin: string; recordedMs?: number | null }>; callsNext: number | null };
+    for (const c of p.calls) if (c.origin === 'replayed' && typeof c.recordedMs === 'number') sum += c.recordedMs;
+    from = p.callsNext;
+  }
+  expect(sum).toBeGreaterThan(0);
+  await openPage(page, `/run/${id}`, 'main#view table.calls tbody tr[data-wi]');
+  await everyPageRead(page);
+  const waited = page.locator('main#view .rhead .metrics .metric', { hasText: 'not waited' });
+  await expect(waited.locator('b')).toHaveText(receiptDuration(sum));
 });
