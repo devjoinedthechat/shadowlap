@@ -2567,8 +2567,10 @@ While the dashboard server can't be reached, Remove waits. A [read-only](#read-o
 
 - **The commit**: its subject, then who made it where names show, and when.
 - **Untested**, in amber, for the commits just before it that couldn't be tested: the first bad commit may be among them.
+- **Files**: every file the commit changed, which git reverts, and under them, among several, whose change the box shows. Bisect keeps a commit's first 50 files, and with 50 the row says they are the first.
 - **Then**: *`refund-flow` is tested*, by the golden's name. A golden that runs live adds the rows **Run tests** asks with: **Runs live** for one marked `fork`, **Asks** for its judges and their model, and **Plants** for an injection gate.
 - **The change reversed**, where the answer kept it, and the command it runs. A warning says how many of the commit's files are outside the project, as git reverts those too.
+- **A change cut short**: where bisect kept only its first lines, a line under the box says so and gives the command that shows it whole, `git diff 9a3c5e0^1 9a3c5e0 -- agent/refund.py`.
 - **Its Cost line**: *Free · replays offline*, or what the test bills where the golden runs live, as Re-run test is priced.
 
 git runs first, with no shell, on the commit the store holds for the golden's answer, never one the request names. A merge is reverted against its first parent (`-m 1`). A test that runs live asks as **Run tests** does, and the dialog's **Revert** answers for it. The test is passed no `--yes`, so a golden from a pack your repository doesn't track isn't run, and fails saying why, as [A golden recorded elsewhere](#commands-from-someone-else) says.

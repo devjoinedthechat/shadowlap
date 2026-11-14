@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { UNTESTED_WORDS } from '../../engine/src/bisect-words.js';
 import { editorOpened, editorSub, editorTarget } from '../ui/revert/editor.js';
-import { changeLines, gitRevertCommand, outsideWords, revertedLines } from '../ui/revert/model.js';
+import { changeLines, cutWords, gitRevertCommand, outsideWords, revertedLines, revertFiles } from '../ui/revert/model.js';
 import { runFindings } from '../ui/run/findings.js';
 import { stepCard, stepJob } from '../ui/run/next-step.js';
 import type { FoundCommit, NextStep } from '../ui/types.js';
@@ -48,6 +48,21 @@ describe('the first bad commit’s change', () => {
     expect(outsideWords(1)).toBe('1 of the commit’s files is outside this project, and git reverts it too');
     expect(outsideWords(3)).toBe('3 of the commit’s files are outside this project, and git reverts them too');
     expect(UNTESTED_WORDS.line(['aaaaaaa', 'bbbbbbb'])).toBe('or one just before it, which could not be tested: aaaaaaa, bbbbbbb');
+  });
+
+  it('names every file the revert undoes, whose change it shows among several, and the first 50 as the first where bisect kept no more', () => {
+    expect(revertFiles(CHANGE)).toEqual({ value: '`agent/refund.py`', quiet: null });
+    const three = { ...CHANGE, files: ['agent/refund.py', 'agent/policy.py', 'docs/refunds.md'] };
+    expect(revertFiles(three)).toEqual({ value: '`agent/refund.py`, `agent/policy.py` and `docs/refunds.md`', quiet: 'the change below is `agent/refund.py`’s' });
+    // A binary or deleted file has no change to show.
+    expect(revertFiles({ ...three, hunk: null })).toEqual({ value: '`agent/refund.py`, `agent/policy.py` and `docs/refunds.md`', quiet: null });
+    // Bisect keeps a commit's first 50 files (cli bisect-change.ts MAX_FILES).
+    const many = { ...CHANGE, files: Array.from({ length: 50 }, (_, i) => (i ? `src/f${i}.py` : 'agent/refund.py')) };
+    expect(revertFiles(many).quiet).toBe('the change below is `agent/refund.py`’s · the first 50 git names: it reverts every file the commit changed');
+  });
+
+  it('says where the change it shows was cut short, and how to see it whole, against the first parent as bisect diffed it', () => {
+    expect(cutWords('ccccccc', 'agent/refund.py')).toBe('Its first lines only: `git diff ccccccc^1 ccccccc -- agent/refund.py` shows the whole change.');
   });
 });
 

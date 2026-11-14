@@ -155,13 +155,17 @@ describe('Revert', () => {
     expect(page.one('.dialog header p > span:not([hidden])').textContent.replace(/\u00a0/g, ' ')).toBe('Undoes the commit in your working tree, uncommitted, for you to review.');
     expect(page.one('.dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('1 of the commit’s files is outside this project, and git reverts it too');
     const facts = page.all('.dfacts > div').map((d) => ({ label: d.querySelector('dt')!.textContent, value: d.querySelector('dd')!.textContent.replace(/\u00a0/g, ' '), tone: d.getAttribute('class') }));
-    expect(facts.map((f) => f.label)).toEqual(['Commit', 'Untested', 'Then']);
+    expect(facts.map((f) => f.label)).toEqual(['Commit', 'Untested', 'Files', 'Then']);
     expect(facts[0].value).toContain('Log the total');
     expect(facts[0].value).toContain(shortDate(FOUND.date));
     expect(facts[1]).toMatchObject({ tone: 'amber' });
     expect(facts[1].value).toContain('bbbbbbb');
     expect(facts[1].value).toContain(UNTESTED_WORDS.row);
-    expect(facts[2].value).toBe('refund is tested');
+    // Every file the revert undoes, the one outside the project too, and whose change the box shows.
+    expect(facts[2].value).toBe('agent/refund.py and ../shared/log.pythe change below is agent/refund.py’s');
+    expect(facts[3].value).toBe('refund is tested');
+    // Kept whole by bisect: no word that it was cut.
+    expect(page.all('.dialog .fieldnote')).toHaveLength(0);
     // The change undone, in a code box: what the commit added taken out, what it removed put back.
     expect(page.all('pre.codebox.fxpatch span.add').map((s) => s.textContent.trim())).toEqual(['+     log(total)']);
     expect(page.all('pre.codebox.fxpatch span.del').map((s) => s.textContent.trim())).toEqual(['−     log(order["total"])']);
@@ -175,6 +179,12 @@ describe('Revert', () => {
     expect(started).toEqual([['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, estimate: { usd: 0, ceiling: false } }]]);
   });
 
+  it('says under the change it shows where bisect kept only its start, and how to see it whole', async () => {
+    const cut: FoundCommit = { ...FOUND, change: { ...CHANGE, cut: true } };
+    page = await render(within(app().a, createElement(RevertDialog, { step: STEP, found: cut, estimate: FREE, runId: REC, onClose: () => undefined })));
+    expect(page.one('.dialog .fieldnote').textContent.replace(/\u00a0/g, ' ')).toBe('Its first lines only: git diff ccccccc^1 ccccccc -- agent/refund.py shows the whole change.');
+  });
+
   it('says why a golden’s test runs live, as the server’s question does, that the provider bills it, and answers that question with the yes it asked', async () => {
     const started: Array<[string, Record<string, unknown>]> = [];
     const startJob = (kind: string, fields: Record<string, unknown>) => {
@@ -185,7 +195,7 @@ describe('Revert', () => {
     page = await render(dialog(app({}, { startJob: startJob as never }).a, { ...STEP, live } as typeof STEP, { kind: 'tests', usd: null, ceiling: false, parts: ['live from there, writes blocked'] }));
     // The rows Run tests asks with, under the test: what runs live, its judges' model, and what it plants.
     const facts = page.all('.dfacts > div').map((d) => [d.querySelector('dt')!.textContent, d.querySelector('dd')!.textContent.replace(/\u00a0/g, ' ')]);
-    expect(facts.slice(2)).toEqual([
+    expect(facts.slice(3)).toEqual([
       ['Then', 'refund is tested'],
       ['Runs live', '1 golden marked forkfrom where it forks, writes blocked'],
       ['Asks', 'its judges liveclaude-haiku-4-5'],
