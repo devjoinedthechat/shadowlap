@@ -42,6 +42,8 @@ export function register(program: Command): void {
       const opts = program.opts<GlobalOpts>();
       const checks = runDoctor({ version: VERSION, ...(opts.db ? { dbPath: opts.db } : {}) });
       process.stdout.write((flags.json ? JSON.stringify(checks, null, 2) : formatDoctor(checks, p)) + '\n');
+      // A dashboard job hears the checks, as --json prints them: Settings → Project lists them.
+      emitJobEvent({ type: 'result', data: { checks } });
       process.exitCode = checks.some((c) => c.verdict === 'fail') ? EXIT.failed : EXIT.ok;
     });
 
