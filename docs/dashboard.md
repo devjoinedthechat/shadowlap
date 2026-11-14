@@ -178,14 +178,15 @@ The header says the week in four facts, the first three each a link: *4 failures
 | Fact | What it counts | Its hover adds |
 | --- | --- | --- |
 | **Failures reproduced** | Failures blame replayed exactly before it probed | How many fixes are still open |
-| **Fixes verified** | Fixes verified, in lime once there is one | Changes rejected before they shipped, and the attempts behind the fixes |
+| **Fixes verified** | Fixes verified, in lime once there is one | Changes rejected before they shipped, the attempts behind the fixes, and the fixes funnel |
 | **Goldens passing** | The goldens on disk that pass, each of the others by its newest result | Regressions caught, inconclusive, not run yet, and when they last ran |
-| **Spent live** | What was spent live | What replaying saved: not re-spent, and time not waited |
+| **Spent live** | What was spent live | What the week's attempts spent of it, and what replaying saved: not re-spent, and time not waited |
 
 - **Failures reproduced**: a failure is a fix, however many of its runs were blamed, as the fixes funnel counts it.
 - **Goldens passing** counts each golden as Tests shows it. Without goldens it reads *0 goldens yet* and opens Tests.
 - **Spent live** counts what previews and migrations spent asking and judging, and what a repairer answered, on the day each was spent. With a [team store](./team.md), what teammates' pulled runs spent counts too, as the team's. A pack you unpacked and a capture don't count: that traffic was paid for where it ran.
-- **Watch live** sits beside the facts while a run records. Its hover names the recording by its id and what it is about.
+- **The fixes funnel**: how far every failure got, as Fixes counts them (*of 12 failures, 9 blamed, 5 verified, 3 applied*), then the fixes ready to apply and those applied that don't hold.
+- **Watch live** sits beside the facts for each run recording, up to three, newest first. Its hover names the recording by its id and what it is about. Past three, *2 more recording* opens Runs on every run that is recording.
 
 ### Needs a look
 
@@ -276,8 +277,8 @@ Who did it is the run's author, worked out when the run was made: `SHADOWLAP_AUT
 
 | Part | Shows |
 | --- | --- |
-| **Calls by origin** | The week's calls by origin |
-| **Prompt cache** | Where the prompt cache stopped hitting, by the [Context view](#context-view)'s rule: the four largest misses, with the tokens sent again |
+| **Calls by origin** | The week's calls by origin, then last week's calls and the share replayed |
+| **Prompt cache** | Where the prompt cache stopped hitting, by the [Context view](#context-view)'s rule: the four largest misses of how many, with the tokens sent again |
 | **Spend per day** | What was spent live and not re-spent each day, as a chart or a table |
 
 Under them, today's receipt says how many calls were served from recordings today, and what they didn't re-spend.

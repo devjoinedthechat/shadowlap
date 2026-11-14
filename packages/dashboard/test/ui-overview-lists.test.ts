@@ -34,8 +34,8 @@ afterEach(async () => {
 
 describe('the Overview’s Usage', () => {
   const summary = {
-    sums: { week: { calls: 2785, runs: 28, origins: { r: 1030, l: 1755 } } },
-    cache: { readShare: 0.87, input: 1000, cacheRead: 870, misses: [], sentAgain: 0 },
+    sums: { week: { calls: 2785, runs: 28, origins: { r: 1030, l: 1755 } }, lastWeek: { calls: 980, runs: 20, origins: { r: 470, l: 510 } } },
+    cache: { readShare: 0.87, input: 1000, cacheRead: 870, misses: [], sentAgain: 0, missCount: 0 },
     outcomes: { spent: { value: 16.24 } },
     daily: [
       { day: '2026-10-13', start: 0, spent: 1, notRespent: 0.5 },
@@ -57,6 +57,8 @@ describe('the Overview’s Usage', () => {
     expect(r.all('.ugrid')).toHaveLength(0);
     await r.click(show);
     expect(r.all('.ugrid .upart h3').map(text)).toEqual(['Calls by origin', 'Prompt cache', 'Spend per day']);
+    // Last week's calls under this week's.
+    expect(text(r.one('.ugrid .upart .ulast'))).toBe('last week 980 calls, 48% replayed');
     expect(r.all('.ovuse .linkbtn')[0].getAttribute('aria-expanded')).toBe('true');
     expect(text(r.all('.ovuse > .leaknote')[0])).toBe('Today 1,034 calls were served from recordings: $1.72 not re-spent.');
     expect(kept.get('shadowlap-overview-usage')).toBe('open');
@@ -75,7 +77,8 @@ describe('the Overview’s Usage', () => {
       { runId: '01M5GRZNA5QJ8V2W3X4Y5Z6A7B', kind: 'recording', callNo: 17, scope: 'triage', model: 'sonnet-5', tokens: 8200 },
       { runId: '01M5GS3KT0QJ8V2W3X4Y5Z6A7B', kind: 'fork', callNo: 4, scope: null, model: 'sonnet-5', tokens: 3100 },
     ];
-    const s = { ...summary, cache: { ...summary.cache, misses, sentAgain: 11300 } } as unknown as OverviewSummary;
+    // Two of the twelve misses this week, the largest.
+    const s = { ...summary, cache: { ...summary.cache, misses, sentAgain: 11300, missCount: 12 } } as unknown as OverviewSummary;
     const runs = [{ runId: misses[0].runId, about: { text: 'My blender arrived broken' } }];
     r = await render(createElement(AppContext.Provider, { value: { ...app(), runs } as unknown as AppState }, createElement(Usage, { s })));
     const rows = r.all('.leaks > a');
@@ -85,6 +88,7 @@ describe('the Overview’s Usage', () => {
       ['01M5GS3KT0', null, 'sonnet-5 · 3,100 tokens sent again', '#4'],
     ]);
     expect(rows.map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5GRZNA5QJ8V2W3X4Y5Z6A7B/17/context', '#/run/01M5GS3KT0QJ8V2W3X4Y5Z6A7B/4/context']);
+    expect(text(r.one('.leakh span'))).toBe('Where it stopped hitting, the 2 largest of 12');
   });
 });
 

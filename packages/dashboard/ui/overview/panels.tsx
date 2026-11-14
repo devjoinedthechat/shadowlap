@@ -9,7 +9,7 @@ import { clock, plural, shortId, whenShort } from '../format.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import type { ActivityItem, LiveRun } from '../types.js';
+import type { ActivityItem, LiveRun, OverviewSummary } from '../types.js';
 import { activityGlyph, activityKeep, activityLine, keepPieces, personName, shortPaths } from './model.js';
 import { DotPieces, useAbouts } from './words.js';
 
@@ -27,6 +27,29 @@ export function WatchLive({ runId, about, calls }: { runId: string; about: strin
       <span className="lt">Watch live</span>
       <span className="lc">{plural(calls, 'call')}</span>
     </a>
+  );
+}
+
+/** How many recordings in progress the header has a Watch live for; past them, one link lists the rest on Runs. */
+export const WATCHED = 3;
+
+/**
+ * Watch live for each recording in progress, newest first, its calls as the change feed counts them
+ * (`live`); past WATCHED, `2 more recording` opens Runs on every run recording now.
+ */
+export function LiveRecordings({ rows, live }: { rows: OverviewSummary['today']['recording']; live: readonly LiveRun[] }) {
+  const more = rows.length - WATCHED;
+  return (
+    <>
+      {rows.slice(0, WATCHED).map((r) => (
+        <WatchLive key={r.runId} runId={r.runId} about={r.about?.text ?? r.command} calls={live.find((l) => l.runId === r.runId)?.calls ?? r.calls} />
+      ))}
+      {more > 0 ? (
+        <a className="btn" href={href.runs({ q: 'status:live' })}>
+          {more} more recording
+        </a>
+      ) : null}
+    </>
   );
 }
 

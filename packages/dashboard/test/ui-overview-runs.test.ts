@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { factTip } from '../ui/components/Facts.js';
-import { activityGlyph, activityLine, chartScale, dayText, keepParts, keepPieces, kindGlyph, originCounts, originRows, overviewFacts, personName, reproducedNote, share, shortPaths, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, attemptsPart, chartScale, dayText, funnelParts, keepParts, keepPieces, kindGlyph, lastWeekWords, originCounts, originRows, overviewFacts, personName, reproducedNote, share, shortPaths, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -41,22 +41,26 @@ describe('the Overview’s words', () => {
       testsPassing: { goldens: 7, passing: 2, inconclusive: 2, untested: 0, lastWeek: 5, regressions: 3, lastRunAt: at1002 },
       spent: { value: 16.24, lastWeek: 0.44, notRespent: 1.73, notWaitedMs: 29 * 60_000 },
     };
-    // The header's four facts, money last and quieter; each says what it is made of and last week on hover.
-    const facts = overviewFacts(outcomes, { attempts: 232, spent: 3.46 }, now);
+    // The header's four facts, money last and quieter; each says what it is made of and last week on hover:
+    // Fixes verified the fixes funnel too, Spent live what the week's attempts spent of it.
+    const funnel = { failures: 12, blamed: 9, verified: 5, applied: 3, open: 3, readyToApply: 2, broken: 1, attempts: 232, spent: 3.46 };
+    const facts = overviewFacts(outcomes, funnel, now, { attempts: 40, attemptsSpent: 1.2 });
     expect(facts.map((x) => [x.value, x.words])).toEqual([['4', 'failures reproduced'], ['1', 'fix verified'], ['2 of 7', 'goldens passing'], ['$16.24', 'spent live']]);
     expect(facts.map((x) => JSON.parse(factTip(x) ?? '{}') as unknown)).toEqual([
       { t: 'Failures reproduced', s: 'replayed exactly · 3 still open · 1 last week' },
-      { t: 'Fixes verified', s: 'none rejected · 232 attempts behind them, $3.46 spent live · 1 last week' },
+      { t: 'Fixes verified', s: 'none rejected · 232 attempts behind them, $3.46 spent live · of 12 failures, 9 blamed, 5 verified, 3 applied · 2 ready to apply · 1 applied that doesn’t hold · 1 last week' },
       { t: 'Goldens passing', s: '3 regressions caught · 2 inconclusive · last run 10:02 · 5 of 7 last week' },
-      { t: 'Spent live, the last 7 days', s: '$1.73 not re-spent · 29m not waited · $0.44 last week' },
+      { t: 'Spent live, the last 7 days', s: '$1.20 of it by 40 attempts · $1.73 not re-spent · 29m not waited · $0.44 last week' },
     ]);
+    // With no failure the funnel says nothing, and with no attempt neither does Spent live.
+    expect([funnelParts({ ...funnel, failures: 0 }), attemptsPart({ attempts: 0, attemptsSpent: 0 })]).toEqual([[], null]);
     expect(facts.map((x) => [x.tone ?? null, x.money ?? false, x.href ?? null])).toEqual([[null, false, '#/fixes'], ['ok', false, '#/fixes'], [null, false, '#/tests'], [null, true, null]]);
     // No fix verified is ink; one golden passes as one; without goldens, none yet, still a link to Tests.
-    const quiet = overviewFacts({ ...outcomes, fixesVerified: { value: 0, lastWeek: 0, rejected: 0 }, testsPassing: { ...outcomes.testsPassing, goldens: 1, passing: 1, regressions: 0, inconclusive: 0, lastWeek: null } }, { attempts: 0, spent: 0 }, now);
+    const quiet = overviewFacts({ ...outcomes, fixesVerified: { value: 0, lastWeek: 0, rejected: 0 }, testsPassing: { ...outcomes.testsPassing, goldens: 1, passing: 1, regressions: 0, inconclusive: 0, lastWeek: null } }, { ...funnel, attempts: 0, spent: 0 }, now);
     expect(quiet[1]).toMatchObject({ value: '0', words: 'fixes verified' });
     expect(quiet[1]?.tone).toBeUndefined();
     expect(quiet[2]).toMatchObject({ value: '1 of 1', words: 'golden passing', tip: { parts: ['no regressions', 'last run 10:02'] }, was: null });
-    expect(overviewFacts({ ...outcomes, testsPassing: null }, { attempts: 0, spent: 0 }, now)[2]).toEqual({ value: '0', words: 'goldens yet', href: '#/tests' });
+    expect(overviewFacts({ ...outcomes, testsPassing: null }, { ...funnel, attempts: 0, spent: 0 }, now)[2]).toEqual({ value: '0', words: 'goldens yet', href: '#/tests' });
     // Needs a look keeps a tally, a model with what uses it, a date with its verb, a dot with the word before it and a
     // hyphenated name whole where its line wraps, and names a run by its short id, a piece of its own for its about line.
     const nb = '\u00a0';
@@ -117,6 +121,8 @@ describe('the Overview’s words', () => {
     expect(usageLine(week, 0.87, 16.24)).toEqual(['2,785 calls in 28 runs', '37% replayed', '87% of input from the cache', '$16.24 spent live this week']);
     expect(usageLine({ calls: 0, runs: 0, origins: {} }, null, 0)).toEqual(['0 calls in 0 runs', '$0.00 spent live this week']);
     expect(usageLine({ calls: 1, runs: 1, origins: { l: 1 } }, 0.004, 0.01)).toEqual(['1 call in 1 run', '0% replayed', '<1% of input from the cache', '$0.01 spent live this week']);
+    // Last week's calls, under this week's Calls by origin.
+    expect([lastWeekWords({ calls: 980, origins: { r: 470, l: 510 } }), lastWeekWords({ calls: 0, origins: {} })]).toEqual(['last week 980 calls, 48% replayed', 'no calls last week']);
   });
 
   it('draws a folder’s path in an activity entry as a label has it: ~ for the home folder, and a long one as its last folders, short enough to stay whole', () => {

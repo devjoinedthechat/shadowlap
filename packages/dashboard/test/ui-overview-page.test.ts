@@ -103,6 +103,14 @@ async function overview(first: Shown, more: Partial<Client> = {}): Promise<{ sho
 }
 
 describe('the Overview’s header and its layout', () => {
+  it('has Watch live for each recording in progress, up to three, and a link to Runs for the rest', async () => {
+    const rec = (n: number) => ({ runId: rid(n), command: `node refund_agent.mjs T-88${n}`, calls: n, startedAt: NOW - n * 60_000, about: null });
+    await overview({ summary: { ...week, today: { ...week.today, recording: [1, 2, 3, 4, 5].map(rec) } } });
+    expect(r!.all('a.btn.livebtn').map((a) => a.getAttribute('href'))).toEqual([1, 2, 3].map((n) => href.run(rid(n))));
+    const rest = r!.all('.ph .actions a.btn:not(.livebtn)');
+    expect(rest.map((a) => [text(a), a.getAttribute('href')])).toEqual([['2 more recording', href.runs({ q: 'status:live' })]]);
+  });
+
   it('names the recording on Watch live’s hover by what it is about, never its command, and counts its calls as they come', async () => {
     const recording = { runId: '01M5GRZNA5PJ6DHP9G395YMSJG', command: 'node refund_agent.mjs T-8813', calls: 9, startedAt: NOW - 60_000, about: { text: 'My blender arrived broken', from: 'user' as const } };
     await overview({ summary: { ...week, today: { ...week.today, recording: [recording] } }, live: [{ runId: recording.runId, calls: 12 }] as AppState['live'] });
