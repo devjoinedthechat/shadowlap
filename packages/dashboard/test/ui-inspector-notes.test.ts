@@ -1,8 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { failedWhy } from '../ui/run/calls.js';
-import { CallNote, Inspector, type InspectorTab } from '../ui/run/Inspector.js';
+import { CallNote, DetailsPart, Inspector, type InspectorTab } from '../ui/run/Inspector.js';
+import { scriptIn } from './ui-served-now.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CallDetail } from '../ui/types.js';
 import type { PresetAttempt } from '../ui/run/preset.js';
@@ -21,6 +22,9 @@ const INJECTED: Call = { ...LIVE, origin: 'injected', attempts: 2, error: null }
 const REFUSED: Call = { ...LIVE, status: 503, error: 'The replay is offline and this request is not in the recording' };
 
 const text = (html: string) => html.replace(/<[^>]*>/g, '').replace(/&#x27;/g, "'");
+// The Details tab waits in a script of its own until it first shows: in, it draws at once.
+beforeAll(() => scriptIn(DetailsPart));
+
 const note = (c: Call, flag: string | null = null) => renderToStaticMarkup(createElement(CallNote, { c, flag }));
 
 const APP = { client: {}, exported: true, actionsOff: null, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;

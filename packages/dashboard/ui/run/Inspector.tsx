@@ -1,38 +1,39 @@
-import { Fragment, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { applyDeltas } from '../../../engine/src/deltas.js';
-import { INPUT_PARTS } from '../../../engine/src/tokens.js';
-import type { Block, CallDetail, CallRow, Delta, RunNote } from '../api.js';
+import type { Block, CallDetail, CallRow, Delta } from '../api.js';
 import type { RunInjection } from '../types.js';
 import type { PresetAttempt } from './preset.js';
 import { Conversation, useFormatJson } from '../components/Conversation.js';
-import { Org, Seg } from '../components/bits.js';
+import { LoadFailed, Org, Seg } from '../components/bits.js';
+import { onShow } from '../components/OnShow.js';
 import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
-import { Code, Copy, LongWord, Words } from '../components/Copy.js';
+import { Code, Copy, Words } from '../components/Copy.js';
 import { MarksContext, NO_MARKS } from '../components/marks.js';
 import { useAttemptPage } from '../injection/attempt-load.js';
 import type { CauseView } from '../injection/model.js';
 import { copyText } from '../dom.js';
-import { dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
+import { dur, jsonText, num } from '../format.js';
 import { agentOf } from '../scopes.js';
 import { useServedParts } from '../served-parts.js';
 import { shortcut, shortcutCard } from '../shortcuts.js';
 import { useApp } from '../state.js';
-import { errorText } from '../toast.js';
-import { failedBy, failureNote, type FailedBy } from './calls.js';
+import { answeredBy, failedBy, failureNote, type FailedBy } from './calls.js';
 import { EditAndFork } from './EditAndFork.js';
 import { AddCheckLink, type CheckEntry } from './check-entry.js';
-import { viaWords } from './notes.js';
-import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
-import { ActionButton } from '../components/ActionButton.js';
+import { conversationLink, originOf, tokensText, turnCalls } from './model.js';
 
 /**
  * The inspector for the selected call: Conversation (as the model saw it, thinking included, with
  * Jump to change on a fork), Response (text played back at its recorded pacing, or the raw stream),
- * Request, and Details (usage, cost, timing, fingerprint, headers and notes).
+ * Request, and Details (usage, cost, timing, fingerprint, headers and notes), whose code waits in a
+ * script of its own until the tab first shows (InspectorDetails.tsx).
  */
+
+/** The Details tab, loaded the first time it shows, as a run's views are: a pointer or the focus reaching the tabs loads it ahead. */
+export const DetailsPart = onShow(() => import('./InspectorDetails.js').then((m) => m.DetailsTab), { failed: <LoadFailed what="details" /> });
 
 export type InspectorTab = 'conversation' | 'response' | 'request' | 'details';
 export const TABS: readonly InspectorTab[] = ['conversation', 'response', 'request', 'details'];
@@ -132,10 +133,10 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
           </span>
         ) : null}
       </div>
-      <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} />
+      <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} onPointerEnter={DetailsPart.preload} onFocus={DetailsPart.preload} />
       <div className="ibody" id="ibody" key={`${runId}:${call.callNo}:${tab}`} role="tabpanel" aria-labelledby={`itab-${tab}`} tabIndex={-1}>
         <MarksContext.Provider value={marks}>
-          {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} played={played} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} played={played} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} flag={flag ?? null} played={played} />}
+          {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} played={played} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} played={played} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsPart runId={runId} detail={detail} models={models} flag={flag ?? null} played={played} />}
         </MarksContext.Provider>
       </div>
     </section>
@@ -171,15 +172,8 @@ function ConversationTab({ detail, calls, change, flag, played, onSelect }: { de
   return <Conversation detail={detail} from={from} which={which} change={change} note={<CallNote c={c} flag={flag} played={played} />} />;
 }
 
-/** A failed model call's words in each place, by who answered it. */
+/** A failed model call's words over its response, by who answered it (the Details tab's are its own, InspectorDetails.tsx). */
 const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { injected: ' · written by shadowlap, nothing sent', offline: ' · refused offline', provider: ' · from the provider' };
-const OUTCOME_BY: Readonly<Record<FailedBy, string>> = { injected: 'by --fail-at, never sent', offline: 'refused offline', provider: 'from the provider' };
-const LATENCY_BY: Readonly<Record<FailedBy, string>> = { injected: 'answered by shadowlap', offline: 'refused by the replay', provider: 'answered by the provider' };
-
-/** Who answered a model call that failed: shadowlap's --fail-at (never sent), an offline replay (refused), or the provider; null for any other call. */
-function answeredBy(c: CallDetail['call']): FailedBy | null {
-  return c.kind !== 'api' || c.outcome !== 'error' ? null : failedBy(c);
-}
 
 /**
  * What happened to a call that ended in an error, over its conversation: the verdict on a line of its own in its colour
@@ -401,189 +395,3 @@ function RequestTab({ detail }: { detail: CallDetail }) {
     </>
   );
 }
-
-// ---------------------------------------------------------------------------------------------- details
-
-/** Details' Origin and Outcome: what made the call, an overridden one by the flag that did, and who answered a failed one. */
-function originRows(c: CallDetail['call'], flag: string | null, played: string | null): Array<[string, ReactNode]> {
-  const origin = originOf(c);
-  // An overridden call says what overrode it, though it ended in an error and is drawn as failed.
-  const overridden = c.origin === 'overridden';
-  const over = overridden && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
-  // The preset a call was played in by, said once for its Origin and its Outcome.
-  const pre = played && `by the ${played} preset`;
-  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? (
-      <>
-        injected{' '}
-        <small>
-          {pre || (
-            <>
-              answered by shadowlap with <Code>--fail-at</Code>
-            </>
-          )}
-        </small>
-      </>
-    ) : over || (overridden && pre) ? (
-      <>
-        {c.origin} <small>{pre || (over ? <Code>{over}</Code> : null)}</small>
-      </>
-    ) : (
-      c.origin
-    );
-  const http = c.status ? ` · HTTP ${c.status}` : '';
-  const by = answeredBy(c);
-  const said = pre ? `${pre}${c.kind === 'api' ? ', never sent' : '; the tool didn’t run'}` : by && OUTCOME_BY[by];
-  const outcome = c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${http}` : <>error{http}{said ? <small> {said}</small> : null}</>;
-  return [['Origin', made], ['Outcome', outcome]];
-}
-
-/**
- * Details' tokens, cost and time. A failed model call's input is what its request held, with nothing spent where it was
- * never sent, and its latency says who answered.
- */
-function spendRows(c: CallDetail['call']): Array<[string, ReactNode]> {
-  const rows: Array<[string, ReactNode]> = [];
-  const by = answeredBy(c);
-  const unsent = by === 'injected' || by === 'offline';
-  if (c.usage) {
-    const parts = by ? (unsent ? 'in the request; nothing was sent' : 'in the request') : `${num(c.usage.cacheRead)} ${INPUT_PARTS.cacheRead} · ${num(c.usage.cacheWrite)} ${INPUT_PARTS.cacheCreation} · ${num(c.usage.input)} ${INPUT_PARTS.uncached}`;
-    rows.push(['Input tokens', <>{num(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} <small>{parts}</small></>]);
-    rows.push(['Output tokens', num(c.usage.output)]);
-  }
-  if (c.kind === 'api') rows.push(['Cost', unsent ? '$0' : c.cost === null ? <small>no price for this model · add one under prices in shadowlap.config.json</small> : <>≈{formatUsd(c.cost)}{c.origin === 'replayed' ? <small> not re-spent</small> : null}</>]);
-  const answered = by && c.origin !== 'replayed' ? <small> {LATENCY_BY[by]}</small> : null;
-  if (c.latencyMs !== null) rows.push(['Latency', <>{dur(c.latencyMs)}{c.ttftMs !== null ? <small> first token at {dur(c.ttftMs)}</small> : null}{c.origin === 'replayed' ? <small> replayed</small> : answered}</>]);
-  return rows;
-}
-
-function DetailsTab({ runId, detail, models, flag, played }: { runId: string; detail: CallDetail; models?: Readonly<Record<string, string>> | undefined; flag: string | null; played: string | null }) {
-  const c = detail.call;
-  const rows: Array<[string, ReactNode]> = originRows(c, flag, played);
-  if (c.effect) rows.push(['Effect', c.effect]);
-  if (c.scope) rows.push(['Scope', c.scope]);
-  if (c.agent && (c.agent !== c.scope || c.spawnedBy)) rows.push(['Agent', c.spawnedBy ? <>{c.agent}<small> started by #{c.spawnedBy}</small></> : c.agent]);
-  // A call made to a host of another's format: the format it speaks, and the host it went to.
-  if (c.provider)
-    rows.push([
-      'Provider',
-      c.via ? (
-        <>
-          {c.provider} <small>via {viaWords(c.via, c.provider)}</small>
-        </>
-      ) : (
-        c.provider
-      ),
-    ]);
-  if (c.extraRead) rows.push(['Extra read', <small key="x">answered live: the recording held no counterpart, and the replay went on replaying, as a clock, random or pure read may</small>]);
-  if (c.model) rows.push(['Model', modelLabel(models, c.model)]);
-  if (c.stopReason) rows.push(['Stop reason', c.stopReason]);
-  rows.push(...spendRows(c));
-  if (c.bytes !== null) rows.push(['Size', `${(c.bytes / 1024).toFixed(1)} kB response`]);
-  if (c.attempts || c.kind === 'api') rows.push(['Retries', c.attempts ? `${c.attempts} before the final outcome` : '0']);
-  if (c.replayedFrom !== null) rows.push(['Replayed from', `#${c.replayedFrom} of the parent run`]);
-  if (c.error) rows.push(['Error', <span className="err">{c.error}</span>]);
-  rows.push([
-    'Fingerprint',
-    <>
-      <span title={c.fingerprint}>
-        <LongWord>{shortFingerprint(c.fingerprint)}</LongWord>
-      </span>{' '}
-      <small>occurrence {c.occurrence}</small>
-    </>,
-  ]);
-  // An id or a hash whole where its line holds it, and broken only where it doesn't: a digest is wider than a phone's column.
-  rows.push(['Run', <LongWord>{runId}</LongWord>]);
-  if (c.implHash) rows.push(['Implementation', <LongWord>{c.implHash}</LongWord>]);
-  rows.push(['Started', stamp(c.startedAt)]);
-  const headers = Object.entries(c.headers);
-  return (
-    <>
-      <dl className="kvs">
-        {rows.map(([k, v]) => (
-          <Fragment key={k}>
-            <dt>{k}</dt>
-            <dd>{v}</dd>
-          </Fragment>
-        ))}
-      </dl>
-      {headers.length ? (
-        <>
-          <div className="sec-k">Response headers{c.origin === 'replayed' ? ' · as recorded' : ''}</div>
-          <dl className="kvs hdrs">
-            {headers.map(([k, v]) => (
-              <Fragment key={k}>
-                <dt>{k}</dt>
-                <dd>{v}</dd>
-              </Fragment>
-            ))}
-          </dl>
-        </>
-      ) : null}
-      <Notes runId={runId} callNo={c.callNo} notes={detail.notes} />
-    </>
-  );
-}
-
-function Notes({ runId, callNo, notes }: { runId: string; callNo: number; notes: RunNote[] }) {
-  const [list, setList] = useState(notes);
-  return (
-    <>
-      <div className="sec-k">Notes on #{callNo}</div>
-      <div className="notes">
-        {list.length ? (
-          list.map((n, i) => (
-            <div className="note" key={i}>
-              {n.text}
-              <small>{stamp(n.at)}</small>
-            </div>
-          ))
-        ) : (
-          <div className="muted">No notes yet. Notes travel with the run when it is packed or exported.</div>
-        )}
-      </div>
-      <NoteForm runId={runId} callNo={callNo} onSaved={setList} />
-    </>
-  );
-}
-
-/**
- * Adds a note on a call, or on the whole run (`callNo` null), as `shadowlap note` does with or without
- * `--call`: `onSaved` hears the notes the server keeps on that call, or on the run, after it. None on
- * a dashboard that changes nothing, or in a copy.
- */
-export function NoteForm({ runId, callNo, onSaved }: { runId: string; callNo: number | null; onSaved: (notes: RunNote[]) => void }) {
-  const { client, actionsOff, exported, toast, guard } = useApp();
-  const [text, setText] = useState('');
-  const [saving, setSaving] = useState(false);
-  if (exported || actionsOff) return null;
-  return (
-    <form
-      className="addnote"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const v = text.trim();
-        if (!v) return;
-        guard(() => {
-          setSaving(true);
-          client
-            .note(runId, callNo, v)
-            .then(
-              (r) => {
-                onSaved(r.notes);
-                setText('');
-                toast(callNo === null ? 'Note saved on the run' : `Note saved on #${callNo}`);
-              },
-              (err: unknown) => toast(errorText(err), 'error'),
-            )
-            .finally(() => setSaving(false));
-        });
-      }}
-    >
-      <textarea placeholder={callNo === null ? 'Add a note on this run' : 'Add a note on this call'} aria-label={callNo === null ? 'A note on this run' : `A note on #${callNo}`} value={text} onChange={(e) => setText(e.target.value)} />
-      <ActionButton className="btn" type="submit" disabled={saving || !text.trim()}>
-        Add note
-      </ActionButton>
-    </form>
-  );
-}
-

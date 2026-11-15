@@ -3168,6 +3168,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
+- **The inspector's Details tab** has a script of its own too, which loads once the pointer or the focus reaches the inspector's tabs.
 - **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset, OpenTelemetry trace and Security report dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **A run page's other dialogs** load the same way: an action's, a diverged test's Update golden dialogs, the steps' dialogs (Pack as golden…'s, say), and those Run injection test…, Run error-path presets… and Pack with injection gate… open.
 - **Other dialogs** load the same way too: Revert's, `New preview`'s, Not covered's pack dialogs, Preview pull request comment, Apply config change?, Migrate to… and Remove project.

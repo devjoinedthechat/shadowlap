@@ -84,6 +84,9 @@ export type FailedBy = 'injected' | 'offline' | 'provider';
 /** Who answered a failed model call, by its detail: one shadowlap answered keeps `injected` as its origin. */
 export const failedBy = (c: Pick<CallLike, 'origin' | 'status' | 'error'>): FailedBy => (c.origin === 'injected' ? 'injected' : refusedOffline(c) ? 'offline' : 'provider');
 
+/** Who answered a model call that failed: shadowlap's --fail-at (never sent), an offline replay (refused), or the provider; null for any other call. */
+export const answeredBy = (c: Pick<CallLike, 'origin' | 'status' | 'error'> & { kind: string; outcome: string | null }): FailedBy | null => (c.kind !== 'api' || c.outcome !== 'error' ? null : failedBy(c));
+
 /**
  * A failed model call's note, as the inspector leads with it (CallNote, which then says what its
  * view shows) and Compare's opened row says it: its word, then why, in parts, the flag shadowlap
