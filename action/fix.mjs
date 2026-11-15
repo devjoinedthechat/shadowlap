@@ -771,13 +771,14 @@ async function createPullRequest({ root, branch, title, bodyFile, env, plain, au
 /**
  * The command that builds the agent once a fix changes its source: the fix-build input, else `build`
  * in shadowlap.config.json, as shadowlap repair takes it where no --build is given; empty for none.
- * `fromConfig` says the config gave it, so the log can say so as the CLI's progress does.
+ * The log says when the config gave it, as the CLI's progress does.
  * @param {string} given
  * @param {string} workdir
- * @returns {{ build: string; fromConfig: boolean }}
+ * @param {(line: string) => void} [log]
+ * @returns {string}
  */
-export function fixBuildOf(given, workdir) {
-  if (given) return { build: given, fromConfig: false };
+export function fixBuildOf(given, workdir, log = () => {}) {
+  if (given) return given;
   /** @type {{ build?: unknown }} */
   let config = {};
   try {
@@ -786,7 +787,8 @@ export function fixBuildOf(given, workdir) {
     // no config, or one shadowlap itself refuses, which its test has failed on already
   }
   const build = typeof config.build === 'string' ? config.build.trim() : '';
-  return { build, fromConfig: !!build };
+  if (build) log(logLine(`build: ${build}, from shadowlap.config.json (fix-build sets another)`));
+  return build;
 }
 
 /** Why a fix stays out of the team store when the team turned pushing from CI off: their choice, not a failure. */
