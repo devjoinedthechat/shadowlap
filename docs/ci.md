@@ -578,7 +578,7 @@ The action reads `tests` from `shadowlap.config.json` in the working directory. 
 | `push` | Push every test run and the session's report to the [team store](./team.md#push-from-ci), and each fix it opens | `false` |
 | `fix-on-failure` | Open a fix pull request when a golden fails an outcome check ([fix on failure](#fix-on-failure)) | `false` |
 | `fix-budget` | Dollars that may be spent per failing golden on finding and proving a fix | `2.00` |
-| `fix-build` | A command that builds the agent once a fix changes its source, such as `npm run build` | empty |
+| `fix-build` | A command that builds the agent once a fix changes its source, such as `npm run build`; empty uses `build` in the config | empty |
 | `repairer` | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config | empty |
 | `github-token` | The token a fix's branch is pushed, its pull request opened and the comment kept with ([below](#permissions-and-tokens)) | empty |
 | `comment` | On a pull request, keep one [comment](#the-pull-request-comment) on it with each golden's verdict | `true` |
@@ -930,7 +930,7 @@ A fork's branch name could name another branch here, with other code, and its jo
 
 ### An agent that needs a build
 
-Blame and verify run the agent live under the step's `guard`, as its test does. An agent that runs from what a build makes, such as a TypeScript agent's `dist/`, needs `fix-build: npm run build`, the command that builds it. It runs:
+Blame and verify run the agent live under the step's `guard`, as its test does. An agent that runs from what a build makes, such as a TypeScript agent's `dist/`, needs the command that builds it: `build` in the [config](./cli.md#the-configuration-file), or `fix-build: npm run build`, which goes over it. The step's log says when the config gave it. It runs:
 
 - in each candidate's worktree once the candidate is in it, as `shadowlap repair --build` runs it ([repair](./repair.md#candidates-are-tried-in-a-worktree-of-their-own));
 - in the working tree around the replay of the fix's branch;

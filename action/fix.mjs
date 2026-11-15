@@ -768,6 +768,27 @@ async function createPullRequest({ root, branch, title, bodyFile, env, plain, au
   return r.pr ? r : { pr: null, why: `the pull request could not be opened: ${String(r.why)}; the branch ${branch} is pushed, so it can be opened by hand` };
 }
 
+/**
+ * The command that builds the agent once a fix changes its source: the fix-build input, else `build`
+ * in shadowlap.config.json, as shadowlap repair takes it where no --build is given; empty for none.
+ * `fromConfig` says the config gave it, so the log can say so as the CLI's progress does.
+ * @param {string} given
+ * @param {string} workdir
+ * @returns {{ build: string; fromConfig: boolean }}
+ */
+export function fixBuildOf(given, workdir) {
+  if (given) return { build: given, fromConfig: false };
+  /** @type {{ build?: unknown }} */
+  let config = {};
+  try {
+    config = JSON.parse(readFileSync(join(workdir, 'shadowlap.config.json'), 'utf8'));
+  } catch {
+    // no config, or one shadowlap itself refuses, which its test has failed on already
+  }
+  const build = typeof config.build === 'string' ? config.build.trim() : '';
+  return { build, fromConfig: !!build };
+}
+
 /** Why a fix stays out of the team store when the team turned pushing from CI off: their choice, not a failure. */
 const PUSH_OFF = 'Push from CI is off ("ciPush": false in shadowlap.config.json)';
 

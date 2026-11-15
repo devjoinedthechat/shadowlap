@@ -67,7 +67,7 @@ inputs:
     description: Dollars fix-on-failure may spend per failing golden, on blame, the repairer and verify together.
     default: '2.00'
   fix-build:
-    description: A shell command that builds the agent once a fix changes its source, such as npm run build, as for shadowlap repair --build. It runs in each candidate's worktree, which has a copy of the working tree's node_modules rather than links to it, so nothing it writes reaches the working tree, and in the working tree around the replay of the fix's branch, then once more after the fix is taken back out. Empty runs the agent as it is.
+    description: A shell command that builds the agent once a fix changes its source, such as npm run build, as for shadowlap repair --build. It runs in each candidate's worktree, which has a copy of the working tree's node_modules rather than links to it, so nothing it writes reaches the working tree, and in the working tree around the replay of the fix's branch, then once more after the fix is taken back out. Empty uses build in shadowlap.config.json, as shadowlap repair does, else runs the agent as it is.
     default: ''
   repairer:
     description: The model that proposes fixes, as for shadowlap repair --repairer (claude-code, claude-code:<model>, anthropic, anthropic:<model>, openai:<model>). Empty uses repair.repairer in shadowlap.config.json.
