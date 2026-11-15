@@ -366,12 +366,12 @@ The same table drives the cost figures in `shadowlap run`, `replay` and `show`.
 
 Some models charge more for a long prompt. `above` gives such a model a second rate card:
 
-- **The prompt** is the call's whole input: uncached input, cache reads and cache writes.
-- **A prompt over `above.tokens`** pays the second card's rates for every token of the call, output too. A prompt of exactly that many tokens pays the first card.
+- **The prompt** is the call's whole input: cache read, cache creation and uncached.
+- **A prompt over `above.tokens`** (a whole number, 1 or more) pays the second card's rates for every token of the call, output too. A prompt of exactly that many tokens pays the first card.
 - **Each call** is priced on its own, by its own prompt. A run's cost is the sum of its calls' costs, never its tokens summed and priced as one call.
 - **A card without `cacheRead` or `cacheWrite`** prices those tokens at its own `input` rate.
 
-The built-in table prices Claude Haiku 5.5 so: up to 100,000 prompt tokens at $0.10 input and $0.50 output, and a longer prompt at $0.50 and $2.50. Each card's cache reads are 0.1× its input rate and its 5-minute cache writes 1.25×. Claude Haiku 4.5 is $1 and $5 at any length.
+The built-in table prices Claude Haiku 5.5 so: up to 100,000 prompt tokens at $0.10 input and $0.50 output, and a longer prompt at $0.50 and $2.50. Each card prices a cache read at 0.1× its input rate and 5-minute cache creation at 1.25×. Claude Haiku 4.5 is $1 and $5 at any length.
 
 ## See also
 

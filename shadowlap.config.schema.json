@@ -58,7 +58,7 @@
             "minimum": 0
           },
           "above": {
-            "description": "A second rate card for a long prompt: a call whose whole prompt (uncached input, cache reads and cache writes) is over tokens pays these rates for all of its tokens.",
+            "description": "A second rate card for a long prompt: a call whose whole prompt (cache read, cache creation and uncached input) is over tokens pays these rates for all of its tokens.",
             "type": "object",
             "additionalProperties": false,
             "required": [
