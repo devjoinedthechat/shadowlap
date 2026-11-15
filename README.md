@@ -26,7 +26,8 @@
   <a href="docs/compare.md">Compare</a>
 </p>
 
-Your agent refunded $240 it should have escalated. Run it again and it behaves. You can't make it fail on demand, so you can't prove a fix works.
+Your agent refunded $240 it should have escalated. Run it again, and it behaves.<br>
+You can't make it fail on demand, so you can't prove a fix works.
 
 shadowlap records your agent's model calls and the tools you wrap, then re-runs your real code against that recording. The refund happens again, call for call, with nothing sent upstream and nothing done twice. Change one thing, and the run forks at the first request that differs.
 
@@ -45,14 +46,14 @@ shadowlap records your agent's model calls and the tools you wrap, then re-runs 
 
 ## Highlights
 
-- **[Exact replays](docs/how-it-works.md).** A failing run replays call for call from its recording, with no upstream requests and no real key.
-- **[What-ifs at any call](docs/interventions.md).** Override a tool's result, switch the model or plant an instruction, and see what the run does instead.
-- **[Blame](docs/blame.md).** Pinpoints the model call that lost the run, and says how sure it is.
-- **[Proven fixes](docs/verify.md).** Repair proposes a fix to the prompt or a tool description. Verify proves it on the failing runs, on runs held out from the model that wrote it, and on your good runs, at a stated risk.
-- **[Goldens in CI](docs/ci.md).** Recorded runs become offline tests. When one fails, the GitHub Action can propose the fix.
-- **[Model and prompt changes](docs/decisions.md).** See which decisions change before you switch models or ship a prompt edit.
-- **[Dashboard](docs/dashboard.md) and [terminal UI](docs/tui.md).** Step through a run, fork from any call and compare two runs.
-- **And more:** [injection tests](docs/injection.md), [error-path tests](docs/error-paths.md), [bisect](docs/cli.md#bisect), [coverage](docs/coverage.md), [production traffic](docs/gateways.md), a [team store](docs/team.md) in a bucket you own, and [training exports](docs/training.md).
+- **[Exact replays](docs/how-it-works.md).** A failing run replays call for call, offline, with no real key.
+- **[What-ifs at any call](docs/interventions.md).** Override a result, switch the model, plant an instruction.
+- **[Blame](docs/blame.md).** Finds the model call that lost the run, and says how sure it is.
+- **[Proven fixes](docs/verify.md).** A fix is proposed, then proven on failing, held-out and good runs.
+- **[Goldens in CI](docs/ci.md).** Runs become offline tests, and the Action proposes a fix when one fails.
+- **[Model and prompt changes](docs/decisions.md).** See which decisions change before you ship one.
+- **[Dashboard](docs/dashboard.md) and [terminal UI](docs/tui.md).** Step through a run, fork from any call, compare runs.
+- **And more:** [injection tests](docs/injection.md), [error paths](docs/error-paths.md), [bisect](docs/cli.md#bisect), [coverage](docs/coverage.md), [production traffic](docs/gateways.md), a [team store](docs/team.md), [training data](docs/training.md).
 
 ## Quickstart
 
@@ -102,7 +103,9 @@ def lookup_order(order_id): ...
 
 Outside shadowlap the wrapper only calls your function, so wrapped tools ship unchanged.
 
-A tool you don't wrap runs for real on every replay, and `run` names each one the model called. A replay refuses one that writes, or one whose effect nothing declares, until you wrap it, declare it under `tools.unrecorded` or pass `--allow-unrecorded`.
+A tool you don't wrap runs for real on every replay, and `run` names each one.
+
+A replay won't run one that writes, or one whose effect nothing declares, until you wrap it, declare its effect in `tools.unrecorded`, or pass `--allow-unrecorded` to run it anyway.
 
 ### Record and replay
 
@@ -120,7 +123,7 @@ One bug, from failure to fix. A support agent refunds three $240 orders, labelle
 
 ### 1. Find the call that lost the run
 
-[`shadowlap blame`](docs/blame.md) asks model calls again, each from a fork that replays everything before it. It names the last call where a different answer still saves the run.
+[`shadowlap blame`](docs/blame.md) asks model calls again, each from a fork that replays everything before it as recorded. It names the last call where a different answer can still save the run.
 
 ```console
 $ shadowlap blame 01M64J32D4 --expect @refund-check.json
@@ -168,7 +171,7 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 
 ### 3. Keep it fixed in CI
 
-Applying the fix puts the patch in your working tree and keeps the fixed runs as goldens: recordings that run as tests.
+`fix apply` puts the patch in your working tree and keeps the fixed runs as goldens, recordings run as tests.
 
 ```console
 $ shadowlap fix apply fx-01M64J3BR1
@@ -205,7 +208,7 @@ With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix fo
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The run forks at call 17 (<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` brings the same views to your terminal, in the dashboard's colours. Each call has conversation, request, response and meta tabs. Press `:` for the what-ifs at the selected call, or to blame, repair or verify the run.
+`shadowlap ui` brings the same views to your terminal. Each call has conversation, request, response and meta tabs. Press `:` for the what-ifs at the selected call, or to blame, repair or verify the run.
 
 <p align="center">
   <picture>
@@ -240,7 +243,7 @@ shadowlap run -- node agent.mjs
 ```
 
 - **Matched by request, not order.** A call is matched by its request, after your [normalizers](docs/normalizers-and-redaction.md) mask values such as ids, and by how many identical requests came before it. Parallel calls match in whatever order they arrive.
-- **Forked at the first change.** After it, model calls and `read` tools run live, and `write` tools are blocked or stubbed unless you allow them.
+- **Forked at the first change.** After it, model calls and `read` tools run live. `write` tools are blocked or stubbed unless you allow them, so a fork never repeats a refund.
 
 [How it works](docs/how-it-works.md) covers fingerprints, matching, effects and the network guard.
 
@@ -251,13 +254,13 @@ shadowlap run -- node agent.mjs
 | [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure OpenAI, Amazon Bedrock, Gemini Enterprise Agent Platform (Vertex AI) and Claude on Microsoft Foundry |
 | [Gateways](docs/providers.md) | Vercel's AI Gateway, OpenAI&#8209;compatible servers (Ollama, vLLM, OpenRouter, Groq) and any host that speaks one of these formats |
 | [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the [wire protocol](docs/protocol.md) |
-| [Frameworks (TypeScript)](docs/frameworks.md) | Mastra, Vercel AI SDK, OpenAI Agents SDK, LangChain, LangGraph, Anthropic tool runner, Claude Agent SDK |
+| [Frameworks (TypeScript)](docs/frameworks.md) | Mastra, Vercel AI SDK, OpenAI Agents SDK, LangChain, LangGraph, Claude Agent SDK, the tool runner in Anthropic's TypeScript SDK |
 | [Frameworks (Python)](docs/frameworks.md) | CrewAI, OpenAI Agents SDK, LangChain, LangGraph, Pydantic AI, Google ADK, LlamaIndex, Microsoft Agent Framework, Strands, smolagents, Agno, Claude Agent SDK |
 | [Test suites](docs/testing.md) | pytest, Vitest, Jest and node:test: a test records once, then replays offline |
 | [MCP](docs/mcp.md) | Servers over stdio or Streamable HTTP, through the `shadowlap mcp` proxy |
 | [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any other CI |
-| [Coding agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot, through the CLI's JSON output and the skills `skill install` adds |
-| [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith, Arize Phoenix and Logfire |
+| [Coding agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot, through JSON output and skills |
+| [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith, Phoenix, Logfire |
 | [Exports](docs/cli.md#export-html) | Packs, one&#8209;file HTML reports, HAR, OpenTelemetry, eval datasets and preference pairs |
 
 ## Contributing
@@ -274,8 +277,8 @@ npm run demo && node scripts/readme-shots.mjs
 
 ## Security
 
-- **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token. Recordings stay in your project, readable only by you.
-- **Keys never stored.** The API keys your calls send pass through to the provider and are never written. A clean replay needs no real key.
+- **Local only.** The sidecar and dashboard listen on 127.0.0.1, behind a token. Runs stay in your project.
+- **Keys never stored.** API keys pass through to the provider and are never written.
 - **Masked on the way out.** Every copy of a run masks the credentials shadowlap recognises. Packs, exports, share links and what repair shows its model also apply your redaction rules.
 - **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run, and [what is sent](docs/telemetry.md) never includes prompts or tool data. `DO_NOT_TRACK=1` opts out.
 
