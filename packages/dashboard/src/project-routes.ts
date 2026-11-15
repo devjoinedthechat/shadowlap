@@ -299,7 +299,7 @@ export class ProjectRoutes {
         const prices = pricesFrom(config);
         return prices ? { prices } : {};
       },
-      reads: problem ? stores.reads(null, standIn) : stores.reads(pc.dbPath, () => projects.storeOf(pc)),
+      reads: problem ? stores.reads(null, standIn) : stores.reads(pc.dbPath, () => projects.storeOf(pc), () => pricesFrom(config) ?? undefined),
       search: problem ? stores.search(null, standIn) : stores.search(pc.dbPath, () => projects.storeOf(pc)),
       get project() {
         const notice = s.failed.length ? `Part of the dashboard couldn’t start for ${pc.name}: ${s.failed.join('; ')}. Its pages there say they aren’t found.` : null;

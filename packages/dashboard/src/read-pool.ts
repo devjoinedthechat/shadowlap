@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import { messageOf, type Store } from '@shadowlap/engine';
+import { messageOf, type Price, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { serverIdle } from './idle.js';
 import { runJob, type ReadAnswer, type ReadJob } from './read-jobs.js';
@@ -218,6 +218,12 @@ const handAfter = (busy: Pending): number => (busy.background ? 2 * READ_LIMITS.
  */
 const starting = (s: Slot): boolean => s.worker !== null && !s.ready;
 
+/** A slice of the warm-up, at the project's prices as they are now. */
+function warmJob(budgetMs: number, prices: (() => Record<string, Price> | undefined) | undefined): ReadJob {
+  const now = prices?.();
+  return { kind: 'warm', budgetMs, ...(now ? { prices: now } : {}) };
+}
+
 export class ReadPool implements ReadModels {
   private readonly slots: Slot[];
   /** Requests any thread may answer, oldest first. */
@@ -243,6 +249,8 @@ export class ReadPool implements ReadModels {
       log?: (line: string) => void;
       /** The threads' script: read-worker.ts built, unless a test gives one of its own. */
       script?: URL;
+      /** The project's prices, which the warm-up splits totals by as the pages price them (run-stats.ts `breaks`). */
+      prices?: () => Record<string, Price> | undefined;
     },
   ) {
     const size = Math.max(1, o.size ?? READ_LIMITS.size);
@@ -470,7 +478,7 @@ export class ReadPool implements ReadModels {
     if (this.warming !== 'running') return undefined;
     return {
       id: this.nextId++,
-      job: { kind: 'warm', budgetMs: READ_LIMITS.warmSliceMs },
+      job: warmJob(READ_LIMITS.warmSliceMs, this.o.prices),
       affinity: null,
       at: Date.now(),
       background: true,
@@ -666,7 +674,11 @@ export class LocalReads implements ReadModels {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
 
-  constructor(private readonly store: () => Store) {
+  constructor(
+    private readonly store: () => Store,
+    /** As ReadPool's `prices`. */
+    private readonly prices?: () => Record<string, Price> | undefined,
+  ) {
     this.schedule(0);
   }
 
@@ -686,7 +698,7 @@ export class LocalReads implements ReadModels {
       this.timer = null;
       // A request is being answered: its answer goes first.
       if (!serverIdle()) return this.schedule(20);
-      void runJob(this.store(), { kind: 'warm', budgetMs: 50 }).then(
+      void runJob(this.store(), warmJob(50, this.prices)).then(
         (a) => {
           if (a.warm?.done) this.warming = 'done';
           else this.schedule(20);
