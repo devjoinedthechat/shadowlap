@@ -442,6 +442,16 @@ The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), 
 
 **Several files** go in together as LiteLLM captures, a proxy's file per worker, or OpenTelemetry exports, traces apart from their logs: one import puts each run together from all of them, up to 20 files. Each goes up on its own, and the command names them all. Files of another format, or of two formats, go in one at a time, and the dialog says so.
 
+**Pack** imports a folder that [`shadowlap pack`](./cli.md#pack-unpack) wrote, such as a golden or a pack a colleague sent. Drop the folder, or click to pick it. Before anything is sent, the dialog reads its `run.json` and shows:
+
+- how many runs and calls the pack holds;
+- its own run, the last in `run.json`, with the command it was recorded with;
+- that replaying an imported run asks first, since that command came from whoever made the pack.
+
+Only what `unpack` reads goes up: `run.json`, `calls.jsonl` and the files in `blobs/`, as one archive of at most 64 MB. A larger pack is unpacked in a terminal. A folder `unpack` would refuse is refused in its words, such as one with no `run.json` at its top, a `run.json` of another format, or a file in `blobs/` that is no blob. A folder of packs says how many it holds, and to pick one.
+
+The job runs [`shadowlap unpack`](./cli.md#pack-unpack) on the folder, which checks the pack again, and each run it imports says it came from the folder you picked. Its drawer opens the pack's own run, links each run of a pack of two or three, and says which were already here. When the store holds another recording under one of the pack's run ids, that run is not imported, and the drawer says so.
+
 You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. The CLI reads the trace with the keys already in the environment the dashboard runs in, and they never pass through the browser.
 
 | Trace store | Trace id | Keys it reads |
