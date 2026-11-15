@@ -529,7 +529,7 @@ def send_page(to: str) -> dict:
 
   it('leaves OPENAI_BASE_URL alone for Pydantic AI when every model its code names is another provider’s', () => {
     const env = { OPENAI_BASE_URL: 'http://127.0.0.1:60506' };
-    // The demo's research agent: Pydantic AI as a whole beside Anthropic's SDK, and Agent("anthropic:claude-sonnet-4-5").
+    // The demo's research agent: Pydantic AI as a whole beside Anthropic's SDK, and Agent("anthropic:claude-sonnet-5-5").
     const demo = fileURLToPath(new URL('../../../scripts/demo-store/folders/research-agent', import.meta.url));
     const report = inspectProject(demo, env);
     expect(report.providers).toEqual([{ id: 'anthropic', via: 'anthropic' }]);

@@ -15,7 +15,7 @@ const tools = [
 ];
 const messages = [{ role: 'user', content: 'Triage the unread support threads.' }];
 for (let turn = 0; turn < 8; turn++) {
-  const reply = await client.messages.create({ model: 'claude-haiku-4-5', max_tokens: 512, system: 'You triage the support inbox. Label every unread thread billing, bug or other.', tools, messages });
+  const reply = await client.messages.create({ model: 'claude-haiku-5-5', max_tokens: 512, system: 'You triage the support inbox. Label every unread thread billing, bug or other.', tools, messages });
   messages.push({ role: 'assistant', content: reply.content });
   const uses = reply.content.filter((b) => b.type === 'tool_use');
   if (!uses.length) break;

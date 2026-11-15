@@ -44,6 +44,9 @@ const parsed = (call) => {
   }
 };
 
+/** The models the demo's Anthropic API lists (`GET /v1/models`): the ones its agents ask. */
+export const LISTED = ['claude-sonnet-5-5', 'claude-haiku-5-5'];
+
 export function createModels() {
   /** The switches the builder flips. */
   const control = {
@@ -389,5 +392,5 @@ export function createModels() {
     }
   }
 
-  return { control, anthropic, openai, gemini };
+  return { control, anthropic, openai, gemini, listed: LISTED };
 }

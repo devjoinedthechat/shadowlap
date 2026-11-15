@@ -9,7 +9,7 @@
 // refund-bug) and one good run; blame finds the model call that lost the first, repair finds the
 // fix and verifies it, and fix apply applies it and tests the goldens it brings, which are then
 // committed with it. The ticket agent handles the same order from a ticket: decisions asks its
-// model calls again under claude-haiku-4-5, and a replay overrides what lookup_policy returned
+// model calls again under claude-haiku-5-5, and a replay overrides what lookup_policy returned
 // (what if it had returned the EU limit?), so the run forks at #17.
 //
 //   npm run build && node scripts/readme-shots.mjs [<folder>]
@@ -132,7 +132,7 @@ async function story(folder) {
   const { createModels } = await import(pathToFileURL(join(kit, 'models.mjs')).href);
   const models = createModels();
   const { control } = models;
-  const anthropic = await startMockAnthropic({ script: models.anthropic, eventDelayMs: () => control.delay });
+  const anthropic = await startMockAnthropic({ script: models.anthropic, eventDelayMs: () => control.delay, models: models.listed });
   const project = join(folder, 'support-agent');
   const samples = join(folder, 'samples');
   const env = {
@@ -209,7 +209,7 @@ async function story(folder) {
     control.delay = 12;
     runs.ticket = runIn(await sl(['run', '--', 'node', 'refund_agent.mjs', 'T-8812']));
     control.delay = 0;
-    await sl(['decisions', short(runs.ticket), '--model', 'claude-haiku-4-5'], 'decisions');
+    await sl(['decisions', short(runs.ticket), '--model', 'claude-haiku-5-5'], 'decisions');
     runs.override = runIn(await sl(['replay', short(runs.ticket), '--override', '16=@policy.json'], 'override'));
     writeFileSync(join(folder, 'runs.json'), `${JSON.stringify({ story: 'readme', runs }, null, 2)}\n`);
     return runs;
