@@ -109,7 +109,7 @@ export function fileSource(paths: readonly string[]): string {
 }
 
 /** Runs an import links one by one in a dashboard job's drawer; past that, the Runs page. */
-const IMPORT_LINKS = 3;
+export const IMPORT_LINKS = 3;
 
 /**
  * The Runs page filtered to an import's runs: the label every imported run carries, and the source
