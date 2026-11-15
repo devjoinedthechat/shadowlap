@@ -91,7 +91,7 @@ describe('shadowlap mcp: a tool failed with --fail-at', () => {
     const { answers, after } = await session(run.runId);
     const { summary } = sidecar.endRun(run.runId, 'completed');
 
-    // What a failing handler answers, as the model will read it, with nothing that names Shadowlap.
+    // What a failing handler answers, as the model will read it, with nothing that names shadowlap.
     expect(answers.map((a) => a.error)).toEqual([undefined, undefined, undefined]);
     expect(answers.map((a) => a.result)).toEqual([
       { content: [{ type: 'text', text: 'read_note timed out' }], isError: true },

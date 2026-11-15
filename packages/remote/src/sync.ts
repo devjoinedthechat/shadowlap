@@ -623,7 +623,7 @@ async function readIndex(ctx: SyncContext): Promise<{ segments: number; skipped:
       segments[i] = parseSegment(got.body, key);
       done.push(key);
     } catch (err) {
-      // Not marked as read: a segment a newer Shadowlap wrote is read once this one is updated.
+      // Not marked as read: a segment a newer shadowlap wrote is read once this one is updated.
       skipped.push({ key, reason: messageOf(err) });
       ctx.log?.(`skipped ${key}: ${messageOf(err)}`);
     }

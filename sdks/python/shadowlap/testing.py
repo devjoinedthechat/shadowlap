@@ -54,7 +54,7 @@ class ShadowlapReplayDiverged(AssertionError):
 
 
 class ShadowlapTestError(RuntimeError):
-    """Shadowlap could not start or serve a recording."""
+    """shadowlap could not start or serve a recording."""
 
 
 def record_mode(explicit: Optional[str] = None) -> str:
@@ -205,7 +205,7 @@ def _get_host(root: Optional[str]) -> _Host:
 def _running_host() -> _Host:
     """The host a started recording runs on."""
     if _host is None:
-        raise ShadowlapTestError("the Shadowlap host has stopped")
+        raise ShadowlapTestError("the shadowlap host has stopped")
     return _host
 
 

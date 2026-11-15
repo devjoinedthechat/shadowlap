@@ -1,6 +1,6 @@
-"""Capture production model calls from a LiteLLM proxy, as a Shadowlap recording.
+"""Capture production model calls from a LiteLLM proxy, as a shadowlap recording.
 
-Shadowlap normally records by sitting in front of the agent itself, which suits a laptop and CI. In
+shadowlap normally records by sitting in front of the agent itself, which suits a laptop and CI. In
 production nobody re-points their agent at a dev tool — but plenty of teams already route model
 traffic through LiteLLM, which is the same thing: a gateway in the request path that sees the real
 bytes. This is a LiteLLM callback that writes what it sees in a form ``shadowlap import litellm``

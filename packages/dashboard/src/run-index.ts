@@ -218,7 +218,7 @@ function json(v: unknown): unknown {
   }
 }
 
-/** Metadata as Shadowlap writes it; anything else (a run from a pack can carry anything) is dropped. */
+/** Metadata as shadowlap writes it; anything else (a run from a pack can carry anything) is dropped. */
 function readMeta(row: Record<string, unknown>): IndexedMeta {
   const labels = json(row.labels);
   const imported = json(row.imported);

@@ -282,7 +282,7 @@ describe('importing a file', () => {
     expect(guess('worker-1.jsonl', '{"format":"shadowlap-capture","v":1}\n')).toEqual({ format: 'litellm', error: null });
     expect(guess('cassette.yaml')).toEqual({ format: null, error: expect.stringMatching(/^A YAML cassette has to be converted to JSON first/) });
     expect(guess('cassette.yml', 'interactions:\n').format).toBeNull();
-    expect(guess('notes.txt')).toEqual({ format: null, error: expect.stringMatching(/^Not a format Shadowlap imports/) });
+    expect(guess('notes.txt')).toEqual({ format: null, error: expect.stringMatching(/^Not a format shadowlap imports/) });
     expect(guess('Makefile').format).toBeNull();
     // The select names every format the CLI imports, as the engine names them.
     expect(FILE_FORMATS.map((f) => IMPORT_FILE_FORMATS[f])).toEqual(['HAR', 'nock', 'VCR (JSON)', 'LiteLLM', 'OpenTelemetry']);

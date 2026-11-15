@@ -86,7 +86,7 @@ export function inputIdentity(st: Pick<BigIntStats, 'dev' | 'ino' | 'isFile'>, p
 }
 
 /**
- * The environment that loads Shadowlap into a Node or Python agent: in-process capture, the
+ * The environment that loads shadowlap into a Node or Python agent: in-process capture, the
  * network guard in `mode`, and recorded user input. Capture is on unless SHADOWLAP_CAPTURE=off.
  */
 export function guardEnv(mode: GuardMode, base: NodeJS.ProcessEnv = process.env, upstreams: Record<string, string> = {}, http: readonly HttpRule[] = []): Record<string, string> {
@@ -173,7 +173,7 @@ export async function testAttempt(
      * A signal always reaches the agent's whole process group, and the run ends as crashed. Then, with
      * `return`, the attempt returns (`interrupted`) to a caller that winds down by itself (`test`,
      * `bisect`); by default the signal is raised again, which ends this process as it would have ended
-     * without Shadowlap in between.
+     * without shadowlap in between.
      */
     onSignal?: 'return' | 'exit';
     /** The tools `--allow-unrecorded` lets run again though the recording never recorded them and they write. */

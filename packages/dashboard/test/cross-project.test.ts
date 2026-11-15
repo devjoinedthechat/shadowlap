@@ -194,7 +194,7 @@ describe('a link into another project', () => {
     expect(await w.holder('fix', B_REC.toLowerCase().replace('01', 'zz'))).toBeNull();
   });
 
-  it('never looks in a project removed from the list, one whose folder is gone, one with no store, or a newer Shadowlap’s', async () => {
+  it('never looks in a project removed from the list, one whose folder is gone, one with no store, or a newer shadowlap’s', async () => {
     const w = await world();
     const empty = folder(w.home, 'empty-bot');
     w.registry.add(empty);
@@ -208,7 +208,7 @@ describe('a link into another project', () => {
     expect(await w.holder('run', B_REC)).toBeNull();
     renameSync(`${w.research}-moved`, w.research);
     expect(await w.holder('run', SHARED)).toBe(`research-agent ${SHARED}`);
-    // A store a newer Shadowlap wrote holds nothing it can say.
+    // A store a newer shadowlap wrote holds nothing it can say.
     const newer = new DatabaseSync(projectDbPath(w.research));
     newer.exec(`UPDATE meta SET value = '99' WHERE key = 'schema_version'`);
     newer.close();

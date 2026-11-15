@@ -12,7 +12,7 @@ import type { RouteContext } from '../src/context.js';
 import type { GoldenSource } from '../src/tests.js';
 
 /**
- * The goldens' checks as seen (checks-seen.ts): one file in Shadowlap's folder for this machine that
+ * The goldens' checks as seen (checks-seen.ts): one file in shadowlap's folder for this machine that
  * every dashboard writes. Each test's writers share a home on purpose, one of the test's own: the
  * race between them is what is tested, as the suite's shared home raced run-outcome.test.ts's
  * dashboard with other files' now and then.
@@ -60,7 +60,7 @@ afterEach(() => {
 });
 
 const T = 1_760_000_000_000;
-/** A process id no process has: an earlier Shadowlap's lock that names it was left by a process that is gone. */
+/** A process id no process has: an earlier shadowlap's lock that names it was left by a process that is gone. */
 const GONE = 2 ** 22 - 7;
 
 const dirs: string[] = [];
@@ -74,7 +74,7 @@ function temp(name: string): string {
   return dir;
 }
 
-/** A Shadowlap home that the writers a test starts share. */
+/** A shadowlap home that the writers a test starts share. */
 const home = (): NodeJS.ProcessEnv => ({ SHADOWLAP_HOME: temp('home') });
 const fileIn = (env: NodeJS.ProcessEnv) => join(env.SHADOWLAP_HOME!, CHECKS_SEEN_FILE);
 const kept = (env: NodeJS.ProcessEnv) => (JSON.parse(readFileSync(fileIn(env), 'utf8')) as { projects: Record<string, Record<string, SeenChecks>> }).projects;
@@ -140,7 +140,7 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
     const old = (Date.now() - 2 * LOCK_STALE_MS) / 1000;
     utimesSync(lock, old, old);
     expect(keepSeenChecks('/work/b', seen('k2'), env)).toBe(true);
-    // An earlier Shadowlap's, whose process is gone: taken over at once.
+    // An earlier shadowlap's, whose process is gone: taken over at once.
     writeFileSync(lock, String(GONE));
     expect(keepSeenChecks('/work/c', seen('k3'), env)).toBe(true);
     expect(Object.keys(kept(env))).toEqual(['/work/a', '/work/b', '/work/c']);
@@ -214,7 +214,7 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
     expect(dashboard.seenChecks('/work/a', env)).toEqual({ seen: seen('k2', T + 1), current: true });
   });
 
-  it("never writes over a newer Shadowlap's file, keeping what it saw for as long as it runs", () => {
+  it("never writes over a newer shadowlap's file, keeping what it saw for as long as it runs", () => {
     const env = home();
     const newer = `${JSON.stringify({ format: 2, seen: { '/work/a': 'theirs' } })}\n`;
     writeFileSync(fileIn(env), newer);

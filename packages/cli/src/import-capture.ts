@@ -4,7 +4,7 @@ import { identityQuery, providers, withoutHeaderParameters, type Provider } from
 /**
  * Building a recording out of traffic something else captured.
  *
- * Every format Shadowlap imports (HAR, nock, and whatever comes next) is only a parser: it turns
+ * Every format shadowlap imports (HAR, nock, and whatever comes next) is only a parser: it turns
  * its own shape into {@link CapturedCall}s, and this module does the rest identically — provider
  * detection, credential stripping, fingerprinting, occurrences, usage and stop reasons. That is why
  * a new format is an adapter of a few dozen lines rather than a second implementation of the parts
@@ -65,7 +65,7 @@ export interface ImportResult {
   imported: ImportedCall[];
   /**
    * Entries that could not become calls, with the reason: anything the format itself could not
-   * parse, then, in source order, everything Shadowlap would not accept.
+   * parse, then, in source order, everything shadowlap would not accept.
    */
   skipped: Skip[];
 }
@@ -204,7 +204,7 @@ export class ImportWriter {
     return n;
   }
 
-  /** Adds a model API call. One Shadowlap can't replay is skipped, with the reason, and false is returned. */
+  /** Adds a model API call. One shadowlap can't replay is skipped, with the reason, and false is returned. */
   api(c: CapturedCall): boolean {
     let url: URL;
     try {

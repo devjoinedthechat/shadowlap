@@ -148,9 +148,9 @@ describe('the run’s banner', () => {
     expect(bannerFor({ ...base, blame: { callNo: 4, range: { from: 4, to: 6, gradual: true }, scope: 'agent' } })).toMatchObject({ words: 'lost gradually around #4 and #6', why: 'calls #4 and #6 · scope agent' });
   });
 
-  it('says what was not recorded: tools that weren’t wrapped, and hosts reached around Shadowlap', () => {
+  it('says what was not recorded: tools that weren’t wrapped, and hosts reached around shadowlap', () => {
     expect(bannerFor({ ...base, notRecorded: { tools: ['send_sms', 'charge_card'], hosts: [] } })).toEqual({ kind: 'not-recorded', why: '2 tools weren’t wrapped, so their calls aren’t in this recording: send_sms, charge_card. A replay would run them for real.' });
-    expect(bannerFor({ ...base, notRecorded: { tools: [], hosts: [{ target: 'api.stripe.com:443', count: 3, action: 'blocked' }] } })).toMatchObject({ why: '1 host was reached without Shadowlap: api.stripe.com:443 (3×, blocked). A replay would reach it for real.' });
+    expect(bannerFor({ ...base, notRecorded: { tools: [], hosts: [{ target: 'api.stripe.com:443', count: 3, action: 'blocked' }] } })).toMatchObject({ why: '1 host was reached without shadowlap: api.stripe.com:443 (3×, blocked). A replay would reach it for real.' });
   });
 
   it('lists the checks a run passed with their counts, offline for a test', () => {

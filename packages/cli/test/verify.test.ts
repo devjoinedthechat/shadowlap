@@ -252,16 +252,16 @@ describe('shadowlap verify', () => {
     }
   });
 
-  it('never takes a replay that went around Shadowlap for a clean one', async () => {
+  it('never takes a replay that went around shadowlap for a clean one', async () => {
     const { good } = await runs();
-    // The client fixes its base URL, and nothing tells Shadowlap that host is a model server: the
+    // The client fixes its base URL, and nothing tells shadowlap that host is a model server: the
     // agent reaches the model directly, and nothing it does is recorded or served.
     const around = { SHADOWLAP_UPSTREAM_ANTHROPIC: '', SHADOWLAP_CAPTURE: 'off', AGENT_BASE_URL: mock.url };
     const r = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, '--attempts', '1', '--json'], around);
     expect(r.code, r.out).toBe(1);
     const report = JSON.parse(r.stdout) as Json;
     expect(report.runs[0]).toMatchObject({ outcome: 'broken', deterministic: false });
-    expect(report.warnings.join(' ')).toContain('the replay made no calls through Shadowlap');
+    expect(report.warnings.join(' ')).toContain('the replay made no calls through shadowlap');
   });
 
   it('checks the runs it is given before running anything', async () => {

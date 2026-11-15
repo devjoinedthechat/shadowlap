@@ -1,7 +1,7 @@
 import type { GeminiRequest, Script, ScriptContext, ScriptResult, Turn } from './index.js';
 
 /**
- * A scripted judge for Gemini: Shadowlap's judge checks send the judge's instructions as the system
+ * A scripted judge for Gemini: shadowlap's judge checks send the judge's instructions as the system
  * instruction and one user turn that holds a question and, between <material> tags, what the judge
  * reads. `withJudge` answers those with the verdict `decide` gives, as the JSON the request's schema
  * asks for, and hands every other request to the agent's script.

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { batchFile, cmdArgument, passesArgumentsOn, startCommand } from '../src/start-command.js';
 
 /**
- * Commands the user gives Shadowlap to start (an agent, an MCP server) that are batch files on
+ * Commands the user gives shadowlap to start (an agent, an MCP server) that are batch files on
  * Windows: `npm`, `npx`, `pnpm`, an npm bin. Node starts none of them by itself there, so they run
  * through cmd.exe with every argument escaped; what Node starts by itself, and every command on
  * other systems, starts as before. Windows is played here with its paths and a set of files, so this

@@ -50,7 +50,7 @@ export function isGatewayRequest(body: unknown): boolean {
 }
 
 /** Why a change can't be made to a request to Vercel's AI Gateway. */
-export const GATEWAY_UNCHANGED = "it is the AI SDK's own request to Vercel's AI Gateway, which Shadowlap records and replays as it is but doesn't change";
+export const GATEWAY_UNCHANGED = "it is the AI SDK's own request to Vercel's AI Gateway, which shadowlap records and replays as it is but doesn't change";
 
 /** Human names for the shapes, for refusals. */
 export const SHAPE_NAMES: Record<RequestShape, string> = {
@@ -499,7 +499,7 @@ export function formatToolFailure(f: ToolFailure): string {
  * The error a failed tool raises in the agent, as the SDKs receive it. Its wording, and everything
  * else it carries, is what a real failure of that kind says, because the agent often hands an error
  * to the model as the tool's answer (an MCP client passes its data on too), and an error that named
- * Shadowlap would tell the model it is being tested. The recording says what really happened: the
+ * shadowlap would tell the model it is being tested. The recording says what really happened: the
  * call is stored as injected by `--fail-at`, and the SDKs learn it from the answer, not the error.
  */
 export function toolFailureError(tool: string, f: ToolFailure): SerializedError {

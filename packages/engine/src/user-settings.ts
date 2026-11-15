@@ -9,21 +9,21 @@ import { shadowlapHome, shadowlapHomeProblem } from './projects/paths.js';
 
 /**
  * Settings that are a person's own, on this machine, whatever project is open: `settings.json` in
- * Shadowlap's folder for this machine's files (shadowlapHome: SHADOWLAP_HOME, else ~/.shadowlap),
+ * shadowlap's folder for this machine's files (shadowlapHome: SHADOWLAP_HOME, else ~/.shadowlap),
  * beside the project list. Never in shadowlap.config.json, which a repository shares, so CI and
  * teammates never take them on, and nothing in the CLI reads them. Spending (estimates/spending.ts)
  * is kept here: when a billed job asks before it starts.
  *
  * The file is JSON a person can read, written whole in one step and owner-only, one writer at a
- * time (projects/files.ts), with keys it doesn't know kept, so a newer Shadowlap's settings survive
- * an older one's write; one a newer Shadowlap wrote is read, never written over. A file that can't
+ * time (projects/files.ts), with keys it doesn't know kept, so a newer shadowlap's settings survive
+ * an older one's write; one a newer shadowlap wrote is read, never written over. A file that can't
  * be read, or a value it can't hold, leaves the default, and says why.
  */
 
 export const USER_SETTINGS_FILE = 'settings.json';
 export const USER_SETTINGS_VERSION = 1;
 
-/** A setting could not be kept: the folder given is no absolute path, the file is no settings or a newer Shadowlap's, or the value is none it holds. */
+/** A setting could not be kept: the folder given is no absolute path, the file is no settings or a newer shadowlap's, or the value is none it holds. */
 export class UserSettingsError extends Error {
   constructor(message: string) {
     super(message);
@@ -32,7 +32,7 @@ export class UserSettingsError extends Error {
 }
 
 export interface UserSettingsOptions {
-  /** The folder the file lives in, an absolute path; Shadowlap's folder for this machine's files when left out. */
+  /** The folder the file lives in, an absolute path; shadowlap's folder for this machine's files when left out. */
   dir?: string;
   env?: NodeJS.ProcessEnv;
   /** The home folder, where that folder is when SHADOWLAP_HOME names none. */
@@ -58,7 +58,7 @@ export interface SpendingSetting {
  * project list (shadowlapHome), and the problems say so.
  */
 export function userSettingsFile(o: UserSettingsOptions = {}): string {
-  if (o.dir !== undefined && !isAbsolute(o.dir)) throw new UserSettingsError(`${o.dir} isn’t an absolute path, so it names a different folder wherever Shadowlap runs: give the folder for this machine’s settings as an absolute path`);
+  if (o.dir !== undefined && !isAbsolute(o.dir)) throw new UserSettingsError(`${o.dir} isn’t an absolute path, so it names a different folder wherever shadowlap runs: give the folder for this machine’s settings as an absolute path`);
   return join(o.dir ?? shadowlapHome(o.env, o.home), USER_SETTINGS_FILE);
 }
 
@@ -108,7 +108,7 @@ export function readSpending(o: UserSettingsOptions = {}): SpendingSetting {
 
 /**
  * Keeps Spending, and says what it was before, for an Undo to write back. Refused for a value it can't
- * hold, and for a file it would lose something of: one that is no settings, or a newer Shadowlap's.
+ * hold, and for a file it would lose something of: one that is no settings, or a newer shadowlap's.
  */
 export function writeSpending(askAbove: Spending, o: UserSettingsOptions = {}): SpendingSetting & { was: Spending } {
   if (!validSpending(askAbove)) throw new UserSettingsError(`${named(askAbove)} is no threshold: ${SPENDING_REFUSED.toLowerCase()}, or null to never ask`);
@@ -116,7 +116,7 @@ export function writeSpending(askAbove: Spending, o: UserSettingsOptions = {}): 
   return withFileLock(file, o.lockTimeoutMs ?? 5000, () => {
     const { raw, problem } = readRaw(file);
     if (problem) throw new UserSettingsError(`${problem}: fix or remove it, and change Spending again`);
-    if (typeof raw.version === 'number' && raw.version > USER_SETTINGS_VERSION) throw new UserSettingsError(`${file} was written by a newer Shadowlap: update this one to change its settings`);
+    if (typeof raw.version === 'number' && raw.version > USER_SETTINGS_VERSION) throw new UserSettingsError(`${file} was written by a newer shadowlap: update this one to change its settings`);
     const was = spendingOf(raw, file).askAbove;
     const spending = isObject(raw.spending) ? raw.spending : {};
     // Whole cents as written: 0.1 + 0.2 is kept as 0.3.

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 /**
  * Anonymous, opt-out usage telemetry: counts and versions, never content.
  *
- * What is sent: a random install id, the Shadowlap version, OS, architecture, Node version, the
+ * What is sent: a random install id, the shadowlap version, OS, architecture, Node version, the
  * CI system if any, which providers and SDK languages a run used, the event type, and per-run
  * counts (calls by origin, divergence type, tokens not re-spent, duration, exit code).
  * What is never sent: prompts, tool arguments or results, file paths, hostnames, run ids, model
@@ -145,7 +145,7 @@ export class Telemetry {
     this.installId = ciInstallId(this.env) ?? persisted?.installId ?? randomUUID();
     if (this.enabled && persisted && !persisted.noticeShownAt && !detectCi(this.env)) {
       (opts.notice ?? ((line) => process.stderr.write(line + '\n')))(
-        `Shadowlap collects anonymous usage statistics (counts and versions, never prompts or tool data). Disable with SHADOWLAP_TELEMETRY=0. Details: ${TELEMETRY_DOCS_URL}`,
+        `shadowlap collects anonymous usage statistics (counts and versions, never prompts or tool data). Disable with SHADOWLAP_TELEMETRY=0. Details: ${TELEMETRY_DOCS_URL}`,
       );
       savePersisted(dir, { ...persisted, noticeShownAt: Date.now() });
     }

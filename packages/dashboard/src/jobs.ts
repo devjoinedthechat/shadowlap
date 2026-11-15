@@ -344,7 +344,7 @@ function allowedTools(v: unknown): string[] {
 
 /**
  * A job built, its commands that replay a recording (ALLOWS_UNRECORDED) given `--allow-unrecorded`
- * with the tools, before their `--` so the flag is Shadowlap's and not the agent's. Refused where it
+ * with the tools, before their `--` so the flag is shadowlap's and not the agent's. Refused where it
  * runs no such command: it has no tool to allow.
  */
 function allowing(built: JobBuild, tools: readonly string[]): JobBuild {

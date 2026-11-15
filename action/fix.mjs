@@ -1098,7 +1098,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
 }
 
 /**
- * Text safe in the job summary's table, for what Shadowlap counts itself (verify's tally): a stray
+ * Text safe in the job summary's table, for what shadowlap counts itself (verify's tally): a stray
  * pipe escaped, a line break and control characters flattened. A fix's why and a golden's name are
  * plain text that can hold anyone's words (a check's label, a run's message, an error a repair or
  * GitHub gave), so they go in through markdownText, and the repairer's title too.
@@ -1172,7 +1172,7 @@ export function fixSummary(fixes, budget) {
   if (!fixes.length) return '';
   const opened = fixes.filter((f) => f.outcome === 'opened').length;
   const lines = [
-    `### Shadowlap: ${opened ? `${opened} fix pull request${opened === 1 ? '' : 's'} opened` : 'no fix pull request opened'}`,
+    `### shadowlap: ${opened ? `${opened} fix pull request${opened === 1 ? '' : 's'} opened` : 'no fix pull request opened'}`,
     '',
     '| | Golden | Fix | Spent |',
     '|---|---|---|---:|',

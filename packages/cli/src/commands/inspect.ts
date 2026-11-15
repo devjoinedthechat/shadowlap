@@ -72,7 +72,7 @@ export function register(program: Command): void {
       telemetry().record({ type: 'ui' });
       void telemetry().flush();
       const link = runId ? dash.runUrl(runId, flags.call) : dash.openUrl;
-      process.stderr.write(`${p.bold('Shadowlap dashboard')}${flags.readOnly ? p.dim(' (read-only)') : ''}  ${link}\n${p.dim(`  ${dbPath} · the link carries a session token; keep it to yourself · Ctrl-C stops`)}\n`);
+      process.stderr.write(`${p.bold('shadowlap dashboard')}${flags.readOnly ? p.dim(' (read-only)') : ''}  ${link}\n${p.dim(`  ${dbPath} · the link carries a session token; keep it to yourself · Ctrl-C stops`)}\n`);
       if (flags.open && !process.env.CI) {
         if (!(await openInBrowser(link))) process.stderr.write(p.dim('  could not open a browser; open the link above\n'));
       }

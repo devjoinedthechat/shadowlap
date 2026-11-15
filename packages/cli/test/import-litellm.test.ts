@@ -112,13 +112,13 @@ describe('import litellm', () => {
     const groups = readLitellmGroups(file(record({ url: 'http://127.0.0.1:4410/health' })));
     expect(groups[0].calls).toHaveLength(0);
     expect(groups[0].skipped[0].reason).toMatch(/not a route/);
-    expect(() => readLitellmGroups('{"hello":"world"}')).toThrow(/not a Shadowlap capture/);
-    expect(() => readLitellmGroups('')).toThrow(/not a Shadowlap capture/);
+    expect(() => readLitellmGroups('{"hello":"world"}')).toThrow(/not a shadowlap capture/);
+    expect(() => readLitellmGroups('')).toThrow(/not a shadowlap capture/);
     store.close();
   });
 
-  it('reads only Shadowlap captures', () => {
-    expect(() => readLitellmGroups(file(record({ format: 'other-capture' })))).toThrow(/not a Shadowlap capture/);
+  it('reads only shadowlap captures', () => {
+    expect(() => readLitellmGroups(file(record({ format: 'other-capture' })))).toThrow(/not a shadowlap capture/);
   });
 
   it('keeps a streamed response as an event stream, so the agent still parses it', () => {

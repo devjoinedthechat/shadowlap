@@ -10,10 +10,10 @@ import { isLoopbackHost } from '../src/loopback.js';
 
 /**
  * The registry that lets `shadowlap mcp`, started by an MCP client with a minimal environment, find
- * the run of the agent Shadowlap started: one file per agent, named by its process id.
+ * the run of the agent shadowlap started: one file per agent, named by its process id.
  */
 const posix = process.platform !== 'win32';
-/** Shadowlap's home folder, as the registry takes it (`~/.shadowlap`, or SHADOWLAP_HOME): the test's own. */
+/** shadowlap's home folder, as the registry takes it (`~/.shadowlap`, or SHADOWLAP_HOME): the test's own. */
 let home: string;
 let project: string;
 const children: ChildProcessWithoutNullStreams[] = [];
@@ -63,7 +63,7 @@ const said = (child: ChildProcessWithoutNullStreams, line: string) =>
   });
 const exited = (child: ChildProcessWithoutNullStreams) => new Promise<number | null>((resolve) => (child.exitCode !== null ? resolve(child.exitCode) : child.once('exit', (c) => resolve(c))));
 
-/** A process tree: a proxy, the agent Shadowlap started (pid 4242), and the CLI that started it. */
+/** A process tree: a proxy, the agent shadowlap started (pid 4242), and the CLI that started it. */
 const tree = (agentParent = process.pid): ProcessInfo[] => [
   { pid: 7001, ppid: 4242, args: 'node shadowlap.js mcp --url https://mcp.example.com/mcp' },
   { pid: 4242, ppid: agentParent, args: 'python agent.py' },
@@ -71,7 +71,7 @@ const tree = (agentParent = process.pid): ProcessInfo[] => [
 ];
 
 describe('the agent registry', () => {
-  it("writes an owner-only file per agent in Shadowlap's home folder, and removes it when asked", () => {
+  it("writes an owner-only file per agent in shadowlap's home folder, and removes it when asked", () => {
     const { file, unregister } = registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, { cwd: project, home });
     expect(file).toBe(join(home, 'agents', '4242.json'));
     expect(JSON.parse(readFileSync(file!, 'utf8'))).toEqual({ v: 1, pid: 4242, parent: process.pid, url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' });
@@ -83,7 +83,7 @@ describe('the agent registry', () => {
     expect(existsSync(file!)).toBe(false);
   });
 
-  it("falls back to the project's folder when Shadowlap's home folder can't be used, and prunes files of agents that are gone", () => {
+  it("falls back to the project's folder when shadowlap's home folder can't be used, and prunes files of agents that are gone", () => {
     writeFileSync(join(home, 'agents'), 'not a folder');
     const dead = join(project, '.shadowlap', 'agents', `${2 ** 22 - 7}.json`);
     mkdirSync(join(project, '.shadowlap', 'agents'), { recursive: true, mode: 0o700 });
@@ -146,7 +146,7 @@ describe('the agent registry', () => {
     expect(JSON.parse(readFileSync(left, 'utf8'))).toMatchObject({ pid: gone, runId: '01NEW' });
   });
 
-  it('finds the nearest registered ancestor, and checks that it is the one Shadowlap started', () => {
+  it('finds the nearest registered ancestor, and checks that it is the one shadowlap started', () => {
     registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, { cwd: project, home });
     const dirs = [{ dir: join(home, 'agents'), strict: true }];
     expect(findRegistration(tree(), dirs)).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, from: join(dirs[0].dir, '4242.json') });
@@ -169,7 +169,7 @@ describe('the agent registry', () => {
     write({ v: 1, pid: 4242, parent: process.pid, url: 'https://collector.example/t/x', runId: 'r' });
     expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('not this machine') });
     write({ v: 1, pid: 4243, parent: process.pid, url: 'http://127.0.0.1:1/t/x', runId: 'r' });
-    expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('not a registration Shadowlap wrote') });
+    expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('not a registration shadowlap wrote') });
     if (posix) {
       write({ v: 1, pid: 4242, parent: process.pid, url: 'http://127.0.0.1:1/t/x', runId: 'r' }, 0o644);
       expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('can be read by other users') });
@@ -199,10 +199,10 @@ describe('the agent registry', () => {
     expect(skipped.at(-1)).toMatch(/not this machine; ignoring it/);
   });
 
-  it('refuses rather than passes through when a Shadowlap command is an ancestor but no run turns up', async () => {
+  it('refuses rather than passes through when a shadowlap command is an ancestor but no run turns up', async () => {
     const chain = tree();
     expect(await lookupRegistration({ agentCommands: commands, cwd: project, home, chain, waitMs: 150 })).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('no run is registered for it') });
-    // Under anything else, the proxy is simply not under Shadowlap.
+    // Under anything else, the proxy is simply not under shadowlap.
     const plain = chain.map((p) => ({ ...p, args: 'python agent.py' }));
     expect(await lookupRegistration({ agentCommands: commands, cwd: project, home, chain: plain, waitMs: 150 })).toEqual({ kind: 'none' });
     // A registration that appears while it waits is taken: the CLI writes it as soon as the agent starts.
@@ -282,7 +282,7 @@ describe('the agent registry', () => {
     expect(parentFromProcStat('garbage')).toBeNull();
   });
 
-  it('knows a Shadowlap command that starts agents by its command line', () => {
+  it('knows a shadowlap command that starts agents by its command line', () => {
     expect(startsAgents('node /opt/shadowlap/packages/cli/bin/shadowlap.js --db /x/store.db replay 01ABC --repeat 2', commands)).toBe(true);
     expect(startsAgents('shadowlap -v test goldens/*', commands)).toBe(true);
     expect(startsAgents('/usr/local/bin/shadowlap blame 01ABC --expect {}', commands)).toBe(true);
@@ -303,7 +303,7 @@ describe('the agent registry', () => {
     expect(startsAgents(`node /opt/shadowlap/bin/shadowlap.js --db ${store} run -- node agent.js`, commands)).toBe(true);
     expect(startsAgents(`/usr/local/bin/shadowlap --db=${store} test goldens/*`, commands)).toBe(true);
     expect(startsAgents('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\maya\\AppData\\Roaming\\npm\\node_modules\\shadowlap\\bin\\shadowlap.js" --db "C:\\Users\\maya\\My Documents\\store.db" replay 01ABC', commands)).toBe(true);
-    // An agent's own command after `--` is the agent's, not Shadowlap's.
+    // An agent's own command after `--` is the agent's, not shadowlap's.
     expect(startsAgents(`shadowlap --db ${store} ui -- run`, commands)).toBe(false);
   });
 

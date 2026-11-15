@@ -1,4 +1,4 @@
-# Shadowlap recordings (prompts, tool I/O) never belong in git; share via `shadowlap pack`
+# shadowlap recordings (prompts, tool I/O) never belong in git; share via `shadowlap pack`
 .shadowlap/
 
 # Node

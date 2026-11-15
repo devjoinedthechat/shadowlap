@@ -232,7 +232,7 @@ export class ToolCalls {
       r = await post<ResolveResponse>(sidecar, '/v1/calls/resolve', { kind: 'tool', name, effect, args, ...(known ? { implHash: known.implHash } : {}), ...(this.untrusted(name) ? { trust: 'untrusted' } : {}), mcp: mcp.meta });
       mcp.sent();
     } catch (err) {
-      return this.unrecorded(m, name, effect, `Shadowlap's sidecar could not be asked (${messageOf(err)})`);
+      return this.unrecorded(m, name, effect, `shadowlap's sidecar could not be asked (${messageOf(err)})`);
     }
     switch (r.origin) {
       case 'replayed':
@@ -261,7 +261,7 @@ export class ToolCalls {
   private unrecorded(m: JsonRpcMessage & { id: JsonRpcId }, name: string, effect: Effect, why: string): { answer: unknown } | { forward: true } {
     if (effect === 'write') {
       this.log?.(`refused ${name}, a write: ${why}`);
-      return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `shadowlap: ${name} was not sent. It is a write, and it can't be recorded: ${why}. A write is never sent unrecorded under Shadowlap, since this may be a replay.` }], isError: true } } };
+      return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `shadowlap: ${name} was not sent. It is a write, and it can't be recorded: ${why}. A write is never sent unrecorded under shadowlap, since this may be a replay.` }], isError: true } } };
     }
     if (!this.warned.has(why)) {
       this.warned.add(why);
@@ -304,8 +304,8 @@ function rpcError(e: SerializedError): JsonRpcError {
 }
 
 /**
- * What a proxy records with: a sidecar; null, when nothing says Shadowlap is there (the proxy is
- * transparent); or the reason it can't record although it was started under Shadowlap (writes are
+ * What a proxy records with: a sidecar; null, when nothing says shadowlap is there (the proxy is
+ * transparent); or the reason it can't record although it was started under shadowlap (writes are
  * refused, everything else passes unrecorded).
  */
 export type ProxySidecar = SidecarTarget | { unusable: string } | null;

@@ -255,7 +255,7 @@ const DECLARE_SUB: Readonly<Record<'read' | 'write', string>> = {
 };
 
 /**
- * The tools the agent runs without Shadowlap recording them, as `tools.unrecorded` declares them:
+ * The tools the agent runs without shadowlap recording them, as `tools.unrecorded` declares them:
  * each with what it does and the other declaration, and a field to declare another one a read by
  * the name the model called it, as a run's page names it. A replay serves the model's answers
  * again, so it runs such a tool again for real: it runs one declared a read, and refuses one that

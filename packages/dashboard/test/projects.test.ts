@@ -88,7 +88,7 @@ describe('projectSwitcher', () => {
       stats: {
         // Finished, its runs since deleted: the setup shows again.
         agent: { runs: 0, attempts: 0, goldens: 0, settingUp: true },
-        newer: { runs: 0, attempts: 0, goldens: 0, settingUp: false, unreadable: 'it was written by a newer Shadowlap' },
+        newer: { runs: 0, attempts: 0, goldens: 0, settingUp: false, unreadable: 'it was written by a newer shadowlap' },
         'Übung': { runs: 0, attempts: 0, goldens: 0, settingUp: true },
       },
       home: HOME,
@@ -98,7 +98,7 @@ describe('projectSwitcher', () => {
       ['newer', 'store can’t be read', false, true],
       ['Übung', 'setting up', true, false],
     ]);
-    expect(v.items[1].why).toBe('it was written by a newer Shadowlap');
+    expect(v.items[1].why).toBe('it was written by a newer shadowlap');
     // A name macOS keeps decomposed gets its letter whole on the badge.
     expect(projectSwitcher({ projects: [{ ...entry('ubung'), name: 'U\u0308bung' }], current: 'ubung', stats: {}, home: HOME }).current.initial).toBe('Ü');
   });
@@ -239,12 +239,12 @@ describe('setupView', () => {
     const old = view(entry('triage-bot', { stage: 'inspected', findings: node('18.17') }), facts());
     expect(old.inspect.findings!.rows[0]).toMatchObject({ label: 'Language', value: 'Node 18.17 · npm' });
     expect(old.inspect.node).toEqual({
-      title: 'Node 18.17 is too old for Shadowlap’s guard.',
-      text: '.nvmrc pins it, and an agent on a Node before 18.18 never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin 18.18 or later to record.',
+      title: 'Node 18.17 is too old for shadowlap’s guard.',
+      text: '.nvmrc pins it, and an agent on a Node before 18.18 never starts under shadowlap: that Node refuses the guard shadowlap loads into it. Pin 18.18 or later to record.',
       // It holds Record, so its Check again leads.
       recheck: { label: 'Check again', action: 'recheck', lime: true },
     });
-    expect(old.record).toMatchObject({ text: 'Waits for a Node pin of 18.18 or later: .nvmrc pins 18.17, where the agent wouldn’t start under Shadowlap.', command: { enabled: false }, button: { label: 'Record run', enabled: false } });
+    expect(old.record).toMatchObject({ text: 'Waits for a Node pin of 18.18 or later: .nvmrc pins 18.17, where the agent wouldn’t start under shadowlap.', command: { enabled: false }, button: { label: 'Record run', enabled: false } });
     // Raised, or a major alone (its newest release), or none at all: nothing to flag, and Record is on.
     for (const pin of ['18.18', '18', '22']) {
       const ok = view(entry('triage-bot', { stage: 'inspected', findings: node(pin) }), facts());
@@ -478,7 +478,7 @@ describe('setupView', () => {
     const v = view(entry('research-agent', { stage: 'inspected', findings: findings(), runId: typo.runId, command: ['nod', 'agent.mjs'] }), facts({ runs: 1, recordings: [typo] }));
     expect(v.title).toBe('Set up research-agent');
     expect(v.record).toMatchObject({ state: 'current', recorded: null, command: { value: 'nod agent.mjs', enabled: true }, button: { label: 'Record run', enabled: true } });
-    expect(v.record.empty).toEqual({ runId: typo.runId, href: `#/run/${typo.runId}`, text: '01M4ZKQKEF holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.' });
+    expect(v.record.empty).toEqual({ runId: typo.runId, href: `#/run/${typo.runId}`, text: '01M4ZKQKEF holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached shadowlap. Check the command and record again.' });
     expect(v.skip).toBeNull();
     // An earlier recording stays the setup's, and the empty one is still pointed out.
     const kept = view(entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN }), facts({ runs: 2, recordings: [typo, run()] }));

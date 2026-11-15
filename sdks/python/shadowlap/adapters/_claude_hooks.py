@@ -444,7 +444,7 @@ def _component_pre_tool_use(files: Mapping[str, list[str]]) -> list[dict[str, An
         if hooks is None and "hooks" not in keys:
             return
         if hooks is UNREADABLE:
-            out.append({"source": f"{path}, whose hooks Shadowlap could not read", "matcher": None, **({"agent": own} if own is not None else {})})
+            out.append({"source": f"{path}, whose hooks shadowlap could not read", "matcher": None, **({"agent": own} if own is not None else {})})
         else:
             out.extend(_pre_tool_use({"hooks": hooks}, path, own))
 
@@ -457,7 +457,7 @@ def _component_pre_tool_use(files: Mapping[str, list[str]]) -> list[dict[str, An
         try:
             data = json.loads(text or "")
         except ValueError:
-            out.append({"source": f"{path}, which Shadowlap could not read", "matcher": None})
+            out.append({"source": f"{path}, which shadowlap could not read", "matcher": None})
             continue
         out.extend(_pre_tool_use(data, path))
     return out

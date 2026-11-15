@@ -1,12 +1,12 @@
-"""What the Claude Code CLI the Claude Agent SDK runs can connect to that Shadowlap's network guard
+"""What the Claude Code CLI the Claude Agent SDK runs can connect to that shadowlap's network guard
 doesn't watch. The CLI is a native program, so no preload loads into it. Its model calls come through
-Shadowlap (ANTHROPIC_BASE_URL), and so does WebSearch, a search the model API runs; the rest is the
+shadowlap (ANTHROPIC_BASE_URL), and so does WebSearch, a search the model API runs; the rest is the
 query's to decide, and the files Claude Code reads its MCP servers from, as Claude Code's documentation
-lists them: the model API itself when the CLI's ANTHROPIC_BASE_URL isn't Shadowlap's (or it runs on
+lists them: the model API itself when the CLI's ANTHROPIC_BASE_URL isn't shadowlap's (or it runs on
 Amazon Bedrock, Vertex AI or Microsoft Foundry); WebFetch, unless disallowed; an MCP server over the
 network, in the query's options or, unless ``strict_mcp_config``, the files Claude Code reads servers
 from; the claude.ai connectors a claude.ai login brings; and its nonessential traffic, unless
-CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set, which with_fence does under Shadowlap. Each is a few
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set, which with_fence does under shadowlap. Each is a few
 words the run's summary lists; none left, and the run passes ``--guard block``. The twin of
 claude-reach.ts in @shadowlap/adapters, held to the same cases."""
 
@@ -57,13 +57,13 @@ def program_of(command: str) -> Optional[str]:
 
 def watched_program(program: str) -> bool:
     """A program whose own connections the guard watches when the Claude Code CLI starts it: Python,
-    which loads Shadowlap's preload from the PYTHONPATH the CLI passes on. The CLI passes no
+    which loads shadowlap's preload from the PYTHONPATH the CLI passes on. The CLI passes no
     NODE_OPTIONS, so a Node program it starts (node, npx) loads no preload, and a native one never does."""
     return re.match(r"^(python[0-9.]*|py)(\.exe)?$", program, re.IGNORECASE) is not None
 
 
 def _shadowlap_mcp(command: str, args: Any) -> bool:
-    """A stdio server that is Shadowlap's own MCP proxy, which records and fences what it reaches."""
+    """A stdio server that is shadowlap's own MCP proxy, which records and fences what it reaches."""
     words = [*command.strip().split(), *(a for a in (args if isinstance(args, list) else []) if isinstance(a, str))]
     program = program_of(command)
     if program is not None and re.match(r"^shadowlap(\.cmd)?$", program):
@@ -79,7 +79,7 @@ def unwatched_servers(servers: Any) -> list[tuple[str, str]]:
     """The servers of an MCP config (``{name: config}``) whose connections the guard can't watch, as
     ``(name, type)``: one over the network (``http``, ``sse``, any type but ``stdio`` and the SDK's
     in-process ``sdk``), and a ``stdio`` one unless it is Python, which loads the preload, or
-    Shadowlap's own MCP proxy. One with neither a command nor a URL connects nowhere. A stdio server's
+    shadowlap's own MCP proxy. One with neither a command nor a URL connects nowhere. A stdio server's
     type says its program: ``stdio, npx``."""
     if not isinstance(servers, dict):
         return []
@@ -120,10 +120,10 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
     """The CLI's reach, as the summary lists it: each path in a few words. ``query`` holds the options
     (``tools``, ``disallowed_tools``, ``mcp_servers``, ``strict_mcp_config``, ``agents``, ``extra_args``,
     ``plugins``), ``places`` where Claude Code reads its settings, ``cli_env`` the environment the CLI
-    runs with, and ``shadowlap_base`` the ANTHROPIC_BASE_URL Shadowlap gave the agent."""
+    runs with, and ``shadowlap_base`` the ANTHROPIC_BASE_URL shadowlap gave the agent."""
     r = _Reach(query, places, cli_env)
     provider = _model_api(r, shadowlap_base)
-    # WebFetch fetches each page itself; WebSearch's search is a model call, through Shadowlap.
+    # WebFetch fetches each page itself; WebSearch's search is a model call, through shadowlap.
     disallowed = query.get("disallowed_tools") or []
     tools = query.get("tools")
     if "WebFetch" not in disallowed and (not isinstance(tools, list) or "WebFetch" in tools):
@@ -185,7 +185,7 @@ class _Reach:
             self.out.append(f"the MCP server {_quote(name)} ({kind}{', ' + where if where else ''})")
 
     def unreadable(self, what: str) -> None:
-        self.out.append(f"{what}, which Shadowlap could not read")
+        self.out.append(f"{what}, which shadowlap could not read")
 
     def config_servers(self, given: Any, what: str, where: str = "") -> None:
         """The servers of an MCP config (mcp_config), or that ``what`` could not be read."""
@@ -215,7 +215,7 @@ class _Reach:
 
 
 def _model_api(r: _Reach, shadowlap_base: Optional[str]) -> Optional[str]:
-    """The model API: Shadowlap's, unless the CLI's environment sends it elsewhere. Returns the cloud platform it runs on, if one."""
+    """The model API: shadowlap's, unless the CLI's environment sends it elsewhere. Returns the cloud platform it runs on, if one."""
     env = r.cli_env
     provider = next((label for var, label in (("CLAUDE_CODE_USE_BEDROCK", "Amazon Bedrock"), ("CLAUDE_CODE_USE_VERTEX", "Vertex AI"), ("CLAUDE_CODE_USE_FOUNDRY", "Microsoft Foundry")) if _on(env.get(var))), None)
     if provider:
@@ -228,7 +228,7 @@ def _model_api(r: _Reach, shadowlap_base: Optional[str]) -> Optional[str]:
                 host = urlsplit(base_url).netloc or "another host"
             except ValueError:
                 host = "another host"
-        r.out.append(f"the model API at {host[:60]}, past Shadowlap's ANTHROPIC_BASE_URL")
+        r.out.append(f"the model API at {host[:60]}, past shadowlap's ANTHROPIC_BASE_URL")
     return provider
 
 

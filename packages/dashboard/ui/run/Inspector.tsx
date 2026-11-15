@@ -62,7 +62,7 @@ export interface InspectorProps {
   /** The turn this fork changed, the call the change was first sent at, and what changed it (a test's replay says so). */
   change: { turn: number; firstAt: number; by?: 'fork' | 'replay' } | null;
   live: boolean;
-  /** The flag that made the fork, as the run names it (`--fail-at 19=529`), for a call Shadowlap answered. */
+  /** The flag that made the fork, as the run names it (`--fail-at 19=529`), for a call shadowlap answered. */
   flag?: string | null;
   /** Selects another call: a tool call's Conversation tab leads to the model call of its own conversation. */
   onSelect?: (n: number) => void;
@@ -172,11 +172,11 @@ function ConversationTab({ detail, calls, change, flag, played, onSelect }: { de
 }
 
 /** A failed model call's words in each place, by who answered it. */
-const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { injected: ' · written by Shadowlap, nothing sent', offline: ' · refused offline', provider: ' · from the provider' };
+const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { injected: ' · written by shadowlap, nothing sent', offline: ' · refused offline', provider: ' · from the provider' };
 const OUTCOME_BY: Readonly<Record<FailedBy, string>> = { injected: 'by --fail-at, never sent', offline: 'refused offline', provider: 'from the provider' };
-const LATENCY_BY: Readonly<Record<FailedBy, string>> = { injected: 'answered by Shadowlap', offline: 'refused by the replay', provider: 'answered by the provider' };
+const LATENCY_BY: Readonly<Record<FailedBy, string>> = { injected: 'answered by shadowlap', offline: 'refused by the replay', provider: 'answered by the provider' };
 
-/** Who answered a model call that failed: Shadowlap's --fail-at (never sent), an offline replay (refused), or the provider; null for any other call. */
+/** Who answered a model call that failed: shadowlap's --fail-at (never sent), an offline replay (refused), or the provider; null for any other call. */
 function answeredBy(c: CallDetail['call']): FailedBy | null {
   return c.kind !== 'api' || c.outcome !== 'error' ? null : failedBy(c);
 }
@@ -418,7 +418,7 @@ function originRows(c: CallDetail['call'], flag: string | null, played: string |
         <small>
           {pre || (
             <>
-              answered by Shadowlap with <Code>--fail-at</Code>
+              answered by shadowlap with <Code>--fail-at</Code>
             </>
           )}
         </small>

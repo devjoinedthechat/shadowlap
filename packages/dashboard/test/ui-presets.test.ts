@@ -23,7 +23,7 @@ import type { ChaosMatrix, LineageNode, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
- * An error-path preset's attempt is a fork whose failure Shadowlap injected, so its run alone reads
+ * An error-path preset's attempt is a fork whose failure shadowlap injected, so its run alone reads
  * as a healthy fork: its page takes the preset and its verdict from the presets of the session that
  * decided it (`/api/chaos/runs/:id`), for its banner, its status chip and its header's red line, and
  * its family's tree from the lineage, which carries each attempt's verdict. Tests says how a golden's

@@ -76,7 +76,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const refused = refusal(env.GITHUB_EVENT_NAME);
   if (refused) fail(refused);
   const cli = env.SHADOWLAP_CLI;
-  if (!cli || !existsSync(cli)) fail(`the Shadowlap CLI was not found at ${cli ?? '(unset)'}`);
+  if (!cli || !existsSync(cli)) fail(`the shadowlap CLI was not found at ${cli ?? '(unset)'}`);
   const workdir = resolve(input('WORKING_DIRECTORY', '.') || '.');
   const writes = input('WRITES', 'block');
   if (!['block', 'stub', 'allow'].includes(writes)) fail(`input writes must be block, stub or allow, not "${writes}"`);

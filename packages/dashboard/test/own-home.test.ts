@@ -7,7 +7,7 @@ import { CHECKS_SEEN_FILE, keepSeenChecks } from '../src/checks-seen.js';
 /**
  * In a run of the tests started at the repository's root, in this package's folder
  * (cd packages/dashboard && npx vitest run test/<file>) or in this one, what the dashboard keeps for
- * this machine goes in the test file's own Shadowlap home, a temporary folder. Never in the real
+ * this machine goes in the test file's own shadowlap home, a temporary folder. Never in the real
  * ~/.shadowlap. testing/distribution/test/home-guard.test.ts starts runs of this file in both
  * folders, with HOME a stand-in for the real home folder, which SHADOWLAP_STAND_IN_HOME names.
  */
@@ -23,7 +23,7 @@ const inside = (path: string, folder: string) => {
 const standIn = process.env.SHADOWLAP_STAND_IN_HOME;
 
 describe("the dashboard's files for this machine, in a run of the tests", () => {
-  it("go in the test file's own Shadowlap home, a temporary folder", () => {
+  it("go in the test file's own shadowlap home, a temporary folder", () => {
     const home = process.env.SHADOWLAP_HOME ?? '';
     expect(isAbsolute(home), `SHADOWLAP_HOME is ${home || 'unset'}`).toBe(true);
     expect(inside(realpathSync.native(home), realpathSync.native(tmpdir())), home).toBe(true);

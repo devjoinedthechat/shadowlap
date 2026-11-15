@@ -1,6 +1,6 @@
 """A Pydantic AI agent on a model named by string, as a user writes it: Agent("openai:gpt-5") builds
 Pydantic AI's OpenAI model on the OpenAI SDK's client, which calls the Responses API. Nothing here
-names Shadowlap's address: under shadowlap run the client reads OPENAI_BASE_URL. Tools are
+names shadowlap's address: under shadowlap run the client reads OPENAI_BASE_URL. Tools are
 registered with @agent.tool_plain over shadowlap.tool. QUERY is the user's request. Prints a JSON
 summary, with each tool's result as the model read it."""
 

@@ -105,7 +105,7 @@ describe("a secret a program takes by a word's place", () => {
     expect(credentialFreeArgv(['yarn', 'config', 'set', 'npmAuthToken', T])).toEqual(['yarn', 'config', 'set', 'npmAuthToken', C]);
     expect(credentialFreeArgv(['kubectl', 'config', 'set', 'users.admin.token', T])).toEqual(['kubectl', 'config', 'set', 'users.admin.token', C]);
     // An access key's id names the key pair, as a user names a user: kept, its secret masked.
-    for (const argv of [['aws', 'configure', 'set', 'aws_access_key_id', AWS_ID], ['aws', 'configure', 'set', 'region', 'us-east-1'], ['npm', 'config', 'set', 'registry', 'https://registry.example.com/'], ['git', 'config', 'set', 'user.name', 'Shadowlap demo'], ['aws', 'configure', 'get', 'aws_secret_access_key']]) expect(credentialFreeArgv(argv), argv.join(' ')).toBe(argv);
+    for (const argv of [['aws', 'configure', 'set', 'aws_access_key_id', AWS_ID], ['aws', 'configure', 'set', 'region', 'us-east-1'], ['npm', 'config', 'set', 'registry', 'https://registry.example.com/'], ['git', 'config', 'set', 'user.name', 'shadowlap demo'], ['aws', 'configure', 'get', 'aws_secret_access_key']]) expect(credentialFreeArgv(argv), argv.join(' ')).toBe(argv);
   });
 
   it("masks mc's secret key and a user's password, vault's token and unseal key, and every value vault kv put writes", () => {
@@ -187,7 +187,7 @@ describe('a command line with no credential', () => {
       ['cmd', '/c', 'npm run agent'],
       ['pwsh', '-Command', 'Get-ChildItem; node agent.js'],
       ['python', '-c', 'import agent; agent.main(retries=3)'],
-      ['git', '-c', 'user.name=Shadowlap demo', '-c', 'core.autocrlf=false', 'commit', '-m', 'fix: escalate refunds'],
+      ['git', '-c', 'user.name=shadowlap demo', '-c', 'core.autocrlf=false', 'commit', '-m', 'fix: escalate refunds'],
       ['curl', '-sS', '-H', 'Accept: application/json', '-d', 'q=refund&page=2', 'https://api.example.com/search?q=refund'],
       ['ssh', '-p', '2222', 'deploy@host', 'cd /srv/app && ./deploy.sh --env=staging'],
     ];

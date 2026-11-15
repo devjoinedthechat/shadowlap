@@ -140,7 +140,7 @@ export interface UnrecordedWrite {
 
 /**
  * Sets `tools.unrecorded.<tool>` to `effect`, as `shadowlap.config.json` declares what a tool the
- * agent runs without Shadowlap recording it does, or takes the tool's key out (null), `unrecorded`
+ * agent runs without shadowlap recording it does, or takes the tool's key out (null), `unrecorded`
  * and `tools` with it when nothing is left: how an Undo puts back a file that declared none.
  * `expect` is the version the page read (ConfigConflictError when the file is no longer that). The
  * rest of `tools`, its trust marks included, stays as it was; the whole is checked as a recording

@@ -246,7 +246,7 @@ describe('shadowlap blame', () => {
     expect(err.error.message).toContain(`shadowlap calibrate ${runId.slice(0, 10)}`);
   });
 
-  it('refuses a run whose replay goes around Shadowlap', async () => {
+  it('refuses a run whose replay goes around shadowlap', async () => {
     const runId = await record();
     const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: '', SHADOWLAP_CAPTURE: 'off', AGENT_BASE_URL: mock.url });
     expect(r.code).toBe(1);

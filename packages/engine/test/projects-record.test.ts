@@ -78,7 +78,7 @@ describe('parseAgentCommand', () => {
   it('drops a pasted shadowlap run --, and refuses a shadowlap command', () => {
     expect(argv('shadowlap run -- node triage.mjs')).toEqual(['node', 'triage.mjs']);
     expect(argv('npx shadowlap run -- pnpm start')).toEqual(['pnpm', 'start']);
-    expect(argv('shadowlap replay 01K5CQ')).toBe('Give the command that starts your agent: Shadowlap runs it with shadowlap run.');
+    expect(argv('shadowlap replay 01K5CQ')).toBe('Give the command that starts your agent: shadowlap runs it with shadowlap run.');
     expect(argv('shadowlap run --')).toBe('Give the command that starts your agent.');
   });
 
@@ -241,7 +241,7 @@ describe('goldenPath', () => {
     try {
       mkdirSync(join(folder, 'goldens', 'agent'), { recursive: true });
       writeFileSync(join(folder, 'goldens', 'agent', 'run.json'), JSON.stringify({ format: 'shadowlap-pack', version: 1, runs: [{ runId: 'OLD' }] }));
-      expect(goldenPath('goldens/agent', { folder })).toEqual({ ok: false, taken: true, error: 'goldens/agent already holds a golden. Give this one another name: Shadowlap never packs over a golden.' });
+      expect(goldenPath('goldens/agent', { folder })).toEqual({ ok: false, taken: true, error: 'goldens/agent already holds a golden. Give this one another name: shadowlap never packs over a golden.' });
       expect(goldenPath('goldens/agent', { folder, runId: 'NEW' })).toMatchObject({ ok: false, taken: true });
       // The same run packed again (its test failed, and it is packed once more) is fine.
       expect(goldenPath('goldens/agent', { folder, runId: 'OLD' })).toEqual({ ok: true, path: 'goldens/agent' });
@@ -249,7 +249,7 @@ describe('goldenPath', () => {
       writeFileSync(join(folder, 'goldens', 'notes', 'README.md'), 'notes');
       expect(goldenPath('goldens/notes', { folder })).toEqual({ ok: false, taken: true, error: 'goldens/notes isn’t empty. Give the golden a folder of its own.' });
       writeFileSync(join(folder, 'goldens', 'file'), 'x');
-      expect(goldenPath('goldens/file', { folder })).toMatchObject({ ok: false, taken: true, error: 'goldens/file is a file, so Shadowlap won’t pack there.' });
+      expect(goldenPath('goldens/file', { folder })).toMatchObject({ ok: false, taken: true, error: 'goldens/file is a file, so shadowlap won’t pack there.' });
       mkdirSync(join(folder, 'goldens', 'empty'));
       expect(goldenPath('goldens/empty', { folder })).toEqual({ ok: true, path: 'goldens/empty' });
 
@@ -272,7 +272,7 @@ describe('goldenPath', () => {
       expect(goldenPath('goldens/first-run', { folder })).toEqual({ ok: true, path: 'goldens/first-run' });
       mkdirSync(join(folder, 'goldens'));
       symlinkSync(outside, join(folder, 'goldens', 'linked'));
-      expect(goldenPath('goldens/linked/x', { folder })).toEqual({ ok: false, error: 'goldens/linked leads out of the project, so Shadowlap won’t pack there.' });
+      expect(goldenPath('goldens/linked/x', { folder })).toEqual({ ok: false, error: 'goldens/linked leads out of the project, so shadowlap won’t pack there.' });
       // A link that stays inside the project is fine.
       mkdirSync(join(folder, 'packs'));
       symlinkSync(join(folder, 'packs'), join(folder, 'goldens', 'inside'));
@@ -280,7 +280,7 @@ describe('goldenPath', () => {
       expect(goldenPath('goldens/x', { folder: join(folder, 'gone') })).toMatchObject({ ok: false });
       // A link to nowhere could point anywhere by the time pack runs.
       symlinkSync(join(outside, 'not-yet'), join(folder, 'goldens', 'dangling'));
-      expect(goldenPath('goldens/dangling', { folder })).toEqual({ ok: false, error: 'goldens/dangling is a link to nowhere, so Shadowlap won’t pack there.' });
+      expect(goldenPath('goldens/dangling', { folder })).toEqual({ ok: false, error: 'goldens/dangling is a link to nowhere, so shadowlap won’t pack there.' });
     } finally {
       rmSync(folder, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });

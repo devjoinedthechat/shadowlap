@@ -232,7 +232,7 @@ describe('a when rule through shadowlap test', () => {
     const md = readFileSync(join(work, 'judged.md'), 'utf8');
     expect(md).toContain('- 🟡 judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline');
     expect(md).toContain('Inconclusive means a check could not be decided');
-    expect(md).toContain('### Shadowlap: 0 of 1 golden passed · 1 inconclusive');
+    expect(md).toContain('### shadowlap: 0 of 1 golden passed · 1 inconclusive');
     expect(md).toContain('| 🟡 | `escalated` | check inconclusive: judge "explains-escalation" answers yes');
   }, 60_000);
 });

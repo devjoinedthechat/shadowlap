@@ -36,7 +36,7 @@ export interface SidecarOptions {
   /** Per-provider upstream overrides, e.g. `{ anthropic: 'http://127.0.0.1:9999' }` for a mock. */
   upstreams?: Record<string, string>;
   /**
-   * A provider's SDK base URL from before Shadowlap that is no root with the provider's SDK path
+   * A provider's SDK base URL from before shadowlap that is no root with the provider's SDK path
    * under it (`OPENAI_BASE_URL=https://models.github.ai/inference`). While it is also that provider's
    * upstream, a request is forwarded under it without the SDK path the agent's base URL adds:
    * `/v1/chat/completions` goes to `<base>/chat/completions`. Calls keep their names (`POST
@@ -184,7 +184,7 @@ export class SidecarCore {
 
   /**
    * The scope a call is made in (scopeOf), and whether it is a judge's. A scope under `shadowlap:`
-   * is Shadowlap's own: only a judge's model call may have one, `shadowlap:judge`, with this
+   * is shadowlap's own: only a judge's model call may have one, `shadowlap:judge`, with this
    * process's judge token, so an agent's call can never be left out of the replay's strictness. A
    * run opened for its judge alone (openForJudge) takes no other call.
    */
@@ -197,7 +197,7 @@ export class SidecarCore {
     const sent = headerValue(req, 'x-shadowlap-judge');
     const token = Buffer.from(this.judgeToken);
     const own = kind === 'api' && scope === JUDGE_SCOPE && sent !== undefined && Buffer.byteLength(sent) === token.length && timingSafeEqual(Buffer.from(sent), token);
-    if (!own) throw new HttpError(400, `the scope "${scope}" is reserved for Shadowlap's own calls; give the agent's scope another name`);
+    if (!own) throw new HttpError(400, `the scope "${scope}" is reserved for shadowlap's own calls; give the agent's scope another name`);
     const check = decodeHeader(headerValue(req, 'x-shadowlap-judge-check'));
     const ask = headerValue(req, 'x-shadowlap-judge-ask');
     // The version of the request it sends (JUDGE_REQUEST_VERSION), kept so a later version can say an older verdict is no answer for it.

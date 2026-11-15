@@ -15,7 +15,7 @@ import { pythonWith } from '../../../testing/python-with.mjs';
  * A Realtime WebSocket end to end, through `shadowlap run`: the OpenAI SDK's Realtime client makes a
  * wss:// URL of the base URL the run gives it, the preload opens it as ws:// (the sidecar speaks no
  * TLS), and the sidecar's tunnel carries it to the provider, both ways. The provider here is a
- * stand-in that SHADOWLAP_UPSTREAM_OPENAI names. Nothing goes around Shadowlap, and the run's
+ * stand-in that SHADOWLAP_UPSTREAM_OPENAI names. Nothing goes around shadowlap, and the run's
  * summary names the connections, as nothing sent over one is recorded.
  */
 
@@ -204,11 +204,11 @@ console.log(JSON.stringify(said));
     });
     const handshakes = provider.handshakes.slice(before);
     expect(handshakes.map((h) => h.url)).toEqual(Array(3).fill('/v1/realtime?model=gpt-realtime'));
-    // The SDK's key went to the provider, and none of Shadowlap's own headers did.
+    // The SDK's key went to the provider, and none of shadowlap's own headers did.
     expect(handshakes.slice(0, 2).map((h) => h.headers.authorization)).toEqual(['Bearer sk-test', 'Bearer sk-test']);
     expect(handshakes.flatMap((h) => Object.keys(h.headers).filter((k) => k.startsWith('x-shadowlap')))).toEqual([]);
     expect(out).toContain('3 WebSocket connections went to the provider live and were not recorded: openai /v1/realtime (3)');
-    expect(out).not.toContain('bypassed Shadowlap');
+    expect(out).not.toContain('bypassed shadowlap');
     // The run keeps them, for its page in the dashboard.
     const store = Store.open(join(cwd, 'store.db'));
     try {
@@ -280,6 +280,6 @@ print(json.dumps(said))
     expect(handshakes[2].headers.authorization).toBe('Bearer sk-test');
     expect(handshakes.flatMap((h) => Object.keys(h.headers).filter((k) => k.startsWith('x-shadowlap')))).toEqual([]);
     expect(out).toContain('3 WebSocket connections went to the provider live and were not recorded: openai /v1/realtime (3)');
-    expect(out).not.toContain('bypassed Shadowlap');
+    expect(out).not.toContain('bypassed shadowlap');
   }, 120_000);
 });

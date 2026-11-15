@@ -58,7 +58,7 @@ const PREVIEW: PrCommentPreview = {
   injection: [{ verdict: 'passed', golden: 'goldens/refund-flow-budget', resultId: 'tr-01M5PREVIEW0000000000000B', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }],
   postedBy: 'github-actions',
   foot: COMMENT_FOOT,
-  markdown: '### Shadowlap: 1 of 2 goldens passed · 1 failed\n',
+  markdown: '### shadowlap: 1 of 2 goldens passed · 1 failed\n',
 };
 
 /** The repository's workflow as findWorkflow reads it, and the switches the reader takes from it. */
@@ -485,7 +485,7 @@ describe('Settings → CI: the pull request comment', () => {
     // The comment as GitHub shows it: the heading's tally, each golden worst first with its mark, the decisions, the cost, the injection gate and the job summary's line.
     const prc = dialog.querySelector('.prc')!;
     // Its tally glued as the mock's is, a count with its noun.
-    expect(plain(prc.querySelector('h4')!)).toBe('Shadowlap: 1 of 2 goldens passed · 1 failed');
+    expect(plain(prc.querySelector('h4')!)).toBe('shadowlap: 1 of 2 goldens passed · 1 failed');
     expect(prc.querySelector('h4')!.textContent).toContain('2\u00a0goldens');
     expect(prc.querySelectorAll('.prc-g li').map((li) => [li.getAttribute('class'), li.querySelector('i')!.textContent, li.querySelector('code')!.textContent, plain(li.querySelector('span')!)])).toEqual([
       ['fail', '✗', 'goldens/refund-over-limit', 'failed · diverged at call 3 · $.messages[2].content'],

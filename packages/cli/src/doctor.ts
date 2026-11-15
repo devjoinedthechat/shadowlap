@@ -105,7 +105,7 @@ export function shownUrl(url: string): string {
 }
 
 /**
- * What the journal of an older Shadowlap's repair in `cwd` says, read as repair reads it
+ * What the journal of an older shadowlap's repair in `cwd` says, read as repair reads it
  * (repair-journal.ts): one an interrupted repair left names the files it may have left edited, and
  * one that is no repair's of this checkout, which repair restores nothing from, says why. Null for
  * none, and for one whose repair still runs.
@@ -130,7 +130,7 @@ export function runDoctor(options: DoctorOptions): Check[] {
   const [maj, min] = parseVersion(nodeVersion);
   const nodeOk = (maj === MIN_NODE[0] && min >= MIN_NODE[1]) || maj >= 24;
   const needs = `Node ${MIN_NODE.join('.')} or later (not 23)`;
-  push('node', nodeOk ? 'ok' : 'fail', `${nodeVersion} (shadowlap ${options.version})`, nodeOk ? undefined : `Shadowlap needs ${needs}, whose built-in SQLite has full-text search; install a current Node LTS.`);
+  push('node', nodeOk ? 'ok' : 'fail', `${nodeVersion} (shadowlap ${options.version})`, nodeOk ? undefined : `shadowlap needs ${needs}, whose built-in SQLite has full-text search; install a current Node LTS.`);
   const sqliteWhy = (options.sqlite ?? defaultSqlite)();
   const sqliteOk = sqliteWhy === null;
   // A Node in range whose SQLite has no full-text search (or none at all) is a build without it,
@@ -173,7 +173,7 @@ export function runDoctor(options: DoctorOptions): Check[] {
       const preload = preloadCheck(runs);
       if (preload) checks.push(preload);
     } catch (err) {
-      push('store', 'fail', `${dbPath}: ${messageOf(err)}`, 'The file is not a Shadowlap store or is damaged; move it aside and record again, or point --db elsewhere.');
+      push('store', 'fail', `${dbPath}: ${messageOf(err)}`, 'The file is not a shadowlap store or is damaged; move it aside and record again, or point --db elsewhere.');
     }
     const ignore = join(resolve(dbPath, '..'), '.gitignore');
     if (!existsSync(ignore)) push('store .gitignore', 'warn', `${ignore} missing`, 'Recordings hold prompts and tool I/O; keep the store directory out of git (shadowlap creates this file when it makes the directory).');
@@ -251,19 +251,19 @@ export function runDoctor(options: DoctorOptions): Check[] {
   if (env.SHADOWLAP_URL) push('SHADOWLAP_URL', 'warn', `${shownUrl(env.SHADOWLAP_URL)} (run ${env.SHADOWLAP_RUN_ID ?? '?'})`, 'Set by shadowlap run for the agent; SDK calls made from this shell would go to that sidecar.');
   const offTelemetry = env.SHADOWLAP_TELEMETRY === '0' || env.DO_NOT_TRACK === '1';
   push('telemetry', 'ok', offTelemetry ? 'off (SHADOWLAP_TELEMETRY=0 or DO_NOT_TRACK=1)' : env.SHADOWLAP_TELEMETRY_URL ? `on, anonymous counts only → ${shownUrl(env.SHADOWLAP_TELEMETRY_URL)}; SHADOWLAP_TELEMETRY=0 turns it off` : 'off: no collector configured (SHADOWLAP_TELEMETRY_URL), so nothing is sent');
-  if (/node-(guard|preload)\.mjs/.test(env.NODE_OPTIONS ?? '')) push('NODE_OPTIONS', 'warn', 'contains the Shadowlap preload', 'That is the agent process configuration leaking into your shell; unset NODE_OPTIONS.');
-  if ((env.PYTHONPATH ?? '').split(delimiter).some((p) => p.endsWith('guard'))) push('PYTHONPATH', 'warn', 'contains the Shadowlap guard directory', 'Unset it outside agent processes.');
+  if (/node-(guard|preload)\.mjs/.test(env.NODE_OPTIONS ?? '')) push('NODE_OPTIONS', 'warn', 'contains the shadowlap preload', 'That is the agent process configuration leaking into your shell; unset NODE_OPTIONS.');
+  if ((env.PYTHONPATH ?? '').split(delimiter).some((p) => p.endsWith('guard'))) push('PYTHONPATH', 'warn', 'contains the shadowlap guard directory', 'Unset it outside agent processes.');
 
   return checks;
 }
 
-/** How Shadowlap's preloads reach an agent, and what keeps them out: the fix for a run none loaded in. */
+/** How shadowlap's preloads reach an agent, and what keeps them out: the fix for a run none loaded in. */
 export const PRELOAD_FIX =
-  "Shadowlap loads its network guard into Node agents through NODE_OPTIONS (--import, Node 18.18 or later) and into Python agents through a sitecustomize on PYTHONPATH. Start the agent with the environment shadowlap gives it: not through env -i, sudo or docker exec, without a script that sets NODE_OPTIONS or PYTHONPATH anew, and without python -I, -E or -S. opentelemetry-instrument's own sitecustomize comes first and loads no other: instrument in code instead. An agent on another runtime (Go, Rust, Java, Bun, Deno) gets no guard: wrap what it does to the world as tools, and test it with --guard warn.";
+  "shadowlap loads its network guard into Node agents through NODE_OPTIONS (--import, Node 18.18 or later) and into Python agents through a sitecustomize on PYTHONPATH. Start the agent with the environment shadowlap gives it: not through env -i, sudo or docker exec, without a script that sets NODE_OPTIONS or PYTHONPATH anew, and without python -I, -E or -S. opentelemetry-instrument's own sitecustomize comes first and loads no other: instrument in code instead. An agent on another runtime (Go, Rust, Java, Bun, Deno) gets no guard: wrap what it does to the world as tools, and test it with --guard warn.";
 
 /** What to do about processes the guard can't watch: the Claude Code CLI loads no preload, whatever the environment. */
 export const UNGUARDED_FIX =
-  "The Claude Code CLI the Claude Agent SDK runs is a native program that loads no Shadowlap preload, so the network guard can't watch a connection it makes itself, and its fence names what it can still reach. Close each (disallow WebFetch, keep MCP servers to the query's own with strictMcpConfig, reach a remote one through shadowlap mcp, which records and fences its calls), accept the CLI alone with \"guard\": { \"accept\": [\"claude-code\"] } in shadowlap.config.json, or test with --guard warn to accept every connection the guard can't watch. A Node or Python process whose guard could not start says so on its standard error.";
+  "The Claude Code CLI the Claude Agent SDK runs is a native program that loads no shadowlap preload, so the network guard can't watch a connection it makes itself, and its fence names what it can still reach. Close each (disallow WebFetch, keep MCP servers to the query's own with strictMcpConfig, reach a remote one through shadowlap mcp, which records and fences its calls), accept the CLI alone with \"guard\": { \"accept\": [\"claude-code\"] } in shadowlap.config.json, or test with --guard warn to accept every connection the guard can't watch. A Node or Python process whose guard could not start says so on its standard error.";
 
 /**
  * Whether the preloads loaded in the newest run that says (`RunMeta.preloads`): the processes they
@@ -326,7 +326,7 @@ interface Held {
 }
 
 /**
- * The judge checks whose model retires, by the table that ships with Shadowlap. A judge asked a
+ * The judge checks whose model retires, by the table that ships with shadowlap. A judge asked a
  * model its provider has shut down gets no verdict, so its checks read not judged wherever a replay
  * forks or a golden is packed; and the retirement notices on recordings leave a judge's calls out,
  * since they are no model the agent uses, so this is where it is said.

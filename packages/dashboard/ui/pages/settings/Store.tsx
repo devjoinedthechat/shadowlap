@@ -63,7 +63,7 @@ export function StoreTab() {
       <Section className="set" title="Store" sub="your team’s runs, in a bucket you own" actions={<StoreActions status={s} lime={lime === 'push'} />}>
         <div className="pbody lead">
           <Copy className="muted">
-            Each machine keeps its runs in <code>.shadowlap/</code>. Push copies yours to the store, so teammates and CI can open them; pull brings theirs to you. Nothing passes through Shadowlap.
+            Each machine keeps its runs in <code>.shadowlap/</code>. Push copies yours to the store, so teammates and CI can open them; pull brings theirs to you. Nothing passes through shadowlap.
           </Copy>
         </div>
         {underWay ? (
@@ -141,7 +141,7 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
       <dd>
         <Words>Whoever your cloud admin gives access to this bucket</Words>{' '}
         <small>
-          <Words>people and CI, through your cloud’s own permissions; Shadowlap has no accounts</Words>
+          <Words>people and CI, through your cloud’s own permissions; shadowlap has no accounts</Words>
         </small>{' '}
         {policy ? (
           <CopyButton text={policy.text} label="the access policy" name="Copy access policy" sub="The access to ask your cloud admin for: list, read, write and delete in this bucket">

@@ -102,7 +102,7 @@ export function resignSigV4(input: SignInput, credentialsFor: CredentialsFor): {
   const credentials = credentialsFor(keyId);
   if (!credentials) {
     return {
-      error: `the agent signed it with ${named}, whose secret is in neither the environment nor the shared credentials files, so Shadowlap can't sign the changed request again. Credentials from an SSO session or an assumed role live only in the client: export them for the replay (aws configure export-credentials --format env) and run it again`,
+      error: `the agent signed it with ${named}, whose secret is in neither the environment nor the shared credentials files, so shadowlap can't sign the changed request again. Credentials from an SSO session or an assumed role live only in the client: export them for the replay (aws configure export-credentials --format env) and run it again`,
     };
   }
   const token = input.headers['x-amz-security-token'];

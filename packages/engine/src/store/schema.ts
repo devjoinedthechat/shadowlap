@@ -3,7 +3,7 @@
  * this build writes (each feature's tables in a block of their own, added to a store as it opens),
  * and the connection Store.open makes, which creates the file for its owner alone, switches it to
  * WAL and brings an older store up to this version under one write lock, or the read-only one
- * Store.openReadOnly makes. A store a newer Shadowlap wrote is refused either way.
+ * Store.openReadOnly makes. A store a newer shadowlap wrote is refused either way.
  */
 import { chmodSync, closeSync, constants as fsConstants, lstatSync, mkdirSync, openSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -592,7 +592,7 @@ CREATE INDEX IF NOT EXISTS fingerprint_cache_request ON fingerprint_cache (reque
 /**
  * The schema version a store records, or null when it has never been stamped (a database this
  * build is about to create, or one from before the key existed). Reads defensively: the `meta`
- * table may not exist yet, and a file that is not a Shadowlap store should fail on the schema
+ * table may not exist yet, and a file that is not a shadowlap store should fail on the schema
  * itself with a clearer message than this would give.
  */
 export function storedSchemaVersion(db: SqliteDatabase): number | null {
@@ -810,14 +810,14 @@ export function openDatabase(path: string, o: { create?: boolean } = {}): Sqlite
   // both see a column missing and both add it.
   db.exec('BEGIN IMMEDIATE');
   try {
-    // A store written by a newer Shadowlap is refused rather than used. Migrations here are
+    // A store written by a newer shadowlap is refused rather than used. Migrations here are
     // additive, so every `CREATE TABLE IF NOT EXISTS` would quietly no-op, the version would be
     // stamped backwards, and the run would be read under assumptions that no longer hold. A
     // recording is the thing people keep; misreading one is worse than not opening it.
     const found = storedSchemaVersion(db);
     if (found !== null && found > SCHEMA_VERSION) {
       throw new Error(
-        `${path} was written by a newer Shadowlap (store schema v${found}; this build understands v${SCHEMA_VERSION}). Upgrade Shadowlap, or point --db at another store.`,
+        `${path} was written by a newer shadowlap (store schema v${found}; this build understands v${SCHEMA_VERSION}). Upgrade shadowlap, or point --db at another store.`,
       );
     }
     db.exec(SCHEMA);
@@ -870,7 +870,7 @@ export function openDatabaseReadOnly(path: string): SqliteDatabase {
     db.exec('PRAGMA busy_timeout = 10000');
     const found = storedSchemaVersion(db);
     if (found !== null && found > SCHEMA_VERSION) {
-      throw new Error(`${path} was written by a newer Shadowlap (store schema v${found}; this build understands v${SCHEMA_VERSION}). Upgrade Shadowlap, or point --db at another store.`);
+      throw new Error(`${path} was written by a newer shadowlap (store schema v${found}; this build understands v${SCHEMA_VERSION}). Upgrade shadowlap, or point --db at another store.`);
     }
   } catch (err) {
     db.close();

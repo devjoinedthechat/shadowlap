@@ -12,7 +12,7 @@ import { killTree } from './kill-tree.js';
  *
  * An agent that has the terminal to itself to read from, under `run` and `replay` in a terminal,
  * stays in the CLI's process group: the terminal's Ctrl-C reaches it directly, as it would without
- * Shadowlap, and so do its window size, Ctrl-Z and /dev/tty, which a process in a session of its own
+ * shadowlap, and so do its window size, Ctrl-Z and /dev/tty, which a process in a session of its own
  * can't open (a password prompt, `git` asking for credentials). So does the agent of `run` and
  * `replay` as a dashboard job: the dashboard stops a job by signalling its whole process group, and
  * kills the group, agent included, when it can't wait. Everywhere else the agent leads a group of
@@ -196,7 +196,7 @@ export class AgentStop {
     if (this.o.shared === 'job' && !group) return;
     if (this.o.shared === 'terminal' && !group) {
       // The terminal's Ctrl-C reached the agent already, the first and every one after it, as it
-      // would without Shadowlap. Anything else is passed on, and a second one doesn't wait.
+      // would without shadowlap. Anything else is passed on, and a second one doesn't wait.
       if (signal === 'SIGINT') return;
       killTree(child, again ? 'SIGKILL' : signal, { group: false });
     } else {
@@ -204,7 +204,7 @@ export class AgentStop {
     }
     if (again) return;
     // An agent that ignores the signal is killed before whoever sent it kills this process. One that
-    // shares the terminal is given the time it takes, as without Shadowlap, unless the terminal is gone.
+    // shares the terminal is given the time it takes, as without shadowlap, unless the terminal is gone.
     if (this.o.shared === 'terminal' && !group && signal !== 'SIGHUP') return;
     const timer = setTimeout(() => {
       this.timers.delete(timer);

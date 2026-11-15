@@ -82,7 +82,7 @@ Each command's section says which statuses it ends with. The statuses are:
 | `1`       | Failed: what it judged failed, or the work could not be finished |
 | `2`       | Usage or configuration: a command it can't run as given          |
 | `3`       | Inconclusive: a gate or check that could not decide              |
-| `70`      | Internal error: a bug in Shadowlap                               |
+| `70`      | Internal error: a bug in shadowlap                               |
 | `128 + n` | Stopped by signal *n*                                            |
 
 **`1`, failed**, covers:
@@ -101,7 +101,7 @@ Each command's section says which statuses it ends with. The statuses are:
 - a file it can't read, or an invalid `shadowlap.config.json`;
 - a live command with no key;
 - a recorded command it needs `--yes` to run;
-- a replay that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record)
+- a replay that would run a [write shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record)
   again;
 - an agent on a Node too old for the guard.
 
@@ -123,7 +123,7 @@ repair removing its worktree after its last verify. A signal in the last moment 
 exits, a few milliseconds, may find it already ending with its own status.
 
 `run` and `replay` end with the agent's own status where none of these applies, as the agent would
-have ended without Shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a
+have ended without shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a
 signal stopped. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug report.
 
 ## JSON output
@@ -205,7 +205,7 @@ too. It removes its folder and ends with 128 + the signal's number.
 shadowlap run [--summary-json <file>] [--guard warn|off] -- <command> [args...]
 ```
 
-Records a run: it runs the command under Shadowlap and exits with the command's exit code.
+Records a run: it runs the command under shadowlap and exits with the command's exit code.
 
 ```sh
 shadowlap run -- node agent.js
@@ -221,14 +221,14 @@ Before the command starts, `run`:
   [recorded user input](./sdk.md#what-a-person-types) into Node and Python children.
 
 The run's status is `completed`, `failed` (a non-zero exit) or `crashed` (interrupted: Ctrl-C, or a
-stop signal that reached Shadowlap or the agent).
+stop signal that reached shadowlap or the agent).
 
 `run` takes these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--summary-json <file>` | Also write the run's summary as JSON to this file ([fields](#run-summary-as-json)) | — |
-| `--guard warn\|off` | The [network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap | `warn` |
+| `--guard warn\|off` | The [network guard](./how-it-works.md#the-network-guard) for connections that bypass shadowlap | `warn` |
 
 `run` exits with:
 
@@ -243,7 +243,7 @@ cmd.exe, its arguments passed on as given.
 
 What the run did unrecorded is kept on it, for its page in the
 [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach
-without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the
+without shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the
 run never recorded. At its end, `run` names the tools the model called that the run recorded no call
 of, which a replay runs for real ([details](./how-it-works.md#tools-shadowlap-did-not-record)).
 
@@ -261,12 +261,12 @@ of, which a replay runs for real ([details](./how-it-works.md#tools-shadowlap-di
 A Node agent on a Node before 18.18 never starts either. That Node refuses the preload (`--import` in
 `NODE_OPTIONS`) and exits 9 before any of the agent runs:
 
-- `run` and `replay` then say the agent's Node is too old for Shadowlap's guard, which needs Node 18.18
+- `run` and `replay` then say the agent's Node is too old for shadowlap's guard, which needs Node 18.18
   or later, and keep no run.
 - `test` fails the golden with those words. `replay --repeat`, `blame`, `verify`, `repair` and
   `decisions` stop with them, exit status 2.
 
-Where the agent prints straight to the terminal, as under `run` and `replay`, Shadowlap can't read
+Where the agent prints straight to the terminal, as under `run` and `replay`, shadowlap can't read
 that refusal. So it asks the agent's Node again: the one the command names, else the `node` on its
 PATH.
 
@@ -278,12 +278,12 @@ An agent it starts that exits 9 before any call keeps its run. The summary adds 
 
 A stop signal reaches the agent once:
 
-- **In a terminal**, the agent shares Shadowlap's process group, so the terminal's Ctrl-C reaches
+- **In a terminal**, the agent shares shadowlap's process group, so the terminal's Ctrl-C reaches
   both, as it would reach the agent alone. The agent keeps the terminal to read from (`/dev/tty`
   included, as a password prompt opens it).
 - **As a dashboard job**, it shares the job's process group, which the dashboard stops as a whole,
   and kills when it can't wait.
-- **Elsewhere** (CI, a script), the agent leads a process group of its own. Shadowlap passes it each
+- **Elsewhere** (CI, a script), the agent leads a process group of its own. shadowlap passes it each
   SIGINT, SIGTERM or SIGHUP it gets, once. An agent still running three seconds later is killed with
   its group, and a second signal kills it at once.
 
@@ -293,7 +293,7 @@ done; a second one ends the run as interrupted at once.
 
 An agent a signal ended exits with 128 + its number: 130 for SIGINT, 129 for SIGHUP, 143 for SIGTERM.
 `replay --repeat`, `test`, `blame`, `verify` and `decisions --from-code` stop their agents the same
-way. An agent still running when Shadowlap itself exits is killed with its group.
+way. An agent still running when shadowlap itself exits is killed with its group.
 
 ### Run summary as JSON
 
@@ -378,7 +378,7 @@ These flags decide how the replay runs:
 | `--expect <json\|@file>` | Checks the replay (each attempt, with `--repeat`) must pass besides exiting 0, as for `blame`: `'{"tools":{"send_email":0}}'` | The checks `shadowlap.config.json` gives the recording ([below](#checks-on-a-replay)) |
 | `--watch` | Replay again whenever a file in the project changes (below). Ctrl-C to stop | — |
 | `--summary-json <file>` | Also write the summary (with `--repeat`, every attempt and the report) as JSON to a file ([fields](#replay-summary-as-json)) | — |
-| `--guard warn\|block\|off` | The [network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. `run` accepts `warn\|off`; `test` defaults to `block` | `warn` |
+| `--guard warn\|block\|off` | The [network guard](./how-it-works.md#the-network-guard) for connections that bypass shadowlap. `run` accepts `warn\|off`; `test` defaults to `block` | `warn` |
 | `--allow-unrecorded <names>` | Run these tools again for real, though the recording never recorded them: names separated by commas (repeatable; below) | — |
 | `-y, --yes` | Run the recorded command of a run imported from a pack, or pulled from the [team store](./team.md), without asking | — |
 
@@ -444,7 +444,7 @@ replay never reached is named in its summary.
 | `3` | The agent exited 0 and a check could not be decided |
 
 Under `--guard block`, the guard never watched the agent when it made model or tool calls and either
-no Shadowlap preload loaded in its processes, or one of them runs with no guard. The process with no
+no shadowlap preload loaded in its processes, or one of them runs with no guard. The process with no
 guard is the Claude Code CLI the Claude Agent SDK runs, while it can still reach something the guard
 can't watch and `guard.accept` doesn't take it ([details](./frameworks.md#claude-agent-sdk)). Its summary then
 reads `✗ Replay not watched`, never clean.
@@ -633,7 +633,7 @@ the client talks stdio to it. See [MCP servers](./mcp.md#served-over-http---list
 - **Effects**: they come from the server's tool annotations (`readOnlyHint` → `read`, otherwise
   `write`), overridden by `--effect` or `mcp.effects` in the config.
 - **Its run**: the proxy finds its run even when the client starts it with a minimal environment.
-  When it was started under Shadowlap but can't record, it refuses write tools rather than run them
+  When it was started under shadowlap but can't record, it refuses write tools rather than run them
   unrecorded.
 - **On Windows**: a server command that is a batch file (`npx -y …`) runs through cmd.exe.
 
@@ -653,7 +653,7 @@ HTTP. It runs until stopped.
 - It listens on a loopback address: `127.0.0.1:8931`, or a port alone.
 - Each session goes in the server's own session id.
 - It records into the run its command started. Started on its own, it records into the run of the
-  Shadowlap command that started the session's client.
+  shadowlap command that started the session's client.
 - It refuses writes in a session it finds no run for.
 
 `mcp` exits with:
@@ -907,7 +907,7 @@ the same, however each run fingerprinted it. What each sent covers:
 - the headers and query that make a model call the call it is;
 - its body, each number as it was sent, so two ids past 2^53 a double rounds alike differ.
 
-A run recorded by an earlier Shadowlap compares with its replay as the replay matched it. Its model
+A run recorded by an earlier shadowlap compares with its replay as the replay matched it. Its model
 requests, stored with their numbers rounded, compare rounded on both sides.
 
 `--json` prints the comparison:
@@ -1448,7 +1448,7 @@ it. With a team store, the latest rename on any machine is the one every machine
 
 Gives an open fix another check, as `--expect` takes it. Its failing and good runs are judged by it
 again from what they recorded, judges included, with nothing replayed. A failing run it passes and
-a good run it fails leave the fix, though Shadowlap keeps them. A run none of its checks applies to
+a good run it fails leave the fix, though shadowlap keeps them. A run none of its checks applies to
 fails nothing, so it leaves as well (*not applicable*). Each run prints as [`check`](#check) prints
 it, after its role, and a run that leaves says so.
 
@@ -1669,7 +1669,7 @@ one or more of `--model`, `--set` and `--from-code`.
   models `--from` names.
 - A call made with another model (a simulated user, a sub-agent) is left as recorded, and counted
   `untouched`.
-- Shadowlap's own calls (its judge's, in a `shadowlap:` scope) are no step at all.
+- shadowlap's own calls (its judge's, in a `shadowlap:` scope) are no step at all.
 
 **Credentials.** Requests need the provider's credentials on this machine, unless
 `SHADOWLAP_UPSTREAM_<PROVIDER>` points the provider at a server of your own. Without them nothing is
@@ -2002,7 +2002,7 @@ It switches the agent's model calls:
 - else those made with the model the runs use most.
 
 A simulated user or a sub-agent on another model keeps its own, in the preview and in verify alike.
-Shadowlap's own calls (its judge's) are none of the agent's.
+shadowlap's own calls (its judge's) are none of the agent's.
 
 `migrate` takes these flags:
 
@@ -2322,7 +2322,7 @@ beyond chance at its share.
 
 - **`2`** is for packs that can't be tested as given:
   - none matches, a config it can't read, or a golden that would run a
-    [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again;
+    [write shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again;
   - a path named as it is holds no pack, whatever else failed;
   - the only goldens that failed are packs it needs `--yes` to run (someone else's, which nobody said
     yes to). Each fails as a golden in every report, while the others run.
@@ -2921,7 +2921,7 @@ SIGTERM or a closed terminal (SIGHUP).
   capture has none. Replaying it, or a fork, blame or Find breaking commit, needs your command after `--`.
 - **Several runs**: hosts that manage several runs (a test runner) can create them through the
   sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and
-  SDK calls send an `X-Shadowlap-Run` header. So several processes can record through one sidecar at
+  SDK calls send an `x-shadowlap-run` header. So several processes can record through one sidecar at
   once.
 - **In-process capture**: the printed environment has the base URLs only. Clients that need
   [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the
@@ -3553,7 +3553,7 @@ The suggested effect goes by the tool name's verbs, where a name puts them
 ([how](./how-it-works.md#tools-shadowlap-did-not-record)). A name with no hint gets `write`, which never
 runs again after a fork unless the replay allows writes (`--writes allow`).
 
-**The fence.** A Claude Agent SDK query runs through the fence when a file that imports Shadowlap's
+**The fence.** A Claude Agent SDK query runs through the fence when a file that imports shadowlap's
 adapters calls `withFence` (`with_fence` in Python), or its hooks. The SDK's built-in tools (Bash,
 Write, Edit and the rest) run inside Claude Code, where no wrapper reaches them. So, until a query does,
 the step after the install is to run it through the fence: `query({ prompt, options: withFence(options) })`,
@@ -3579,12 +3579,12 @@ AI makes a client only for the providers of its models, so the OpenAI client it 
 
 - **A model client constructed with a literal base URL**: `shadowlap run` cannot redirect it, so its
   calls would not be recorded.
-- **A model a framework names whose calls go to a host Shadowlap doesn't know**: a Mastra router id or
+- **A model a framework names whose calls go to a host shadowlap doesn't know**: a Mastra router id or
   a LiteLLM or CrewAI string with another provider (`groq/…`, `openrouter/…`), or smolagents'
   `InferenceClientModel` (Hugging Face). Declare its host in the config when it speaks OpenAI's,
   Anthropic's or Gemini's API ([how](./providers.md#hosts-of-another-providers-format)).
 - **A Node the project pins before 18.18** (`.nvmrc` or `.node-version`, `18.17`): an agent on it never
-  starts under Shadowlap, since that Node refuses the guard.
+  starts under shadowlap, since that Node refuses the guard.
 
 **Its install step** adds the SDKs with the project's package manager, and the CLI: `shadowlap` as a dev
 dependency, which the steps after it run with `npx`, or, for a Python project,
@@ -3631,7 +3631,7 @@ line each, and what it did with `shadowlap.config.json`.
 - **The addresses it prints** (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password,
   or a key in the query, is left out. A model server that had one gets no `upstream`.
 - **`project`** says whether it could (`noted`), and why not: the project list was busy, or a newer
-  Shadowlap wrote it.
+  shadowlap wrote it.
 
 ## doctor
 
@@ -3665,7 +3665,7 @@ Under `tests`, it names:
   model, or reads a value no recorded call of its tool has, with the name it most likely meant. It holds
   the rules against the packs the entries apply to, and the store's 200 newest runs;
 - each [judge check](./judges.md) whose model retires, by the
-  [retirement table](./decisions.md#model-retirements) that ships with Shadowlap;
+  [retirement table](./decisions.md#model-retirements) that ships with shadowlap;
 - each judge check whose provider has no key in this environment and no upstream set for it. No judge
   can be asked for it live, so it reads [not judged](./judges.md#not-judged) wherever its verdict isn't
   recorded;
@@ -3862,7 +3862,7 @@ read or written there.
 - **A copy that is already this version's** is left as it is.
 - **Anything else there** (another version's copy, or one edited here) is left as it is too, and the
   command exits 1, saying which files differ.
-- **`--force`** replaces them, which is how a project moves to the copy of a newer Shadowlap. It removes
+- **`--force`** replaces them, which is how a project moves to the copy of a newer shadowlap. It removes
   the files of ours that this version doesn't have (in the plugin's folder, or in a `shadowlap-` skill's),
   so an older version's skill stops loading.
 - **A link** on the way that leads out of the project, or a link where the install puts a file, is
@@ -3915,7 +3915,7 @@ These formats are captures:
 | `vcr` | VCR.py with its JSON serializer (`vcr.VCR(serializer='json')`) (below) |
 | `litellm` | A LiteLLM proxy, through `shadowlap.litellm_callback`: production traffic, one run per correlation id (below) |
 
-- **`vcr`**: a YAML cassette has to be converted first. Shadowlap reads JSON so that no YAML parser is
+- **`vcr`**: a YAML cassette has to be converted first. shadowlap reads JSON so that no YAML parser is
   trusted with a cassette from anywhere.
 - **`litellm`** takes several files, since a proxy writes one per worker. The calls of one agent run
   spread over several workers' files are put back together, in the order they started. See
@@ -4325,7 +4325,7 @@ One HTML file with the dashboard's views and the run's data built into it: calls
 responses, the divergence diff, the context and timeline views, and comparison between the runs it
 holds.
 
-- It opens from a file, an artifact or a pull request comment, on a machine that has neither Shadowlap
+- It opens from a file, an artifact or a pull request comment, on a machine that has neither shadowlap
   nor the recording, and it loads nothing from the network.
 - Actions, live updates and search across runs belong to the dashboard, not to a copy.
 - Like a pack, it leaves out who made each run.
@@ -4504,7 +4504,7 @@ path apply to what it does carry from the run:
 - model and tool names;
 - error messages.
 
-Shadowlap's own ids and fixed values stay as they are, and the command says how many rules applied. A
+shadowlap's own ids and fixed values stay as they are, and the command says how many rules applied. A
 rule that can't be read stops the export. A run still recording is refused, exit status 2, as by every
 export.
 
@@ -5056,7 +5056,7 @@ it opens there too. `on` turns it back on.
 
 ## The configuration file
 
-`shadowlap.config.json`, in the directory you run Shadowlap from. Every key is optional, and
+`shadowlap.config.json`, in the directory you run shadowlap from. Every key is optional, and
 `shadowlap init` writes one with a `$schema` line already in it:
 
 ```json
@@ -5098,7 +5098,7 @@ More on some of them:
   brings outside text in, where [`shadowlap injection`](./injection.md) plants payloads. It is recorded on each call of
   the tool as it is made. Read when a run is tested, it wins over every recorded mark: the SDK's, an MCP
   server's, an earlier config's.
-- **`tools.unrecorded`** maps the tools the agent runs without Shadowlap recording them to `read` or
+- **`tools.unrecorded`** maps the tools the agent runs without shadowlap recording them to `read` or
   `write`. That decides whether every command that replays a run may run them again
   ([details](./how-it-works.md#tools-shadowlap-did-not-record)).
 - **`repair.timeout`**: the seconds the repairer may take to answer, default 600.
@@ -5136,7 +5136,7 @@ A golden's entry under `tests` holds:
 The schema is
 [`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json)
 in the repository. It gives completion in any editor that reads `$schema`, and it lets CI check a config
-without running Shadowlap.
+without running shadowlap.
 
 It is stricter than the parser on purpose. The parser ignores a key it doesn't know, so that a config
 written for a newer version still works, while the schema rejects it. That is what turns `"normalise"`
@@ -5146,7 +5146,7 @@ from a rule that silently never applies into an error you see as you type.
 
 ## Environment
 
-These environment variables change what Shadowlap does:
+These environment variables change what shadowlap does:
 
 | Variable | What it does | Default |
 | --- | --- | --- |
@@ -5169,7 +5169,7 @@ These environment variables change what Shadowlap does:
 
 - **`SHADOWLAP_GUARD_ACCEPT`**: any other value ends every command that takes `--guard` with 2 as it
   starts, before anything runs.
-- **`SHADOWLAP_PR`** is for where Shadowlap doesn't recognise pull requests by itself; it does on GitHub
+- **`SHADOWLAP_PR`** is for where shadowlap doesn't recognise pull requests by itself; it does on GitHub
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
 - **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files

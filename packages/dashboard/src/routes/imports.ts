@@ -220,7 +220,7 @@ function fileJob(format: unknown, req: JobRequest, upload: JobBuildContext['uplo
   // argument, `--name=<name>`, so a file named like a flag ("--json", "-x.har") stays a name
   // whatever the parser. The job runs in the project folder: each upload is named from there
   // (`.shadowlap/uploads/…`, which reads as no option either), with forward slashes on every
-  // system, as other relative paths Shadowlap shows are.
+  // system, as other relative paths shadowlap shows are.
   const paths = files.map((file) => {
     const rel = ctx.project ? relative(ctx.project.path, file!.path) : '';
     return rel && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel) ? rel.split(sep).join('/') : file!.path;

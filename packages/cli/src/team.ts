@@ -51,7 +51,7 @@ import { palette as p, safe, shortId } from './ui.js';
 import { ancestorsOf, stillRecording, VERSION } from './shared.js';
 
 /**
- * The team store: the project's runs in a bucket the team owns, free like the rest of Shadowlap.
+ * The team store: the project's runs in a bucket the team owns, free like the rest of shadowlap.
  * Every command here works the same way: the project's config names the store, and this machine's
  * own credentials open it. Nothing calls home, and there are no accounts: who may read and write
  * the store is whoever the cloud admin gives access to (`shadowlap store policy`).
@@ -759,7 +759,7 @@ function writeRepairFiles(t: TeamEnv, store: StoreOf<'fixes'>, repairIds: readon
     if (!r || !/^repair-[0-9a-z]{1,40}$/.test(r.repairId) || r.dir !== `.shadowlap/repairs/${r.repairId}`) continue;
     const link = linkInPath(t.cwd, r.dir);
     if (link) {
-      note(t, p.yellow(`! couldn't write ${r.dir}: ${link} in ${t.cwd} is a link, which Shadowlap never writes through: make it a folder of its own`));
+      note(t, p.yellow(`! couldn't write ${r.dir}: ${link} in ${t.cwd} is a link, which shadowlap never writes through: make it a folder of its own`));
       continue;
     }
     const dir = join(t.cwd, '.shadowlap', 'repairs', r.repairId);

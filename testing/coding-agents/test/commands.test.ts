@@ -409,7 +409,7 @@ beforeAll(async () => {
   writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'research-agent', private: true, type: 'module', scripts: { agent: 'node agent.mjs' }, dependencies: { ai: '^5.0.0', '@ai-sdk/anthropic': '^2.0.0' } }, null, 2) + '\n');
   writeFileSync(join(project, 'agent.mjs'), AGENT_SOURCE);
   writeFileSync(join(project, '.gitignore'), '.shadowlap/\n.home/\nout/\n');
-  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=Shadowlap', '-c', 'user.email=ci@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: project, encoding: 'utf8' }).trim();
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=shadowlap', '-c', 'user.email=ci@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: project, encoding: 'utf8' }).trim();
   git('init', '-q', '-b', 'main');
   git('add', '-A');
   git('commit', '-qm', 'The research agent');

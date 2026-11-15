@@ -26,7 +26,7 @@ describe('guessImportFormat', () => {
     for (const name of ['notes.txt', 'archive.json.gz', 'Makefile', '.json', 'trace']) {
       const guess = guessImportFormat(name);
       expect(guess.format).toBeNull();
-      expect(guess.reason).toMatch(/Not a format Shadowlap imports/);
+      expect(guess.reason).toMatch(/Not a format shadowlap imports/);
     }
   });
 

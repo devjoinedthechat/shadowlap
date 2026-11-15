@@ -21,7 +21,7 @@ function tools(clientConfigs: ToolsSettings['mcp']['clientConfigs'], otherForms:
 
 const agents: CodingAgentsSettings = {
   files: [{ path: 'CLAUDE.md', agents: 'Claude Code', found: true, type: 'file', mentions: false }],
-  section: '## Debugging the agent with Shadowlap',
+  section: '## Debugging the agent with shadowlap',
   source: 'docs/agents.md',
   skill: null,
 } as unknown as CodingAgentsSettings;
@@ -105,7 +105,7 @@ describe('Settings → Coding agents', () => {
   it('gives the section a box with Copy section in its corner, and says under it where to paste it', async () => {
     r = await page(app({ agents: async () => agents }), 'agents');
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
-    expect(r.one('.boxwrap.md pre.codebox').textContent).toBe('## Debugging the agent with Shadowlap');
+    expect(r.one('.boxwrap.md pre.codebox').textContent).toBe('## Debugging the agent with shadowlap');
     expect(r.one('.boxwrap.md .boxcopy').getAttribute('aria-label')).toBe('Copy section');
     const kids = r.one('.boxwrap.md').parentNode!.children;
     const hint = kids[kids.indexOf(r.one('.boxwrap.md')) + 1];

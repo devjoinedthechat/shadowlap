@@ -2,7 +2,7 @@
 // Every store has a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and
 // later, never in 23. The Node is checked before the CLI loads, so an older one is named in one line
 // rather than failing at the first store it opens. A Node it can't run on is how this machine is set
-// up, so it ends with 2, as any configuration Shadowlap can't use does (docs/cli.md, Exit status).
+// up, so it ends with 2, as any configuration shadowlap can't use does (docs/cli.md, Exit status).
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (!((major === 22 && minor >= 16) || major >= 24)) {
   console.error(`shadowlap: needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this is Node.js ${process.versions.node}`);
@@ -36,7 +36,7 @@ import('../dist/index.js').then(
   (/** @type {unknown} */ err) => {
     // The CLI's own files did not load: an installation that is broken, never what it was asked.
     console.error(process.env.SHADOWLAP_DEBUG && err instanceof Error && err.stack ? err.stack : `shadowlap: internal error: ${err instanceof Error ? err.message : String(err)}`);
-    console.error('This is a bug in Shadowlap or its installation: reinstall it, and if that does not help, report it at https://github.com/devjoinedthechat/shadowlap/issues');
+    console.error('This is a bug in shadowlap or its installation: reinstall it, and if that does not help, report it at https://github.com/devjoinedthechat/shadowlap/issues');
     process.exit(70);
   },
 );

@@ -92,8 +92,8 @@ function remove(p: Patch, from: number, to: number): void {
 function piecesOf(doc: WorkflowDoc): Pieces | string {
   const read = readWorkflow(doc);
   if (read.problem) return read.problem;
-  if (read.count > 1) return `has ${read.count} steps that use the Shadowlap action, so Write file can’t tell which one the switches are for`;
-  if (!read.action) return 'has no step that uses the Shadowlap action';
+  if (read.count > 1) return `has ${read.count} steps that use the shadowlap action, so Write file can’t tell which one the switches are for`;
+  if (!read.action) return 'has no step that uses the shadowlap action';
   const all = workflowSteps(doc);
   const action = all[read.action.index]!;
   const steps = all.filter((s) => s.steps === action.steps);
@@ -254,7 +254,7 @@ function patchCheckout(p: Patch, u: Pieces, a: Pieces, b: Pieces): string | null
   const want = refOf(b);
   if (want === undefined && refOf(a) === undefined) return null;
   const step = checkoutOf(u);
-  if (!step) return want === undefined ? null : 'has no actions/checkout step before the Shadowlap step to check the branch out with';
+  if (!step) return want === undefined ? null : 'has no actions/checkout step before the shadowlap step to check the branch out with';
   const w = step.keys.with;
   if (w !== undefined && splitComment(lineAt(u.doc, w).value).scalar !== '') return want === undefined ? null : 'writes its checkout’s with: on one line, so the branch can’t be added to it';
   const ref = w === undefined ? undefined : childOf(u.doc, w, 'ref');

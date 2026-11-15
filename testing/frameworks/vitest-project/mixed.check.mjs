@@ -1,4 +1,4 @@
-// Tests with and without recorded() in one file, as a suite grows into using Shadowlap. Run by
+// Tests with and without recorded() in one file, as a suite grows into using shadowlap. Run by
 // vitest-plugin.test.mjs with its own config, so the other runs' counts stay as they are.
 import Anthropic from '@anthropic-ai/sdk';
 import { isActive, tool } from '@shadowlap/sdk';

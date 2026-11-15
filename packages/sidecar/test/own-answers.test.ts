@@ -17,7 +17,7 @@ import { Sidecar } from '../src/server.js';
  * its own (a refused key, an offline replay, no upstream, a failure a flag injects, a blocked
  * write) is recorded with its bytes and headers, so a replay sends the agent the very same answer;
  * a provider or host that can't be reached, or that breaks off its answer, breaks the agent's
- * connection as it would have without Shadowlap, and a replay breaks it again. A path it reads a
+ * connection as it would have without shadowlap, and a replay breaks it again. A path it reads a
  * model from that does not decode costs a call nothing. Model routes never pass a redirect on.
  * Telemetry goes where the agent sent it. The sidecar answers only requests that name it by a
  * loopback address.
@@ -106,7 +106,7 @@ describe('a provider that cannot be reached', () => {
     const sidecar = await Sidecar.start({ store, upstreams: { anthropic: `http://127.0.0.1:${dead}` } });
     try {
       const rec = sidecar.startRun({ mode: 'record', command });
-      // The SDK sees a connection error, as it would without Shadowlap, and retries it once.
+      // The SDK sees a connection error, as it would without shadowlap, and retries it once.
       const seen = await new Anthropic({ apiKey: 'k', baseURL: sidecar.envFor(rec.runId).ANTHROPIC_BASE_URL, maxRetries: 1 }).messages.create(params).catch((e: unknown) => e);
       expect(seen).toBeInstanceOf(Anthropic.APIConnectionError);
       const recorded = sidecar.endRun(rec.runId, 'failed');

@@ -248,7 +248,7 @@ export function register(program: Command): void {
     .option('--concurrency <n>', 'attempts of one task running at once', parseIntArg, 1)
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
-    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'network guard for connections that bypass shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of a golden from a pack this repository doesn't track without asking")
     .option('--json', 'print the scores as JSON (progress still goes to stderr)')
     .action(async (goldens: string[], flags: { model: string; baseUrl?: string; keyEnv?: string; attempts: number; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
@@ -384,7 +384,7 @@ export function register(program: Command): void {
     .option('--base-url <url>', 'the OpenAI-compatible endpoint of the model being trained: requests that name no baseUrl ask it')
     .option('--key-env <name>', 'the environment variable holding the key of --base-url, sent there and nowhere else (a request can\'t name one)')
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
-    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'network guard for connections that bypass shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "serve goldens from packs this repository doesn't track, whose attempts run their recorded command, without asking")
     .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; baseUrl?: string; keyEnv?: string; timeout?: number; guard: GuardMode; yes?: boolean }) => {
       const opts = program.opts<GlobalOpts>();

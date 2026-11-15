@@ -1,6 +1,6 @@
-// "Change safety for agents" is the plain name of the job Shadowlap does, used where people compare
+// "Change safety for agents" is the plain name of the job shadowlap does, used where people compare
 // tools or explain them to someone else: the README's first line, the docs' introduction, the page
-// that compares Shadowlap with other tools, and the listings people find it in (npm, the GitHub
+// that compares shadowlap with other tools, and the listings people find it in (npm, the GitHub
 // Marketplace, Claude Code's plugin list). Each is followed by the mechanism: record, replay, fork.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -27,7 +27,7 @@ describe('the name of the job', () => {
     for (const page of ['docs/index.md', 'docs/compare.md']) expect(lede(read(page)), page).toMatch(new RegExp(`^shadowlap is ${LINE.toLowerCase()}[:,]`));
   });
 
-  it('leads the listings people find Shadowlap in', () => {
+  it('leads the listings people find shadowlap in', () => {
     const cli = JSON.parse(read('packages/cli/package.json')) as { description: string };
     expect(cli.description).toBe(`${LINE}: record, replay and fork AI agent runs.`);
     expect(read('packages/cli/README.md').split('\n')[2]).toBe(cli.description);

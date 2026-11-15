@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/sdk",
   "version": "0.1.0",
-  "description": "Shadowlap SDK: effect-typed tool wrapper and clock/random helpers for replayable agents.",
+  "description": "shadowlap SDK: effect-typed tool wrapper and clock/random helpers for replayable agents.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/node.js",

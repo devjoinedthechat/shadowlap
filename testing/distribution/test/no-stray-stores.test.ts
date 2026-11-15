@@ -59,7 +59,7 @@ describe('what tests leave where the suites run', () => {
     expect(teardown).not.toThrow();
     mkdirSync(after, { recursive: true });
     writeFileSync(join(after, 'shadowlap.db'), '');
-    expect(teardown).toThrow(`tests left Shadowlap files where the suites run: ${after}/ (shadowlap.db). Run the CLI in a temporary folder (cwd) with a store of its own (--db), and remove these.`);
+    expect(teardown).toThrow(`tests left shadowlap files where the suites run: ${after}/ (shadowlap.db). Run the CLI in a temporary folder (cwd) with a store of its own (--db), and remove these.`);
   });
 
   it("is the repository's root and testing/frameworks, checked after every Vitest run and around the framework tests", () => {
@@ -79,7 +79,7 @@ describe('what tests leave where the suites run', () => {
     expect(run('process.exit(3)').status).toBe(3);
     const left = run(`require('node:fs').mkdirSync(${JSON.stringify(watched)}, { recursive: true })`);
     expect(left.status).toBe(1);
-    expect(left.stderr).toContain(`tests left Shadowlap files where the suites run: ${watched}/ (empty)`);
+    expect(left.stderr).toContain(`tests left shadowlap files where the suites run: ${watched}/ (empty)`);
     // There now, from before the next run: said, and no failure while nothing changes in it.
     const again = run('process.exit(0)');
     expect(again.status, again.stderr).toBe(0);
@@ -171,11 +171,11 @@ describe('what tests leave in the checkout', () => {
 });
 
 /**
- * Shadowlap keeps this machine's files (the project list, the agents and proxies registered while
+ * shadowlap keeps this machine's files (the project list, the agents and proxies registered while
  * they run) in SHADOWLAP_HOME, else ~/.shadowlap. A run of the suites has a home of its own there,
  * so no test writes in the real one, and one that does is caught.
  */
-describe("Shadowlap's home folder, around a run", () => {
+describe("shadowlap's home folder, around a run", () => {
   it("is the run's own: a temporary folder in SHADOWLAP_HOME, for the suite and every process it starts", () => {
     const own = process.env.SHADOWLAP_HOME ?? '';
     expect(isAbsolute(own), `SHADOWLAP_HOME is ${own || 'unset'}`).toBe(true);
@@ -208,9 +208,9 @@ describe("Shadowlap's home folder, around a run", () => {
     expect(existsSync(used)).toBe(false);
   });
 
-  it("fails the run on what tests wrote in the real home's .shadowlap under CI, and says it elsewhere, where the owner's Shadowlap writes there too", () => {
+  it("fails the run on what tests wrote in the real home's .shadowlap under CI, and says it elsewhere, where the owner's shadowlap writes there too", () => {
     expect(REAL_HOME).toBe(join(homedir(), '.shadowlap'));
-    // A stand-in for the real one, as the owner's Shadowlap left it.
+    // A stand-in for the real one, as the owner's shadowlap left it.
     const real = join(dir, 'real-home', '.shadowlap');
     mkdirSync(join(real, 'agents'), { recursive: true });
     utimesSync(join(real, 'agents'), new Date(2026, 0, 1), new Date(2026, 0, 1));
@@ -226,7 +226,7 @@ describe("Shadowlap's home folder, around a run", () => {
     expect(strict).toThrow(homeMessage([`${real}/agents`]));
     expect(lax).not.toThrow();
     expect(warned).toEqual([homeChangedMessage([`${real}/agents`])]);
-    expect(homeMessage(['/home/dana/.shadowlap/agents'])).toBe("tests wrote in the real home folder's Shadowlap files: /home/dana/.shadowlap/agents. A test runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own, never with the real home.");
-    expect(homeChangedMessage(['/home/dana/.shadowlap/agents'])).toBe("Shadowlap files changed in the real home folder while the tests ran: /home/dana/.shadowlap/agents. Unless a Shadowlap of yours wrote them (a dashboard, an agent, a proxy), a test did: it runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own.");
+    expect(homeMessage(['/home/dana/.shadowlap/agents'])).toBe("tests wrote in the real home folder's shadowlap files: /home/dana/.shadowlap/agents. A test runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own, never with the real home.");
+    expect(homeChangedMessage(['/home/dana/.shadowlap/agents'])).toBe("shadowlap files changed in the real home folder while the tests ran: /home/dana/.shadowlap/agents. Unless a shadowlap of yours wrote them (a dashboard, an agent, a proxy), a test did: it runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own.");
   });
 });

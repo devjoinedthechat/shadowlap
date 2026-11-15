@@ -1,7 +1,7 @@
-"""Shadowlap SDK for Python.
+"""shadowlap SDK for Python.
 
 A thin client of the sidecar's call resolution API. No hashing or matching
-logic lives here. When Shadowlap is not active (no SHADOWLAP_URL), everything is a passthrough.
+logic lives here. When shadowlap is not active (no SHADOWLAP_URL), everything is a passthrough.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ class ShadowlapWriteBlocked(RuntimeError):
 
 #: Per framework, the error its agent loop hands the model as a tool's failure where any other error
 #: ends the run, as (module, class) in order of preference: the first one the process has imported.
-#: Shadowlap imports no framework, so a framework that isn't running adds nothing.
+#: shadowlap imports no framework, so a framework that isn't running adds nothing.
 _REPORTED_ERRORS: tuple[tuple[tuple[str, str], ...], ...] = (
     # A failure the model sees and is not asked to retry, so it spends no retry.
     (("pydantic_ai.exceptions", "ToolFailed"),),
@@ -383,7 +383,7 @@ def is_active() -> bool:
     return _config() is not None
 
 
-# One variable per process, shared with Shadowlap's capture module, which may be imported first.
+# One variable per process, shared with shadowlap's capture module, which may be imported first.
 _SCOPE: contextvars.ContextVar[Optional[str]] = getattr(sys, "_shadowlap_scope_var", None) or contextvars.ContextVar("shadowlap_scope", default=None)
 setattr(sys, "_shadowlap_scope_var", _SCOPE)
 
@@ -411,7 +411,7 @@ def scope(name: str) -> Iterator[str]:
     are counted per scope, so branches that send the same request at the same time each get their own
     recorded answer on replay, whatever order they arrive in. Scopes nest (``researcher/search``) and
     follow asyncio and trio tasks created inside the block; a thread started inside needs
-    ``contextvars.copy_context()``. Outside Shadowlap it only sets the variable.
+    ``contextvars.copy_context()``. Outside shadowlap it only sets the variable.
     """
     parent = current_scope()
     full = "%s/%s" % (parent, name) if parent else name
@@ -1451,7 +1451,7 @@ def tool(
 def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None) -> Optional[Resolution]:
     """For an integration whose tools run where ``tool()`` can't wrap them (an agent runtime's built-in
     tools, run between two hooks): what the sidecar says to do about one call, before it runs. None
-    outside Shadowlap. A ``live`` or ``stubbed`` answer is ended with ``_complete_call``."""
+    outside shadowlap. A ``live`` or ``stubbed`` answer is ended with ``_complete_call``."""
     cfg = _config()
     if cfg is None:
         return None
@@ -1464,11 +1464,11 @@ def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None
 
 
 def _say_hello(body: dict[str, Any]) -> None:
-    """Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
+    """Tells the sidecar about a process of the agent's that shadowlap's preloads can't load into, as
     they tell it about their own (``POST /v1/hello``): the Claude Code CLI the Claude Agent SDK runs,
     whose fence says it runs with no guard, and with ``reach`` what it can still connect to that
-    bypasses Shadowlap (empty: nothing, and the run passes ``--guard block``). Does nothing outside
-    Shadowlap."""
+    bypasses shadowlap (empty: nothing, and the run passes ``--guard block``). Does nothing outside
+    shadowlap."""
     cfg = _config()
     if cfg is not None:
         _post(cfg, "/v1/hello", {"runtimeVersion": "", "ppid": 0, **body})
@@ -1508,7 +1508,7 @@ def uuid(label: Optional[str] = None) -> str:
 
 
 def _input_preload() -> Any:
-    """Shadowlap's recorded-input preload, when `shadowlap run` loaded it into this process."""
+    """shadowlap's recorded-input preload, when `shadowlap run` loaded it into this process."""
     module = sys.modules.get("_shadowlap_input")
     return module if getattr(module, "active", False) else None
 
@@ -1541,7 +1541,7 @@ def user_input(prompt: str = "", read: Optional[Callable[[str], str]] = None) ->
     replay serves the answer from the recording, and after a fork the recorded answers are served
     in order, so ``shadowlap test``, ``blame`` and ``verify`` run the agent with no one there to type.
     ``read(prompt)`` gets the answer however the agent does (a chat window, a message from a queue);
-    by default it is ``input()``. Outside Shadowlap this just calls ``read``.
+    by default it is ``input()``. Outside shadowlap this just calls ``read``.
 
     ``input()`` and reads of ``sys.stdin`` are recorded without this, by the preload ``shadowlap run``
     adds; use it for input that arrives any other way.

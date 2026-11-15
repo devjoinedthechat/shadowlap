@@ -9,7 +9,7 @@ import { canonical, childProblem, realShadowlapFolders, takeRefused, writeProble
 
 /**
  * A run of the tests started at the root, in a suite's folder or in its test folder writes nothing in
- * the real home folder's Shadowlap files: it has the one setup, a home of its own for each test file
+ * the real home folder's shadowlap files: it has the one setup, a home of its own for each test file
  * and the guard (testing/home-guard.mjs), which refuses a write there, or a process started to keep
  * them there, and fails the test. Vitest reads no config but the one in the folder it starts in, so a
  * run started anywhere else has neither.
@@ -18,10 +18,10 @@ const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const VITEST = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 
 let dir: string;
-/** A stand-in for the real home folder, with its .shadowlap, and that folder's real Shadowlap folders as the guard takes them. */
+/** A stand-in for the real home folder, with its .shadowlap, and that folder's real shadowlap folders as the guard takes them. */
 let standIn: string;
 let real: string[];
-/** A Shadowlap home of a test's own, as the setup gives each file. */
+/** A shadowlap home of a test's own, as the setup gives each file. */
 let own: string;
 /** A link to the stand-in's .shadowlap. */
 let link: string;
@@ -37,7 +37,7 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-describe("the guard against the real home's Shadowlap files", () => {
+describe("the guard against the real home's shadowlap files", () => {
   it('refuses a write there however its path is spelt: through a link, with a trailing slash or .., or relative to the working folder', () => {
     const spelt = [
       join(standIn, '.shadowlap', 'checks-seen.json'),
@@ -47,21 +47,21 @@ describe("the guard against the real home's Shadowlap files", () => {
       relative(process.cwd(), join(standIn, '.shadowlap', 'mcp')),
       join(standIn, '.shadowlap', 'not', 'there', 'yet.json'),
     ];
-    for (const path of spelt) expect(writeProblem(path, { env: { SHADOWLAP_HOME: own }, home: standIn, real }), path).toMatch(/^a test wrote in the real home folder's Shadowlap files/);
+    for (const path of spelt) expect(writeProblem(path, { env: { SHADOWLAP_HOME: own }, home: standIn, real }), path).toMatch(/^a test wrote in the real home folder's shadowlap files/);
     expect(canonical(join(link, 'a', '..', 'b.json'))).toBe(join(standIn, '.shadowlap', 'b.json'));
     expect(writeProblem(join(link, 'projects.json'), { env: { SHADOWLAP_HOME: own }, home: standIn, real })).toBe(
-      `a test wrote in the real home folder's Shadowlap files (${real[0]}): ${join(link, 'projects.json')}. A test keeps them in its file's own SHADOWLAP_HOME, which the setup sets and process.env carries, or in a folder of its own.`,
+      `a test wrote in the real home folder's shadowlap files (${real[0]}): ${join(link, 'projects.json')}. A test keeps them in its file's own SHADOWLAP_HOME, which the setup sets and process.env carries, or in a folder of its own.`,
     );
     for (const path of [join(own, 'checks-seen.json'), join(standIn, 'projects.json'), join(standIn, '.shadowlap-other', 'x.json')]) {
       expect(writeProblem(path, { env: { SHADOWLAP_HOME: own }, home: standIn, real }), path).toBeNull();
     }
   });
 
-  it("refuses a write in the home an environment names while SHADOWLAP_HOME is unset, blank or relative, which Shadowlap ignores, and allows one in a home of the test's own", () => {
+  it("refuses a write in the home an environment names while SHADOWLAP_HOME is unset, blank or relative, which shadowlap ignores, and allows one in a home of the test's own", () => {
     const home = join(dir, 'another-home');
     const there = join(home, '.shadowlap', 'checks-seen.json');
     expect(writeProblem(there, { env: {}, home, real })).toBe(
-      `a test wrote in Shadowlap's home folder with SHADOWLAP_HOME unset: ${there}. A test keeps its file's own SHADOWLAP_HOME, which the setup sets, or sets a folder of its own.`,
+      `a test wrote in shadowlap's home folder with SHADOWLAP_HOME unset: ${there}. A test keeps its file's own SHADOWLAP_HOME, which the setup sets, or sets a folder of its own.`,
     );
     expect(writeProblem(there, { env: { SHADOWLAP_HOME: '  ' }, home, real })).toMatch(/with SHADOWLAP_HOME unset:/);
     expect(writeProblem(there, { env: { SHADOWLAP_HOME: 'relative/home' }, home, real })).toMatch(/with SHADOWLAP_HOME set to relative\/home, which isn't an absolute path:/);
@@ -69,20 +69,20 @@ describe("the guard against the real home's Shadowlap files", () => {
     expect(writeProblem(join(home, 'notes.md'), { env: {}, home, real })).toBeNull();
   });
 
-  it("refuses a process that would keep Shadowlap's files there, and starts one given the run's SHADOWLAP_HOME or a HOME of its own", () => {
+  it("refuses a process that would keep shadowlap's files there, and starts one given the run's SHADOWLAP_HOME or a HOME of its own", () => {
     const refused = [{ HOME: standIn }, { HOME: standIn, SHADOWLAP_HOME: `${join(standIn, '.shadowlap')}/` }, { HOME: standIn, SHADOWLAP_HOME: '~/.shadowlap' }, { HOME: standIn, SHADOWLAP_HOME: link }, { HOME: standIn, SHADOWLAP_HOME: 'relative' }];
     for (const env of refused) expect(childProblem(env, { real, platform: 'linux' }), JSON.stringify(env)).not.toBeNull();
     expect(childProblem({ HOME: standIn, SHADOWLAP_HOME: link }, { command: 'node', real, platform: 'linux' })).toBe(
-      `a test started node with SHADOWLAP_HOME ${link}, so Shadowlap there would keep this machine's files in the real home folder's (${real[0]}). Pass it the run's SHADOWLAP_HOME, which process.env carries, or a HOME of its own.`,
+      `a test started node with SHADOWLAP_HOME ${link}, so shadowlap there would keep this machine's files in the real home folder's (${real[0]}). Pass it the run's SHADOWLAP_HOME, which process.env carries, or a HOME of its own.`,
     );
-    expect(childProblem({ HOME: standIn, SHADOWLAP_HOME: 'relative' }, { command: 'node', real, platform: 'linux' })).toMatch(/^a test started node with HOME .+ and SHADOWLAP_HOME set to relative, which isn't an absolute path, so Shadowlap there/);
+    expect(childProblem({ HOME: standIn, SHADOWLAP_HOME: 'relative' }, { command: 'node', real, platform: 'linux' })).toMatch(/^a test started node with HOME .+ and SHADOWLAP_HOME set to relative, which isn't an absolute path, so shadowlap there/);
     expect(childProblem({ HOME: standIn, SHADOWLAP_HOME: own }, { real, platform: 'linux' })).toBeNull();
     expect(childProblem({ HOME: join(dir, 'another-home') }, { real, platform: 'linux' })).toBeNull();
     // Windows: Node takes the home folder from USERPROFILE there.
     expect(childProblem({ USERPROFILE: standIn, HOME: join(dir, 'another-home') }, { real, platform: 'win32' })).not.toBeNull();
     expect(childProblem({ USERPROFILE: join(dir, 'another-home'), HOME: standIn }, { real, platform: 'win32' })).toBeNull();
     // With no HOME, Node takes the system's record of the user's home folder: the real one, never a stand-in.
-    expect(childProblem({ PATH: process.env.PATH }, { command: 'node', platform: 'linux' })).toMatch(/^a test started node with HOME unset and SHADOWLAP_HOME unset, so Shadowlap there would keep this machine's files in the real home folder's/);
+    expect(childProblem({ PATH: process.env.PATH }, { command: 'node', platform: 'linux' })).toMatch(/^a test started node with HOME unset and SHADOWLAP_HOME unset, so shadowlap there would keep this machine's files in the real home folder's/);
     expect(childProblem({ PATH: process.env.PATH, SHADOWLAP_HOME: own }, { platform: 'linux' })).toBeNull();
   });
 
@@ -90,7 +90,7 @@ describe("the guard against the real home's Shadowlap files", () => {
     /** What a promise of a started process came to: the message it was refused with, or that it ran. */
     const outcome = (started: Promise<unknown>) => started.then(() => 'ran', (err: unknown) => (err as Error).message);
     const env = { PATH: process.env.PATH };
-    const refused = /^a test started .+ with (HOME|USERPROFILE) unset and SHADOWLAP_HOME unset, so Shadowlap there would keep this machine's files in the real home folder's/;
+    const refused = /^a test started .+ with (HOME|USERPROFILE) unset and SHADOWLAP_HOME unset, so shadowlap there would keep this machine's files in the real home folder's/;
     const byExecFile = await outcome(promisify(execFile)(process.execPath, ['-e', ''], { env }));
     expect(byExecFile).toMatch(refused);
     const byExec = await outcome(promisify(exec)(`"${process.execPath}" -e ""`, { env }));
@@ -137,7 +137,7 @@ describe("a run of the tests started at the root, in a suite's folder or in its 
     for (const setup of ["globalSetup: ['./testing/no-stray-stores.mjs']", "setupFiles: ['./testing/file-home.mjs']", 'root: ROOT', 'export default testsIn();']) expect(root).toContain(setup);
   });
 
-  /** A run of Vitest started in `folder` on `args`, with HOME the stand-in and no Shadowlap home or run of the outer one's: what it said, and how it ended. */
+  /** A run of Vitest started in `folder` on `args`, with HOME the stand-in and no shadowlap home or run of the outer one's: what it said, and how it ended. */
   function vitestIn(folder: string, args: string[], env: NodeJS.ProcessEnv = {}) {
     const outer = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(VITEST|SHADOWLAP_HOME$|SHADOWLAP_TESTS_HOME$|CI$|FORCE_COLOR$)/.test(k)));
     const r = spawnSync(process.execPath, [VITEST, 'run', ...args], { cwd: folder, encoding: 'utf8', env: { ...outer, HOME: standIn, USERPROFILE: standIn, NO_COLOR: '1', ...env }, timeout: 120_000 });
@@ -159,7 +159,7 @@ describe("a run of the tests started at the root, in a suite's folder or in its 
   it("fails a run started in the dashboard's test folder when a test writes in the real home's .shadowlap, which the guard keeps as it was", { timeout: 150_000 }, () => {
     const r = vitestIn(join(ROOT, 'packages', 'dashboard', 'test'), ['own-home.test.ts', '-t', 'fail the run that writes them'], { SHADOWLAP_STAND_IN_HOME: standIn });
     expect(r.status, r.out).toBe(1);
-    expect(r.out).toContain(`a test wrote in the real home folder's Shadowlap files (${real[0]}): ${join(standIn, '.shadowlap')}`);
+    expect(r.out).toContain(`a test wrote in the real home folder's shadowlap files (${real[0]}): ${join(standIn, '.shadowlap')}`);
     expect(readdirSync(join(standIn, '.shadowlap'))).toEqual([]);
   });
 });

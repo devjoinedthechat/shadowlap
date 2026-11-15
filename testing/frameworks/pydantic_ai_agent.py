@@ -1,5 +1,5 @@
 """A Pydantic AI agent driven by FunctionModel (no API): the model asks for search_web and send_email,
-then answers with what each returned. Tools are registered with @agent.tool over the Shadowlap @tool
+then answers with what each returned. Tools are registered with @agent.tool over the shadowlap @tool
 decorator, the documented pattern; the RunContext parameter is left out of the recording
 automatically. QUERY changes the search arguments so a replay forks. Prints a JSON summary, with each
 tool's return as the model read it: its content and whether it failed."""

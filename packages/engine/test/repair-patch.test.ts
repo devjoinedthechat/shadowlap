@@ -85,7 +85,7 @@ describe('repairPatchProblem', () => {
     expect(repairPatchProblem(report(candidate(), AGENT, ['diff --git a/agent.mjs b/agent.mjs', 'GIT binary patch', 'literal 3', 'Hc$@<O00001', ''].join('\n')))).toMatch(/^its header is not the one/);
   });
 
-  it("refuses a candidate that rewrites a recording or Shadowlap's config: a recorded command never changes through a repair", () => {
+  it("refuses a candidate that rewrites a recording or shadowlap's config: a recorded command never changes through a repair", () => {
     // A pulled repair whose accepted candidate rewrites a golden's recorded command: its patch is that rewrite exactly.
     const content = '{\n  "runs": [\n    {\n      "command": {\n        "argv": [\n          "node",\n          "agent.mjs"\n        ],\n';
     const before = '"node",\n          "agent.mjs"';
@@ -253,7 +253,7 @@ describe('repairNeverRewritesAt', () => {
     expect(at('docker-compose.yml', anchored, 'python agent.py --serve')).toBe(`is in ${RUNNERS.find((r) => r.file === 'docker-compose.yml')!.what}: a repair never rewrites what runs`);
   });
 
-  it("refuses every other kind of file, whose text Shadowlap can't tell from code", () => {
+  it("refuses every other kind of file, whose text shadowlap can't tell from code", () => {
     for (const [path, kind] of [['main.go', 'a .go file'], ['lib/agent.rb', 'a .rb file'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file'], ['NOTICE', 'a file with no extension']]) {
       expect(at(path, 'run: npm test\n', 'npm test'), path).toBe(`is in ${kind}: a repair rewrites text only in a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file`);
     }

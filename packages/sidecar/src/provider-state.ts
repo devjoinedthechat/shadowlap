@@ -14,7 +14,7 @@ import { isObject, isRawNumber, multipartContents, type CallRecord } from '@shad
  * request instead, the stateless form of the same request, rebuilt from the recorded call that made
  * the cache; and one that refers to a file the recording uploaded is sent with the file's bytes in
  * the request, from the recorded upload. A file the recording holds no whole copy of (uploaded in
- * parts, or around Shadowlap), or one too large to send inline, is sent as it was, and the run says
+ * parts, or around shadowlap), or one too large to send inline, is sent as it was, and the run says
  * it fails with another key's; so is one that goes by its id alone (a code interpreter's `file_ids`,
  * Anthropic's `container_upload`), and a vector store a search names (`vector_store_ids`). One Gemini
  * has deleted already is refused, saying why.
@@ -231,7 +231,7 @@ export class ProviderState {
           refused.push(`it reads file ${ref.id}, which the recorded run uploaded at call #${file.callNo} and Google deleted at ${new Date(file.expiresAt).toISOString()} (it keeps an upload for 48 hours), and the recording holds no whole copy of it to send in its place. Fork from the upload (--diverge-at ${file.callNo}) so the fork uploads it again.`);
           return node;
         }
-        const why = !file.bytes ? 'holds no whole copy of it (it was uploaded in parts, or around Shadowlap)' : over !== null ? `can't send it in the request (${over})` : `can't send a ${file.mimeType ?? 'file of that type'} in the request`;
+        const why = !file.bytes ? 'holds no whole copy of it (it was uploaded in parts, or around shadowlap)' : over !== null ? `can't send it in the request (${over})` : `can't send a ${file.mimeType ?? 'file of that type'} in the request`;
         out.notes.push({ key: `file:${file.id}`, text: `call ${callNo} refers to file ${ref.id}, which the recorded run uploaded at call #${file.callNo} and ${keeper}; the recording ${why}, so it was sent as it was, and it fails with another account's key. Fork from the upload (--diverge-at ${file.callNo}) to upload it again.` });
         return node;
       });

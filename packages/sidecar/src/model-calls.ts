@@ -419,7 +419,7 @@ function resign(core: SidecarCore, req: IncomingMessage, headers: Record<string,
  * the answer streamed back as it arrives (relayAnswer). When the agent leaves, the request upstream
  * ends with it, and the attempt is recorded as a retryable disconnect, so its client's retry is
  * the same call. When the provider's connection breaks part way, the agent's breaks there too, as
- * it would without Shadowlap.
+ * it would without shadowlap.
  */
 async function forwardLive(core: SidecarCore, call: ModelCall, placed: PlacedCall): Promise<void> {
   const upstream = liveUpstream(core, call, placed);
@@ -456,7 +456,7 @@ async function forwardLive(core: SidecarCore, call: ModelCall, placed: PlacedCal
       return;
     }
     // The provider couldn't be reached, or broke the connection before it answered: the agent's
-    // connection breaks too, as the provider's would have without Shadowlap, so its client reports
+    // connection breaks too, as the provider's would have without shadowlap, so its client reports
     // a connection error and retries as it would. Recorded as cut short with no answer, which a
     // replay serves the same way; the run's summary says why.
     const message = messageOf(err);
@@ -485,7 +485,7 @@ function liveUpstream(core: SidecarCore, call: ModelCall, placed: PlacedCall): s
   const requested = call.judge?.upstream ?? call.requested;
   const upstream = ctx.offline || call.judge?.offline === true ? 'offline' : ((judging ? requested : undefined) || core.upstreamOf(provider) || requested || provider.upstream).replace(/\/$/, '');
   if (!upstream) {
-    const message = `no upstream for ${provider.id}: set ${upstreamVariable(provider)}, or let Shadowlap capture the call in the agent's process`;
+    const message = `no upstream for ${provider.id}: set ${upstreamVariable(provider)}, or let shadowlap capture the call in the agent's process`;
     answerOwn(core, ctx, res, callNo, tracked, { status: 400, body: { type: 'error', error: { type: 'shadowlap_no_upstream', message } }, origin: 'refused' }, { error: { name: 'ShadowlapNoUpstream', message } });
     return null;
   }

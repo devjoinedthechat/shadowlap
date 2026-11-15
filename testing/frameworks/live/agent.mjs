@@ -1,4 +1,4 @@
-// The smallest agent that exercises what Shadowlap parses, against one real provider: a call that must
+// The smallest agent that exercises what shadowlap parses, against one real provider: a call that must
 // use a tool (so tool-call parsing is tested), then a streamed call (so stream parsing and timing are).
 // Prints one JSON line. Usage: node agent.mjs <provider>
 const provider = process.argv[2];

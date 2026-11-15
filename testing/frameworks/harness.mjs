@@ -1,5 +1,5 @@
 // Shared by the framework tests: an in-process sidecar on an in-memory store, and record / replay
-// helpers that point the SDK at a run for the duration of a function. The Shadowlap packages come
+// helpers that point the SDK at a run for the duration of a function. The shadowlap packages come
 // from the repository's build output (run `npm run build` at the root first).
 import { Store } from '../../packages/engine/dist/index.js';
 import { Sidecar } from '../../packages/sidecar/dist/index.js';

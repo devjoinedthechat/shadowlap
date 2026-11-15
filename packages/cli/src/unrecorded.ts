@@ -25,7 +25,7 @@ export const ALLOW_UNRECORDED = '--allow-unrecorded <names>';
 export const ALLOW_UNRECORDED_HELP = 'run these tools again for real though the recording never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)';
 
 /**
- * A command line with a flag added: before its `--`, when it has one, so the flag is Shadowlap's
+ * A command line with a flag added: before its `--`, when it has one, so the flag is shadowlap's
  * and not the agent's (`shadowlap blame 01K… -- node agent.mjs`).
  */
 export function withFlag(command: readonly string[], flag: readonly string[]): string[] {
@@ -124,7 +124,7 @@ export function unrecordedRefusal(run: RunRecord, tools: readonly UnrecordedTool
   return [
     `${shortId(run.runId)} holds model calls of ${writes.length === 1 ? 'a tool' : 'tools'} shadowlap never recorded, which ${acts(writes)}: a replay serves the model's answers again, so it would run ${it} again for real.`,
     ...unrecordedLines(writes),
-    `  So Shadowlap records ${it} and a replay serves ${writes.length === 1 ? 'it' : 'each'}: ${howToRecord(writes[0]!) ?? 'record it'}.`,
+    `  So shadowlap records ${it} and a replay serves ${writes.length === 1 ? 'it' : 'each'}: ${howToRecord(writes[0]!) ?? 'record it'}.`,
     `  If running ${it} again is safe, declare ${it} a read in shadowlap.config.json, "tools": { "unrecorded": { ${JSON.stringify(writes[0]!.name)}: "read" } }${command ? `, or let this replay run ${it}: ${safe(quoteArgv(withFlag(command, ['--allow-unrecorded', names.join(',')])))}` : ''}`,
   ].join('\n');
 }

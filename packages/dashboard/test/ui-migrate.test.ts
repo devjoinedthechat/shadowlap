@@ -227,7 +227,7 @@ describe('Changes › Migrate', () => {
       expect(shown(p.one('.mgstart .mgcmd'))).toContain(`shadowlap migrate --to ${TO} goldens/refund goldens/lookup --from ${FROM}`);
       const go = p.byText('.mgstart .actions button', `Migrate to ${TO}`);
       expect([go.className.split(' ').includes('lime'), go.getAttribute('aria-disabled')]).toEqual([true, null]);
-      expect(shown(p.one('.mgsrc'))).toMatch(/The date is from the retirement table that ships with Shadowlap, read from Anthropic’s model deprecations page; nothing is fetched\.$/);
+      expect(shown(p.one('.mgsrc'))).toMatch(/The date is from the retirement table that ships with shadowlap, read from Anthropic’s model deprecations page; nothing is fetched\.$/);
       expect(p.one('.mgsrc a').getAttribute('href')).toBe(n.source);
     });
 

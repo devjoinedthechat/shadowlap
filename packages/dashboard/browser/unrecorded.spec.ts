@@ -18,7 +18,7 @@ test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 const refusal = (run: string) => [
   `shadowlap: ${run.slice(0, 10)} holds model calls of a tool shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`,
   '    Bash  2 calls from model call #3 · a Claude Code built-in that runs a command',
-  '  So Shadowlap records it and a replay serves it: run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in shadowlap.adapters.claude_agent_sdk), which records Bash and fences it on replay.',
+  '  So shadowlap records it and a replay serves it: run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in shadowlap.adapters.claude_agent_sdk), which records Bash and fences it on replay.',
   `  If running it again is safe, declare it a read in shadowlap.config.json, "tools": { "unrecorded": { "Bash": "read" } }, or let this replay run it: shadowlap replay ${run} --allow-unrecorded Bash`,
 ];
 

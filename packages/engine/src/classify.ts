@@ -402,7 +402,7 @@ export function outcomeLabel(o: RunOutcome): string {
 
 /**
  * Where a call's answer came from, as every view that colours a call says it. The store keeps an
- * injected failure (`--fail-at`) as live, but Shadowlap answered it, not the provider. A call whose
+ * injected failure (`--fail-at`) as live, but shadowlap answered it, not the provider. A call whose
  * answer was an error is `failed`, unless the error is the fence itself (a blocked write) or an
  * injected one.
  */

@@ -16,7 +16,7 @@ import { listedFiles, readInside } from './repair-tree.js';
  * The change to the project's files: where a string value names a model it switches from (in code
  * and config), the places in each and the patch; the fields the patch takes out with the model, each
  * with the line it stood on; and the mentions left for review (prose, history, tests, an object key,
- * Shadowlap's own config).
+ * shadowlap's own config).
  */
 export interface ConfigChange {
   files: Array<{ path: string; places: number }>;
@@ -111,7 +111,7 @@ export function lineDiff(path: string, before: string, after: readonly string[],
 const PROSE = /(^|\/)(CHANGELOG|CHANGES|HISTORY|NEWS|RELEASES?)[^/]*$|\.(md|mdx|markdown|rst|adoc|txt)$/i;
 /** Tests and fixtures: what a run once sent, or what a check expects. */
 const TESTS = /(^|\/)(tests?|__tests__|specs?|fixtures?|__fixtures__|__recordings__|goldens|testdata)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_test\.(py|go)$/i;
-/** Shadowlap's own config: its prices are keyed by model and its judges name theirs; none is the agent's. */
+/** shadowlap's own config: its prices are keyed by model and its judges name theirs; none is the agent's. */
 const SHADOWLAP_CONFIG = /(^|\/)shadowlap\.config\.json$/;
 /** A line that is a comment. */
 const COMMENT = /^\s*(\/\/|#|\*|\/\*|--|;)/;
@@ -204,7 +204,7 @@ function linesLeftOut(lines: readonly string[], switched: readonly number[], rem
 /**
  * Where the project's files name a model it switches from, and the patch that names the new one
  * there: only where a string value in code or config names the model whole. A mention in prose or
- * history, in a test, as an object key (a price table's), or in Shadowlap's own config is listed for
+ * history, in a test, as an object key (a price table's), or in shadowlap's own config is listed for
  * review and left as it is. In a code file, the patch takes out with the model each field What to set
  * leaves out that stands as a literal on a line of its own in the same call (`leftOut`).
  */

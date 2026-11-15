@@ -26,7 +26,7 @@ function recorded(out: string): string {
   return runId;
 }
 
-/** Nothing of this machine's own setup reaches the commands, as in the demo store's build: no keys, no endpoints, no Shadowlap settings, and the runner's colours none of the agent's output. */
+/** Nothing of this machine's own setup reaches the commands, as in the demo store's build: no keys, no endpoints, no shadowlap settings, and the runner's colours none of the agent's output. */
 const LEAKS = /^(SHADOWLAP_|ANTHROPIC_|OPENAI_|GOOGLE_|GEMINI_|AWS_|AZURE_|LANGFUSE_|LANGSMITH_|OTEL_|GIT_|GITHUB_|CI$|NODE_OPTIONS|FORCE_COLOR)/;
 
 const UNTRUSTED = { tools: { fetch_page: { trust: 'untrusted' } } };

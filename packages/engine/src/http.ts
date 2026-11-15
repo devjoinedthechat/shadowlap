@@ -7,7 +7,7 @@ import type { RunMeta } from './types.js';
 
 /**
  * Credentials in recorded HTTP traffic: which query and form parameters carry one (credentialParam,
- * the one list every part of Shadowlap reads), which headers do, and the stored shapes with them
+ * the one list every part of shadowlap reads), which headers do, and the stored shapes with them
  * masked. The sidecar masks them before anything is stored, and every copy that leaves the machine
  * (a pack, an HTML report or share link, a push to the team store) masks them again, so a recording
  * made before a name was known to carry one leaves without it all the same.

@@ -23,7 +23,7 @@ from typing import Callable, NoReturn, Optional
 from shadowlap import __version__
 
 #: The Node.js the CLI runs on, as its package.json's ``engines`` says: 22.16 or later, but not 23,
-#: whose built-in SQLite lacks the full-text search every Shadowlap store uses.
+#: whose built-in SQLite lacks the full-text search every shadowlap store uses.
 NODE_RANGE = "22.16 or later (not 23)"
 
 #: Exit status when there is no Node.js to run the CLI on: a matter of setup, as a bad flag is.

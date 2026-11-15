@@ -1,4 +1,4 @@
-// The conformance suite against the two SDKs Shadowlap ships. A third-party client runs the same
+// The conformance suite against the two SDKs shadowlap ships. A third-party client runs the same
 // scenarios through runner.mjs; see README.md.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

@@ -162,7 +162,7 @@ describe('shadowlap import otel', () => {
     expect(shown.out).toContain('imported, otel');
   });
 
-  it("says why a trace from Shadowlap's own export has nothing to replay", async () => {
+  it("says why a trace from shadowlap's own export has nothing to replay", async () => {
     const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-traces.json', '--json'])).out);
     expect((await shadowlap(['export', 'otel', imported.runs[0].runId, '--out', 'exported.json'])).code).toBe(0);
     const again = await shadowlap(['import', 'otel', 'exported.json']);

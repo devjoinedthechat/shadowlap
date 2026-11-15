@@ -127,7 +127,7 @@ export class Store {
    * Opens an existing store for reading only, as the dashboard's worker threads read it beside the
    * connection that writes: nothing is created or migrated (the writing connection did that when it
    * opened the store), and SQLite refuses any write made through it. In WAL mode a reader never
-   * waits for a writer, nor holds one up. A store from a newer Shadowlap is refused, as `open`
+   * waits for a writer, nor holds one up. A store from a newer shadowlap is refused, as `open`
    * refuses it, and so is a database without a store's tables, its connection closed: a dashboard
    * reads other projects' stores this way, and keeps none of them open.
    */

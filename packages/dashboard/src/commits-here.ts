@@ -113,7 +113,7 @@ export async function commitSubjects(cwd: string, revs: ReadonlyArray<string | n
 
 /**
  * The authors of those of these revisions that are commits here, by revision: the email git has for
- * each commit's author, as Shadowlap names whoever records or tests (asked of git along with
+ * each commit's author, as shadowlap names whoever records or tests (asked of git along with
  * `commitsHere`, so asked once with the subjects).
  */
 export async function commitAuthors(cwd: string, revs: ReadonlyArray<string | null>, now = Date.now()): Promise<Map<string, string>> {

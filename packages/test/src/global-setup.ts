@@ -1,5 +1,5 @@
 /**
- * Vitest `globalSetup`: starts one Shadowlap host for the whole run, before the workers start, and
+ * Vitest `globalSetup`: starts one shadowlap host for the whole run, before the workers start, and
  * stops it at the end. Pair it with `@shadowlap/test/setup` in `setupFiles`.
  */
 import { HOST_ENV, startHost } from './host.js';

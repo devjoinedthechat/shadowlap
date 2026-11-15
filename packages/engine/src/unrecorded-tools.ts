@@ -25,7 +25,7 @@ export interface UnrecordedTool {
   count: number;
   /** The model call whose answer first asked for it. */
   firstCallNo: number;
-  /** What it does to the world, as far as Shadowlap can tell: declared in the config, a known built-in, its name, or unknown. */
+  /** What it does to the world, as far as shadowlap can tell: declared in the config, a known built-in, its name, or unknown. */
   effect: UnrecordedEffect;
   /** Why it has that effect, in a few words: `declared write in shadowlap.config.json`, `a Claude Code built-in that runs a command`, `"send" changes something`. */
   why: string;
@@ -47,7 +47,7 @@ export const UNRECORDED_KEY = 'unrecorded';
 
 /**
  * `"tools": { "unrecorded": { "Bash": "write", "lookup_kb": "read" } }`, checked: the effect of each
- * tool the agent runs without Shadowlap recording it, which decides whether a replay may run it
+ * tool the agent runs without shadowlap recording it, which decides whether a replay may run it
  * again. Null when the config declares none.
  */
 export function parseUnrecordedConfig(tools: unknown, file = 'shadowlap.config.json'): Record<string, 'read' | 'write'> | null {
@@ -259,7 +259,7 @@ function askedFor(store: StoreOf<'recording'>, call: CallRecord): string[] {
  * how often the model asked, from which model call, and their effect. A tool the run recorded any
  * call of is left out, an MCP tool the model named with its server's prefix (`mcp__kb__search`)
  * included when the run recorded it under its own name (`search`, through `shadowlap mcp`). Calls
- * Shadowlap makes itself (its judge's) are none of the agent's.
+ * shadowlap makes itself (its judge's) are none of the agent's.
  */
 export function unrecordedTools(store: StoreOf<'recording'>, runId: string, options: UnrecordedOptions = {}): UnrecordedTool[] {
   const calls = store.getCalls(runId);

@@ -555,7 +555,7 @@ describe('the run page’s next step', () => {
     const next: NextStep = { key: 'pack', label: 'Pack as golden…', runId: REC, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${REC.slice(0, 10)} ${folder}` };
     const sent: Array<Record<string, unknown>> = [];
     const answers = [
-      new ApiError(409, `${folder} already holds a golden. Give this one another name: Shadowlap never packs over a golden.`),
+      new ApiError(409, `${folder} already holds a golden. Give this one another name: shadowlap never packs over a golden.`),
       new ApiError(409, `${REC.slice(0, 10)} came from the team store: its test runs the command it was recorded with (node agent.mjs), under shadowlap test goldens/other. Confirm it to run it`, 'c'.repeat(32)),
     ];
     const a = app({}, {
@@ -583,7 +583,7 @@ describe('the run page’s next step', () => {
     const next: NextStep = { key: 'pack', label: 'Pack as golden…', runId: REC, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${REC.slice(0, 10)} ${folder}` };
     const answers = [
       new ApiError(409, `${REC.slice(0, 10)} came from the team store: its test runs the command it was recorded with (node agent.mjs), under shadowlap test ${folder}. Confirm it to run it`, 'c'.repeat(32)),
-      new ApiError(409, `${folder} already holds a golden. Give this one another name: Shadowlap never packs over a golden.`),
+      new ApiError(409, `${folder} already holds a golden. Give this one another name: shadowlap never packs over a golden.`),
     ];
     const sent: Array<Record<string, unknown>> = [];
     const a = app({}, {

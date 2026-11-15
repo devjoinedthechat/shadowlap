@@ -274,7 +274,7 @@ class PytestPlugin(unittest.TestCase):
             r = self.pytest("test_mixed.py", env=env)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("4 passed", r.stdout)
-            self.assertEqual(_Model.hits, 4)  # two recorded through Shadowlap, two direct
+            self.assertEqual(_Model.hits, 4)  # two recorded through shadowlap, two direct
             # Replayed: the recorded tests call nothing, the others still call the model themselves.
             again = self.pytest("test_mixed.py", env=dict(env, SHADOWLAP_RECORD="none"))
             self.assertEqual(again.returncode, 0, again.stdout + again.stderr)

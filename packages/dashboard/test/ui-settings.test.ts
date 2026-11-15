@@ -414,7 +414,7 @@ describe('the CI tab', () => {
     // The branch "only for the main branch" means is the repository's default, in the switch's words and the YAML.
     expect(view.alerts.branch).toBe('master');
     expect(view.workflow.text).toContain("github.ref == 'refs/heads/master'");
-    expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on master.');
+    expect(view.alerts.message.text).toBe('shadowlap: 1 golden(s) failed on master.');
     expect(view.fixOnFailure.preview).toMatchObject({ example: true, base: 'master' });
   });
 

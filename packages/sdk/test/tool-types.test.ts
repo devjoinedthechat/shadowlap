@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { tool } from '@shadowlap/sdk';
 
 // What tool() returns, as TypeScript sees it and as it runs. The type assertions are checked by
-// `npm run typecheck:tests`; the calls run outside Shadowlap, where a call goes straight to the
+// `npm run typecheck:tests`; the calls run outside shadowlap, where a call goes straight to the
 // implementation and still comes back as a promise.
 describe("tool()'s types", () => {
   it('give a tool whose implementation only throws a promise, which is what a call returns', async () => {

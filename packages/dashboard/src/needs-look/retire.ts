@@ -45,7 +45,7 @@ function retireAdvice(n: RetiringModel, checked: string | null): { advice?: Look
 }
 
 /**
- * A model the goldens' recordings call that retires, by the table that ships with Shadowlap, the
+ * A model the goldens' recordings call that retires, by the table that ships with shadowlap, the
  * soonest first: `claude-sonnet-4-5, used by 2 goldens, retires on Nov 30, 2026`, `in 60 days ·
  * Anthropic recommends claude-sonnet-5-5`, with Migrate to its replacement, which asks first, opening
  * Changes › Migrate. Once a migration from it checked it, the row says how that came out and opens

@@ -94,7 +94,7 @@ export interface PackResult {
 }
 
 /** What a pack's `.gitattributes` says: git keeps every file's bytes as they are. */
-export const PACK_GITATTRIBUTES = '# A Shadowlap pack: every blob is checked against its hash, so git must not convert line endings.\n* -text\n';
+export const PACK_GITATTRIBUTES = '# A shadowlap pack: every blob is checked against its hash, so git must not convert line endings.\n* -text\n';
 
 /**
  * Writes the pack's `.gitattributes` unless the folder has one: committed without it, a checkout
@@ -459,7 +459,7 @@ export function readPackFile(path: string, limit: number, what: string): Buffer 
 export function unpackRun(store: StoreOf<'recording' | 'readModels'>, dir: string, o: { madeHere?: boolean } = {}): UnpackResult {
   const root = resolve(dir);
   const manifestPath = join(root, 'run.json');
-  if (!existsSync(manifestPath)) throw new PackError(`${dir} is not a Shadowlap pack (no run.json)`);
+  if (!existsSync(manifestPath)) throw new PackError(`${dir} is not a shadowlap pack (no run.json)`);
   let manifest: Partial<PackManifest>;
   try {
     manifest = JSON.parse(readPackFile(manifestPath, PACK_LIMITS.manifestBytes, 'run.json').toString('utf8')) as Partial<PackManifest>;

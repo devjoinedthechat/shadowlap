@@ -314,7 +314,7 @@ export interface VerifyReport extends VerifyDecision {
   judge?: { spent: number; upstreamRequests: number };
   unknownModels: string[];
   stopReason: string | null;
-  /** What the replays warned about: a tool that changed since its recording (and so needs --live-tool), a connection that bypassed Shadowlap. */
+  /** What the replays warned about: a tool that changed since its recording (and so needs --live-tool), a connection that bypassed shadowlap. */
   replayWarnings: string[];
   /**
    * The rule good runs were kept by, stated once: against what (`source`, and for a paired baseline

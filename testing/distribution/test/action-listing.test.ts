@@ -24,7 +24,7 @@ const OMITTED = ['coffee', 'columns', 'divide-circle', 'divide-square', 'divide'
 
 describe('the action as the Marketplace lists it', () => {
   it('has a name and a description that fits the listing, leading with the job it does', () => {
-    expect(field('name')).toBe('Shadowlap test');
+    expect(field('name')).toBe('shadowlap test');
     const description = field('description')!;
     expect(description.length).toBeLessThanOrEqual(125);
     expect(description.startsWith('Change safety for agents: ')).toBe(true);

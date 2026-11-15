@@ -120,11 +120,11 @@ describe('ProjectHost.restore', () => {
     const file = w.registry.file;
     const list = readFileSync(file, 'utf8');
     // The host asks nothing of the list before it puts a project back: the registry refuses a list
-    // that isn't valid JSON as it reads it, and one a newer Shadowlap wrote as it changes it.
+    // that isn't valid JSON as it reads it, and one a newer shadowlap wrote as it changes it.
     const newer = `${JSON.stringify({ ...(JSON.parse(list) as object), version: 2 }, null, 2)}\n`;
     for (const [text, words] of [
-      ['{ not json', `${file} isn’t valid JSON. Fix it, or move it away to start a new list; Shadowlap won’t overwrite it.`],
-      [newer, `${file} was written by a newer Shadowlap. Upgrade Shadowlap to change the project list.`],
+      ['{ not json', `${file} isn’t valid JSON. Fix it, or move it away to start a new list; shadowlap won’t overwrite it.`],
+      [newer, `${file} was written by a newer shadowlap. Upgrade shadowlap to change the project list.`],
     ] as const) {
       writeFileSync(file, text);
       expect(() => host.restore('support-agent')).toThrow(expect.objectContaining({ code: 'registry', message: words }));

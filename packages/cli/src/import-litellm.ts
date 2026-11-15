@@ -79,7 +79,7 @@ export interface LitellmGroup extends Captured {
  * runs. Grouping is what makes a run mean something; without an id there is nothing to group by,
  * and those calls come back as a single group with a null key for the caller to warn about.
  *
- * Throws only when nothing in the file is a Shadowlap capture. A single unreadable line is skipped:
+ * Throws only when nothing in the file is a shadowlap capture. A single unreadable line is skipped:
  * a gateway appends to this file while serving traffic, so its last line may be half written.
  */
 export function readLitellmGroups(contents: string): LitellmGroup[] {
@@ -106,19 +106,19 @@ export function readLitellmGroups(contents: string): LitellmGroup[] {
     }
     const urlOf = (r: unknown) => (isObject(r) && typeof r.url === 'string' && r.url ? r.url : `line ${i + 1}`);
     if (!isObject(parsed) || parsed.format !== 'shadowlap-capture') {
-      skipped.push({ url: urlOf(parsed), reason: 'not a Shadowlap capture record' });
+      skipped.push({ url: urlOf(parsed), reason: 'not a shadowlap capture record' });
       continue;
     }
     recognised++;
     const problem = recordProblem(parsed);
     if (problem) {
-      skipped.push({ url: urlOf(parsed), reason: `not a Shadowlap capture record: ${problem}` });
+      skipped.push({ url: urlOf(parsed), reason: `not a shadowlap capture record: ${problem}` });
       continue;
     }
     const record = parsed as LitellmRecord;
     const endpoint = record.url ? providerEndpoint(record.url) : null;
     if (!endpoint) {
-      skipped.push({ url: record.url ?? `line ${i + 1}`, reason: 'not a route Shadowlap recognises as a model API' });
+      skipped.push({ url: record.url ?? `line ${i + 1}`, reason: 'not a route shadowlap recognises as a model API' });
       continue;
     }
     groupFor(record.runKey ?? null).calls.push({
@@ -135,7 +135,7 @@ export function readLitellmGroups(contents: string): LitellmGroup[] {
   }
 
   if (!recognised) {
-    throw new Error('not a Shadowlap capture: expected lines written by shadowlap.litellm_callback, each with "format": "shadowlap-capture"');
+    throw new Error('not a shadowlap capture: expected lines written by shadowlap.litellm_callback, each with "format": "shadowlap-capture"');
   }
   // Whatever could not be read at all belongs to the file, not to any one run.
   const ordered = [...groups.values()];

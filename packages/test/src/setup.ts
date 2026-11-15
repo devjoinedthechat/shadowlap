@@ -1,5 +1,5 @@
 /**
- * Vitest `setupFiles`: makes this worker ready for recorded tests on the Shadowlap host started by
+ * Vitest `setupFiles`: makes this worker ready for recorded tests on the shadowlap host started by
  * `@shadowlap/test/global-setup`, and loads in-process capture before any test file creates a model
  * client. Its clients and the SDK point at the host only while a recorded test runs.
  */

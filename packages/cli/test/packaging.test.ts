@@ -6,7 +6,7 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Shadowlap sits in the model request path and holds recorded prompts, so its supply chain is part
+ * shadowlap sits in the model request path and holds recorded prompts, so its supply chain is part
  * of what people are trusting. Every published package's external runtime dependencies are listed
  * here, and a new one fails this test: the claim in the README stays true by construction rather
  * than by memory. Adding a dependency is allowed — it just has to be a decision, made here.
@@ -25,7 +25,7 @@ const ALLOWED: Record<string, string[]> = {
   '@shadowlap/test': [],
   // The team store: buckets reached with fetch and SigV4 of its own, no cloud SDK.
   '@shadowlap/remote': [],
-  // The only package with a real dependency tree, and the only one you can use Shadowlap without.
+  // The only package with a real dependency tree, and the only one you can use shadowlap without.
   '@shadowlap/tui': ['ink', 'react'],
 };
 

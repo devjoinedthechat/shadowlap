@@ -1,5 +1,5 @@
 // Python frameworks on the model client each builds when given none, run by the real CLI as a user
-// runs them: `shadowlap run -- python agent.py`, with nothing in the agent naming Shadowlap's address.
+// runs them: `shadowlap run -- python agent.py`, with nothing in the agent naming shadowlap's address.
 // Strands' BedrockModel, Agno's OpenAIResponses, Microsoft Agent Framework's OpenAIChatClient (the
 // Responses API), LlamaIndex's OpenAI LLM, and smolagents' CodeAgent on OpenAIServerModel and on its
 // default InferenceClientModel (Hugging Face's router, a host the config declares). Each asks a scripted model API to
@@ -85,7 +85,7 @@ const CASES = [
     model: openaiModel,
     client: 'OpenAIResponses',
     provider: 'openai',
-    // Agno reports each run to os-api.agno.com unless told not to: a connection outside Shadowlap.
+    // Agno reports each run to os-api.agno.com unless told not to: a connection outside shadowlap.
     env: { AGNO_TELEMETRY: 'false' },
     refused: (value) => assert.ok(value.results.some((r) => /blocked/.test(r.result)), JSON.stringify(value.results)),
   },
@@ -118,9 +118,9 @@ const CASES = [
     refused: (value) => assert.ok(value.errors.some((e) => /blocked/.test(e)), JSON.stringify(value.errors)),
   },
   {
-    // smolagents' default model calls Hugging Face's router, which Shadowlap doesn't know: the
+    // smolagents' default model calls Hugging Face's router, which shadowlap doesn't know: the
     // project's config declares it, in OpenAI's format. A replay needs HF_TOKEN set, to any hf_ value.
-    // huggingface_hub looks up, once a day, which coding agent runs it: a connection outside Shadowlap.
+    // huggingface_hub looks up, once a day, which coding agent runs it: a connection outside shadowlap.
     name: "smolagents' CodeAgent on its default InferenceClientModel (Hugging Face's router, declared in the config)",
     module: 'smolagents, huggingface_hub',
     script: 'smolagents_code.py',
@@ -178,10 +178,10 @@ for (const c of CASES) {
     };
     const unreachable = () => Object.fromEntries(Object.keys(model.upstream).map((k) => [k, 'http://127.0.0.1:9']));
 
-    it(`records the ${c.client}'s calls and both tools, with nothing in the agent pointing it at Shadowlap`, async () => {
+    it(`records the ${c.client}'s calls and both tools, with nothing in the agent pointing it at shadowlap`, async () => {
       const r = await shadowlap(['run', '--', PYTHON, agentPath(c.script)], { ...model.upstream, QUERY: 'shadowlap' });
       assert.equal(r.code, 0, r.out);
-      assert.doesNotMatch(r.out, /bypasses Shadowlap/);
+      assert.doesNotMatch(r.out, /bypasses shadowlap/);
       recorded = printed(r.stdout);
       assert.equal(recorded.model, c.client);
       assert.match(recorded.answer, /Emailed the team about shadowlap\./);

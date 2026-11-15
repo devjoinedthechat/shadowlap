@@ -98,7 +98,7 @@ async function calibrationRounds(store: Store, parent: RunRecord, o: { cwd: stri
     rounds.push({ round, divergence: d ? { callNo: d.callNo, kind: d.kind, name: d.name, type: d.type } : null, proposals: [] });
     // A replay that stopped before its recording did sent no request that changed: no normalizer helps.
     if (!d || d.type === 'ended_early') {
-      if (s.total === 0 && store.getCalls(parent.runId).length > 0) outcome = { clean: false, why: 'the replay made no calls through Shadowlap, so the agent reached its model some other way (a local model server needs SHADOWLAP_UPSTREAM_OPENAI or the like, as when it was recorded)', details: attempt.output.trim().split('\n').slice(-15).join('\n') };
+      if (s.total === 0 && store.getCalls(parent.runId).length > 0) outcome = { clean: false, why: 'the replay made no calls through shadowlap, so the agent reached its model some other way (a local model server needs SHADOWLAP_UPSTREAM_OPENAI or the like, as when it was recorded)', details: attempt.output.trim().split('\n').slice(-15).join('\n') };
       else if (attempt.code !== 0) outcome = { clean: false, why: `the agent exited with code ${attempt.code} without diverging`, details: attempt.output.trim().split('\n').slice(-15).join('\n') };
       else if (d) outcome = { clean: false, why: `the agent ended before call ${d.callNo} (${d.kind} ${safe(d.name)}), which it made when recorded: its control flow varies between runs, and no normalizer changes that`, details: formatSummary(s) };
       else {
@@ -114,9 +114,9 @@ async function calibrationRounds(store: Store, parent: RunRecord, o: { cwd: stri
     if (step.proposals.length === 0) {
       const why =
         d.type === 'request_changed'
-          ? 'a change Shadowlap cannot tell apart from a real one'
+          ? 'a change shadowlap cannot tell apart from a real one'
           : d.type === 'new_call' || d.type === 'beyond_recording'
-            ? 'the agent made a different call than it recorded, so its control flow varies between runs (a random choice, a set iterated in a different order, a clock read outside the Shadowlap SDK)'
+            ? 'the agent made a different call than it recorded, so its control flow varies between runs (a random choice, a set iterated in a different order, a clock read outside the shadowlap SDK)'
             : `a ${d.type} divergence`;
       outcome = { clean: false, why, details: formatDivergence(d) };
     } else {

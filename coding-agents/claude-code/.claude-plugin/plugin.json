@@ -1,10 +1,10 @@
 {
   "name": "shadowlap",
-  "displayName": "Shadowlap",
+  "displayName": "shadowlap",
   "version": "0.1.0",
-  "description": "Change safety for agents: set Shadowlap up for your agent, check every change to it against what it actually did, find the model call that lost a run, and verify the fix, with the shadowlap CLI.",
+  "description": "Change safety for agents: set shadowlap up for your agent, check every change to it against what it actually did, find the model call that lost a run, and verify the fix, with the shadowlap CLI.",
   "author": {
-    "name": "Shadowlap",
+    "name": "shadowlap",
     "url": "https://github.com/devjoinedthechat/shadowlap"
   },
   "homepage": "https://github.com/devjoinedthechat/shadowlap/blob/main/docs/agents.md",

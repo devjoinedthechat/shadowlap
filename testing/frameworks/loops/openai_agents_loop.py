@@ -1,6 +1,6 @@
 """An OpenAI Agents SDK agent as a user writes it: an Agent given no model, run by Runner on the
 SDK's default model and client, the OpenAI SDK's, which calls the Responses API. Nothing here names
-Shadowlap's address: under shadowlap run the client reads OPENAI_BASE_URL. Tools use
+shadowlap's address: under shadowlap run the client reads OPENAI_BASE_URL. Tools use
 shadowlap.adapters.openai_agents.function_tool. QUERY is the user's request. Prints a JSON summary,
 with each tool's result as the model read it."""
 

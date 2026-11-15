@@ -31,7 +31,7 @@ export const CAPTURE = Symbol.for('shadowlap.capture');
 export const LASTING = new Set(['NO_PROXY', 'no_proxy']);
 
 /**
- * Points this process's model clients and the Shadowlap SDK at the host, under `slot`, and turns
+ * Points this process's model clients and the shadowlap SDK at the host, under `slot`, and turns
  * in-process capture on, until the returned function puts back the variables as they were and turns
  * capture off. A recorded test runs between the two; a test without a recording sees the process as
  * it was, and calls its model and tools directly.

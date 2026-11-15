@@ -171,7 +171,7 @@ function registerDecisions(program: Command): void {
     .option('--timeout <seconds>', 'stop a model request, or a verify attempt, after this long', parseIntArg)
     .option('--strict', 'exit 1 when a run has a rank 1 or 2 change (for CI)')
     .option('--inconclusive <mode>', 'what an inconclusive result does to the exit status: fail (3) or warn (0, with a warning)', parseChoice(['fail', 'warn'] as const), 'fail')
-    .option('--guard <mode>', 'with --then-verify or --verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'with --then-verify or --verify: network guard for connections that bypass shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
     .option('--test-session <id>', "with --from-code: keep the preview with this test session, as its pull request comment's decisions (the GitHub Action's decisions: true)")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
@@ -324,7 +324,7 @@ function registerMigrate(program: Command): Command {
     .option('--budget <usd>', 'send no request and start no attempt once this much is spent', parseUsd)
     .option('--timeout <seconds>', 'stop a model request, or a verify attempt, after this long', parseIntArg)
     .option('--inconclusive <mode>', 'what an inconclusive result does to the exit status: fail (3) or warn (0, with a warning)', parseChoice(['fail', 'warn'] as const), 'fail')
-    .option('--guard <mode>', 'verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'verify: network guard for connections that bypass shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
     .action((given: string[], flags: MigrateFlags, cmd: Command) => migrateAction(program, given, flags, cmd));

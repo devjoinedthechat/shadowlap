@@ -25,7 +25,7 @@ const T = 1_760_000_000_000;
 
 const oc = (callNo: number, kind: string, outcome: 'ok' | 'error' | null = 'ok', origin = 'live', effect: string | null = null): OpenCall => ({ callNo, kind, outcome, origin, effect });
 const JUDGE = 'shadowlap:judge';
-/** A model call Shadowlap's judge made, after the agent's. */
+/** A model call shadowlap's judge made, after the agent's. */
 const judgeOc = (callNo: number, outcome: 'ok' | 'error' = 'ok'): OpenCall => ({ ...oc(callNo, 'api', outcome), scope: JUDGE, agent: JUDGE });
 
 describe('where a run opens', () => {

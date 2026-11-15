@@ -73,7 +73,7 @@ FROM calls WHERE extra = 1 AND judge = 0`;
 
 /**
  * The agent's model calls that were answered in a blame's scope, as the engine's blameSteps finds
- * them (none in one of Shadowlap's own scopes, probedInScope): how many, how many come up to the
+ * them (none in one of shadowlap's own scopes, probedInScope): how many, how many come up to the
  * blamed call (it included), and whether it is one of them. Bound, in order: the blamed call twice,
  * the run, then the scope four times (null for every scope).
  */

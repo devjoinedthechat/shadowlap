@@ -1,6 +1,6 @@
 name: Live providers
 
-# Shadowlap against the real model APIs: a tool call and a streamed call per provider,
+# shadowlap against the real model APIs: a tool call and a streamed call per provider,
 # recorded, parsed and replayed offline (testing/frameworks/live). Only providers whose secrets are
 # set run; the rest are skipped. Each run costs a few cents per provider.
 #

@@ -128,4 +128,4 @@ export const BULK = {
 } as const;
 
 /** Push local runs' card, on Runs' header and Needs a look's row: what pushing does, and the command its job runs. */
-export const PUSH_LOCAL = { label: 'Push local runs', sub: 'Copies them to the store with your credentials; nothing passes through Shadowlap', command: 'shadowlap push --all' } as const;
+export const PUSH_LOCAL = { label: 'Push local runs', sub: 'Copies them to the store with your credentials; nothing passes through shadowlap', command: 'shadowlap push --all' } as const;

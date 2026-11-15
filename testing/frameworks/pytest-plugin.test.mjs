@@ -1,6 +1,6 @@
 // The pytest plugin (@pytest.mark.shadowlap), through real pytest: tests record on their first run,
 // replay offline after that, fail with the divergence when a request changes, and keep working with
-// pytest-xdist workers. The model client is created at import, before Shadowlap starts, so only
+// pytest-xdist workers. The model client is created at import, before shadowlap starts, so only
 // in-process capture can record it. Needs a Python with pytest, pytest-xdist and anthropic.
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';

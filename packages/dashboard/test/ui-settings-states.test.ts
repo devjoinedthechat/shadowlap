@@ -34,7 +34,7 @@ function redaction(error: string | null): RedactionSettings {
 const store = (error: string | null): StoreSettings => ({ config: config(error), configured: null, error, status: null, policy: null, redactRules: error ? null : 0 });
 
 const SKILLS: SkillOffer['skills'] = [
-  { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: 'shadowlap-setup-agent', does: 'sets Shadowlap up for an agent' },
+  { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: 'shadowlap-setup-agent', does: 'sets shadowlap up for an agent' },
   { name: 'debug-agent', command: '/shadowlap:debug-agent', shared: 'shadowlap-debug-agent', does: 'debugs it and checks every change to it' },
 ];
 
@@ -49,7 +49,7 @@ function offer(o: { agents: SkillOffer['agents']; published?: boolean }): SkillO
   };
 }
 
-const agents = (skill: SkillOffer): CodingAgentsSettings => ({ files: [{ path: 'CLAUDE.md', agents: 'Claude Code', found: false, type: null, mentions: false }], section: '## Debugging the agent with Shadowlap', source: 'docs/agents.md', skill });
+const agents = (skill: SkillOffer): CodingAgentsSettings => ({ files: [{ path: 'CLAUDE.md', agents: 'Claude Code', found: false, type: null, mentions: false }], section: '## Debugging the agent with shadowlap', source: 'docs/agents.md', skill });
 
 function app(o: { client: Partial<Client['settings']> & { startJob?: Client['startJob'] }; missing?: boolean; watchJob?: AppState['watchJob'] }): AppState {
   const { startJob, ...settings } = o.client;
@@ -220,7 +220,7 @@ describe('Coding agents, as the design has it', () => {
     const startJob = vi.fn(async () => ({}));
     r = await page(app({ client: { agents: async () => withFiles(offer({ agents: shared('changed') }), files({ skills: true })), startJob: startJob as unknown as Client['startJob'] } }), 'agents');
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
-    expect(rows(r)[2]).toBe('.agents/skillsfound · Shadowlap’s skills, edited hereReplace with 0.1.0’s copy…');
+    expect(rows(r)[2]).toBe('.agents/skillsfound · shadowlap’s skills, edited hereReplace with 0.1.0’s copy…');
     await r.click(r.byText('.agentfiles button', 'Replace with 0.1.0’s copy…'));
     expect(startJob).not.toHaveBeenCalled();
     expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Replace skills with 0.1.0’s copy?');
@@ -231,7 +231,7 @@ describe('Coding agents, as the design has it', () => {
     startJob.mockClear();
     r = await page(app({ client: { agents: async () => withFiles(offer({ agents: shared('other-version', { installedVersion: '0.0.9' }) }), files({ skills: true })), startJob: startJob as unknown as Client['startJob'] } }), 'agents');
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
-    expect(rows(r)[2]).toBe('.agents/skillsfound · Shadowlap’s skills 0.0.9Update to 0.1.0');
+    expect(rows(r)[2]).toBe('.agents/skillsfound · shadowlap’s skills 0.0.9Update to 0.1.0');
     await r.click(r.byText('.agentfiles button', 'Update to 0.1.0'));
     expect(startJob).toHaveBeenCalledWith('skill-install', { agent: 'agents', replace: true });
     expect(r.all('.dialog')).toHaveLength(0);
@@ -240,7 +240,7 @@ describe('Coding agents, as the design has it', () => {
   it('says why a blocked install can’t go in, with no button', async () => {
     r = await page(app({ client: { agents: async () => withFiles(offer({ agents: shared('missing', { blocked: '.agents/skills is a link to outside the project' }) }), files({ skills: true })) } }), 'agents');
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
-    expect(rows(r)[2]).toBe('.agents/skillsfound · mentions Shadowlap.agents/skills is a link to outside the project');
+    expect(rows(r)[2]).toBe('.agents/skillsfound · mentions shadowlap.agents/skills is a link to outside the project');
     expect(r.one('.agentfiles .agwhy').className).toBe('warn agwhy');
     expect(r.all('.agentfiles button')).toHaveLength(0);
   });
@@ -254,12 +254,12 @@ describe('Coding agents, as the design has it', () => {
     const row = r.one('.setrow.skrow');
     expect(row.querySelector('b')!.textContent).toBe('The skills');
     expect(row.querySelector('span')!.textContent.replace(/\u00a0/g, ' ')).toBe(
-      'setup-agent sets Shadowlap up for an agent, and debug-agent debugs it and checks every change to it: they package the section below for Claude Code, which uses each when a task calls for it, or on /shadowlap:setup-agent and /shadowlap:debug-agent.',
+      'setup-agent sets shadowlap up for an agent, and debug-agent debugs it and checks every change to it: they package the section below for Claude Code, which uses each when a task calls for it, or on /shadowlap:setup-agent and /shadowlap:debug-agent.',
     );
     expect(row.querySelector('.cmdline')!.textContent).toBe('$shadowlap skill install claude-code');
     const install = r.byText('.skrow button', 'Install the skills');
     expect(install.className).toBe('btn lime');
-    expect(rows(r)[0]).toBe('CLAUDE.mdfound · no Shadowlap section yet');
+    expect(rows(r)[0]).toBe('CLAUDE.mdfound · no shadowlap section yet');
     const all = r.byText('.skrow button', 'Show commands for every project');
     expect(all.getAttribute('aria-expanded')).toBe('false');
     await r.click(all);
@@ -299,11 +299,11 @@ describe('Coding agents, as the design has it', () => {
   it('words each state of a copy in the project', () => {
     const names = SKILLS.map((x) => x.shared);
     expect(sharedSkillsWords({ found: false, mentions: false }, shared('missing'), '0.1.0', names)).toEqual({ text: 'not in this project', tone: 'muted', action: { label: 'Add the skills', ask: false }, why: null });
-    expect(sharedSkillsWords({ found: true, mentions: false }, shared('missing'), '0.1.0', names)).toMatchObject({ text: 'found · no Shadowlap skills yet', tone: 'warn', action: { label: 'Add the skills' } });
+    expect(sharedSkillsWords({ found: true, mentions: false }, shared('missing'), '0.1.0', names)).toMatchObject({ text: 'found · no shadowlap skills yet', tone: 'warn', action: { label: 'Add the skills' } });
     expect(sharedSkillsWords({ found: true, mentions: true }, shared('current'), '0.1.0', names)).toEqual({ text: 'found · shadowlap-setup-agent, shadowlap-debug-agent, 0.1.0', tone: 'ok', action: null, why: null });
-    expect(sharedSkillsWords({ found: true, mentions: true }, shared('other-version', { installedVersion: '0.0.9' }), '0.1.0', names)).toMatchObject({ text: 'found · Shadowlap’s skills 0.0.9', tone: 'warn', action: { label: 'Update to 0.1.0', ask: false } });
+    expect(sharedSkillsWords({ found: true, mentions: true }, shared('other-version', { installedVersion: '0.0.9' }), '0.1.0', names)).toMatchObject({ text: 'found · shadowlap’s skills 0.0.9', tone: 'warn', action: { label: 'Update to 0.1.0', ask: false } });
     expect(sharedSkillsWords({ found: true, mentions: true }, shared('changed'), '0.1.0', names)).toMatchObject({ tone: 'warn', action: { label: 'Replace with 0.1.0’s copy…', ask: true } });
-    expect(agentFileWords({ found: true, mentions: false })).toEqual({ text: 'found · no Shadowlap section yet', tone: 'warn' });
+    expect(agentFileWords({ found: true, mentions: false })).toEqual({ text: 'found · no shadowlap section yet', tone: 'warn' });
     expect(agentFileWords({ found: true, mentions: false }, 'the skills give Codex and others the section')).toEqual({ text: 'found · the skills give Codex and others the section', tone: 'ok' });
     const plugin = (state: SkillOffer['claudeCode']['state'], installedVersion: string | null = null) => ({ state, blocked: null, installedVersion, install: state === 'current' ? null : { job: { kind: 'skill-install' as const, agent: 'claude-code' as const, replace: state !== 'missing' }, command: `shadowlap skill install claude-code${state !== 'missing' ? ' --force' : ''}` } });
     expect(skillWords(plugin('missing'), '0.1.0')).toMatchObject({ installed: false, command: 'shadowlap skill install claude-code', action: { label: 'Install the skills', ask: false } });

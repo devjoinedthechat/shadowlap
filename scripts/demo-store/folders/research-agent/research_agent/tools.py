@@ -1,4 +1,4 @@
-"""The research agent's tools. Three are wrapped with Shadowlap and say what they do; the two that
+"""The research agent's tools. Three are wrapped with shadowlap and say what they do; the two that
 write, saving a report and posting to Slack, aren't yet."""
 
 from pydantic_ai import Agent

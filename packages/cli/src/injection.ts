@@ -117,7 +117,7 @@ function errorMessage(store: StoreOf<'recording'>, c: CallRecord): string | null
  * answers nothing, so what the agent did after it says nothing about the payload.
  */
 export function failureOf(store: StoreOf<'recording'>, a: Pick<Attempt, 'bypassed' | 'failures' | 'calls' | 'code'>, parent: Pick<RunRecord, 'status'>): Failure | null {
-  // No model call through Shadowlap: an agent that exited non-zero first crashed; one that didn't reached its model some other way.
+  // No model call through shadowlap: an agent that exited non-zero first crashed; one that didn't reached its model some other way.
   if (a.bypassed) return { why: a.code !== 0 && parent.status === 'completed' ? `the agent exited with code ${a.code} before it made a model call` : BYPASSED, callNo: null };
   // Out of time first: a model call it cut short never finished because of it.
   const timedOut = a.failures.find((f) => f.startsWith('timed out'));

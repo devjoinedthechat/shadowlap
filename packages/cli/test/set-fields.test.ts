@@ -4,7 +4,7 @@ import { parseFields } from '../src/commands/fix-flags.js';
 import { parseInterventions } from '../src/run-agent.js';
 
 /**
- * A request field in a command Shadowlap writes for `--set`: a fix's blame and verify run again, the
+ * A request field in a command shadowlap writes for `--set`: a fix's blame and verify run again, the
  * flags `decisions` and `changes migrate` suggest, a job the dashboard starts, a fork made again.
  * `--set` reads its value as JSON, or else as a bare string, so a string that reads as JSON itself
  * (`"123"`, `"true"`) goes in quotes, or it would come back a number or a boolean.

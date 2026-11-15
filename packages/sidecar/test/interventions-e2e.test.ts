@@ -109,7 +109,7 @@ describe('Anthropic', () => {
     expect(String(error)).toContain('Claude Sonnet 5 (claude-sonnet-5) takes no system message after the conversation has started');
     expect(mock.requests.length).toBe(before);
     expect(summary.warnings.filter((w) => w.includes('--inject 2'))).toEqual([expect.stringMatching(/^Not applied: --inject 2 --inject-as system: Claude Sonnet 5/)]);
-    // Answered by Shadowlap with the reason: neither live nor sent upstream.
+    // Answered by shadowlap with the reason: neither live nor sent upstream.
     expect([summary.refused, summary.upstreamRequests]).toEqual([1, 0]);
   });
 

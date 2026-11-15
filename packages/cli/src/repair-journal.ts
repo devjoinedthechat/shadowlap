@@ -6,11 +6,11 @@ import { fileInside, gitFolders, readInside, repositoryRoot, writeInside } from 
 import { physicalPath, realPath } from './real-path.js';
 
 /**
- * The journal an older Shadowlap kept while it tried a candidate in the working tree, and what puts
- * back a working tree such a repair left edited when it died. Shadowlap writes none: every candidate
+ * The journal an older shadowlap kept while it tried a candidate in the working tree, and what puts
+ * back a working tree such a repair left edited when it died. shadowlap writes none: every candidate
  * is verified in a worktree of its own, outside the project (repair-tree.ts), and only `--apply`
  * writes the working tree, once, holding the folder's repair lock. So there is no journal to keep out
- * of the checkout or to sign, and one an older Shadowlap left carries no signature to check: what is
+ * of the checkout or to sign, and one an older shadowlap left carries no signature to check: what is
  * left is to tell a journal such a repair left from one that came with the checkout.
  *
  * The journal is a file in the checkout, `.shadowlap/repair-journal.json` in the folder repair ran
@@ -64,11 +64,11 @@ function notUntracked(realRoot: string, rel: string): string | null {
 
 /**
  * A path the journal names, relative to the repository's root with forward slashes, when it is a
- * path an older Shadowlap wrote: the root git named joined to a file's path, so absolute, and inside
+ * path an older shadowlap wrote: the root git named joined to a file's path, so absolute, and inside
  * the repository once its links are resolved. Otherwise why it is no such path.
  */
 function journaledPath(realRoot: string, path: string): { file: string } | string {
-  if (!isAbsolute(path)) return 'it names a file by a relative path, which no Shadowlap writes';
+  if (!isAbsolute(path)) return 'it names a file by a relative path, which no shadowlap writes';
   const rel = relative(realRoot, physicalPath(path));
   if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return 'it names a file outside the repository, which no repair of it edited';
   return { file: rel.split(sep).join('/') };
@@ -82,7 +82,7 @@ function journaledFiles(realRoot: string, text: string): { pid: number | null; f
   } catch {
     // no JSON: no journal
   }
-  const notOne = 'it is not a journal Shadowlap writes';
+  const notOne = 'it is not a journal shadowlap writes';
   if (!isObject(parsed) || !Array.isArray(parsed.files)) return notOne;
   const listed: unknown[] = parsed.files;
   if (!listed.every((f) => isObject(f) && typeof f.path === 'string' && typeof f.original === 'string' && typeof f.patched === 'string')) return notOne;

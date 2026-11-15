@@ -3,7 +3,7 @@
  * names it (the engine's agents.ts: the scope its author gave, a trace's agent, a sub-agent a tool
  * started, an agent told by its system prompt), else its scope: `agent`, `agent/policy-checker`,
  * `customer`. Picking one narrows every view to it and the agents nested in it. Blame is scoped by
- * scope (`scope()` in the SDKs), so its hint reads scopes alone. Shadowlap's own scopes (its judge's,
+ * scope (`scope()` in the SDKs), so its hint reads scopes alone. shadowlap's own scopes (its judge's,
  * `shadowlap:judge`) are no agent and nothing to blame by: they get no agent's chip. A judge's calls
  * are the check's, kept out of All and its counts: they have a chip of their own, `judge`, after the
  * agents', which shows the bar for them alone, and no fork starts at one (`forksAt`). No DOM here:
@@ -23,7 +23,7 @@ export const agentOf = (c: ScopedCall): string | null => c.agent ?? c.scope ?? n
 /** A call's scope alone, which blame is scoped by. */
 export const scopeOnly = (c: ScopedCall): string | null => c.scope ?? null;
 
-/** Whether Shadowlap's judge made a call, by the agent the server names it (its scope, `shadowlap:judge`): the judge chip's, never the agent's. */
+/** Whether shadowlap's judge made a call, by the agent the server names it (its scope, `shadowlap:judge`): the judge chip's, never the agent's. */
 export const isJudge = (c: ScopedCall): boolean => agentOf(c) === JUDGE_SCOPE;
 
 /**
@@ -55,7 +55,7 @@ const JUDGE_FORK: ForkWait = { why: 'A judge’s call can’t be forked', card: 
 /** Why no fork starts at the selected call (`n`): a judge's, by the page's numbers of them (judgeNumbers); null for any other call, or none. */
 export const judgeForkWait = (n: number | null, judge: ReadonlySet<number>): ForkWait | null => (n !== null && !forksAt({ callNo: n }, judge) ? JUDGE_FORK : null);
 
-/** Whether a scope is the agent's, not one Shadowlap makes calls in itself (isReservedScope). */
+/** Whether a scope is the agent's, not one shadowlap makes calls in itself (isReservedScope). */
 const theirs = (s: string | null): s is string => !!s && !isReservedScope(s);
 
 /** Every scope in the order it first appears. */
@@ -73,7 +73,7 @@ export const realScopes = (calls: readonly ScopedCall[]): string[] => scopeChips
 
 /**
  * What the views show of a run's agents: whether they name its own (`scoped`: a scope its author
- * gave, or two agents or more, Shadowlap's own scopes aside), with the Agent column and their chips,
+ * gave, or two agents or more, shadowlap's own scopes aside), with the Agent column and their chips,
  * and whether the agents' bar shows (`bar`): for its own agents, or for a judge's calls, which the
  * bar keeps apart under a chip of their own. `judge` is their numbers (judgeNumbers), the server's
  * too while a long run's pages come.
@@ -84,7 +84,7 @@ export function agentsShown(calls: readonly ScopedCall[], judge: ReadonlySet<num
 }
 
 /**
- * The scope chips, as a tree: every scope but Shadowlap's own, each nested one right after the scope
+ * The scope chips, as a tree: every scope but shadowlap's own, each nested one right after the scope
  * it sits in, which gets a chip of its own even when no call was made in it directly (`writer/review`
  * brings `writer`). Siblings keep the order they first appear in.
  */

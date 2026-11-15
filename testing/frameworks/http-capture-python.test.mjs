@@ -78,7 +78,7 @@ print(json.dumps({"hits": hits, "notify": status}))
   it('records, replays without the services, and blocks the webhook after a fork', async () => {
     const recorded = await shadowlap(['run', '--', PYTHON, 'agent.py']);
     assert.equal(recorded.code, 0, recorded.out);
-    assert.doesNotMatch(recorded.out, /bypassed Shadowlap/);
+    assert.doesNotMatch(recorded.out, /bypassed shadowlap/);
     assert.deepEqual(line(recorded.stdout), { hits: ['about refund policy', 'about refund policy (pool manager)', 'about refund policy (pool)'], notify: 200 });
     assert.deepEqual(hits, { search: 3, webhook: 1 });
     const runId = /recording run (\w{26})/.exec(recorded.out)[1];

@@ -1,6 +1,6 @@
 // Shared by the tests of a Python framework's own agent loop on a real model client, run by the real
 // CLI as a user runs it: `shadowlap run -- python agent.py` (an agent in ./loops), with nothing in the
-// agent naming Shadowlap's address. The agent asks a scripted OpenAI API to research QUERY and email
+// agent naming shadowlap's address. The agent asks a scripted OpenAI API to research QUERY and email
 // the team: a recording with both tools run, a strict replay with the upstream unreachable that runs
 // no tool, and a fork on another QUERY where the email is blocked, the framework hands the refusal to
 // its model, and the run completes. One framework to a file: node --test's timeout holds a whole file.
@@ -92,10 +92,10 @@ export function agentLoopTests(c) {
       }
     };
 
-    it(`records the ${c.client}'s calls and both tools, with nothing in the agent pointing it at Shadowlap`, async () => {
+    it(`records the ${c.client}'s calls and both tools, with nothing in the agent pointing it at shadowlap`, async () => {
       const r = await shadowlap(['run', '--', PYTHON, agentPath(c.script)], { SHADOWLAP_UPSTREAM_OPENAI: model.mock.url, QUERY: 'shadowlap' });
       assert.equal(r.code, 0, r.out);
-      assert.doesNotMatch(r.out, /bypasses Shadowlap|did not record/);
+      assert.doesNotMatch(r.out, /bypasses shadowlap|did not record/);
       recorded = printed(r.stdout);
       assert.equal(recorded.model, c.client);
       assert.match(recorded.answer, /Emailed the team about shadowlap\./);

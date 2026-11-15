@@ -94,10 +94,10 @@ describe('network guard, node', () => {
     expect(out.sidecarOk).toBe(true);
     expect(out.externalResult).toBe('external');
     expect(externalHits).toBe(before + 1);
-    expect(stderr).toContain('bypasses Shadowlap');
+    expect(stderr).toContain('bypasses shadowlap');
     const { summary, unguarded } = sidecar.endRun(replay.runId, 'completed');
     expect(unguarded).toEqual([{ target: externalUrl.replace('http://', ''), count: 1, action: 'warned' }]);
-    expect(summary.warnings[0]).toMatch(/bypassed Shadowlap during the replay/);
+    expect(summary.warnings[0]).toMatch(/bypassed shadowlap during the replay/);
   });
 
   it('block: the external call is refused before any bytes leave', async () => {
@@ -136,7 +136,7 @@ describe.skipIf(!PYTHON)('network guard, python', () => {
     let out = JSON.parse(r.stdout.trim()) as { sidecarOk: boolean; externalResult: string };
     expect(out).toEqual({ sidecarOk: true, externalResult: 'external' });
     expect(externalHits).toBe(before + 1);
-    expect(r.stderr).toContain('bypasses Shadowlap');
+    expect(r.stderr).toContain('bypasses shadowlap');
     expect(sidecar.endRun(warnRun.runId, 'completed').unguarded).toEqual([{ target: externalUrl.replace('http://', ''), count: 1, action: 'warned' }]);
 
     const blockRun = sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv: ['x'], cwd: '.' } });

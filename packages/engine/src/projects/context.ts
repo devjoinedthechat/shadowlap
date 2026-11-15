@@ -40,7 +40,7 @@ export interface ProjectContext<C = unknown> {
    * What the store says about runs and the setup; empty facts while there is no store. From the
    * open store when there is one, else read without opening it for writing: counting another
    * project's runs never migrates its store. `keep` is the setup's recording. A store that can't be
-   * read (from a newer Shadowlap, or not a database) throws a `ProjectError` with code `store`.
+   * read (from a newer shadowlap, or not a database) throws a `ProjectError` with code `store`.
    */
   facts(options?: { keep?: string | null }): StoreFacts;
   /** Goldens in the project's repository (packs under `goldens/`). */
@@ -131,7 +131,7 @@ class Context<C> implements ProjectContext<C> {
     try {
       return readStoreFacts(this.dbPath, Date.now(), options);
     } catch (err) {
-      throw new ProjectError('store', `Shadowlap can’t read ${this.name}’s store: ${messageOf(err)}`);
+      throw new ProjectError('store', `shadowlap can’t read ${this.name}’s store: ${messageOf(err)}`);
     }
   }
 
@@ -198,7 +198,7 @@ export interface ProjectCounts {
   /** Why its store can't be read, or null: the switcher says so rather than "no runs yet". */
   unreadable: string | null;
   /**
-   * Folders beside the store with what Shadowlap made from its runs (`.shadowlap/repairs`,
+   * Folders beside the store with what shadowlap made from its runs (`.shadowlap/repairs`,
    * `.shadowlap/exports`), which deleting the recordings leaves: the Remove dialog says so.
    */
   madeFiles: string[];
@@ -228,7 +228,7 @@ export class ProjectHost<C = unknown> {
    * The host for a dashboard started in `folder`: the folder becomes a project if it isn't one
    * (it was chosen in a terminal, so the dashboard's limits on adding don't apply) and is current.
    * `dbPath` is the store `--db` named, if any. When the project list can't be read (it isn't valid
-   * JSON) or changed (a newer Shadowlap wrote it) and the folder isn't in it, the dashboard still
+   * JSON) or changed (a newer shadowlap wrote it) and the folder isn't in it, the dashboard still
    * opens on the folder, as it always did, with {@link notice} saying why it lists nothing else.
    */
   static open<C>(folder: string, options: Omit<ProjectHostOptions<C>, 'current' | 'startFolder' | 'standIn' | 'notice'> & { dbPath?: string }): ProjectHost<C> {
@@ -254,7 +254,7 @@ export class ProjectHost<C = unknown> {
   /**
    * Why the project list can't be used, when it can't: the dashboard shows it as a notice. The
    * stand-in's while the dashboard serves one; else why the list can't be changed now (a newer
-   * Shadowlap wrote it), or null.
+   * shadowlap wrote it), or null.
    */
   get notice(): string | null {
     return this.options.notice ?? this.options.registry.problem();

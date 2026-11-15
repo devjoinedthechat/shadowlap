@@ -174,7 +174,7 @@ async function fromProfile(e: AwsEnv, f: ReturnType<typeof files>, name: string,
   if (roleArn) {
     if (opts.allowSts === false) throw new StoreError('credentials', `${source} assumes a role, which only AWS can do; this store needs plain access keys`);
     const region = s.get('region') ?? configuredRegion(e) ?? null;
-    if (s.get('mfa_serial')) throw new StoreError('credentials', `${source} needs an MFA code, which Shadowlap can't ask for. Use a credential_process or aws sso login, or export temporary keys.`);
+    if (s.get('mfa_serial')) throw new StoreError('credentials', `${source} needs an MFA code, which shadowlap can't ask for. Use a credential_process or aws sso login, or export temporary keys.`);
     const tokenFile = s.get('web_identity_token_file');
     if (tokenFile) return webIdentity(e, roleArn, tokenFile, region, source);
     let base: AwsCredentials | null = null;

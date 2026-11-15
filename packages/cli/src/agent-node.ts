@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 
 /**
- * An agent on a Node before 18.18. Shadowlap loads the guard, in-process capture and recorded input
+ * An agent on a Node before 18.18. shadowlap loads the guard, in-process capture and recorded input
  * into a Node agent through `--import` in NODE_OPTIONS (guardEnv), which Node takes from 18.18 on.
  * An older one refuses it before running any of the agent: it prints `node: --import= is not
  * allowed in NODE_OPTIONS` and exits 9, Node's code for an option it refuses.
  */
-export const AGENT_NODE_TOO_OLD = "the agent's Node is too old for Shadowlap's guard, which needs Node 18.18 or later";
+export const AGENT_NODE_TOO_OLD = "the agent's Node is too old for shadowlap's guard, which needs Node 18.18 or later";
 
 /**
  * Said under the summary of an agent that exited 9 before any call, when its Node could not be

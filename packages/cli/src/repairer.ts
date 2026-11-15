@@ -319,7 +319,7 @@ export function claudeCodeArgs(systemFile: string, model: string | null): string
 /**
  * The user's own Claude Code, in print mode: `claude -p` with the prompt on stdin, no tools, and the
  * answer held to the schema. It runs in an empty directory, so no project's instructions reach the
- * prompt; its system prompt is a file beside that directory. Shadowlap never sees how Claude Code is
+ * prompt; its system prompt is a file beside that directory. shadowlap never sees how Claude Code is
  * signed in; it runs the binary the user installed, through cmd.exe when that is a batch file.
  */
 async function askClaudeCode(r: Repairer, prompt: { system: string; user: string }, prices: Record<string, Price> | undefined, signal: AbortSignal): Promise<RepairerAnswer> {
@@ -378,7 +378,7 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
 
 // The SDK is imported from where this CLI is installed, so a global CLI needs a global SDK beside it:
 // one in the project's node_modules is never found.
-const SDK_MISSING = () => new RepairerError('the Anthropic SDK is not installed', `an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install${installedGlobally() ? ' -g' : ''} @anthropic-ai/sdk`);
+const SDK_MISSING = () => new RepairerError('the Anthropic SDK is not installed', `an anthropic repairer needs it, and shadowlap does not install it for everyone: npm install${installedGlobally() ? ' -g' : ''} @anthropic-ai/sdk`);
 const REFUSED = () => new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
 
 /** Why the SDK sent nothing: it refuses before it sends when it finds no key, token or profile to sign in with. */

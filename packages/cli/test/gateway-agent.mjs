@@ -1,5 +1,5 @@
 // An agent on the OpenAI SDK whose base URL, set in code, is a gateway's: an OpenRouter-style host
-// that serves OpenAI's API under /api/v1. No variable points it at Shadowlap; in-process capture
+// that serves OpenAI's API under /api/v1. No variable points it at shadowlap; in-process capture
 // sends its calls there when the project's config declares the host.
 import OpenAI from 'openai';
 

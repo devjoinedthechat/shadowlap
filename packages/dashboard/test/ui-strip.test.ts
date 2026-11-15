@@ -32,7 +32,7 @@ describe('a call’s kind', () => {
     expect(callKind(row(4, { effect: 'write', outcome: 'error', error: 'refund failed' }))).toBe('k-err');
     expect(callKind(row(5, { kind: 'api', outcome: 'error', status: 529 }))).toBe('k-err');
     // Blocked by the fence: a write, never an error.
-    const blocked = row(6, { effect: 'write', origin: 'blocked', outcome: 'error', error: 'blocked by Shadowlap' });
+    const blocked = row(6, { effect: 'write', origin: 'blocked', outcome: 'error', error: 'blocked by shadowlap' });
     expect(callKind(blocked)).toBe('k-write');
     expect(ownKind(blocked)).toBe('write');
     expect(kindLabel(row(7, { input: true }))).toBe('read · input');

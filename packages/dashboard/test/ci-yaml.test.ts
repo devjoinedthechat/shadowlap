@@ -355,7 +355,7 @@ describe('the Alerts steps', () => {
 
   it('previews the message the step posts, as Slack shows it', () => {
     const preview = alertsMessage({ failed: 1, branch: 'main', runUrl: 'https://github.com/acme/agent/actions/runs/42' });
-    expect(preview).toEqual({ text: 'Shadowlap: 1 golden(s) failed on main.', link: 'https://github.com/acme/agent/actions/runs/42' });
+    expect(preview).toEqual({ text: 'shadowlap: 1 golden(s) failed on main.', link: 'https://github.com/acme/agent/actions/runs/42' });
     // The same words the workflow posts, with GitHub's values filled in.
     const posted = /text: "(.*)"/.exec(alertsYaml({ onlyMain: true, secret: 'X' }))![1]
       .replace('${{ steps.goldens.outputs.failed }}', '1')

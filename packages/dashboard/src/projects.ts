@@ -78,7 +78,7 @@ export interface SwitcherItem {
   settingUp: boolean;
   /** Its folder is gone from disk. */
   missing: boolean;
-  /** Its store can't be read (from a newer Shadowlap, or not a database): `why` says so, on hover. */
+  /** Its store can't be read (from a newer shadowlap, or not a database): `why` says so, on hover. */
   unreadable: boolean;
   why?: string;
   /** What a row of the switcher says at its right: `2 runs`, `setting up`, `folder not found`; its folder is on its hover card. */
@@ -289,7 +289,7 @@ export interface InspectStep extends StepBase {
    */
   warning: { title: string; text: string; code: WrapSnippet[]; recheck: { label: string; action: 'recheck'; lime: boolean } } | null;
   /**
-   * The project pins a Node older than Shadowlap's guard takes (18.18): an agent on it wouldn't
+   * The project pins a Node older than shadowlap's guard takes (18.18): an agent on it wouldn't
    * start, so Record waits until the pin is raised and the folder checked again, which leads.
    */
   node: { title: string; text: string; recheck: { label: string; action: 'recheck'; lime: boolean } } | null;
@@ -581,19 +581,19 @@ function nodeWarning({ oldNode, recorded, live, unwrapped }: SetupFacts): Inspec
   if (!oldNode) return null;
   const writeUnwrapped = unwrapped.some((t) => t.effect === 'write');
   return {
-    title: `Node ${oldNode.version} is too old for Shadowlap’s guard.`,
-    text: `${oldNode.from} pins it, and an agent on a Node before ${AGENT_NODE_MIN} never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin ${AGENT_NODE_MIN} or later to record.`,
+    title: `Node ${oldNode.version} is too old for shadowlap’s guard.`,
+    text: `${oldNode.from} pins it, and an agent on a Node before ${AGENT_NODE_MIN} never starts under shadowlap: that Node refuses the guard shadowlap loads into it. Pin ${AGENT_NODE_MIN} or later to record.`,
     recheck: { label: 'Check again', action: 'recheck', lime: !recorded && !live && !writeUnwrapped },
   };
 }
 
 /** What Record says before it runs: the sidecar in front of the model API or server, or why it waits or can't. */
 function recordText(server: SetupFacts['server'], oldNode: SetupFacts['oldNode']): string {
-  if (oldNode) return `Waits for a Node pin of ${AGENT_NODE_MIN} or later: ${oldNode.from} pins ${oldNode.version}, where the agent wouldn’t start under Shadowlap.`;
+  if (oldNode) return `Waits for a Node pin of ${AGENT_NODE_MIN} or later: ${oldNode.from} pins ${oldNode.version}, where the agent wouldn’t start under shadowlap.`;
   if (!server) return 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.';
   return server.upstream
     ? `Runs the command once with a local sidecar in front of your model server. Model calls go to ${server.url}, the model server this project uses.`
-    : `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.`;
+    : `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.`;
 }
 
 /** 2 · Record. */
@@ -623,7 +623,7 @@ function recordStep(f: SetupFacts): RecordStep {
         ? {
             runId: setup.empty.runId,
             href: links.run(setup.empty.runId),
-            text: `${short(setup.empty.runId)} holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.`,
+            text: `${short(setup.empty.runId)} holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached shadowlap. Check the command and record again.`,
           }
         : null,
   };

@@ -199,7 +199,7 @@ describe('placeholder keys on shadowlap replay, which goes live from a fork', ()
     expect(placeholderKeys({}, { calls: calls('bedrock'), keyEnv: { bedrock: ['AWS_ACCESS_KEY_ID'] } }, 'replay', emptyHome())).toEqual({ AWS_ACCESS_KEY_ID: PLACEHOLDER_AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: PLACEHOLDER_KEY });
   });
 
-  it("read a pack's note as untrusted: only providers and variables Shadowlap knows count", () => {
+  it("read a pack's note as untrusted: only providers and variables shadowlap knows count", () => {
     const hostile = { anthropic: ['ANTHROPIC_API_KEY', 'NODE_OPTIONS'], gemini: ['PATH'], vertex: ['GOOGLE_API_KEY'], made_up: ['X'], openai: 'OPENAI_API_KEY' };
     expect(keyEnvNote(hostile)).toEqual({ anthropic: ['ANTHROPIC_API_KEY'], gemini: [] });
     expect(placeholderKeys({}, { calls: calls('anthropic', 'gemini', 'openai'), keyEnv: hostile }, 'replay', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY, GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY, GOOGLE_GENERATIVE_AI_API_KEY: PLACEHOLDER_KEY });

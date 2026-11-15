@@ -48,5 +48,5 @@ export class FileLockBusyError extends Error {
 export function withFileLock<T>(file: string, timeoutMs: number, fn: () => T): T {
   const lock = `${file}.lock`;
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  return withLockFile(lock, { wait: timeoutMs, mode: 0o600, busy: () => new FileLockBusyError(`${lock} is held by another Shadowlap process. If none is running, delete it.`) }, fn);
+  return withLockFile(lock, { wait: timeoutMs, mode: 0o600, busy: () => new FileLockBusyError(`${lock} is held by another shadowlap process. If none is running, delete it.`) }, fn);
 }

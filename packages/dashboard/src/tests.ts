@@ -318,7 +318,7 @@ export interface FailureView {
   checks: StoredCheck[] | null;
   /**
    * A live call: the connections the network guard blocked during the failing replay (`host:port`).
-   * They bypassed Shadowlap, so CI, replaying offline, refused them. Null when it blocked none.
+   * They bypassed shadowlap, so CI, replaying offline, refused them. Null when it blocked none.
    */
   blocked: string[] | null;
   bisect: BisectRange | null;
@@ -662,7 +662,7 @@ const GUARD_BLOCKED = /blocked (?:an )?outbound connection to (\S+?)(?=:\s|\s\(S
 
 /**
  * The connections the network guard blocked during a replay (`host:port`): the agent went to a host
- * directly, past Shadowlap, and a test, replaying offline, refuses that. The run keeps what the guard
+ * directly, past shadowlap, and a test, replaying offline, refuses that. The run keeps what the guard
  * reported; an agent that dies at once can exit before its report lands, so what it printed counts
  * too. An agent that catches the refusal can still pass, and the screen says so all the same.
  */
@@ -676,7 +676,7 @@ function blockedTargets(store: StoreOf<'recording'>, r: TestResult): string[] {
 
 const blockedWords = (blocked: readonly string[]) => `blocked connection to ${blocked.join(', ')}`;
 
-/** A result's line, saying first when the guard blocked a connection the replay made past Shadowlap. */
+/** A result's line, saying first when the guard blocked a connection the replay made past shadowlap. */
 function lineOf(store: StoreOf<'recording'>, r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const blocked = blockedTargets(store, r);
   const line = resultLine(r, checks, normalizers);

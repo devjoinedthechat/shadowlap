@@ -115,7 +115,7 @@ import { verifyRuns } from './decisions-verify-runs.js';
  *
  * A model switch changes the agent's calls, not every call a recording holds: those made with the
  * models `--from` names, else (decisions) the one the runs use most, or (migrate) the ones that
- * retire. A simulated user, a sub-agent on another model, and Shadowlap's own judge keep theirs.
+ * retire. A simulated user, a sub-agent on another model, and shadowlap's own judge keep theirs.
  */
 
 /** A run to ask again, and where it came from: a golden's pack, or the store. */
@@ -495,7 +495,7 @@ function planRun(store: StoreOf<'recording'>, target: DecisionTarget, s: Decisio
   let step = 0;
   for (const call of calls) {
     if (call.kind !== 'api' || !call.requestRef) continue;
-    // Shadowlap's own calls (its judge's) are none of the agent's decisions, and no step of its run.
+    // shadowlap's own calls (its judge's) are none of the agent's decisions, and no step of its run.
     if (isReservedScope(call.meta.scope)) continue;
     step++;
     if (!askedInScope(call.meta.scope, s.scope)) continue;
@@ -548,7 +548,7 @@ function planRun(store: StoreOf<'recording'>, target: DecisionTarget, s: Decisio
     }
     const module = providerById(provider);
     if (!module) {
-      plan.skip = `it was recorded through ${provider ?? 'no known provider'}, which Shadowlap can't send to`;
+      plan.skip = `it was recorded through ${provider ?? 'no known provider'}, which shadowlap can't send to`;
       continue;
     }
     const cap = s.fromCode ? capture?.prompts.get(call.callNo) : undefined;

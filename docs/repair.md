@@ -57,9 +57,9 @@ The repairer is asked for candidates, and that is all it does. Everything that d
 
 1. **Localize**, with `shadowlap blame`: for each failing run, the model call where it was lost, and a fork from that call that passed. A blame of the run kept under the same check, rescue and scope is reused, the newest made here, even where another blame of it followed.
 2. **Propose**, by the repairer: rewrites of the system prompt or a tool description, each with a different strategy. It is asked for `--candidates` of them, 3 by default, and only its first that many are tried.
-3. **Screen**, by Shadowlap: it sets aside any rewrite that can't be applied safely or that names a detail of the failing runs.
+3. **Screen**, by shadowlap: it sets aside any rewrite that can't be applied safely or that names a detail of the failing runs.
 4. **Verify**, with `shadowlap verify`: it tries each remaining rewrite, smallest first, and keeps the first the gate accepts twice, the second time with fresh attempts.
-5. **Hand over**, by Shadowlap: a patch and a report; on request the fix applied, a branch, a pull request.
+5. **Hand over**, by shadowlap: a patch and a report; on request the fix applied, a branch, a pull request.
 
 ### The repairer sees the contrast
 
@@ -104,7 +104,7 @@ An anchor is text a rewrite can change without changing what runs. It is in one 
 
 In each, a placeholder (`{…}`, `{{ … }}`, `${…}`) is held whole or not at all. A rewrite of a plain YAML value stays text: it may not start the value with YAML's own syntax, such as `*`, `&` or `!`, nor put a `: ` or a ` #` in it.
 
-Text anywhere else is never anchored: code, a comment or a regular expression, MDX, and another language's source, where Shadowlap can't tell a string from code.
+Text anywhere else is never anchored: code, a comment or a regular expression, MDX, and another language's source, where shadowlap can't tell a string from code.
 
 **Never in what runs.** No anchor is placed in a file that runs what it holds, whatever its format, nor in a value that runs. The first rule covers most of them: no path with a part that starts with a dot. This table lists each, with why:
 
@@ -314,7 +314,7 @@ Any model from any vendor, configured rather than built in:
 | `openai:<model>` | Any Chat Completions API: OpenAI, OpenRouter, a local server such as Ollama or vLLM (`OPENAI_BASE_URL`, `OPENAI_API_KEY`) |
 | `claude-code`, `claude-code:<model>` | Your own [Claude Code](https://code.claude.com), 2.1.248 or later, run in print mode (`claude -p`) ([below](#claude-code)) |
 
-**The Anthropic SDK.** Shadowlap doesn't install the SDK for everyone, and asks npm for no peer. Install it with `npm install @anthropic-ai/sdk` next to `shadowlap`, or `npm install -g @anthropic-ai/sdk` beside a global one.
+**The Anthropic SDK.** shadowlap doesn't install the SDK for everyone, and asks npm for no peer. Install it with `npm install @anthropic-ai/sdk` next to `shadowlap`, or `npm install -g @anthropic-ai/sdk` beside a global one.
 
 `--repairer` overrides the config, and `repair.baseUrl` points it at a gateway. Claude is asked with high effort and structured output. On models that support it, the API's server-side fallback answers a policy decline from another model in the same call, and the report names the model that answered.
 
@@ -331,7 +331,7 @@ The repairer is called once per repair, so even the most capable model costs lit
 | `--strict-mcp-config`, with none given      | No MCP server                                                        |
 | `--no-session-persistence`                  | No session kept on disk                                              |
 
-- **Sign-in.** It signs in with your login or an API key in its environment, not an `apiKeyHelper` or `env` of your settings, which it doesn't load. Shadowlap never sees its credentials.
+- **Sign-in.** It signs in with your login or an API key in its environment, not an `apiKeyHelper` or `env` of your settings, which it doesn't load. shadowlap never sees its credentials.
 - **Model.** Without a model, Claude Code's own default is used. A model is a model's name, never a flag.
 - **No project context.** It runs in an empty temporary directory, so no project's `CLAUDE.md` reaches the prompt.
 - **A fresh session.** It runs without the variables of any Claude Code session it was started from, so a repair started inside Claude Code asks a fresh one.

@@ -37,7 +37,7 @@ export async function main(argv: string[]): Promise<void> {
     // Each command's help lists the global options too, which it also takes after its own name.
     .configureHelp({ showGlobalOptions: true })
     .showHelpAfterError()
-    .addHelpText('after', '\nNew to Shadowlap? Run shadowlap init in your project, then shadowlap run -- <your agent command>.');
+    .addHelpText('after', '\nNew to shadowlap? Run shadowlap init in your project, then shadowlap run -- <your agent command>.');
 
   // Help lists commands in the order of a first session: the demo, then record, look, find and fix, test, set up, export.
   registerDemo(program);

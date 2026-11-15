@@ -2,7 +2,7 @@ import { signingKeyId } from './sigv4.js';
 
 /**
  * Placeholder keys. A model client built the default way takes its key from the environment and
- * refuses to send a request without one, even a request Shadowlap answers from a recording. So a
+ * refuses to send a request without one, even a request shadowlap answers from a recording. So a
  * replay gives the agent a placeholder for each provider its recording called when the environment
  * has no credential for it (the CLI decides which replays, and which providers, in
  * placeholder-keys.ts), and the sidecar never sends a request that carries one, to any host: a

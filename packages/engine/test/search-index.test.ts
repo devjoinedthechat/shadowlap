@@ -122,11 +122,11 @@ describe('the search index', () => {
     expect(new Set(searchCalls(store, 'ibex', { limit: 100 }).map((h) => h.runId))).toEqual(new Set(runs));
   });
 
-  it('indexes again from its start a run an earlier Shadowlap indexed whole while it recorded', () => {
+  it('indexes again from its start a run an earlier shadowlap indexed whole while it recorded', () => {
     const runId = newRun();
     toolCall(runId, 1, 'first', 'stripe one');
     toolCall(runId, 2, 'second');
-    // As an earlier Shadowlap left it: the whole run, the call on its way without its answer.
+    // As an earlier shadowlap left it: the whole run, the call on its way without its answer.
     store.replaceSearchDocs(runId, 2, 'running', [
       { callNo: 1, field: 'arguments', text: 'lookup_order note first' },
       { callNo: 1, field: 'result', text: 'result stripe one' },
@@ -199,7 +199,7 @@ describe('the search index', () => {
       expect(new Set(store.searchDocs('"ibex"', 100).map((h) => h.runId))).toEqual(new Set(runs.slice(1)));
       expect(mapped(runs[0])).toBe(0);
 
-      // An index an earlier Shadowlap wrote, without the map: mapped once, as the store opens.
+      // An index an earlier shadowlap wrote, without the map: mapped once, as the store opens.
       store.close();
       const earlier = new DatabaseSync(path);
       earlier.exec('DROP TABLE search_rows');
@@ -209,7 +209,7 @@ describe('the search index', () => {
       store.deleteRun(runs[1]);
       expect(store.searchDocs('"ibex"', 100).map((h) => h.runId)).toEqual([runs[2], runs[2], runs[2]]);
       // Indexed again from its start, a run keeps one copy of each document, also of one an earlier
-      // Shadowlap wrote there since, without its row.
+      // shadowlap wrote there since, without its row.
       const later = new DatabaseSync(path);
       later.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES ('lookup_order note ibex 4', ?, 4, 'arguments')`).run(runs[2]);
       later.close();

@@ -1,4 +1,4 @@
-// Shadowlap's Node preload says it loaded: one `POST /v1/hello` per process (and per worker thread,
+// shadowlap's Node preload says it loaded: one `POST /v1/hello` per process (and per worker thread,
 // which the sidecar counts as its process), after capture and the network guard have set
 // themselves up. A run that made calls with no hello from any process is one the guard never
 // watched, which the run's summary says, and which `--guard block` fails.

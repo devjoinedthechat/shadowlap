@@ -152,8 +152,8 @@ describe('patchWorkflow', () => {
   });
 
   it.each([
-    ['two action steps', (t: string) => t.replace('      - name: Tell Slack', '      - uses: devjoinedthechat/shadowlap@v0.0.9\n\n      - name: Tell Slack'), 'has 2 steps that use the Shadowlap action, so Write file can’t tell which one the switches are for'],
-    ['no action step', (t: string) => t.replace(/devjoinedthechat\/shadowlap@v[\d.]+/, 'someone/else@v1'), 'has no step that uses the Shadowlap action'],
+    ['two action steps', (t: string) => t.replace('      - name: Tell Slack', '      - uses: devjoinedthechat/shadowlap@v0.0.9\n\n      - name: Tell Slack'), 'has 2 steps that use the shadowlap action, so Write file can’t tell which one the switches are for'],
+    ['no action step', (t: string) => t.replace(/devjoinedthechat\/shadowlap@v[\d.]+/, 'someone/else@v1'), 'has no step that uses the shadowlap action'],
     ['triggers on one line', (t: string) => t.replace(/on:\n {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n/, 'on: [push, pull_request]\n'), 'names its triggers on one line, so workflow_dispatch: can’t be added to them'],
     ['permissions on one line', (t: string) => t.replace(/permissions:\n( {2}.*\n)+/, 'permissions: read-all\n'), 'sets its permissions on one line, so the ones the switches need can’t be added'],
     ['tabs', (t: string) => t.replace('        id: goldens', '\tid: goldens'), 'indents with tabs, which YAML doesn’t allow'],

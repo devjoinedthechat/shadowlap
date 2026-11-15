@@ -302,14 +302,14 @@ export function alertsSecret(raw: string): string {
 }
 
 /** The message the Alerts step posts, with GitHub's expressions in it; alertsMessage fills them in. */
-const ALERT_TEXT = 'Shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
+const ALERT_TEXT = 'shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
 
 /**
  * The message as Slack shows it, for the panel's preview: the text the workflow posts, for a number
  * of failed goldens on a branch, and the link to the workflow run.
  */
 export function alertsMessage(o: { failed: number; branch: string; runUrl: string }): { text: string; link: string } {
-  return { text: `Shadowlap: ${o.failed} golden(s) failed on ${o.branch}.`, link: o.runUrl };
+  return { text: `shadowlap: ${o.failed} golden(s) failed on ${o.branch}.`, link: o.runUrl };
 }
 
 /**

@@ -78,7 +78,7 @@ const fileList = (files: string[]) => (files.length > 1 ? `${files.slice(0, -1).
  * agent's source holds it. A recording holds a copy of that text, and a pack's run.json holds the
  * command its replay runs, which `shadowlap test` runs without asking for a pack the repository
  * tracks: so no file of a recording (a pack's run.json, calls.jsonl and blobs, or anything in
- * `__recordings__`) is ever rewritten, nor Shadowlap's config, which says what runs and where runs
+ * `__recordings__`) is ever rewritten, nor shadowlap's config, which says what runs and where runs
  * go, nor anything in its own folder or in git's, whose config can hold a credential. Each name is
  * read as Windows reads it too: in any case, without the dots and spaces it drops from the end, and
  * never as a stream of a file (`run.json::$DATA`) or a short name (`RUN~1.JSO`), either of which
@@ -91,9 +91,9 @@ export function repairNeverRewrites(file: string): string | null {
   const names = parts.map((p) => p.replace(/[. ]+$/, '').toLowerCase());
   const name = names.at(-1) ?? '';
   if (names.includes('.git')) return "a file in git's own folder, where the repository and its config are, which can hold a credential";
-  if (names.includes('.shadowlap')) return "a file in Shadowlap's own folder, where its store and repairs are";
+  if (names.includes('.shadowlap')) return "a file in shadowlap's own folder, where its store and repairs are";
   if (names.includes('__recordings__')) return 'a file in a folder of recordings';
-  if (name === 'shadowlap.config.json') return "Shadowlap's config, which says what runs and where runs go";
+  if (name === 'shadowlap.config.json') return "shadowlap's config, which says what runs and where runs go";
   if (name === 'run.json') return "a pack's run.json, which holds the command a replay of the recording runs";
   if (name === 'calls.jsonl' || (names.at(-2) === 'blobs' && /^[0-9a-f]{64}$/.test(name))) return "a recording's file";
   return null;
@@ -241,7 +241,7 @@ export type RewriteKind = 'js' | 'python' | 'yaml' | 'json' | 'toml' | 'prose';
  * What a repair rewrites in `file`, by its name, or null for a file it rewrites nothing in. The text
  * an agent sends its model is in a string of its code, a string value of its config (CrewAI keeps
  * its prompts in YAML, and a model's name can be in JSON or TOML), or a prose or template file it
- * reads. In another language's source Shadowlap can't tell a string from code, so a repair rewrites
+ * reads. In another language's source shadowlap can't tell a string from code, so a repair rewrites
  * none of it. MDX is left out too: it is JSX, whose code runs when it is built.
  */
 export function rewriteKind(file: string): RewriteKind | null {

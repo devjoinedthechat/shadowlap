@@ -188,7 +188,7 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
   const reason = attempt.failure
     ? attempt.failure.message
     : before.model > 0 && after.model === 0
-      ? 'the agent made no model calls through Shadowlap, so the new recording would hold none'
+      ? 'the agent made no model calls through shadowlap, so the new recording would hold none'
       : null;
   const result: UpdateResult = { replaced: false, reason, run: store.getRun(runId), summary: attempt.ended.summary, checks: spec ? attempt.checks : null, code: attempt.code, output: attempt.output, before, after, interrupted: attempt.interrupted !== null };
   if (reason) return result;

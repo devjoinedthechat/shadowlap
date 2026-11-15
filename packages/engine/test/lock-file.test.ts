@@ -117,7 +117,7 @@ describe('takeLock', () => {
       takeLock(${JSON.stringify(lock)}, { wait: 0, busy: () => new Error('busy') });
       setInterval(() => {}, 1000);
       process.stdout.write('up\\n');`);
-    // As a later Shadowlap writes it: a higher version, and a field this one doesn't know.
+    // As a later shadowlap writes it: a higher version, and a field this one doesn't know.
     const later = JSON.stringify({ ...JSON.parse(readFileSync(lock, 'utf8')), v: 3, lease: 'renewed' });
     writeFileSync(lock, later);
     age(lock);
@@ -188,7 +188,7 @@ describe('takeLock', () => {
       ['another machine’s', record({ pid: GONE, host: 'another-machine', start: 'another-boot:1' })],
       ['a container’s with process ids of its own', record({ pid: GONE, ns: 'pid:[1]' })],
       ['one that doesn’t say who holds it', ''],
-      ['an earlier Shadowlap’s held by a running process', JSON.stringify({ pid: process.pid, host: hostname(), token: 'earlier' })],
+      ['an earlier shadowlap’s held by a running process', JSON.stringify({ pid: process.pid, host: hostname(), token: 'earlier' })],
     ];
     for (const [what, text] of cases) {
       writeFileSync(lock, text);
@@ -286,7 +286,7 @@ describe('takeLock', () => {
     const target = join(dir, 'elsewhere.txt');
     writeFileSync(target, record({ pid: GONE }));
     symlinkSync(target, lock);
-    // Not a lock Shadowlap wrote, whatever it points at: it goes by its own age.
+    // Not a lock shadowlap wrote, whatever it points at: it goes by its own age.
     expect(() => take(50)).toThrow('busy');
     lutimesSync(lock, (Date.now() - 60_000) / 1000, (Date.now() - 60_000) / 1000);
     releaseLock(take());

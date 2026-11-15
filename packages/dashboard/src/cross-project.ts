@@ -10,7 +10,7 @@ import { answer, type ReadTable } from './read-registry.js';
  * its whole id or a unique prefix (`lookupRun`), a fix the same way (`resolveFix`), a preview or a
  * migration by its id and kind. Nothing is created, migrated or written in another store, and each
  * is closed before the next is opened: `Store.openReadOnly` refuses one that isn't a regular file of
- * this user's, or was written by a newer Shadowlap, and SQLite any write.
+ * this user's, or was written by a newer shadowlap, and SQLite any write.
  *
  * Each id the address names is looked for in turn. One this project holds, or that names several of
  * its runs or fixes at once, isn't asked of the others: its own page says what it is. Otherwise the

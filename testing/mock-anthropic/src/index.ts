@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
  * A scripted fake of the Anthropic Messages API. It speaks the real wire format (JSON and the
  * streaming SSE event sequence) closely enough for the official SDK's stream accumulator, and it
  * lets tests inject failures. It lists its models as the Models API does, so a model picker that
- * asks it has something to offer. It knows nothing about Shadowlap.
+ * asks it has something to offer. It knows nothing about shadowlap.
  */
 
 export interface TextBlock {
@@ -258,7 +258,7 @@ export async function startMockAnthropic(opts: MockOptions): Promise<MockServer>
   };
 }
 
-// A scripted judge, for Shadowlap's judge checks (judge.ts).
+// A scripted judge, for shadowlap's judge checks (judge.ts).
 export { judgeAnswer, judgeQuestion, judgeRequests, withJudge, type JudgeDecision, type JudgeQuestion } from './judge.js';
 // Injection tests: a model that obeys (or quotes, or is steered by) what a tool result tells it.
 export { DEFENCE, obeyPlanted, type ObeyOptions } from './obey.js';

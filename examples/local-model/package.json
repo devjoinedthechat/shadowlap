@@ -2,7 +2,7 @@
   "name": "shadowlap-example-local-model",
   "version": "0.1.0",
   "private": true,
-  "description": "An incident triage agent on the OpenAI Agents SDK and a local model through Ollama, recorded, replayed and forked with Shadowlap. No API key.",
+  "description": "An incident triage agent on the OpenAI Agents SDK and a local model through Ollama, recorded, replayed and forked with shadowlap. No API key.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {

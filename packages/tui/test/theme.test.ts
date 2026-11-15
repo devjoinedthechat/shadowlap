@@ -501,7 +501,7 @@ describe('on the screen', () => {
     store.close();
   });
 
-  it('draws a write Shadowlap blocked as its fence, never as a failure, and what a fork wrote and changed by what each was', async () => {
+  it('draws a write shadowlap blocked as its fence, never as a failure, and what a fork wrote and changed by what each was', async () => {
     const { store, fenced, writes } = fenceStore();
     const d = THEMES.dark;
     // The call list's row for a call, by its number.

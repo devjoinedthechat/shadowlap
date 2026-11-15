@@ -30,7 +30,7 @@ Then replay with the flag for the change:
 | [`--set <call>:<key>=<value>`, `--model <call>:<model>`](#patch-parameters) | sampling settings and the model, from that call on | model calls |
 | [`--live-tool <name>`, `--diverge-at <call>`](#force-a-tool-live) | the call runs live instead of replaying | any call |
 
-Every intervention works on every provider Shadowlap records:
+Every intervention works on every provider shadowlap records:
 
 - Anthropic, OpenAI (Chat Completions and the Responses API), Gemini, Azure OpenAI, Gemini Enterprise Agent Platform (Vertex AI) and
   Amazon Bedrock (InvokeModel and Converse);
@@ -95,10 +95,10 @@ would.
 
 To test every untrusted read at once and prove which payloads a tool call obeyed, use
 [`shadowlap injection`](./injection.md). Proof needs a value only the planted text holds, so
-Shadowlap ships a small set of payload templates, each with a canary it fills in per attempt. It loads
+shadowlap ships a small set of payload templates, each with a canary it fills in per attempt. It loads
 your own or a red-teaming tool's payloads as well, filling in their `{{canary}}`.
 
-A red-teaming tool such as promptfoo is good at generating many payloads. What Shadowlap adds is proof
+A red-teaming tool such as promptfoo is good at generating many payloads. What shadowlap adds is proof
 of cause on your agent's own recorded runs: this text, planted at this read, made that write. Here,
 one payload at a time, plant theirs from a file.
 
@@ -151,7 +151,7 @@ classes of their own.
 
 The SDKs raise `ShadowlapInjectedFailure` (in Python, `ShadowlapInjectedTimeout` and
 `ShadowlapInjectedHTTPError` for the two shapes that have one), with `injected` set, so a test can tell
-it from a real one. Its message reads like the real failure rather than naming Shadowlap. Agents often
+it from a real one. Its message reads like the real failure rather than naming shadowlap. Agents often
 hand a tool's error to the model as its answer, and a model told it is being tested behaves
 differently.
 
@@ -203,7 +203,7 @@ Answers model call *n* with an HTTP failure instead of the recording. Error hand
 things a replay exercises for free, and the one thing no recording of a healthy run contains. So
 without this there is no way to ask what the agent does when a call fails.
 
-Shadowlap writes the response itself, so that call makes no upstream request and spends nothing. The
+shadowlap writes the response itself, so that call makes no upstream request and spends nothing. The
 calls after it may go live, as after any fork. The answer is in the provider's error shape, so its
 client raises what a real failure raises. On Bedrock, the AWS SDK raises:
 
@@ -214,7 +214,7 @@ client raises what a real failure raises. On Bedrock, the AWS SDK raises:
 |    500 | `InternalServerException`     |
 |    400 | `ValidationException`         |
 
-The body names Shadowlap as the source, and the call is stored as `injected`. `show`, the terminal UI
+The body names shadowlap as the source, and the call is stored as `injected`. `show`, the terminal UI
 and the dashboard label it that way and count it apart from live calls. So neither the agent's error
 nor the recording can be mistaken for something the provider did.
 
@@ -398,7 +398,7 @@ other scope once it has been reached.
 **When a flag changes nothing.** When a replay never reaches the call a flag named, or reaches it at
 another provider, the run's summary says the flag changed nothing and why. So does `--override`,
 `--inject-result` or `--fail-at` on a tool call the replay never served. A call answered with the
-reason a change could not be applied is counted apart (`1 refused`): Shadowlap answered it, so it is
+reason a change could not be applied is counted apart (`1 refused`): shadowlap answered it, so it is
 neither live nor an upstream request.
 
 ## Force a tool live
@@ -413,7 +413,7 @@ old result. `--live-tool` forces the first call of that tool live; the run forks
 
 After a fork, wherever it happened, every call of that tool runs live, even a pure tool's, which a
 fork otherwise serves from the recording. A prompt changed in the same edit, for one, forks the run
-before the tool is reached. Shadowlap also warns when a tool's source hash differs from the recording
+before the tool is reached. shadowlap also warns when a tool's source hash differs from the recording
 and you didn't name it, so you don't forget.
 
 ## Replay on every save
@@ -427,7 +427,7 @@ before a fork is served from the recording, so re-running after every edit costs
 long as your own code.
 
 - **Ignored**: generated, hidden and vendored directories (`.shadowlap/`, `node_modules/`, `.git/`,
-  `__pycache__`, and anything else beginning with a dot), so Shadowlap's own writes don't trigger it.
+  `__pycache__`, and anything else beginning with a dot), so shadowlap's own writes don't trigger it.
 - **Watched**: `dist/`, because that is how a TypeScript change reaches the replay.
 
 Ctrl-C stops. Not combinable with `--repeat`, which already re-runs.

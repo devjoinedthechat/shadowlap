@@ -300,7 +300,7 @@ export function commentMarkdown(parts: CommentParts): string {
   const results = worstFirst(parts.results);
   const base = parts.base ?? null;
   const where = base ? `On ${code(parts.baseRef ?? 'the base branch', true)}` : null;
-  const top = [...(parts.marker ? [parts.marker] : []), `### Shadowlap: ${commentHead(results)}`, '', where ? `| | Golden | Verdict | ${where} |` : '| | Golden | Verdict |', where ? '|---|---|---|---|' : '|---|---|---|'];
+  const top = [...(parts.marker ? [parts.marker] : []), `### shadowlap: ${commentHead(results)}`, '', where ? `| | Golden | Verdict | ${where} |` : '| | Golden | Verdict |', where ? '|---|---|---|---|' : '|---|---|---|'];
   const rows = results.map((r) => {
     const row = `| ${markOf(commentVerdict(r))} | ${code(nameOf(r), true)} | ${cell(commentVerdictLine(r))} |`;
     if (!base) return row;

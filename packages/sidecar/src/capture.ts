@@ -92,7 +92,7 @@ async function routeHttpCall(core: SidecarCore, req: IncomingMessage, res: Serve
     throw new HttpError(400, 'a captured HTTP call needs x-shadowlap-upstream');
   }
   const rule = matchHttpRule(core.httpRules, origin);
-  if (!rule) throw new HttpError(403, `${origin.host} is not an HTTP host Shadowlap records: add it under "http" in shadowlap.config.json`);
+  if (!rule) throw new HttpError(403, `${origin.host} is not an HTTP host shadowlap records: add it under "http" in shadowlap.config.json`);
   const method = (req.method ?? 'GET').toUpperCase();
   let rawBody: Buffer;
   try {
@@ -298,7 +298,7 @@ function refuseLiveHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCal
  * Forward live: the captured call sent to its host as the agent sent it, and the host's answer,
  * read whole, passed on and recorded as it came. An agent that leaves before the answer is recorded
  * as gone, and the request to the host ends with it. A host that can't be reached, or that breaks
- * off its answer, breaks the agent's connection as it would have without Shadowlap: the agent's
+ * off its answer, breaks the agent's connection as it would have without shadowlap: the agent's
  * HTTP library reports a network error, and the call is recorded with none, so a replay closes the
  * connection again.
  */

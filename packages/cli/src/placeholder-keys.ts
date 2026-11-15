@@ -149,7 +149,7 @@ export function keyEnvOf(env: Env, home = homedir()): Record<string, string[]> {
   return out;
 }
 
-/** A recording's note as it can be trusted: a pack's run says what it likes, so only providers and variables Shadowlap knows count. */
+/** A recording's note as it can be trusted: a pack's run says what it likes, so only providers and variables shadowlap knows count. */
 export function keyEnvNote(value: unknown): Record<string, string[]> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const out: Record<string, string[]> = {};

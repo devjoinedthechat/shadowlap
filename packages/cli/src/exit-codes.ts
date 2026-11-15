@@ -14,11 +14,11 @@ import { CommanderError } from 'commander';
  *          an invalid shadowlap.config.json, a live command with no key.
  *   3      inconclusive: a gate that could not decide (unless --inconclusive warn), a budget spent
  *          before a verdict, the provider unavailable.
- *   70     internal error: a bug in Shadowlap.
+ *   70     internal error: a bug in shadowlap.
  *   128+n  stopped by signal n: 130 for Ctrl-C (SIGINT), 129 for SIGHUP, 143 for SIGTERM.
  *
  * `run` and `replay` end with the agent's own status when nothing above applies, as the agent would
- * have ended without Shadowlap in between (127 for a command not found).
+ * have ended without shadowlap in between (127 for a command not found).
  */
 export const EXIT = { ok: 0, failed: 1, usage: 2, inconclusive: 3, internal: 70 } as const;
 
@@ -183,7 +183,7 @@ function network(err: unknown): boolean {
 }
 
 /**
- * The status for what a command threw. Shadowlap raises what a person has to fix as an `Error`
+ * The status for what a command threw. shadowlap raises what a person has to fix as an `Error`
  * with a message written for them (an unknown run, a flag that doesn't parse, a config that isn't
  * valid), or as a {@link CliError} that names its status; a bug surfaces as a TypeError, a
  * RangeError, an assertion or one of Node's internal errors instead. So:
@@ -229,7 +229,7 @@ export function reportError(err: unknown, write: (text: string) => void = (text)
   if (stack) write(`${stack}\n`);
   if (status === EXIT.internal) {
     if (!stack) write(`shadowlap: internal error: ${message}\n`);
-    write(stack ? `This is a bug in Shadowlap: please report it, with the stack above, at ${BUGS}\n` : `This is a bug in Shadowlap: run the command again with SHADOWLAP_DEBUG=1 to see where it happened, and report it at ${BUGS}\n`);
+    write(stack ? `This is a bug in shadowlap: please report it, with the stack above, at ${BUGS}\n` : `This is a bug in shadowlap: run the command again with SHADOWLAP_DEBUG=1 to see where it happened, and report it at ${BUGS}\n`);
   } else if (!stack) write(`shadowlap: ${message}\n`);
   return status;
 }

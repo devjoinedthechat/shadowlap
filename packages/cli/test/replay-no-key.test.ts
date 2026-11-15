@@ -29,7 +29,7 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-/** The environment without any key, endpoint or Shadowlap setting of this machine's, nor an Anthropic profile it signed in with. */
+/** The environment without any key, endpoint or shadowlap setting of this machine's, nor an Anthropic profile it signed in with. */
 function bare(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (/^(SHADOWLAP_|ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_|AZURE_|AWS_|NODE_OPTIONS$)/.test(k)) delete env[k];

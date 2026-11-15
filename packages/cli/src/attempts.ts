@@ -101,8 +101,8 @@ export interface Attempt {
    */
   unavailableBefore?: number;
   /**
-   * The recording has model calls and the replay made none through Shadowlap: the agent reached its
-   * model some other way, such as a local server Shadowlap was not told about. What it did is
+   * The recording has model calls and the replay made none through shadowlap: the agent reached its
+   * model some other way, such as a local server shadowlap was not told about. What it did is
    * unrecorded, so it is no evidence, and it must never pass for a clean replay.
    */
   bypassed: boolean;
@@ -111,9 +111,9 @@ export interface Attempt {
   ms: number;
 }
 
-/** Why a replay that made no calls through Shadowlap is no evidence, and what usually causes it. */
+/** Why a replay that made no calls through shadowlap is no evidence, and what usually causes it. */
 export const BYPASSED =
-  'the replay made no calls through Shadowlap, so the agent reached its model some other way: point its client at Shadowlap in this environment (a local model server needs SHADOWLAP_UPSTREAM_OPENAI or the like, as when it was recorded)';
+  'the replay made no calls through shadowlap, so the agent reached its model some other way: point its client at shadowlap in this environment (a local model server needs SHADOWLAP_UPSTREAM_OPENAI or the like, as when it was recorded)';
 
 /**
  * Each attempt's agent gets a process group of its own where there are groups, as `test`'s replays
@@ -156,7 +156,7 @@ export class AttemptRunner {
   judgeSpent = 0;
   judgeRequests = 0;
   readonly unknownModels = new Set<string>();
-  /** What the replays warned about, once each: a tool that changed since its recording, a connection that bypassed Shadowlap. */
+  /** What the replays warned about, once each: a tool that changed since its recording, a connection that bypassed shadowlap. */
   readonly warnings = new Set<string>();
   /** Ctrl-C: an attempt it cut short is no evidence either way. */
   interrupted = false;
@@ -420,7 +420,7 @@ export class AttemptRunner {
     this.judgeRequests += ended.summary.judge?.upstreamRequests ?? 0;
     for (const m of ended.summary.judge?.unknownModels ?? []) this.unknownModels.add(m);
     for (const w of ended.summary.warnings) this.warnings.add(w);
-    // The agent exited 0 in time, through Shadowlap, and failed no check: only an undecided check kept it from passing.
+    // The agent exited 0 in time, through shadowlap, and failed no check: only an undecided check kept it from passing.
     const undecided = !bypassed && !ended.preloads?.failed && !timedOut && code === 0 && checks.some((c) => !c.ok) && checks.every((c) => c.ok || c.status === 'inconclusive');
     const verdict = failures.length === 0 ? 'passed' : down || undecided ? 'inconclusive' : 'failed';
     // The run's own marks say so too, so a list of attempts never shows it as one that failed.
@@ -499,7 +499,7 @@ const failed = checkFailures;
  */
 export function attemptJudgeMissing(j: JudgeCheck, upstreams: Record<string, string> = upstreamOverrides(process.env), env: NodeJS.ProcessEnv = process.env): string | null {
   const target = judgeTarget(j.model);
-  if (!target) return `Shadowlap can't tell which provider serves ${j.model}`;
+  if (!target) return `shadowlap can't tell which provider serves ${j.model}`;
   const live = liveJudge(target.provider, upstreams, env);
   return 'why' in live ? `an attempt is a fork, whose judge must be asked live: ${live.why}` : null;
 }

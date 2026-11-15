@@ -201,8 +201,8 @@ export function parseSegment(bytes: Buffer, key: string): IndexSegment {
   } catch {
     throw new LayoutError(`${key} isn't JSON`);
   }
-  if (!isObject(raw) || raw.format !== INDEX_FORMAT) throw new LayoutError(`${key} isn't a Shadowlap index segment`);
-  if (raw.version !== LAYOUT_VERSION) throw new LayoutError(`${key} is version ${String(raw.version)}; this Shadowlap reads version ${LAYOUT_VERSION}. Update Shadowlap.`);
+  if (!isObject(raw) || raw.format !== INDEX_FORMAT) throw new LayoutError(`${key} isn't a shadowlap index segment`);
+  if (raw.version !== LAYOUT_VERSION) throw new LayoutError(`${key} is version ${String(raw.version)}; this shadowlap reads version ${LAYOUT_VERSION}. Update shadowlap.`);
   const runs: IndexEntry[] = [];
   for (const e of Array.isArray(raw.runs) ? raw.runs.slice(0, 100_000) : []) {
     if (!isObject(e) || !isRunId(e.runId)) continue;
@@ -236,8 +236,8 @@ export function parseRunDoc(bytes: Buffer, runId: string): StoredRunDoc {
   } catch {
     throw new LayoutError(`runs/${runId}/run.json isn't JSON`);
   }
-  if (!isObject(raw) || raw.format !== RUN_FORMAT) throw new LayoutError(`runs/${runId}/run.json isn't a Shadowlap run`);
-  if (raw.version !== LAYOUT_VERSION) throw new LayoutError(`runs/${runId}/run.json is version ${String(raw.version)}; this Shadowlap reads version ${LAYOUT_VERSION}. Update Shadowlap.`);
+  if (!isObject(raw) || raw.format !== RUN_FORMAT) throw new LayoutError(`runs/${runId}/run.json isn't a shadowlap run`);
+  if (raw.version !== LAYOUT_VERSION) throw new LayoutError(`runs/${runId}/run.json is version ${String(raw.version)}; this shadowlap reads version ${LAYOUT_VERSION}. Update shadowlap.`);
   const run = checkStoredRun(raw.run, `runs/${runId}/run.json`);
   if (run.runId !== runId) throw new LayoutError(`runs/${runId}/run.json holds another run (${run.runId})`);
   return {

@@ -111,7 +111,7 @@ export interface RetirementTable {
 
 let table: RetirementTable | null = null;
 
-/** The table that ships with Shadowlap, read the first time it is needed. */
+/** The table that ships with shadowlap, read the first time it is needed. */
 export function retirementTable(): RetirementTable {
   table ??= JSON.parse(readFileSync(new URL('../data/model-retirements.json', import.meta.url), 'utf8')) as RetirementTable;
   return table;
@@ -119,7 +119,7 @@ export function retirementTable(): RetirementTable {
 
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
 
-/** Which platform's dates apply to a call, by the provider Shadowlap recorded it through. */
+/** Which platform's dates apply to a call, by the provider shadowlap recorded it through. */
 export function retirementPlatform(provider: string | null | undefined): RetirementPlatform | null {
   return provider === 'anthropic' || provider === 'openai' || provider === 'gemini' || provider === 'vertex' || provider === 'bedrock' ? provider : null;
 }

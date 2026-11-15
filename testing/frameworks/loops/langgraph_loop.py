@@ -1,5 +1,5 @@
 """A LangGraph agent on a real chat model, as a user writes it: LangChain's create_agent, which runs
-LangGraph's ToolNode, on ChatOpenAI. Nothing here names Shadowlap's address: under shadowlap run
+LangGraph's ToolNode, on ChatOpenAI. Nothing here names shadowlap's address: under shadowlap run
 the OpenAI SDK's client under ChatOpenAI reads OPENAI_BASE_URL. Tools are LangChain @tool functions
 wrapped with shadowlap.adapters.langchain.with_effect. QUERY is the user's request. Prints a JSON
 summary, with each ToolMessage as the model read it."""

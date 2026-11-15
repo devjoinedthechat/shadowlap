@@ -1,6 +1,6 @@
 /**
  * The seven origins every view colours a call by. The store keeps five (live, replayed, blocked,
- * stubbed, overridden); the server adds `injected` for a call Shadowlap answered with `--fail-at`,
+ * stubbed, overridden); the server adds `injected` for a call shadowlap answered with `--fail-at`,
  * and a call that ended in an error is drawn as `failed`, a fenced one aside. No DOM here: the tests
  * import it.
  */
@@ -57,7 +57,7 @@ export interface OriginCall {
 
 /**
  * Whether a call actually went wrong. A fenced write ends in an error so the agent's tool call
- * throws, but nothing failed: Shadowlap refused it on purpose, and its own colour already says so.
+ * throws, but nothing failed: shadowlap refused it on purpose, and its own colour already says so.
  * An injected failure is its own origin.
  */
 export function isFailure(c: OriginCall): boolean {

@@ -5,7 +5,7 @@ import type { Provider, StoreLocation } from './url.js';
  * CI and the cloud, with short-lived credentials (OIDC) wherever both allow it, so no long-lived key
  * is stored in CI. Beside it, the step for pull requests: their jobs get credentials of their own,
  * which write only under pr/ in the store (shadowlap store policy prints both policies), and
- * Shadowlap sends their runs to the pull request's folder. The cloud's trust is what keeps a pull
+ * shadowlap sends their runs to the pull request's folder. The cloud's trust is what keeps a pull
  * request, which can change this file, from the protected branches' credentials. R2 has no OIDC and
  * its tokens can't be kept to a folder, so pull requests run the tests there without pushing. On
  * GitHub, a pull request from a fork gets no OIDC token, so its job skips the credentials step it
@@ -85,7 +85,7 @@ function keysNote(ci: CiProvider, o: CiStepKeys): string[] {
 
 /** Where a pull (or merge) request's job pushes, in the CI's own words. */
 function ownFolderNote(request: 'pull request' | 'merge request'): string {
-  return `A ${request}'s job pushes its runs to pr/<number>/ in the store, which Shadowlap finds from the CI's own variables; a teammate's pull brings them only with --include-pr.`;
+  return `A ${request}'s job pushes its runs to pr/<number>/ in the store, which shadowlap finds from the CI's own variables; a teammate's pull brings them only with --include-pr.`;
 }
 
 /**
@@ -225,7 +225,7 @@ function gitlab(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
       notes: ["R2 has no OIDC: add R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY as masked, protected CI/CD variables, which only protected branches get. R2 tokens can't be kept to a folder, so merge requests run the tests without pushing.", ...keysNote('gitlab', o)],
     };
   }
-  // An ID token per job, exchanged by Shadowlap itself (web identity, federation); a merge request's
+  // An ID token per job, exchanged by shadowlap itself (web identity, federation); a merge request's
   // pipeline swaps in its own role, service account or application.
   const audience = 'https://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>';
   const blocks: Record<Exclude<Provider, 'r2'>, { token: string[]; vars: string[]; prVar: string; script: string[]; trust: string }> = {
@@ -310,7 +310,7 @@ function other(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
     text: [...head, "# In a pull request's build, with credentials for the second policy, and the pull request's number:", `SHADOWLAP_PR=<number> ${run} --push`].join('\n'),
     oidc: false,
     pullRequests: 'own-folder',
-    notes: ["Shadowlap recognises pull requests on GitHub Actions and GitLab CI by their own variables; on any other CI, SHADOWLAP_PR names the pull request, and its runs go to pr/<number>/ in the store.", ...keysNote('other', o)],
+    notes: ["shadowlap recognises pull requests on GitHub Actions and GitLab CI by their own variables; on any other CI, SHADOWLAP_PR names the pull request, and its runs go to pr/<number>/ in the store.", ...keysNote('other', o)],
   };
 }
 

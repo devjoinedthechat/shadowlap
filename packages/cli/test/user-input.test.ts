@@ -210,7 +210,7 @@ describe('recorded user input: Node readline', () => {
   it.runIf(process.platform === 'win32')('leaves input through a pipe unrecorded on Windows, where it could be any pipe', async () => {
     const rec = await piped(['run', '--', process.execPath, READLINE_AGENT, 'lines'], 'first\n', 'pipe');
     expect(rec.code, rec.out).toBe(0);
-    // The agent read it as it would have without Shadowlap.
+    // The agent read it as it would have without shadowlap.
     expect(rec.out).toContain('heard first (5)');
     expect(inputsOf(latestRecording())).toEqual([]);
   });

@@ -66,7 +66,7 @@ class InjectedFailures(unittest.TestCase):
         self.assertEqual(str(err), "search_web timed out")
         self.assertEqual((err.tool, err.tool_args, err.kind, err.injected), ("search_web", {"query": "refunds"}, "timeout", True))
         self.assertEqual(self.ran, [])
-        # Shadowlap answered it: there is nothing to complete.
+        # shadowlap answered it: there is nothing to complete.
         self.assertEqual([path for path, _ in sidecar.sent], ["/v1/calls/resolve"])
 
     def test_an_http_failure_carries_its_status_like_an_http_client_error(self):

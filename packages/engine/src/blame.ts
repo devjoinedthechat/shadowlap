@@ -583,7 +583,7 @@ export interface BlameReport extends BlameSearchResult {
   unknownModels: string[];
   /** Why the search stopped early, for the `stopped` outcome. */
   stopReason: string | null;
-  /** What the replays warned about, such as a connection that bypassed Shadowlap. */
+  /** What the replays warned about, such as a connection that bypassed shadowlap. */
   warnings: string[];
 }
 

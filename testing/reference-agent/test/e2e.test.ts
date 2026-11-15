@@ -369,7 +369,7 @@ describe('reference agent: record, replay, fork', () => {
       // Consume the first model call so the next tool call is matched, not diverged.
       await client.messages.stream({ model: 'claude-opus-5', max_tokens: 1024, system: 'You are a research agent. Use the tools, then email a summary.', tools: (await import('../src/index.js')).TOOLS, messages: [{ role: 'user', content: `Research request ${recording.result.requestId}: investigate replay for agents and report back.` }] }).finalMessage();
       const r = await changed({ path: 'notes.md' });
-      expect(r).toEqual({ path: 'notes.md', content: expect.stringContaining('Shadowlap') }); // served from the recording
+      expect(r).toEqual({ path: 'notes.md', content: expect.stringContaining('shadowlap') }); // served from the recording
       const { summary } = sidecar.endRun(run.runId, 'completed');
       expect(summary.warnings).toEqual([expect.stringContaining('read_file changed since the recording; pass --live-tool read_file')]);
     } finally {

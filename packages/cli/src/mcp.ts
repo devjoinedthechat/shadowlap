@@ -27,7 +27,7 @@ export { startMcpProxy, stdioServerName, type McpProxyOptions } from './mcp-stdi
  * the `mcp.effects` config; a read tool with `openWorldHint: true` is recorded untrusted, where
  * `shadowlap injection` plants. A call the recording answers never reaches the server, and a write
  * after a fork is refused or stubbed here, so a remote write never runs again on replay unless the
- * replay allows writes (`--writes allow`). When the proxy was started under Shadowlap but can't
+ * replay allows writes (`--writes allow`). When the proxy was started under shadowlap but can't
  * record (its sidecar can't be found or asked), it refuses writes rather than send them unrecorded:
  * this could be a replay.
  *
@@ -76,11 +76,11 @@ export async function runMcp(argv: string[], flags: { url?: string; header: stri
       (r) => r.ok,
       () => false,
     );
-    if (!answers) log(`the Shadowlap sidecar named by ${found.from === 'SHADOWLAP_URL' ? 'SHADOWLAP_URL' : found.from} does not answer, so write tools will be refused. Outside a Shadowlap run, unset SHADOWLAP_URL`);
+    if (!answers) log(`the shadowlap sidecar named by ${found.from === 'SHADOWLAP_URL' ? 'SHADOWLAP_URL' : found.from} does not answer, so write tools will be refused. Outside a shadowlap run, unset SHADOWLAP_URL`);
   } else if (found.kind === 'unusable') {
     sidecar = { unusable: found.reason };
     log(`can't record: ${found.reason}. Write tools will be refused; read tools pass through unrecorded`);
-  } else log('no active run (no SHADOWLAP_URL, and no Shadowlap command started this process): passing everything through');
+  } else log('no active run (no SHADOWLAP_URL, and no shadowlap command started this process): passing everything through');
   if (url) return startMcpHttpProxy({ clientIn: process.stdin, clientOut: process.stdout, url: url.href, headers, sidecar, effects, log }).done;
   const { child, done } = startMcpProxy({ clientIn: process.stdin, clientOut: process.stdout, server: { command: argv[0]!, args: argv.slice(1) }, sidecar, effects, log });
   // A stop signal reaches the server too, a closed terminal's as well. The proxy ends with its

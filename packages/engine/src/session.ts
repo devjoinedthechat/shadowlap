@@ -260,7 +260,7 @@ export class Session {
     this.deferExplain = opts.deferExplain === true;
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
-    // The judge's scope is Shadowlap's, not the agent's: a recording whose only scope is the judge's has none of its own.
+    // The judge's scope is shadowlap's, not the agent's: a recording whose only scope is the judge's has none of its own.
     this.scoped = this.mode === 'record' || this.parentCalls.some((c) => typeof c.meta.scope === 'string' && !isJudgeCall(c));
     this.holdsInput = opts.parentRecordsInput === true || this.parentCalls.some((c) => c.meta.input === true);
     for (const c of this.parentCalls) {

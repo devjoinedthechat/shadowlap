@@ -125,7 +125,7 @@ describe('a run whose model called tools shadowlap never recorded', () => {
     expect(r.stderr).toContain(`shadowlap: ${runId.slice(0, 10)} holds model calls of a tool shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`);
     expect(r.stderr).toContain('    Bash  14 calls from model call #3 · a Claude Code built-in that runs a command');
     // A Claude Code built-in is recorded through the Claude Agent SDK's fence, not wrapped.
-    expect(r.stderr).toContain('  So Shadowlap records it and a replay serves it: run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in shadowlap.adapters.claude_agent_sdk), which records Bash and fences it on replay.');
+    expect(r.stderr).toContain('  So shadowlap records it and a replay serves it: run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in shadowlap.adapters.claude_agent_sdk), which records Bash and fences it on replay.');
     expect(r.stderr).toContain(`declare it a read in shadowlap.config.json, "tools": { "unrecorded": { "Bash": "read" } }`);
     expect(r.stderr).toContain(`shadowlap replay ${runId} --allow-unrecorded Bash`);
     expect(r.stderr).not.toContain('lookup_kb');

@@ -25,7 +25,7 @@ export interface ForkEstimateChange {
   /** The call it changes, by number. */
   at: number;
   /**
-   * Shadowlap answers the call itself (`--fail-at` at a model call), so nothing goes upstream there.
+   * shadowlap answers the call itself (`--fail-at` at a model call), so nothing goes upstream there.
    * A change at a tool call (an override, a tool error, a planted instruction, forcing it live) is
    * always seen first by the model call after it.
    */
@@ -69,7 +69,7 @@ function forkPrice(calls: readonly PricedCall[], change: ForkEstimateChange): Es
  * A fork's estimate, from the recording's priced model calls: what they cost from the first one that
  * sees the change (`≈$0.027 · live from #17, writes fenced`), under another model at its price with
  * how many times the recording's that is; Free when no model call comes after the change, or when
- * Shadowlap answers the only one there is. Forcing a write live asks first on every setting, Never
+ * shadowlap answers the only one there is. Forcing a write live asks first on every setting, Never
  * ask among them, whatever it bills.
  */
 export function forkEstimate(calls: readonly PricedCall[], change: ForkEstimateChange): Estimate {
@@ -78,7 +78,7 @@ export function forkEstimate(calls: readonly PricedCall[], change: ForkEstimateC
 }
 
 /**
- * Repeat: the same replay several times. A replay Shadowlap made is made again from its parent with
+ * Repeat: the same replay several times. A replay shadowlap made is made again from its parent with
  * the flags that made it (forkArgs), so each attempt forks where it did and runs live from there,
  * costing what the fork's own live calls did (`≈$0.135 · 5 attempts, live from #17, writes fenced`).
  * Anything else is replayed as it is, from its recording, which costs nothing.

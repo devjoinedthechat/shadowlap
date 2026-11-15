@@ -1,4 +1,4 @@
-// Drives a Shadowlap SDK client through the conformance scenarios against a real sidecar on an
+// Drives a shadowlap SDK client through the conformance scenarios against a real sidecar on an
 // in-memory store. No API keys and no network: only tool, clock and randomness calls are exercised.
 // Build the repository first (`npm run build` at the root).
 import { execFile } from 'node:child_process';

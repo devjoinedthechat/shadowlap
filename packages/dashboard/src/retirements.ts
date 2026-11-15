@@ -3,7 +3,7 @@ import type { GoldenSource } from './tests.js';
 
 /*
  * The models the project's goldens are recorded on that retire, by the table that ships with
- * Shadowlap: one reading for Changes' retirements list and Needs a look's rows, so the two can't
+ * shadowlap: one reading for Changes' retirements list and Needs a look's rows, so the two can't
  * drift apart.
  */
 
@@ -15,7 +15,7 @@ type Model = { provider: string | null; model: string; scopes: string[]; calls: 
 
 /**
  * The models each golden's recording calls, by run, kept per store: a finished recording never
- * changes, so its calls are read once, not on every look. Shadowlap's own calls (its judge's) are no
+ * changes, so its calls are read once, not on every look. shadowlap's own calls (its judge's) are no
  * model the agent uses.
  */
 const modelsRead = new WeakMap<object, Map<string, Model[]>>();

@@ -1,7 +1,7 @@
 """A support chat agent that waits for the customer at the terminal.
 
 Each turn it asks with input(), sends the conversation to the model, and runs the tools the model
-asks for: looking an order up, shipping a replacement, issuing a refund. Under Shadowlap every answer
+asks for: looking an order up, shipping a replacement, issuing a refund. Under shadowlap every answer
 the customer types is recorded as a user_input call, so the chat replays, tests and blames with no
 one typing. The model is the repository's mock (mock_model.mjs), so nothing here needs an API key.
 

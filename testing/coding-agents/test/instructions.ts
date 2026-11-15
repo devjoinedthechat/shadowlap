@@ -10,7 +10,7 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.
 export const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
 
 export const PLUGIN_DIR = 'coding-agents/claude-code';
-/** The plugin's skills, by name: one sets Shadowlap up for an agent, one debugs it and checks each change. */
+/** The plugin's skills, by name: one sets shadowlap up for an agent, one debugs it and checks each change. */
 export const SKILLS: readonly string[] = PLUGIN_SKILLS.map((s) => s.name);
 export const skillFile = (name: string) => `${PLUGIN_DIR}/skills/${name}/SKILL.md`;
 

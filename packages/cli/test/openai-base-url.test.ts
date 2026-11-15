@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
  * A project that sets OPENAI_BASE_URL to a server whose API root doesn't end in /v1, laid out like
- * GitHub Models: `shadowlap run` records through it as the agent would reach it without Shadowlap.
+ * GitHub Models: `shadowlap run` records through it as the agent would reach it without shadowlap.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./openai-base-agent.mjs', import.meta.url));

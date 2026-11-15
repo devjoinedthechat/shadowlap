@@ -1,4 +1,4 @@
-// Shadowlap in-process capture for Node agents. Preloaded with the network guard (NODE_OPTIONS=--import).
+// shadowlap in-process capture for Node agents. Preloaded with the network guard (NODE_OPTIONS=--import).
 //
 // Most model clients read a base URL from the environment, and `shadowlap run` points those at the
 // sidecar. Some can't be pointed anywhere: Bedrock clients sign each request for its host (a base

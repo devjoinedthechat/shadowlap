@@ -40,7 +40,7 @@ Each pack replays offline, and passes only when the agent sends what it recorded
 
 ### Add it to GitHub Actions
 
-The Shadowlap action is the one step to add after your agent is built:
+The shadowlap action is the one step to add after your agent is built:
 
 ```yaml
 - uses: actions/checkout@v7
@@ -142,7 +142,7 @@ If the agent stops earlier on purpose, re-record the golden with `shadowlap test
 
 `shadowlap test` runs each agent under `--guard block`:
 
-- a connection that bypasses Shadowlap is refused;
+- a connection that bypasses shadowlap is refused;
 - a golden whose agent the [guard](./how-it-works.md#the-network-guard) couldn't watch fails, however the agent exited. Its summary names what wasn't watched, and says the run was not watched.
 
 **The Claude Agent SDK.** An agent on the [Claude Agent SDK](./frameworks.md#claude-agent-sdk) runs the Claude Code CLI, which no preload loads into. Its fence names what the CLI can still reach:
@@ -152,7 +152,7 @@ If the agent stops earlier on purpose, re-record the golden with `shadowlap test
 - a hook or a stdio server it runs that isn't Python;
 - the claude.ai connectors;
 - its OpenTelemetry export;
-- the model API past Shadowlap;
+- the model API past shadowlap;
 - its own traffic.
 
 The golden passes once there is none: with WebFetch disallowed, MCP servers kept to the query's own (`strictMcpConfig`), and no claude.ai login.
@@ -166,7 +166,7 @@ The golden passes once there is none: with WebFetch disallowed, MCP servers kept
 
 ### Unrecorded tools
 
-A tool the agent runs without wrapping it is never recorded, so a replay would run it again for real ([tools Shadowlap did not record](./how-it-works.md#tools-shadowlap-did-not-record)). Before any golden runs, `shadowlap test` reads which such tools each golden's model called:
+A tool the agent runs without wrapping it is never recorded, so a replay would run it again for real ([tools shadowlap did not record](./how-it-works.md#tools-shadowlap-did-not-record)). Before any golden runs, `shadowlap test` reads which such tools each golden's model called:
 
 - **one that writes, or whose effect is unknown**: `shadowlap test` exits 2 and runs no golden, naming each golden that holds one;
 - **a read**: a warning, and its replay runs it for real.
@@ -256,7 +256,7 @@ Input tokens include cache reads, because the request still carried them. Tokens
 
 A `cost` amount is a number, `"<= 0.50"` or a range such as `"0.1-0.4"`. A model with no price **fails** the check and names the model, rather than passing because an unknown price counted as zero.
 
-A token or cost budget is how a prompt change that quietly doubles the context fails a build. Nothing else in Shadowlap notices that: the requests still match, so the replay is clean, and the run costs twice as much the next time it runs live.
+A token or cost budget is how a prompt change that quietly doubles the context fails a build. Nothing else in shadowlap notices that: the requests still match, so the replay is clean, and the run costs twice as much the next time it runs live.
 
 ### Rules, conditions and judges
 
@@ -545,7 +545,7 @@ Replays are offline, so it costs no tokens. The worktrees are removed after each
 
 ## GitHub Actions
 
-The Shadowlap action is the one step to add after your agent is built, as the [quick start](#quick-start) shows. It replays each recording offline, and fails the check when one diverges, makes a live call, exits with an error or fails a check.
+The shadowlap action is the one step to add after your agent is built, as the [quick start](#quick-start) shows. It replays each recording offline, and fails the check when one diverges, makes a live call, exits with an error or fails a check.
 
 - **Keys.** A golden that replays offline needs no real key. A golden marked `fork` or with a gate, an injection gate, `online` and `fix-on-failure` need the providers' keys, and Vertex AI and Entra ID clients a token ([keys](#keys)).
 - **The job summary** gets a table of the recordings, and for each failure the diff of the first changed request, the normalizer hint if there is one, and the agent's last output lines. When a recording diverged, it names the `shadowlap test <dir> --update` command for a change you meant.
@@ -718,7 +718,7 @@ On a pull request, the action keeps one comment with each golden's verdict on on
 
 ```markdown
 <!-- shadowlap-test-comment 0123456789ab -->
-### Shadowlap: 2 of 3 goldens passed · 1 failed
+### shadowlap: 2 of 3 goldens passed · 1 failed
 
 | | Golden | Verdict | On `main` |
 |---|---|---|---|
@@ -739,7 +739,7 @@ The goldens that failed come first, then those that are inconclusive, then those
 
 **A long comment.** GitHub takes a comment of up to 65,536 characters, and the comment stays under 60,000. One that would grow past that cuts each call under Decisions to 200 characters, then leaves out what passed, the last rows and injection gates first, then the decisions' later steps, then the rest, a failure's row last. Each part says how many more there are and where: the table's in the job summary, the gates' in the job's log, the steps' in `shadowlap decisions --from-code` on the branch.
 
-**What a run costs.** `Cost per run` compares each golden's recording with this job's replay of it, both priced as they would run live, as the mean over the goldens whose replay ran whole. The before side is the recordings, not the base branch. It shows when there is a price for the goldens' models, Shadowlap's own or one under [`prices`](./cli.md#the-configuration-file) in the config.
+**What a run costs.** `Cost per run` compares each golden's recording with this job's replay of it, both priced as they would run live, as the mean over the goldens whose replay ran whole. The before side is the recordings, not the base branch. It shows when there is a price for the goldens' models, shadowlap's own or one under [`prices`](./cli.md#the-configuration-file) in the config.
 
 **Injection.** Each golden whose [injection gate](#injection-gates) ran gets a line: its verdict, its attempts, what they did and what the gate allows. A gate with no attempts says its verdict alone, and the golden's row says why. One that didn't run, since its golden failed first, gets none.
 
@@ -1123,7 +1123,7 @@ To hear about failures in Slack, let the action count them without failing, post
     webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
     webhook-type: incoming-webhook
     payload: |
-      text: "Shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      text: "shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
 - name: Fail the job
   if: steps.goldens.outputs.failed != '0'
@@ -1192,7 +1192,7 @@ Fix on failure, Alerts and the team store's push are inputs and steps around one
     webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
     webhook-type: incoming-webhook
     payload: |
-      text: "Shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      text: "shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
 - name: Fail the job
   if: steps.goldens.outputs.failed != '0'
@@ -1238,7 +1238,7 @@ A pack from anywhere else, outside the repository or not added to it, runs its c
 | A golden diverges on its first CI run | A value the agent makes anew on every run, such as a request id | Add the normalizer the report suggests, or `shadowlap calibrate` before you pack |
 | `ended early` | The agent stopped before its recording did | If that is on purpose, re-record it with `--update` ([ends early](#a-replay-that-ends-early)) |
 | The run was not watched | A connection the guard can't watch, such as the Claude Code CLI's | `guard-accept: claude-code`, or `guard: warn` ([the network guard](#the-network-guard)) |
-| `shadowlap test` exits 2 on a tool Shadowlap never recorded | A golden's model called an unrecorded tool that writes, or may | Wrap it and record the golden again, declare it a read under `tools.unrecorded`, or pass `--allow-unrecorded` ([unrecorded tools](#unrecorded-tools)) |
+| `shadowlap test` exits 2 on a tool shadowlap never recorded | A golden's model called an unrecorded tool that writes, or may | Wrap it and record the golden again, declare it a read under `tools.unrecorded`, or pass `--allow-unrecorded` ([unrecorded tools](#unrecorded-tools)) |
 | A golden that may go live fails, even with a clean replay | No key for its provider in the job | Pass the providers' keys to the step as environment variables ([keys](#keys)) |
 | An injection gate is *inconclusive* on a pull request from a fork | A fork gets no secrets, so every attempt's model call fails | `--inconclusive warn`, or run it where the key is ([injection gates](#injection-gates)) |
 | The step warns about the version | The action's tag and `version:` name different releases | Set `version:` to the version the warning names ([the CLI it installs](#the-cli-it-installs)) |

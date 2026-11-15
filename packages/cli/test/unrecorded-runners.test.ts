@@ -163,7 +163,7 @@ describe('a tool of unknown effect', () => {
     expect(unrecordedRefusal(run, [agent], new Set(), null)).toBeNull();
     expect(formatUnrecorded([agent], 'recording')).not.toContain('To have it recorded');
     const shell = tool('PowerShell', 'write', 'a Claude Code built-in that runs a command', 'fence-effects');
-    expect(unrecordedRefusal(run, [shell], new Set(), null)).toContain("  So Shadowlap records it and a replay serves it: name it in withFence's effects, withFence(options, { effects: { 'PowerShell': 'write' } }) (with_fence in Python), which records it and refuses to run it again on replay.");
+    expect(unrecordedRefusal(run, [shell], new Set(), null)).toContain("  So shadowlap records it and a replay serves it: name it in withFence's effects, withFence(options, { effects: { 'PowerShell': 'write' } }) (with_fence in Python), which records it and refuses to run it again on replay.");
     const close = tool('mcp__issues__close_issue', 'write', '"close" changes something', 'mcp');
     expect(unrecordedRefusal(run, [close], new Set(), null)).toContain('connect your agent to its MCP server through shadowlap mcp, which records and fences its calls');
   });

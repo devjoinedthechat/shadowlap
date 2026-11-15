@@ -740,7 +740,7 @@ describe('a revision’s page', () => {
   });
 
   it('previews the pull request comment from the newest revision’s page, beside Open Tests', async () => {
-    const PREVIEW: PrCommentPreview = { session: { id: 'ts-01M5000000000000000000000A', revision: 'd2e8a1f', at: AT }, head: '2 of 3 goldens passed · 1 failed', rows: [{ verdict: 'failed', golden: 'goldens/refund-flow', line: 'failed · diverged at call 3 · $.model' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### Shadowlap: 2 of 3 goldens passed · 1 failed\n' };
+    const PREVIEW: PrCommentPreview = { session: { id: 'ts-01M5000000000000000000000A', revision: 'd2e8a1f', at: AT }, head: '2 of 3 goldens passed · 1 failed', rows: [{ verdict: 'failed', golden: 'goldens/refund-flow', line: 'failed · diverged at call 3 · $.model' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### shadowlap: 2 of 3 goldens passed · 1 failed\n' };
     const Probe = () => createElement('i', { id: 'unshown' }, String(useUnshown('changes:d2e8a1f')));
     const client = { verdictRevision: () => Promise.resolve(revision()), settings: { prComment: () => Promise.resolve(PREVIEW) } } as unknown as Partial<Client>;
     page = await render(createElement(AppContext.Provider, { value: app(client) }, withServed(createElement(RevisionPage, { rev: 'd2e8a1f' })), createElement(Probe)));
@@ -751,7 +751,7 @@ describe('a revision’s page', () => {
     ]);
     await page.click(page.one('.verdict .actions button'));
     await page.until('the comment', () => page!.all('[role="dialog"] .prc').length === 1);
-    expect(shown(page.one('[role="dialog"] .prc h4'))).toBe('Shadowlap: 2 of 3 goldens passed · 1 failed');
+    expect(shown(page.one('[role="dialog"] .prc h4'))).toBe('shadowlap: 2 of 3 goldens passed · 1 failed');
     // The comment kept no decisions part and no other: neither heading.
     expect(page.all('[role="dialog"] .prc h5')).toHaveLength(0);
   });

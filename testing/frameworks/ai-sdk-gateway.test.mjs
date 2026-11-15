@@ -4,7 +4,7 @@
 // Vercel's does, generated and streamed: the calls are recorded with their model, usage and cost, a
 // strict replay with no key sends nothing upstream and runs no tool, a fork blocks the write while
 // the model reads the refusal and answers, a tool the agent didn't wrap is found from the model's
-// answers, and a change Shadowlap can't make to the gateway's format is refused before anything runs.
+// answers, and a change shadowlap can't make to the gateway's format is refused before anything runs.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';

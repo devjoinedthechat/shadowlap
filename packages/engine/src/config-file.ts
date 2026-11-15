@@ -355,14 +355,14 @@ function notWritable(err: unknown, target: string): Error {
 }
 
 /**
- * Runs `fn` holding `<file>.lock`, which every Shadowlap writer takes (lock-file.ts: a lock whose
+ * Runs `fn` holding `<file>.lock`, which every shadowlap writer takes (lock-file.ts: a lock whose
  * process is gone is taken over at once, and one whose process runs on this machine is not, but on
  * Windows after ten seconds; a writer only ever removes its own).
  */
 function withLock<T>(target: string, wait: number, fn: () => T): T {
   let held: HeldLock;
   try {
-    held = takeLock(`${target}.lock`, { wait, busy: () => new ConfigBusyError(`${CONFIG_FILE} is being edited by another command; try again (if no Shadowlap command is running, delete ${target}.lock)`) });
+    held = takeLock(`${target}.lock`, { wait, busy: () => new ConfigBusyError(`${CONFIG_FILE} is being edited by another command; try again (if no shadowlap command is running, delete ${target}.lock)`) });
   } catch (err) {
     throw err instanceof ConfigBusyError ? err : notWritable(err, target);
   }

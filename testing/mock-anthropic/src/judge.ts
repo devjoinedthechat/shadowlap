@@ -1,7 +1,7 @@
 import type { MessagesRequest, MockMessage, Script, ScriptContext, ScriptResult } from './index.js';
 
 /**
- * A scripted judge. Shadowlap's judge checks send a request of their own: one user message that
+ * A scripted judge. shadowlap's judge checks send a request of their own: one user message that
  * holds a question and, between <material> tags, what the judge reads, and asks for a JSON object
  * `{"verdict": "yes" | "no", "reason": "…"}`. `withJudge` answers those with the verdict `decide`
  * gives and hands every other request to the agent's script, so one mock plays both the agent's

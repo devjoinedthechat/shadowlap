@@ -112,7 +112,7 @@ async function helloRoute(core: SidecarCore, req: IncomingMessage, pinned: strin
   return { ok: true };
 }
 
-/** `POST /v1/guard`: a connection the network guard saw going around Shadowlap, warned of or blocked. */
+/** `POST /v1/guard`: a connection the network guard saw going around shadowlap, warned of or blocked. */
 async function guardRoute(core: SidecarCore, req: IncomingMessage, pinned: string | undefined): Promise<unknown> {
   const body = (await readJson(req)) as { target?: unknown; action?: unknown };
   const ctx = core.contextFor(req, pinned);

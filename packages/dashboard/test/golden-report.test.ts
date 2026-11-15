@@ -276,19 +276,19 @@ describe('the guard', () => {
   const replayed = { total: 2, replayed: 2, live: 0, blocked: 0, stubbed: 0 };
 
   it('says a golden no preload watched failed for that, never that it couldn’t run', () => {
-    const reason = "No Shadowlap preload loaded in the agent's processes, though the run made 2 model calls: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails.";
+    const reason = "No shadowlap preload loaded in the agent's processes, though the run made 2 model calls: under --guard block nothing stopped a connection that bypassed shadowlap, so the run fails.";
     const { report } = world('refund', () => ({ ok: false, failure: 'guard', reason, data: { mode: 'replay', calls: replayed } }));
     expect(report.hint).toEqual({ key: 'no-preload' });
   });
 
   it('says a golden failed for a process the guard can’t watch as that, never as no preload', () => {
-    const reason = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails.';
+    const reason = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails.';
     const { report } = world('refund', () => ({ ok: false, failure: 'guard', reason, data: { mode: 'replay', calls: replayed } }));
     expect(report.hint).toEqual({ key: 'unguarded' });
   });
 
   it('says a connection the guard blocked is what the agent tripped on, whatever failed after it', () => {
-    const output = '[shadowlap] blocked an outbound connection to hooks.example.com:443: it bypasses Shadowlap (SHADOWLAP_GUARD=block).';
+    const output = '[shadowlap] blocked an outbound connection to hooks.example.com:443: it bypasses shadowlap (SHADOWLAP_GUARD=block).';
     const { report } = world('refund', () => ({ ok: false, failure: 'exit', reason: 'the agent exited with code 1', data: { mode: 'replay', calls: replayed, details: '✓ Replay clean: 1/1 calls replayed', output } }));
     expect(report.hint).toEqual({ key: 'blocked', hosts: ['hooks.example.com:443'] });
     const checked = world('refund', () => ({ ok: false, failure: 'check', reason: 'check failed: send_email called 1 time, but called 0 times', data: { mode: 'replay', calls: replayed, checks: [check('send_email called 1 time', 'failed', 'called 0 times')], output } }), { checks: ['send_email called 1 time'] });

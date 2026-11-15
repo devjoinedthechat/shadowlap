@@ -62,7 +62,7 @@ describe("a request to Vercel's AI Gateway", () => {
 
   it('takes no instruction, saying why', () => {
     expect(requestShape('ai-gateway', '/v4/ai/language-model', gateway)).toBe('other');
-    expect(placeInjection('other', gateway, 'user')).toEqual({ refused: "it is the AI SDK's own request to Vercel's AI Gateway, which Shadowlap records and replays as it is but doesn't change, so no instruction can be added to it" });
+    expect(placeInjection('other', gateway, 'user')).toEqual({ refused: "it is the AI SDK's own request to Vercel's AI Gateway, which shadowlap records and replays as it is but doesn't change, so no instruction can be added to it" });
   });
 });
 

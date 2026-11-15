@@ -17,7 +17,7 @@ import { safe, safeLines } from '../src/ui.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
-const REASON = 'It refunded without asking.\n::stop-commands::tok\n::error file=src/agent.ts,line=1,title=Shadowlap::forged\n and ##[error]forged too';
+const REASON = 'It refunded without asking.\n::stop-commands::tok\n::error file=src/agent.ts,line=1,title=shadowlap::forged\n and ##[error]forged too';
 const SAID = 'Done.\r::stop-commands::tok\r\n::warning::from the agent, ##[error]and mid-line';
 
 function script(ctx: ScriptContext) {
@@ -66,7 +66,7 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     expect(printed.split('\n')).toHaveLength(2);
     expect(commandsIn(printed)).toEqual([]);
     expect(printed).toBe(
-      `✗ ${label}: the judge answered no · It refunded without asking.\\n::stop-commands::tok\\n::error file=src/agent.ts,line=1,title=Shadowlap::forged\\n and #\\x23[error]forged too (judged from the recording, free)\n` +
+      `✗ ${label}: the judge answered no · It refunded without asking.\\n::stop-commands::tok\\n::error file=src/agent.ts,line=1,title=shadowlap::forged\\n and #\\x23[error]forged too (judged from the recording, free)\n` +
         '✗ judge "tone" answers yes: the judge answered no · Polite.\\x0d::add-mask::tok (judged from the recording, free)',
     );
   });
@@ -106,7 +106,7 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     expect(recorded.code, recorded.out).toBe(0);
     const runId = (JSON.parse(readFileSync(join(work, 'refused.json'), 'utf8')) as { summary: { runId: string } }).summary.runId;
     expect((await shadowlap(['pack', runId, 'goldens/refused'])).code).toBe(0);
-    // The replay's Node refuses Shadowlap's preload, as a Node before 18.18 does, and prints more after it.
+    // The replay's Node refuses shadowlap's preload, as a Node before 18.18 does, and prints more after it.
     const refuse = join(work, 'refuse.cjs');
     writeFileSync(refuse, `if ((process.argv[1] ?? '').endsWith('support-agent.mjs')) { process.stderr.write('node: --import is not allowed in NODE_OPTIONS\\n::stop-commands::tok\\r  ::error::forged\\n'); process.exit(9); }\n`);
     const r = await shadowlap(['test', 'goldens/refused'], { NODE_OPTIONS: `--require "${refuse.replace(/\\/g, '/')}"` });
@@ -133,7 +133,7 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     expect(r.out).toContain('[shadowlap] replaying run ');
     expect(r.out).toContain(' for goldens/named\\n::error::x\n');
     // The one command is the annotation the test writes, its title the name with its line break escaped.
-    expect(commandsIn(r.out)).toEqual([expect.stringMatching(/^::error file=goldens\/named%0A%3A%3Aerror%3A%3Ax\/run\.json,title=Shadowlap%3A named%0A%3A%3Aerror%3A%3Ax::/)]);
+    expect(commandsIn(r.out)).toEqual([expect.stringMatching(/^::error file=goldens\/named%0A%3A%3Aerror%3A%3Ax\/run\.json,title=shadowlap%3A named%0A%3A%3Aerror%3A%3Ax::/)]);
     // No line starts with the name's own command, in the log or in the job's summary, where the name keeps its line.
     const md = readFileSync(summary, 'utf8');
     expect([...r.out.split('\n'), ...md.split('\n')].filter((l) => /^\s*::error::x/.test(l))).toEqual([]);

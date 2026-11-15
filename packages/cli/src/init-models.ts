@@ -6,12 +6,12 @@ import { callArguments, inCommentAt, kwarg, lineOf, literal, positional, pyCalls
 /**
  * The models `shadowlap init` finds a project naming, and where their calls go: a framework's model
  * string or class, its router's provider prefix, an OpenAI-compatible server the project points at.
- * Calls to a host Shadowlap neither redirects nor captures are named, so nothing goes unrecorded
+ * Calls to a host shadowlap neither redirects nor captures are named, so nothing goes unrecorded
  * without a word.
  */
 
 /**
- * The providers of Mastra's model router whose calls Shadowlap records, by the router's name for them:
+ * The providers of Mastra's model router whose calls shadowlap records, by the router's name for them:
  * it builds their clients with the base URL in ANTHROPIC_BASE_URL and OPENAI_BASE_URL, and Google's
  * host is captured in the process. Any other (`groq/…`, `openrouter/…`) goes to a host of its own.
  */
@@ -90,7 +90,7 @@ interface NamedModel {
   source: string;
 }
 
-/** LiteLLM's provider prefixes (`anthropic/claude-sonnet-4-5`) for the APIs Shadowlap records. Any other prefix goes to a host it doesn't. */
+/** LiteLLM's provider prefixes (`anthropic/claude-sonnet-4-5`) for the APIs shadowlap records. Any other prefix goes to a host it doesn't. */
 const LITELLM_RECORDED: Readonly<Record<string, Provider['id']>> = { openai: 'openai', anthropic: 'anthropic', gemini: 'gemini', vertex_ai: 'vertex', vertex_ai_beta: 'vertex', bedrock: 'bedrock', azure: 'azure' };
 
 /** CrewAI's, which add names of its own to LiteLLM's (`claude/…`, `google/…`, `aws/…`). */
@@ -104,7 +104,7 @@ const LANGCHAIN_OTHERS = new Set(['baseten', 'cerebras', 'cohere', 'deepseek', '
 /** Agno's `provider:model` strings (`Agent(model="anthropic:claude-sonnet-4-5")`). */
 const AGNO_RECORDED: Readonly<Record<string, Provider['id']>> = { anthropic: 'anthropic', openai: 'openai', 'openai-chat': 'openai', 'openai-responses': 'openai', google: 'gemini', 'google-interactions': 'gemini', 'aws-bedrock': 'bedrock', 'aws-claude': 'bedrock', 'azure-openai': 'azure', 'azure-openai-responses': 'azure', 'azure-ai-foundry': 'azure', 'azure-foundry-claude': 'azure', 'vertexai-claude': 'vertex' };
 
-/** Pydantic AI's model prefixes (PYDANTIC_MODEL) for the APIs Shadowlap records. */
+/** Pydantic AI's model prefixes (PYDANTIC_MODEL) for the APIs shadowlap records. */
 const PYDANTIC_RECORDED: Readonly<Record<string, Provider['id']>> = { openai: 'openai', 'openai-chat': 'openai', 'openai-responses': 'openai', azure: 'azure', anthropic: 'anthropic', bedrock: 'bedrock', gemini: 'gemini', 'google-gla': 'gemini', 'google-vertex': 'vertex' };
 
 /**

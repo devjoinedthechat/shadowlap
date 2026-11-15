@@ -149,7 +149,7 @@ function RetiringStart({ n, start }: { n: MigrateRetiring; start: MigrateStartVi
       </div>
       <StartGo s={s} />
       <Copy className="muted mgsrc">
-        {n.matched && n.matched !== n.model ? `${n.model} names the snapshot ${n.matched}. ` : ''}The date is from the retirement table that ships with Shadowlap, read from {who ? `${who}’s` : 'the provider’s'}{' '}
+        {n.matched && n.matched !== n.model ? `${n.model} names the snapshot ${n.matched}. ` : ''}The date is from the retirement table that ships with shadowlap, read from {who ? `${who}’s` : 'the provider’s'}{' '}
         <a className="dlink" href={n.source} target="_blank" rel="noreferrer">
           model deprecations
         </a>{' '}

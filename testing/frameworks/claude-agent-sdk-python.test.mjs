@@ -1,4 +1,4 @@
-// The Claude Agent SDK for Python with Shadowlap's fence, end to end: query() runs the Claude Code CLI
+// The Claude Agent SDK for Python with shadowlap's fence, end to end: query() runs the Claude Code CLI
 // the SDK bundles, whose model calls go through the sidecar (ANTHROPIC_BASE_URL) to a scripted
 // Anthropic API, and whose built-in tools (Read, Write, Edit, Bash) the hooks record and fence. A
 // recording changes the project; a replay of it sends no model request and leaves the project as it

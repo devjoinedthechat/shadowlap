@@ -3,10 +3,10 @@ import { now, random, uuid } from '../src/index.js';
 
 /**
  * The package says it runs on Node 18.18. Node 18 has no `globalThis.crypto` unless it is started with
- * --experimental-global-webcrypto, so nothing outside Shadowlap may reach for it: here it is taken
+ * --experimental-global-webcrypto, so nothing outside shadowlap may reach for it: here it is taken
  * away as Node 18 leaves it, and the helpers still answer.
  */
-describe('outside Shadowlap on a Node with no global crypto (Node 18)', () => {
+describe('outside shadowlap on a Node with no global crypto (Node 18)', () => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
   let url: string | undefined;
 

@@ -35,7 +35,7 @@ test(
     expect(await rec.answer()).toBe('echo: item 1 / notes about item 1');
     const [lookupCall, modelCall] = await rec.calls();
     expect(lookupCall).toMatchObject({ kind: 'tool', name: 'lookup', scope: 'triage', origin: rec.mode === 'record' ? 'live' : 'replayed' });
-    // The client made at import reached Shadowlap through in-process capture, in the test's scope.
+    // The client made at import reached shadowlap through in-process capture, in the test's scope.
     expect(modelCall).toMatchObject({ kind: 'api', name: 'POST /v1/messages', model: 'claude-opus-5', scope: 'triage', outcome: 'ok' });
   }),
 );

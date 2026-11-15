@@ -23,7 +23,7 @@ export interface ProjectConfig {
   verify?: { baseline?: 'paired' | 'history'; max?: number };
   /** Tools by name: `trust` marks the reads shadowlap injection plants in (Settings → Tools' Trust column). */
   tools?: Record<string, { trust: 'trusted' | 'untrusted' }>;
-  /** `tools.unrecorded`: the effect of each tool the agent runs without Shadowlap recording it, which decides whether a replay may run it again. */
+  /** `tools.unrecorded`: the effect of each tool the agent runs without shadowlap recording it, which decides whether a replay may run it again. */
   unrecorded?: Record<string, 'read' | 'write'>;
 }
 

@@ -1,4 +1,4 @@
-// The changelog says what installing Shadowlap brings with it. That claim is easy to break without
+// The changelog says what installing shadowlap brings with it. That claim is easy to break without
 // noticing: a package gains a dependency, or depends on one of ours that has some. These checks read
 // every published package's manifest and follow its dependencies on our own packages, so the claim
 // stays true or the suite fails.

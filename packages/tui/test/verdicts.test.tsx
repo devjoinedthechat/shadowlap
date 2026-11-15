@@ -26,7 +26,7 @@ async function frameWhere(lastFrame: () => string | undefined, ok: (frame: strin
 const FIX = 'fx-01M61QZ7Y3E8';
 
 /**
- * A failure as Shadowlap works one through: a recording that failed its check, which blame found
+ * A failure as shadowlap works one through: a recording that failed its check, which blame found
  * lost at #9 and a verified fix took care of; five `replay --repeat` attempts of it, one failed; and
  * a fork from #9 whose email was fenced and which searched for something else.
  */

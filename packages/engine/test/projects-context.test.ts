@@ -346,7 +346,7 @@ describe('ProjectHost: what it reads and keeps', () => {
     const { registry, loadConfig, support, triage } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });
     registry.add('~/triage-bot');
-    // An older Shadowlap's store: schema v3, before activity events.
+    // An older shadowlap's store: schema v3, before activity events.
     const db = projectDbPath(triage);
     const store = Store.open(db);
     recordInto(store, triage);
@@ -363,13 +363,13 @@ describe('ProjectHost: what it reads and keeps', () => {
     check.close();
     expect(existsSync(join(triage, '.shadowlap', '.gitignore'))).toBe(false);
 
-    // One written by a newer Shadowlap is listed, with nothing counted and the reason said.
+    // One written by a newer shadowlap is listed, with nothing counted and the reason said.
     const newer = new DatabaseSync(db);
     newer.exec(`UPDATE meta SET value = '99' WHERE key = 'schema_version'`);
     newer.close();
-    expect(host.stats()['triage-bot']).toMatchObject({ runs: 0, missing: false, unreadable: expect.stringMatching(/written by a newer Shadowlap/) });
+    expect(host.stats()['triage-bot']).toMatchObject({ runs: 0, missing: false, unreadable: expect.stringMatching(/written by a newer shadowlap/) });
     // Reading its setup says so too, as a store error the dashboard answers with its status.
-    expect(() => host.setup('triage-bot')).toThrow(expect.objectContaining({ name: 'ProjectError', code: 'store', status: 409, message: expect.stringMatching(/^Shadowlap can’t read triage-bot’s store: .*newer Shadowlap/) }));
+    expect(() => host.setup('triage-bot')).toThrow(expect.objectContaining({ name: 'ProjectError', code: 'store', status: 409, message: expect.stringMatching(/^shadowlap can’t read triage-bot’s store: .*newer shadowlap/) }));
     host.close();
   });
 
@@ -475,7 +475,7 @@ describe('ProjectHost: a project list it can’t use', () => {
     mkdirSync(dirname(registry.file), { recursive: true });
     writeFileSync(registry.file, JSON.stringify({ version: 2, projects: [{ id: 'triage-bot', name: 'triage-bot', path: triage, addedAt: 1 }] }));
     const host = ProjectHost.open(support, { registry, loadConfig });
-    expect(host.notice).toMatch(/written by a newer Shadowlap/);
+    expect(host.notice).toMatch(/written by a newer shadowlap/);
     expect(host.list().map((p) => p.id)).toEqual(['support-agent', 'triage-bot']);
     expect(host.switchTo('triage-bot').path).toBe(triage);
     host.close();
@@ -483,7 +483,7 @@ describe('ProjectHost: a project list it can’t use', () => {
     writeFileSync(registry.file, JSON.stringify({ version: 2, projects: [{ id: 'support-agent', name: 'support-agent', path: support, addedAt: 1 }] }));
     const listed = ProjectHost.open(support, { registry, loadConfig });
     expect(listed.list().map((p) => p.id)).toEqual(['support-agent']);
-    expect(listed.notice).toMatch(/written by a newer Shadowlap\. Upgrade Shadowlap to change the project list\.$/);
+    expect(listed.notice).toMatch(/written by a newer shadowlap\. Upgrade shadowlap to change the project list\.$/);
     listed.close();
     // A list it can use: no notice.
     const fine = world();

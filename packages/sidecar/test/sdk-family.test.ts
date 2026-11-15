@@ -64,7 +64,7 @@ describe("a run's SDKs", () => {
     };
     expect(await sdksOf({ 'x-shadowlap-sdk': 'node/0.1.0', 'user-agent': 'python-requests/2.32' })).toEqual(['typescript']);
     expect(await sdksOf({ 'x-shadowlap-sdk': 'python/0.1.0', 'user-agent': 'node' })).toEqual(['python']);
-    // The MCP proxy names itself in its user agent; a client that says nothing Shadowlap knows is another.
+    // The MCP proxy names itself in its user agent; a client that says nothing shadowlap knows is another.
     expect(await sdksOf({ 'user-agent': 'shadowlap-mcp' })).toEqual(['mcp']);
     expect(await sdksOf({ 'x-shadowlap-sdk': 'not a version', 'user-agent': 'curl/8.7.1' })).toEqual(['other']);
   });

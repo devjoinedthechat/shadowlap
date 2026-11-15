@@ -100,7 +100,7 @@ function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
 
 /**
  * Why an attempt says nothing of the change's effect: it could not be judged, or (for the baseline) it
- * never reached its model through Shadowlap. Null when it does, and for one the provider cut short,
+ * never reached its model through shadowlap. Null when it does, and for one the provider cut short,
  * which is counted against either verdict.
  */
 function unjudged(a: Attempt): string | null {
@@ -112,13 +112,13 @@ function unjudged(a: Attempt): string | null {
 
 /**
  * What an attempt of the baseline can't say of the change beside it, and why, or null when it counts. No
- * verdict may rest on one that never reached its model through Shadowlap, which ran nothing the
+ * verdict may rest on one that never reached its model through shadowlap, which ran nothing the
  * recording holds. With `none`, the provider turned its model away for good, as it does once a model
  * retires: nothing this arm can show says what the change did, and its failing is no failure to keep
  * up with. `where` says where the baseline ran, in words.
  */
 function baselineOpen(b: Attempt, n: number, where: string): { none: boolean; why: string } | null {
-  if (b.bypassed) return { none: false, why: `the baseline${where} could not run the agent: ${b.failures[0] ?? 'it made no model calls through Shadowlap'}` };
+  if (b.bypassed) return { none: false, why: `the baseline${where} could not run the agent: ${b.failures[0] ?? 'it made no model calls through shadowlap'}` };
   const refused = !b.passed && !b.unavailable ? providerRefused(b.calls) : null;
   if (refused) return { none: true, why: `the baseline could not ask its model: ${refused}` };
   const why = unjudged(b);
@@ -455,7 +455,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         log(`  ${label}  ${p.dim('attempt 1')}  ${describeAttempt(first)}${result.deterministic ? p.dim(' · clean replay, so it settles the run') : ''}`);
         const why = unjudged(first);
         if (why) result.undecided = why;
-        // A replay that went around Shadowlap ran nothing the recording holds: no evidence, and no
+        // A replay that went around shadowlap ran nothing the recording holds: no evidence, and no
         // fork to pair a baseline with. Its gate fails the run, as it always has.
         else if (role === 'good' && !result.deterministic && first.summary.divergence && !first.bypassed && baseline.source !== 'none') {
           // A good run that forked: against its baseline, or, when none can be had, by the gate alone.

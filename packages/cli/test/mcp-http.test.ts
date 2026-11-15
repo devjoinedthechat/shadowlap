@@ -298,7 +298,7 @@ describe('shadowlap mcp --url', () => {
     // The notification in it still reached the server, on its own.
     expect(server.seen.filter((x) => x.method === 'notifications/progress')).toHaveLength(1);
 
-    // Without Shadowlap the proxy passes a batch on as it is.
+    // Without shadowlap the proxy passes a batch on as it is.
     const t = client(null);
     await t.handshake();
     const passed = await t.batch([{ jsonrpc: '2.0', id: 'b3', method: 'tools/call', params: { name: 'send_note', arguments: { to: 'y' } } }]);
@@ -427,7 +427,7 @@ describe('shadowlap mcp --url', () => {
 /**
  * The MCP SDKs' stdio clients start a server with a minimal environment, so the proxy never gets
  * SHADOWLAP_URL. Under `test`, `replay --repeat` and the rest, it finds its run through the agent
- * Shadowlap started, and a remote write still never runs again.
+ * shadowlap started, and a remote write still never runs again.
  */
 describe('shadowlap mcp started with a minimal environment', () => {
   let server: FakeMcpHttpServer;
@@ -492,7 +492,7 @@ describe('shadowlap mcp started with a minimal environment', () => {
     // Five proxies, each reading the process tree: on Windows that takes PowerShell, a second or two each.
   }, 120_000);
 
-  it('refuses the write when it was started under Shadowlap but can\'t find its run', async () => {
+  it('refuses the write when it was started under shadowlap but can\'t find its run', async () => {
     // The client hands the proxy another home folder, where no agent is registered.
     const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'sl-mcp-elsewhere-')));
     const before = server.calls.length;

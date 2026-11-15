@@ -13,7 +13,7 @@ export interface ChangesApi {
   decisionSession(id: string): Promise<DecisionSessionDetail>;
   /** A run's decisions under each session that asked its model calls again, for its Decisions view. */
   runDecisions(runId: string): Promise<RunDecisionsView>;
-  /** The models the goldens use that retire, by the table that ships with Shadowlap. */
+  /** The models the goldens use that retire, by the table that ships with shadowlap. */
   retirements(): Promise<RetirementsView>;
   /** What Migrate opens on (`GET /api/migrate/start`, a pooled read): the goldens' retiring models, worded, each with the migration that checked it, and the models the goldens call. */
   migrateStart(): Promise<MigrateStartView>;

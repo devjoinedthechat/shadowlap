@@ -42,7 +42,7 @@ export function discoverSidecar(env: NodeJS.ProcessEnv = process.env, cwd = proc
 
 /**
  * The run this proxy records into. The environment, when the client passed it on; else the
- * registration of the nearest ancestor Shadowlap started (see agent-registry.ts), which is how a
+ * registration of the nearest ancestor shadowlap started (see agent-registry.ts), which is how a
  * proxy started with a minimal environment under `shadowlap test`, `blame`, `verify` or
  * `replay --repeat` finds its run, and under any of `agentCommands` with none to find is told its
  * writes are refused; else, where the process tree can't be read, the active run's file in the

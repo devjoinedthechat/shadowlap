@@ -35,7 +35,7 @@ export const repairParts = (candidates: number, newBlame: boolean): string[] => 
 /** Where a fork runs live from (`#17`, `the next model call`), the writes after it fenced; `other writes` when one is forced live. */
 export const liveFromPart = (from: string, otherWrites = false): string => `live from ${from}, ${otherWrites ? 'other writes' : 'writes'} fenced`;
 
-/** A model call Shadowlap answers itself (`--fail-at` at a model call): nothing goes upstream there, though the calls after it may go live. */
+/** A model call shadowlap answers itself (`--fail-at` at a model call): nothing goes upstream there, though the calls after it may go live. */
 export const nothingUpstreamPart = (at: string): string => `nothing upstream at ${at}`;
 
 /** A fork's attempts, each live from where it forks: Repeat's and Plant's. */

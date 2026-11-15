@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/test",
   "version": "0.1.0",
-  "description": "Shadowlap for test suites: a test records its agent's model and tool calls on its first run and replays them offline after that. Vitest, Jest and node:test.",
+  "description": "shadowlap for test suites: a test records its agent's model and tool calls on its first run and replays them offline after that. Vitest, Jest and node:test.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

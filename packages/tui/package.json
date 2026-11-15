@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/tui",
   "version": "0.1.0",
-  "description": "Shadowlap terminal UI: runs, timeline, inspector, play mode and diffs.",
+  "description": "shadowlap terminal UI: runs, timeline, inspector, play mode and diffs.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

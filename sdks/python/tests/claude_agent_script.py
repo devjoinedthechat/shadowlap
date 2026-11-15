@@ -1,5 +1,5 @@
 """A Claude Agent SDK agent's tool calls, run through the stand-in for Claude Code's tool pipeline
-(fake_claude_code.py) with the Shadowlap fence, against whatever sidecar SHADOWLAP_URL names: the
+(fake_claude_code.py) with the shadowlap fence, against whatever sidecar SHADOWLAP_URL names: the
 vitest suite records, replays and forks it (packages/adapters/test/claude-agent-sdk-python.test.ts).
 VARIANT=changed changes the first command, so a replay forks there. Prints a JSON summary."""
 

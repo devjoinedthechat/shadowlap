@@ -393,7 +393,7 @@ class RepairRun {
     // details (a customer's name filled in), so it is read from the masked copy, while the spans a fix
     // may rewrite are the project's source.
     const instructions = surfacesOf(learned[0]!.shownRequest ?? learned[0]!.request);
-    // A span a recording holds (a golden's run.json, its calls) or Shadowlap's config is no fix's to
+    // A span a recording holds (a golden's run.json, its calls) or shadowlap's config is no fix's to
     // rewrite: they are read, so a copy of a span there keeps it from passing for its source's only
     // one, but no anchor is placed in them. Nor in code outside a string, or in a file or a value that
     // runs, such as a workflow or package.json's scripts (rewritableAnchors). A patch from the team

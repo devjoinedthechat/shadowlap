@@ -19,7 +19,7 @@ export function register(program: Command): void {
 
   program
     .command('init')
-    .description('Set up Shadowlap in this project: detects your model SDKs, framework, agent command and tools, and prints the steps to your first recording')
+    .description('Set up shadowlap in this project: detects your model SDKs, framework, agent command and tools, and prints the steps to your first recording')
     .option('--json', 'machine-readable output: the findings, each tool flagged when it isn\'t wrapped, and the code that wraps it')
     .action((flags: { json?: boolean }) => {
       const report = inspectProject(process.cwd());

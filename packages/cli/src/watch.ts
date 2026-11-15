@@ -12,7 +12,7 @@ import { signalExit } from './exit-codes.js';
  * replay runs starts one, however many files it touched.
  */
 
-/** Anything generated, hidden, or vendored: watching it would re-run on Shadowlap's own writes. */
+/** Anything generated, hidden, or vendored: watching it would re-run on shadowlap's own writes. */
 const IGNORED = new Set(['node_modules', '.git', '.shadowlap', 'coverage', '.venv', '__pycache__', '.pytest_cache', '.mypy_cache']);
 
 /**

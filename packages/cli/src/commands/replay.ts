@@ -139,7 +139,7 @@ function judgedOutcome(checks: readonly CheckResult[]): 'passed' | 'failed' | 'i
 /**
  * A replay's status before its checks have a say: 1 when no preload loaded in the agent's processes
  * under --guard block, which fails the run whatever the agent did (nothing stopped a connection that
- * bypassed Shadowlap, so the replay proves nothing); else the agent's own.
+ * bypassed shadowlap, so the replay proves nothing); else the agent's own.
  */
 function agentStatus(code: number, preloads: PreloadReport | null): number {
   return preloads?.failed ? EXIT.failed : code;

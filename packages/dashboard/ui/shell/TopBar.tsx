@@ -133,7 +133,7 @@ export function TopBar({ route }: { route: Route }) {
         <Icon name="menu" />
       </button>
       {/* An exported copy's #/ is the run it opens on. */}
-      <a className="brand" href={href.overview()} aria-label={exported ? 'Shadowlap exported copy, the run it opens on' : 'Shadowlap dashboard, overview'}>
+      <a className="brand" href={href.overview()} aria-label={exported ? 'shadowlap exported copy, the run it opens on' : 'shadowlap dashboard, overview'}>
         <Brand />
       </a>
       <nav className="crumbs" aria-label="Breadcrumb" ref={nav}>

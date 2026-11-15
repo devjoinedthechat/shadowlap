@@ -19,7 +19,7 @@ shadowlap dashboard
 It opens your browser on the dashboard and prints the link, which carries a session token:
 
 ```text
-Shadowlap dashboard  http://127.0.0.1:4777/#token=…
+shadowlap dashboard  http://127.0.0.1:4777/#token=…
   /home/you/support-agent/.shadowlap/shadowlap.db · the link carries a session token; keep it to yourself · Ctrl-C stops
 ```
 
@@ -434,7 +434,7 @@ The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), 
 | `.har` | HAR |
 | `.json`, its name saying otel, otlp or trace | OpenTelemetry |
 | `.json`, its name saying cassette or vcr | A VCR cassette |
-| Any other `.json` | What it starts with: a HAR log, OTLP spans, a cassette's interactions, a nock recording or a Shadowlap capture; nock when that says nothing |
+| Any other `.json` | What it starts with: a HAR log, OTLP spans, a cassette's interactions, a nock recording or a shadowlap capture; nock when that says nothing |
 | `.jsonl` | LiteLLM, unless its name or its first line says OpenTelemetry |
 | YAML | Refused, with the reason |
 
@@ -583,7 +583,7 @@ A call that failed is a model call answered with an error, or a tool that threw,
 
 ### Findings
 
-Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, and what Shadowlap did not record. Then come the run's notes, an [injection test](./injection.md) of it and the [error-path presets](./error-paths.md) run on it. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
+Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, and what shadowlap did not record. Then come the run's notes, an [injection test](./injection.md) of it and the [error-path presets](./error-paths.md) run on it. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
 
 The bar shows the most telling finding whole. **N findings** at its end opens the rest in place, its hover listing them while closed, and the focus stays on it. A lone finding with more to show, a note's tools or the fork's changes, has **Details** instead. The bar stays open or closed for each run until you reload.
 
@@ -742,12 +742,12 @@ What a fork did differently is a finding in the bar, under **N findings** when a
 
 An exported copy holds this list when the file holds the fork's parent too (`export html --lineage`, **Share → HTML report**), masked by the redaction rules. Otherwise it leaves it out.
 
-### What Shadowlap did not record
+### What shadowlap did not record
 
-What Shadowlap did not record is a finding in the bar, under **N findings** when another leads: a line each, the most pressing first.
+What shadowlap did not record is a finding in the bar, under **N findings** when another leads: a line each, the most pressing first.
 
 1. **Unrecorded tools**: the tools the model called whose calls the run never recorded.
-2. **No preload**: a run whose agent loaded no Shadowlap preload, so the network guard never watched it.
+2. **No preload**: a run whose agent loaded no shadowlap preload, so the network guard never watched it.
 3. **An unguarded process**: a process of the agent the guard could not watch.
 4. **WebSockets** that went to a provider live and are in no recording, and those an offline replay refused.
 5. **A replay's extra reads**: the clock, random and pure reads it answered live because its recording held no counterpart for them, each opening its call.
@@ -788,9 +788,9 @@ A call the fence answered after a fork is named by what it would have done, neve
 | Replayed | The logo's second green, quieter than the lime of the page's next step |
 | Live | Off-white |
 | Overridden | Violet |
-| Injected | Violet at half strength: a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure) |
+| Injected | Violet at half strength: a failure shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure) |
 | Failed | A red ring on its red tint, the tint alone where a cell is narrower than 6 px |
-| Blocked | A grey hatch edged in grey, as Shadowlap fenced the write; a solid grey where a cell is narrower than 6 px |
+| Blocked | A grey hatch edged in grey, as shadowlap fenced the write; a solid grey where a cell is narrower than 6 px |
 | Stubbed | Steel blue |
 
 Each color means one thing across the dashboard. Lime is the primary action and what passed, amber what needs a look or is inconclusive, and red what failed. Where you are, a link and a fork are drawn in ink.
@@ -808,7 +808,7 @@ The strip's key is the call filter: *all*, then each kind or origin the run has,
 
 A run of several agents gets a chip per agent, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it. A run of one agent and no scope shows no chips.
 
-**A judge's calls**, made in Shadowlap's own scope (`shadowlap:judge`), are the check's, none of the agent's. They get a chip of their own, **judge**, after the agents' and a hairline, so a judged run of one agent shows the chips for them, the first reading **Agent**.
+**A judge's calls**, made in shadowlap's own scope (`shadowlap:judge`), are the check's, none of the agent's. They get a chip of their own, **judge**, after the agents' and a hairline, so a judged run of one agent shows the chips for them, the first reading **Agent**.
 
 All leaves the judge's calls out, and so do the strip, the key's and the tabs' counts. Picking **judge** lists them in Calls and Turns, and adds them to the strip, the agent's dimmed. Context and Timeline stay the agent's, and say so. A run never opens on a judge's call by itself, and each press of a judge verdict's call opens it under the chip.
 
@@ -879,7 +879,7 @@ The list is the run's trace, in call order, grouped lightly:
 - **A sub-agent's calls**, one after another, sit under a row that names it, *sub-agent*, with its calls, what it spent and how it ended. The row sits under the model call whose tool started it: a subagent of Claude Code's `Task` tool, or a scope inside another, as `agent/policy-checker` in `agent`.
 - **In a batch**, a run that works through several conversations of one agent, each conversation has a row, the first three open. It shows the first sentence of what the conversation was asked, its calls, its writes and errors (on a replay or a fork, what it changed), and how it ended.
 
-A sub-agent's conversations and Shadowlap's own calls are never a batch's. A call whose page or conversation is still being read stands at the top until it is known.
+A sub-agent's conversations and shadowlap's own calls are never a batch's. A call whose page or conversation is still being read stands at the top until it is known.
 
 A model call's caret, before its kind, folds its tool calls. A group's row folds at a click anywhere on it. A fold never moves the selection: the folded row that holds the selected call carries its ground, and the inspector and the address stay on the call.
 
@@ -1023,7 +1023,7 @@ A clean attempt's read says it was *made neutral for this attempt*, every string
 
 **Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes. It names the call's scope and agent too, and for a sub-agent's call, the call that started it.
 
-On a failed model call, the input tokens are what its request held, `in the request; nothing was sent` where Shadowlap answered it or the replay refused it, and then its cost is `$0`. Its latency says who answered: `answered by Shadowlap`, `refused by the replay` or `answered by the provider`.
+On a failed model call, the input tokens are what its request held, `in the request; nothing was sent` where shadowlap answered it or the replay refused it, and then its cost is `$0`. Its latency says who answered: `answered by shadowlap`, `refused by the replay` or `answered by the provider`.
 
 ### Edit and fork
 
@@ -1067,7 +1067,7 @@ Besides each call as recorded, the run's endpoint (`/api/runs/<id>`, which the p
 
 A call's *Conversation* is its own conversation as it stood at that call, never another ticket's or another agent's.
 
-**What each conversation was asked.** A top agent's conversation, never a sub-agent's or one of Shadowlap's own, carries the first sentence of its first user message, read from the request that started it. A batch's row in Calls shows it. An exported copy masks it, as it masks the request.
+**What each conversation was asked.** A top agent's conversation, never a sub-agent's or one of shadowlap's own, carries the first sentence of its first user message, read from the request that started it. A batch's row in Calls shows it. An exported copy masks it, as it masks the request.
 
 **Where the prompt cache stopped hitting.** A model call misses when its cache read is smaller than the previous model call's whole input (uncached, cache creation and cache read) in the same scope and conversation, by at least 1,024 tokens. The tokens sent again are the difference.
 
@@ -1080,7 +1080,7 @@ A call's *Conversation* is its own conversation as it stood at that call, never 
 
 **What was not recorded.** These ran for real, and a replay runs them again:
 
-- the hosts the [network guard](./how-it-works.md#the-network-guard) saw the agent reach without Shadowlap;
+- the hosts the [network guard](./how-it-works.md#the-network-guard) saw the agent reach without shadowlap;
 - the tools `shadowlap init` finds in the project without a declared effect that the recording never saw;
 - the tools the model called, by its own answers, that the run recorded no call of ([`unrecordedTools`](./cli.md#replay), read beside the server);
 - the WebSockets the run keeps, gone to a provider live or refused.
@@ -1089,7 +1089,7 @@ A call's *Conversation* is its own conversation as it stood at that call, never 
 
 - **A short form** shows each: an override read from a file is named by the file, one given inline shows the result its call recorded, and a long instruction is shortened.
 - **Each flag exactly** is kept on the run too, so the fork menu can make the fork again. A copy of the run (`pack`, `export html`) keeps only the short form, masked by the redaction rules.
-- **A replay made before Shadowlap kept its flags** shows the ones its calls reveal.
+- **A replay made before shadowlap kept its flags** shows the ones its calls reveal.
 
 **Blame and checks.** A blamed run names where blame found it lost, as Runs, the Overview, Fixes and the activity feed say it too:
 
@@ -1345,7 +1345,7 @@ The bare tab (`#/changes/migrate`) opens on the model your goldens call that ret
 - when and where, who recommends what, and the goldens and scopes that call it;
 - **Switch to**, the model field, the provider's recommendation first, marked *recommended*;
 - the command, which follows the field, and **Migrate to claude-sonnet-5-5** in lime;
-- where the date comes from: the retirement table that ships with Shadowlap, read from the provider's model deprecations page. Nothing is fetched.
+- where the date comes from: the retirement table that ships with shadowlap, read from the provider's model deprecations page. Nothing is fetched.
 
 With no model retiring and no migration yet, it offers **Switch from**, the models the goldens call, most used first, and **To**. Once a migration checked every retiring model, it opens the newest migration. With no goldens it says to pack one first, as Preview does, with **Open Runs**.
 
@@ -1537,7 +1537,7 @@ Run more attempts verifies its runs again from the start, named in their roles, 
 Both are built from the verdict's report and the flags kept beside it, never from its command line:
 
 - A verdict kept before its flags were kept beside it offers neither.
-- One a pull brought from the [team store](./team.md) asks first, showing the exact command. It runs without a teammate's `--build`, `--base` and command after `--`, and spends at most twice what Shadowlap runs by itself: a gate up to 160 attempts a run, a fixed count up to 10.
+- One a pull brought from the [team store](./team.md) asks first, showing the exact command. It runs without a teammate's `--build`, `--base` and command after `--`, and spends at most twice what shadowlap runs by itself: a gate up to 160 attempts a run, a fixed count up to 10.
 
 A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt.
 
@@ -1754,9 +1754,9 @@ For a verdict given on other material, it says first that a value that changes e
 
 ### The network guard in a test
 
-**A blocked connection.** A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay is named on the golden's row, in its history and in its report: the agent went to a host directly, past Shadowlap, which a test refuses. It is named also when the agent caught the refusal and the golden passed. Its report's hint leads with it, whatever failed after it: wrap the call as a tool so it is recorded, or allow the host with `SHADOWLAP_GUARD_ALLOW`.
+**A blocked connection.** A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay is named on the golden's row, in its history and in its report: the agent went to a host directly, past shadowlap, which a test refuses. It is named also when the agent caught the refusal and the golden passed. Its report's hint leads with it, whatever failed after it: wrap the call as a tool so it is recorded, or allow the host with `SHADOWLAP_GUARD_ALLOW`.
 
-**No preload.** A golden whose replay no Shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*. It shows what the command shows of why, and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`.
+**No preload.** A golden whose replay no shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*. It shows what the command shows of why, and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`.
 
 **Unguarded.** A golden that a process the guard can't watch ran in, such as the Claude Code CLI the Claude Agent SDK runs, fails as *unguarded: a process the network guard can’t watch ran*. It shows what `shadowlap doctor` says to do: reach a remote MCP server through `shadowlap mcp`, which records and fences its calls, and test with `--guard warn` to accept the rest.
 
@@ -1857,9 +1857,9 @@ Settings (`#/settings/<tab>`) names the project in its header, as *support-agent
 | [Redaction](#redaction) | The redaction rules, where each copy applies them, and what they would mask in a run |
 | [CI](#ci) | Your CI workflow, built from its switches |
 | [Gates](#gates) | A gate's figures to try, how they decide, and the golden's entry to copy |
-| [Coding agents](#coding-agents) | Which instruction files mention Shadowlap, and the skills |
+| [Coding agents](#coding-agents) | Which instruction files mention shadowlap, and the skills |
 | [Tools](#tools) | Every tool the recordings called, and the MCP servers |
-| [Project](#project) | The Shadowlap version, the project's store, runs, size and address, and Spending |
+| [Project](#project) | The shadowlap version, the project's store, runs, size and address, and Spending |
 | [Store](#store) | The [team store](./team.md) |
 
 How Settings writes the config, and what its buttons run, is under [Actions in Settings](#actions-in-settings).
@@ -1979,7 +1979,7 @@ Under **In CI**, it says what an inconclusive golden does to the step as your wo
 
 ### Coding agents
 
-*Coding agents* need no MCP server: the CLI is their interface. The tab shows which of these files mention Shadowlap: `CLAUDE.md`, `AGENTS.md`, `.agents/skills`, and where the project has them, `.cursor/rules` and `.github/copilot-instructions.md`.
+*Coding agents* need no MCP server: the CLI is their interface. The tab shows which of these files mention shadowlap: `CLAUDE.md`, `AGENTS.md`, `.agents/skills`, and where the project has them, `.cursor/rules` and `.github/copilot-instructions.md`.
 
 The `.agents/skills` row offers [the skills for Codex, Cursor, Copilot and the others](./agents.md#codex-cursor-copilot-and-others), with **Add the skills**:
 
@@ -2150,18 +2150,18 @@ Switching is for every tab at once: the dashboard serves one project at a time. 
 A link to a run, a fix, a pair of runs, a preview or a migration that another project's store holds opens a page that says which: *In support-agent*, and *The run 01M64J32D4 is in support-agent’s store, not triage-bot’s.* **Switch to support-agent** switches to that project and opens the link there, at the same call, view, step, pair or cell. The crumbs name only the section, and the tab's title names the project.
 
 - **Read, never changed.** The other projects' stores are read beside the server. Nothing is created, migrated or written in them, no connection stays open, and removing a project waits for the read.
-- **Only the list.** The projects on the list are looked in, in its order. A project you removed, one whose folder is gone, a newer Shadowlap's store and a store in a folder you can't write to aren't, though the switcher lists that last one. The page then says the item isn't here.
+- **Only the list.** The projects on the list are looked in, in its order. A project you removed, one whose folder is gone, a newer shadowlap's store and a store in a folder you can't write to aren't, though the switcher lists that last one. The page then says the item isn't here.
 - **One store.** A dashboard that serves one store (`--read-only`, the terminal UI's) and an exported copy say only that it isn't here.
 
 ### The project list
 
-The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder, with every other file Shadowlap keeps for this machine ([environment](./cli.md#environment)); give it as an absolute path.
+The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder, with every other file shadowlap keeps for this machine ([environment](./cli.md#environment)); give it as an absolute path.
 
 The list holds no recordings. For each project it holds its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there. It holds the same for projects you removed, so adding one again brings it back. It is written atomically and readable only by you, and keys it doesn't know are kept.
 
-- **Listing projects** reads their stores without changing them. So a project pinned to an older Shadowlap keeps working, and a store in a folder you can't write to is still read.
-- **A store that can't be read at all** (a newer Shadowlap's) is listed with the reason.
-- **If the list can't be read**, or a newer Shadowlap wrote it, the dashboard still opens on its folder, and says why it can't list or add others.
+- **Listing projects** reads their stores without changing them. So a project pinned to an older shadowlap keeps working, and a store in a folder you can't write to is still read.
+- **A store that can't be read at all** (a newer shadowlap's) is listed with the reason.
+- **If the list can't be read**, or a newer shadowlap wrote it, the dashboard still opens on its folder, and says why it can't list or add others.
 
 ### Adding a project
 
@@ -2217,7 +2217,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 **1. Inspect.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
 
 - Inspecting is done once `init` has run in the folder. The step then folds to one line: what it found, then the command. A project recorded in a terminal first shows it as skipped, and **Inspect folder** leads until it is inspected, as packing can't tell a write tool that isn't wrapped before then.
-- A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap. So **Record run** stays off until the pin is raised and the folder checked again.
+- A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under shadowlap. So **Record run** stays off until the pin is raised and the folder checked again.
 - **Check again** leads while a write tool isn't wrapped, since packing waits for it.
 
 **2. Record.** A recording counts once it holds calls. One whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so. While it records, the step says *Recording 01K5CQ7A3M · 3 calls so far*, with **Watch live**, which the focus moves to.
@@ -2228,7 +2228,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 
 **3. Calibrate.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add normalizer** writes them to `shadowlap.config.json`, and **Calibrate again** asks again.
 
-**4. Pack.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
+**4. Pack.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. shadowlap never packs over a golden that is already there, and offers the next free name instead.
 
 - **Pack as golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
 - **Packing waits** while a write tool isn't wrapped, as a replay of the golden would run it for real. Once it is wrapped, it waits for a recording made since. The button stays plain, with why under it.
@@ -3281,7 +3281,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
 - **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
 - **A judge check's verdict**: each judge check in `checks` carries its `judge`, with the `verdict` (null for none), its `source`, `cost` and `model`, what was done to what it read (`redactions`, `cut`) and the judge's call in the run (`callNo`).
-- **A judge's calls**: a call in one of Shadowlap's own scopes says `reserved`, and a judge's call its `judge`: the `check` it answered and the `verdict` its run kept (null for none). Beside `origins`, `judgeCalls` numbers the judge's calls wherever they come, absent where the run has none, so the page keeps them out of All before their pages come.
+- **A judge's calls**: a call in one of shadowlap's own scopes says `reserved`, and a judge's call its `judge`: the `check` it answered and the `verdict` its run kept (null for none). Beside `origins`, `judgeCalls` numbers the judge's calls wherever they come, absent where the run has none, so the page keeps them out of All before their pages come.
 - **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code, on its page and in a list's rows. A test replay's rows carry its `test` too: its `golden` and `session`, `null` on any other run.
 - **Its next step**: `next` is what its header leads with ([The next step](#the-next-step)): its `key`, `label`, `href` for a link, `off` for why it can't start, the hover's `title` and `sub`, the `command` it runs and `estimate`, what it bills. `later` says this answer left out what would read a long run's calls, which `/api/runs/:id/next` answers with.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
@@ -3515,9 +3515,9 @@ It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+di
 - **An Undo** names the `version` the change it undoes wrote. The clock and Push from CI answer what they replaced (`was`), and `null` takes the key out of the file again.
 - **`/store`** also carries `policy`: what `shadowlap store policy` prints, which Copy access policy copies.
 - **`/tools`** also carries each tool's `trust`, where its mark comes from (`from`, `where`) and the line that marks it the other way (`flip`). An untrusted read has the run its test runs on (`test`), and `entry` is the config's `tools` entry, a line a tool.
-- **A trust mark** to a file changed since is a 409, and `tools.unrecorded`, which declares the tools Shadowlap doesn't record, is no tool to mark (a 400). An Undo names the `version` the mark wrote and sends `was` back. The mark lands in the activity feed.
+- **A trust mark** to a file changed since is a 409, and `tools.unrecorded`, which declares the tools shadowlap doesn't record, is no tool to mark (a 400). An Undo names the `version` the mark wrote and sends `was` back. The mark lands in the activity feed.
 - **Spending** (`askAbove`) is in dollars: a billed job asks first when its estimate is above it, so 0 asks of every job that bills. With `null`, Never ask, no amount asks. A job with no estimate still asks, as do a form, a price per unit and a job that asks for what it does, such as Run repair.
-- **Where it is kept**: it is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
+- **Where it is kept**: it is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer shadowlap's, a 409.
 
 ### Checks
 
@@ -3599,7 +3599,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 - A `budget` under the price stops it there, as `stops`. With `thenVerify` the preview has no estimate: what verify runs is known once it has asked.
 - `/api/migrate/estimate` keeps to a `scope` and is held to a `budget` the same way. It answers the scopes its runs' calls were made in (`scopes`).
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first, read on a thread of its own. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
-- `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
+- `/api/retirements`: the retirement notices on their own, for the agent's models, shadowlap's own judge calls left out.
 
 The `matrix` has a row per run and a cell per model call. A row is named by its run's short id (`title`) with its `about` line. It says whether the store still holds the run (`inStore`), whether the session left it to verify, what verify found, and what the row ends on (`ending`). Each cell holds:
 

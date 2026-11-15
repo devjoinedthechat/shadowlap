@@ -4,15 +4,15 @@ import { sharedStore, useContextStore, type ContextStore, type ContextStoreClass
 import { VERSION } from './version.js';
 
 /**
- * The Shadowlap SDK for TypeScript: an effect-typed tool wrapper, clock/random helpers, and
+ * The shadowlap SDK for TypeScript: an effect-typed tool wrapper, clock/random helpers, and
  * recorded user input.
  * Everything here is a thin client of the sidecar's call resolution API; no hashing or matching
- * logic lives in the SDK. When Shadowlap is not active (no SHADOWLAP_URL), every function is a
+ * logic lives in the SDK. When shadowlap is not active (no SHADOWLAP_URL), every function is a
  * direct passthrough, so wrapped tools ship to production unchanged.
  *
  * Nothing here loads a Node module until a call goes to the sidecar, so the SDK loads where Node's
  * modules don't exist (an Edge runtime, a browser bundle), and its wrappers just call through there.
- * Under Shadowlap the agent runs on Node, or on a runtime with Node's modules.
+ * Under shadowlap the agent runs on Node, or on a runtime with Node's modules.
  */
 
 export { VERSION } from './version.js';
@@ -186,7 +186,7 @@ export function isActive(): boolean {
   return config() !== null;
 }
 
-// One store per process, shared with Shadowlap's capture preload, which may load before this module or
+// One store per process, shared with shadowlap's capture preload, which may load before this module or
 // in another copy of it.
 const SCOPES = Symbol.for('shadowlap.scope');
 const scopes = () => sharedStore<string>(SCOPES);
@@ -196,7 +196,7 @@ const scopes = () => sharedStore<string>(SCOPES);
  * call made inside it, however deep in awaited code, carries the scope: model calls, tools and
  * captured HTTP calls. Repeats are counted per scope, so two branches that send the same request at
  * the same time each get their own recorded answer on replay, whatever order they arrive in; and the
- * dashboard groups calls by scope. Scopes nest: `researcher/search`. Outside Shadowlap it just runs `fn`.
+ * dashboard groups calls by scope. Scopes nest: `researcher/search`. Outside shadowlap it just runs `fn`.
  */
 export function scope<T>(name: string, fn: () => T): T {
   const parent = currentScope();
@@ -254,7 +254,7 @@ interface NodeModules {
 /**
  * Loads a Node module when a call first needs it. The name is held in a variable, and marked for
  * the bundlers that read such marks, so a bundle for an Edge runtime leaves the import alone: it only
- * runs under Shadowlap, which runs the agent on Node.
+ * runs under shadowlap, which runs the agent on Node.
  */
 const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
 
@@ -338,7 +338,7 @@ export interface ToolCallRequest {
 /**
  * For an integration whose tools run where `tool()` can't wrap them, such as an agent runtime's
  * built-in tools run between two hooks: asks the sidecar what to do about one call, before it runs.
- * Null outside Shadowlap. A `live` or `stubbed` answer is ended with `completeToolCall` once the
+ * Null outside shadowlap. A `live` or `stubbed` answer is ended with `completeToolCall` once the
  * call has run, or been stubbed; a `replayed` answer carries the recorded result or error, and a
  * `blocked` one the refusal's message.
  */
@@ -365,7 +365,7 @@ export interface ProcessHello {
   guard: 'warn' | 'block' | 'off';
   capture: boolean;
   /**
-   * For a process with no guard: what it can still connect to that bypasses Shadowlap, a few words
+   * For a process with no guard: what it can still connect to that bypasses shadowlap, a few words
    * each (at most 20 are kept). Empty: nothing, and the run passes `--guard block`. Absent: nobody
    * knows, and it fails.
    */
@@ -373,10 +373,10 @@ export interface ProcessHello {
 }
 
 /**
- * Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
+ * Tells the sidecar about a process of the agent's that shadowlap's preloads can't load into, as
  * they tell it about their own (`POST /v1/hello`): the Claude Code CLI the Claude Agent SDK runs,
  * whose fence says it runs with no guard and what it can still reach, so the run's summary names
- * that and `--guard block` fails the run unless it is nothing. Does nothing outside Shadowlap.
+ * that and `--guard block` fails the run unless it is nothing. Does nothing outside shadowlap.
  */
 export async function sayHello(hello: ProcessHello): Promise<void> {
   const cfg = config();
@@ -384,7 +384,7 @@ export async function sayHello(hello: ProcessHello): Promise<void> {
   await post(cfg, '/v1/hello', { runtimeVersion: '', ppid: 0, ...hello });
 }
 
-/** Records how a call `resolveToolCall` answered `live` or `stubbed` ended. Does nothing outside Shadowlap. */
+/** Records how a call `resolveToolCall` answered `live` or `stubbed` ended. Does nothing outside shadowlap. */
 export async function completeToolCall(callNo: number, end: CallEnd): Promise<void> {
   const cfg = config();
   if (!cfg) return;
@@ -462,7 +462,7 @@ function streamedOf(error: unknown): unknown[] {
 
 /**
  * A streaming tool's live call: each value is pulled from the tool when the caller asks for the
- * next, so the tool runs at the caller's pace, as it does outside Shadowlap. Every value is
+ * next, so the tool runs at the caller's pace, as it does outside shadowlap. Every value is
  * recorded, in order, once the stream ends, with what the generator returned. A caller that stops
  * early (a break, an aborted AI SDK stream) stops the tool too, through its return(), and what it was
  * handed is recorded closed, so a replay that reads on knows the recording ends there; an error the
@@ -526,7 +526,7 @@ async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator
  * An async generator function (`async function*`, the AI SDK's streaming `async *execute`) stays
  * one: what it yields is passed on as the caller reads it, every value is recorded, and a replay
  * yields them again, in order (see liveStream); one that reads past what a closed recording holds
- * forks there, as a call of its own. Outside Shadowlap every call goes straight to `impl`, and its
+ * forks there, as a call of its own. Outside shadowlap every call goes straight to `impl`, and its
  * stream or promise comes back as `impl` made it.
  *
  * An implementation that only throws returns `never`, which every overload would take: the first
@@ -544,13 +544,13 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
   if (options.trust !== undefined && options.trust !== 'trusted' && options.trust !== 'untrusted') {
     throw new TypeError(`tool ${name}: trust must be "trusted" or "untrusted"`);
   }
-  // Hashed the first time the tool is called under Shadowlap, which is when Node's crypto is at hand.
+  // Hashed the first time the tool is called under shadowlap, which is when Node's crypto is at hand.
   let implHash: string | undefined;
   const hashed = async () => (implHash ??= (await node()).crypto.createHash('sha256').update(String(options.source ?? impl)).digest('hex'));
   // What the sidecar is asked for every call: `trust` only when the tool brings outside text in.
   const resolveBody = async (args: A) => ({ kind: 'tool', name, effect: options.effect, args, implHash: await hashed(), ...(options.trust === 'untrusted' ? { trust: 'untrusted' } : {}) });
 
-  /** One call under Shadowlap; `run` executes the implementation and gives the result to record. */
+  /** One call under shadowlap; `run` executes the implementation and gives the result to record. */
   async function call(cfg: Config, args: A, run: (args: A) => Promise<unknown>, decided?: ResolveResponse): Promise<{ value: unknown; ran: boolean }> {
     const r = decided ?? (await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(args)));
     switch (r.origin) {
@@ -661,7 +661,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
   };
 }
 
-// While the SDK reads an answer for userInput(), Shadowlap's readline preload leaves that read
+// While the SDK reads an answer for userInput(), shadowlap's readline preload leaves that read
 // alone, so an answer typed at the terminal is recorded once. Shared through a global symbol, as the
 // scope store is.
 const DIRECT_INPUT = Symbol.for('shadowlap.input.direct');
@@ -688,7 +688,7 @@ function answerText(result: unknown): string {
  * agent does — a chat window, a message from a queue, the terminal — and returns its text.
  *
  * What an agent reads through Node's readline (`rl.question()`, `for await (const line of rl)`) is
- * recorded without this, by the preload `shadowlap run` adds. Outside Shadowlap this calls `read`.
+ * recorded without this, by the preload `shadowlap run` adds. Outside shadowlap this calls `read`.
  */
 export async function userInput(prompt: string, read: (prompt: string) => string | Promise<string>): Promise<string> {
   const cfg = config();

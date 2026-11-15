@@ -8,7 +8,7 @@ import { installedVersion, pythonDependencies, pythonExtras, readJson, readUtf8,
 import { declaredEffects, scanBaseUrls, scanFences, scanToolLists, scanTools } from './init-tools.js';
 
 /**
- * `shadowlap init`: reads a project the way a colleague would before helping set Shadowlap up, and
+ * `shadowlap init`: reads a project the way a colleague would before helping set shadowlap up, and
  * says exactly what to do next. It detects the language, the package manager, the model SDKs, the
  * agent framework, the command that starts the agent and the tools that need an effect, and warns
  * about the one thing that silently records nothing: a model client with a hardcoded base URL.

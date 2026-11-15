@@ -455,7 +455,7 @@ async function componentPreToolUse(files: ComponentFiles): Promise<SettingsHook[
     const own = agent ? (name && 'value' in name && typeof name.value === 'string' && name.value.trim() ? name.value.trim() : path.basename(file, '.md')) : undefined;
     const hooks = keys.get('hooks');
     if (!hooks) return;
-    if ('unreadable' in hooks) out.push({ source: `${file}, whose hooks Shadowlap could not read`, ...(own !== undefined ? { agent: own } : {}) });
+    if ('unreadable' in hooks) out.push({ source: `${file}, whose hooks shadowlap could not read`, ...(own !== undefined ? { agent: own } : {}) });
     else out.push(...preToolUse({ hooks: hooks.value }, file, own));
   };
   for (const f of files.skills) fromFrontmatter(f, false);
@@ -465,7 +465,7 @@ async function componentPreToolUse(files: ComponentFiles): Promise<SettingsHook[
     try {
       data = JSON.parse(readText(fs, f) ?? '');
     } catch {
-      out.push({ source: `${f}, which Shadowlap could not read` });
+      out.push({ source: `${f}, which shadowlap could not read` });
       continue;
     }
     out.push(...preToolUse(data, f));

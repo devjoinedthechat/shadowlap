@@ -117,9 +117,9 @@ function lostRuleWords(run: RunRecord): string {
 
 /**
  * A call's outcome in the colour of what it says, by the engine's display origin, as every view that
- * colours a call decides it: the one red only for a call that failed. A write Shadowlap blocked is
- * kept as an error, but the fence is Shadowlap working, so its `ERR` takes the blocked colour, as its
- * origin does. An injected failure's origin says Shadowlap answered it, a model call's HTTP status
+ * colours a call decides it: the one red only for a call that failed. A write shadowlap blocked is
+ * kept as an error, but the fence is shadowlap working, so its `ERR` takes the blocked colour, as its
+ * origin does. An injected failure's origin says shadowlap answered it, a model call's HTTP status
  * staying red in its name. The rest are quiet.
  */
 function outcomeColour(c: CallRecord, theme: Theme): string {

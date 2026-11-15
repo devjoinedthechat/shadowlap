@@ -238,7 +238,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
     expect(r.code, r.out).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '1', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
-    expect(r.out).toContain('::notice title=Shadowlap::refund-over-limit: opened https://github.com/example/agent/pull/7');
+    expect(r.out).toContain('::notice title=shadowlap::refund-over-limit: opened https://github.com/example/agent/pull/7');
     // The fix in CI's store names the pull request it went to, as Fixes shows it.
     expect(r.fixes).toHaveLength(1);
     expect(r.fixes[0]).toMatchObject({ status: 'verified' });
@@ -275,8 +275,8 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     // The pull request was opened with the job's own token.
     expect(pulls()[0].authorization).toBe(`Bearer ${JOB_TOKEN}`);
 
-    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 failed');
-    expect(r.summary).toContain('### Shadowlap: 1 fix pull request opened');
+    expect(r.summary).toContain('### shadowlap: 0 of 1 golden passed · 1 failed');
+    expect(r.summary).toContain('### shadowlap: 1 fix pull request opened');
     expect(r.summary).toMatch(/\| ✅ \| `refund-over-limit` \| \[Escalate refunds above the policy limit\]\(https:\/\/github\.com\/example\/agent\/pull\/7\) · verify: target 1 of 1 · golden re-recorded · `ci\.yml` started on its branch \| \$\d+\.\d\d of \$5\.00 \|/);
 
     // The pull request's own checks: shadowlap test on its branch, offline, passes.
@@ -319,7 +319,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
     expect(r.outputs).toMatchObject({ passed: '0', failed: '2', 'checks-failed': '2', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
     expect(r.out).toContain('shadowlap repair for goldens/refund-again and goldens/refund-over-limit, which fail the same check: blame, repair and verify, within $10.00');
-    expect(r.out).toContain('::notice title=Shadowlap::refund-again, refund-over-limit: opened https://github.com/example/agent/pull/7');
+    expect(r.out).toContain('::notice title=shadowlap::refund-again, refund-over-limit: opened https://github.com/example/agent/pull/7');
     // One branch, pushed once; the one fix in CI's store holds both failures and names the pull request.
     const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
     expect(branch.split('\n')).toHaveLength(1);
@@ -360,7 +360,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.out).toMatch(/no fix was accepted for goldens\/refund-over-limit and goldens\/refund-vip together \(.+\), so each is repaired on its own, until a fix is accepted for one\n/);
     expect(r.out).toMatch(/shadowlap repair for goldens\/refund-over-limit on its own: blame, repair and verify, within the \$\d+\.\d\d left/);
     expect(r.out).not.toContain('shadowlap repair for goldens/refund-vip on its own');
-    expect(r.out).toContain('::notice title=Shadowlap::refund-over-limit, refund-vip: opened https://github.com/example/agent/pull/7');
+    expect(r.out).toContain('::notice title=shadowlap::refund-over-limit, refund-vip: opened https://github.com/example/agent/pull/7');
     // One pull request, from one branch, and the fix in CI's store names it.
     expect(pulls()).toHaveLength(1);
     const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
@@ -448,7 +448,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
       expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
       expect(pulls()).toHaveLength(1);
       // Said in the log as a warning, with why...
-      expect(r.out).toContain("::warning title=Shadowlap::refund-over-limit: the fix is not in the team store, so teammates won't see it on their Fixes page: No AWS credentials found.");
+      expect(r.out).toContain("::warning title=shadowlap::refund-over-limit: the fix is not in the team store, so teammates won't see it on their Fixes page: No AWS credentials found.");
       expect(r.out).toContain('Its pull request is open all the same.');
       // ...and in the job summary: beside the fix, and why under the table.
       expect(r.summary).toMatch(/golden re-recorded · `ci\.yml` started on its branch · ⚠️ not in the team store \|/);
@@ -480,7 +480,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
       expect(r.code, r.out).toBe(0);
       expect(r.outputs).toMatchObject({ failed: '1', fixes: '1' });
       expect(r.out).toContain("the fix's runs went to pull request 12's own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page");
-      expect(r.out).not.toContain('::warning title=Shadowlap::');
+      expect(r.out).not.toContain('::warning title=shadowlap::');
       expect(r.summary).toContain("golden re-recorded · `ci.yml` started on its branch · not on the team's Fixes page: a pull request's job writes only to its own folder, `pr/12/` |");
       expect(r.summary).not.toContain('⚠️');
       // Everything the job wrote is in pr/12/: its test runs and report, and every run the fix's job made; no fix.
@@ -578,7 +578,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     // No line of the log is a command but the action's own and the CLI's annotations.
     const commands = r.out.split(/\r\n|\r|\n/).filter((l) => /^[\s\u0085]*(::|##\[)/.test(l));
     expect(commands.length).toBeGreaterThan(0);
-    for (const line of commands) expect(line, line).toMatch(/^::(error|warning|notice) (title=Shadowlap|file=[^,:]+,title=Shadowlap%3A [^:]+)::/);
+    for (const line of commands) expect(line, line).toMatch(/^::(error|warning|notice) (title=shadowlap|file=[^,:]+,title=shadowlap%3A [^:]+)::/);
     expect(r.out).not.toMatch(/^[\s\u0085]*::(error::x|stop-commands)/m);
   });
 
@@ -656,7 +656,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' });
     expect(r.code, r.out).toBe(0);
     expect(r.outputs).toMatchObject({ fixes: '1' });
-    expect(r.out).toContain("::warning title=Shadowlap::refund-over-limit: the fix's pull request has no check started: ci.yml has no workflow_dispatch trigger, which it needs to be started on a branch");
+    expect(r.out).toContain("::warning title=shadowlap::refund-over-limit: the fix's pull request has no check started: ci.yml has no workflow_dispatch trigger, which it needs to be started on a branch");
     const body = opened().body;
     expect(body).toContain("the job could not start `ci.yml` on its branch: ci.yml has no workflow_dispatch trigger, which it needs to be started on a branch: GitHub answered 422 (Workflow does not have 'workflow_dispatch' trigger). No check has run on this branch");
     expect(r.summary).toContain('· ⚠️ no check started on its branch |');
@@ -758,7 +758,7 @@ describe('planning fixes from a test report', () => {
       { name: 'c', outcome: 'opened', pr: 'https://example.com/pr/2', title: 'Fix c', verify: null, spent: 0.5, why: null, goldenState: { state: 'stale', golden: 'goldens/c', why: 'the fix does not apply to the working tree' } },
       { name: 'drift', outcome: 'skipped', why: 'diverged: never fixed automatically', pr: null, spent: 0 },
     ], 2);
-    expect(md).toContain('### Shadowlap: 2 fix pull requests opened');
+    expect(md).toContain('### shadowlap: 2 fix pull requests opened');
     expect(md).toContain('| ✅ | `a\\|b` | [Fix it](https://example.com/pr/1) · verify: target 1 of 1 · golden re-recorded | $0.84 of $2.00 |');
     expect(md).toContain('| ✅ | `c` | [Fix c](https://example.com/pr/2) · golden not re-recorded: run `shadowlap test goldens/c --update` on the branch | $0.50 of $2.00 |');
     expect(md).toContain('| ➖ | `drift` | diverged: never fixed automatically |  |');
@@ -1015,7 +1015,7 @@ describe('pushing a fix CI opened to the team store', () => {
     expect(pushLine('refund-flow', { state: 'sent', why: null, pr: null })).toBe('the fix was sent to the team store');
     expect(pushLine('refund-flow', { state: 'pr', why: null, pr: '12' })).toBe("the fix's runs went to pull request 12's own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page");
     expect(pushLine('refund-flow', { state: 'off', why: 'Push from CI is off', pr: null })).toBe('the fix was not sent to the team store: Push from CI is off');
-    expect(pushLine('refund-flow', { state: 'failed', why: '100% gone\nfor now', pr: null })).toBe("::warning title=Shadowlap::refund-flow: the fix is not in the team store, so teammates won't see it on their Fixes page: 100%25 gone%0Afor now. Its pull request is open all the same.");
+    expect(pushLine('refund-flow', { state: 'failed', why: '100% gone\nfor now', pr: null })).toBe("::warning title=shadowlap::refund-flow: the fix is not in the team store, so teammates won't see it on their Fixes page: 100%25 gone%0Afor now. Its pull request is open all the same.");
     expect(pushLine('refund-flow', { state: 'failed', why: 'No AWS credentials found.', pr: null })).toMatch(/: No AWS credentials found\. Its pull request is open all the same\.$/);
   });
 });

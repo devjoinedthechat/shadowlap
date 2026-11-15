@@ -1,7 +1,7 @@
 import { spawnSync, type ChildProcess } from 'node:child_process';
 
 /**
- * Stops an agent Shadowlap started and what it started in turn (`npm start` runs node, a test
+ * Stops an agent shadowlap started and what it started in turn (`npm start` runs node, a test
  * harness its workers). On macOS and Linux an agent started with a process group of its own
  * (`detached`) is signalled as a group. Windows has no process groups, and a signal there ends the
  * one process it reaches, leaving its children running; so there the agent's whole tree is ended with

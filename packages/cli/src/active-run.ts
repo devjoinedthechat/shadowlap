@@ -28,7 +28,7 @@ export function activeRunFile(cwd: string): string {
 }
 
 function underLock(file: string, wait: number, fn: () => void): void {
-  withLockFile(`${file}.lock`, { wait, mode: 0o600, busy: () => new Error(`${file} is being changed by another run (if no Shadowlap command is running, delete ${file}.lock)`) }, fn);
+  withLockFile(`${file}.lock`, { wait, mode: 0o600, busy: () => new Error(`${file} is being changed by another run (if no shadowlap command is running, delete ${file}.lock)`) }, fn);
 }
 
 /**

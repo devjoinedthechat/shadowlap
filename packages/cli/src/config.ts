@@ -47,7 +47,7 @@ export interface ShadowlapConfig {
   verify?: { margin?: number; baseline?: 'paired' | 'history'; max?: number };
   /** Tools by name (or a captured HTTP call's host): `trust` marks the reads `shadowlap injection` plants in, over what the SDK or an MCP server declared. */
   tools?: ToolTrust;
-  /** `tools.unrecorded`: the effect of tools the agent runs without Shadowlap recording them, which decides whether `replay` and `test` may run them again. */
+  /** `tools.unrecorded`: the effect of tools the agent runs without shadowlap recording them, which decides whether `replay` and `test` may run them again. */
   unrecorded?: Record<string, 'read' | 'write'>;
   /**
    * The network guard: `accept` names the runtimes whose unwatched connections `--guard block` takes
@@ -330,7 +330,7 @@ export async function readCodeVersion(cwd: string): Promise<string | null> {
 /**
  * Base URLs a user already sets for a provider's SDK. `shadowlap run` replaces them with the sidecar
  * for the agent, so the sidecar forwards to them: an OpenAI-compatible server in OPENAI_BASE_URL
- * stays the upstream. A value that is itself a Shadowlap sidecar (a nested run) is ignored. An
+ * stays the upstream. A value that is itself a shadowlap sidecar (a nested run) is ignored. An
  * ANTHROPIC_BASE_URL that ends in /v1, as the Vercel AI SDK's Anthropic provider reads it, is a root
  * plus /v1: the sidecar forwards each Anthropic call under /v1, whichever SDK sent it.
  */

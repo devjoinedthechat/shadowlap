@@ -1,4 +1,4 @@
-/* Shadowlap dashboard: the design system. Dark only. Class names are shared by every screen: a page ports its markup
+/* shadowlap dashboard: the design system. Dark only. Class names are shared by every screen: a page ports its markup
    by class, and components/README.md lists the parts.
 
    The styles are a file per area of the dashboard, joined here in this order; esbuild bundles them into one

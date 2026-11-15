@@ -51,7 +51,7 @@ export interface OtelOptions {
   redact?: Normalizer[];
 }
 
-/** Attributes Shadowlap writes itself (ids, hashes, fixed vocabularies), which no rule should rewrite. */
+/** Attributes shadowlap writes itself (ids, hashes, fixed vocabularies), which no rule should rewrite. */
 const OWN_ATTRIBUTES = new Set([
   'shadowlap.run.id',
   'shadowlap.run.parent_id',
@@ -79,7 +79,7 @@ function redactAttrs(list: Attr[], text: (s: string) => string): Attr[] {
   return list.map((a) => (OWN_ATTRIBUTES.has(a.key) || COMMAND_ATTRIBUTES.has(a.key) ? a : { key: a.key, value: value(a.value) }));
 }
 
-/** What redaction reads and rewrites in a span; the rest (ids, times, kind) is Shadowlap's own. */
+/** What redaction reads and rewrites in a span; the rest (ids, times, kind) is shadowlap's own. */
 interface Span {
   name: string;
   attributes: Attr[];

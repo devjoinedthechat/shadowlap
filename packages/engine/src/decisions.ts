@@ -194,7 +194,7 @@ export function hostedToolEffect(name: string): Effect | null {
   return null;
 }
 
-/** Scopes Shadowlap makes calls in itself, such as its judge's: none of their calls is the agent's decision. */
+/** Scopes shadowlap makes calls in itself, such as its judge's: none of their calls is the agent's decision. */
 export { isReservedScope };
 
 /** A model id as its own family names it: Bedrock's ARN, Region prefix, `anthropic.` and version suffix, Vertex AI's publisher path and `@version`, Gemini's `models/` left out. */

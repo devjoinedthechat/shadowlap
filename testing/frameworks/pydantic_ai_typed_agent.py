@@ -1,6 +1,6 @@
 """A Pydantic AI agent whose tool takes typed arguments, as Pydantic AI documents them: a Pydantic
 model and a date. Pydantic AI validates the model's JSON into those types before calling the tool;
-Shadowlap records them in their JSON form. SUBJECT changes the ticket the model asks for, so a
+shadowlap records them in their JSON form. SUBJECT changes the ticket the model asks for, so a
 replay forks. Prints a JSON summary."""
 
 import asyncio

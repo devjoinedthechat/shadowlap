@@ -18,7 +18,7 @@
 //   --model <id>       the subject's model (default claude-haiku-4-5)
 //
 // It needs ANTHROPIC_API_KEY, unless --mock. Every model call it makes is the subject's own, through
-// Shadowlap, to the provider: a few thousand small requests for the whole corpus.
+// shadowlap, to the provider: a few thousand small requests for the whole corpus.
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';

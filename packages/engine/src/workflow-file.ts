@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { messageOf } from './message-of.js';
 
 /**
- * A project's GitHub Actions workflow that runs the Shadowlap action, as Settings → CI reads and
+ * A project's GitHub Actions workflow that runs the shadowlap action, as Settings → CI reads and
  * writes it: found where GitHub reads it, read line by line with no YAML library (block style only:
  * the action step's inputs and env keys, and the Slack step's secret and branch), diffed line by
  * line against the text the switches build, and written back only while it is the version read.
@@ -519,15 +519,15 @@ function refusedValue(value: string): string | null {
 function mappingOf(doc: WorkflowDoc, n: number, what: string): { values: Record<string, string>; problem: string | null } {
   const values: Record<string, string> = {};
   const own = refusedValue(doc.lines[n]!.value);
-  if (own) return { values, problem: `has a Shadowlap step whose ${what} ${own}` };
+  if (own) return { values, problem: `has a shadowlap step whose ${what} ${own}` };
   for (let i = n + 1; i < blockEnd(doc, n); i++) {
     const l = doc.lines[i]!;
     if (l.kind === 'blank' || l.kind === 'comment') continue;
-    if (l.kind === 'text') return { values, problem: `has a Shadowlap step whose ${what} holds a value over several lines` };
+    if (l.kind === 'text') return { values, problem: `has a shadowlap step whose ${what} holds a value over several lines` };
     if (l.parent !== n) continue;
-    if (l.dash || l.key === null) return { values, problem: `has a Shadowlap step whose ${what} is not a list of keys` };
+    if (l.dash || l.key === null) return { values, problem: `has a shadowlap step whose ${what} is not a list of keys` };
     const why = refusedValue(l.value);
-    if (why) return { values, problem: `has a Shadowlap step whose ${what} ${l.key} ${why}` };
+    if (why) return { values, problem: `has a shadowlap step whose ${what} ${l.key} ${why}` };
     values[l.key] = scalarValue(l.value);
   }
   return { values, problem: null };

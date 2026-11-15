@@ -91,7 +91,7 @@ export interface SetupFindings {
 }
 
 /**
- * The oldest Node an agent can run on under Shadowlap: the guard and in-process capture go into it
+ * The oldest Node an agent can run on under shadowlap: the guard and in-process capture go into it
  * through `--import` in NODE_OPTIONS, which Node takes from 18.18 on. An older one refuses them and
  * exits before any of the agent runs.
  */
@@ -432,7 +432,7 @@ export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?
  * Where a folder's setup starts when it is added, from its store: finished when the store says the
  * setup was (a folder removed and added again), or when it already has recordings and goldens (set up
  * in a terminal); otherwise at the start, which {@link deriveSetup} moves on past any recording.
- * `inUse` is for the folder a dashboard starts in: any runs there mean Shadowlap is already in use,
+ * `inUse` is for the folder a dashboard starts in: any runs there mean shadowlap is already in use,
  * and the Overview shouldn't turn into a setup.
  */
 export function initialSetup(facts: StoreFacts, goldens: number, options: { inUse?: boolean } = {}): { stage: SetupStage; runId: string | null; golden: string | null } {

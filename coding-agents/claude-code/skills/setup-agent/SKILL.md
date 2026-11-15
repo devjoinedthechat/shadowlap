@@ -1,6 +1,6 @@
 ---
 name: setup-agent
-description: Set up Shadowlap for an AI agent, so its runs can be recorded, replayed, debugged and tested (the shadowlap CLI). Use it when a project has an agent that calls a model but no shadowlap.config.json or .shadowlap folder yet, or when asked to record an agent's runs, add replay tests or goldens for it, or check it in CI. It finds the agent and its tools, marks what each tool does to the world, records a first run, makes its replay clean, and keeps good runs as goldens that CI replays offline.
+description: Set up shadowlap for an AI agent, so its runs can be recorded, replayed, debugged and tested (the shadowlap CLI). Use it when a project has an agent that calls a model but no shadowlap.config.json or .shadowlap folder yet, or when asked to record an agent's runs, add replay tests or goldens for it, or check it in CI. It finds the agent and its tools, marks what each tool does to the world, records a first run, makes its replay clean, and keeps good runs as goldens that CI replays offline.
 license: Apache-2.0
 compatibility: Needs the shadowlap CLI on the PATH (Node.js 22.16 or later, not 23), run in the agent's project.
 allowed-tools: Bash(shadowlap ls *) Bash(shadowlap show *) Bash(shadowlap doctor *)
@@ -8,13 +8,13 @@ metadata:
   version: 0.1.0
 ---
 
-# Setting up Shadowlap for an agent
+# Setting up shadowlap for an agent
 
-Shadowlap records every model and tool call an agent makes (`shadowlap run -- <command>`), then replays the agent's real code against the recording: calls that didn't change are served from it at no cost, and the run forks at the first request that changed and runs live from there. Two things make a replay safe and exact, and setting up is mostly getting them right: Shadowlap must know what each tool does to the world, and the values that change on every run must be masked. Read the JSON of the commands below (`--json`, or `--summary-json` for a replay) rather than their text.
+shadowlap records every model and tool call an agent makes (`shadowlap run -- <command>`), then replays the agent's real code against the recording: calls that didn't change are served from it at no cost, and the run forks at the first request that changed and runs live from there. Two things make a replay safe and exact, and setting up is mostly getting them right: shadowlap must know what each tool does to the world, and the values that change on every run must be masked. Read the JSON of the commands below (`--json`, or `--summary-json` for a replay) rather than their text.
 
 ## 1. Find the agent and its tools
 
-`shadowlap init --json` reads the project's source and runs nothing; it writes only an empty `shadowlap.config.json`, when there is none. It gives back the model SDKs (`providers`), the framework (`frameworks`), the package manager (`packageManager`), the command that starts the agent (`command`), every tool definition it found (`tools`, each with its `effect`, a `suggested` one and whether it is `wrapped`), the code that wraps the tools through the project's framework (`wrap`), and for a Claude Agent SDK project where each query is fenced (`fence`). A model client built with a literal base URL is listed in `hardcodedBaseUrls`: Shadowlap can't redirect it, so its calls would go unrecorded; have it read the base URL from the environment instead.
+`shadowlap init --json` reads the project's source and runs nothing; it writes only an empty `shadowlap.config.json`, when there is none. It gives back the model SDKs (`providers`), the framework (`frameworks`), the package manager (`packageManager`), the command that starts the agent (`command`), every tool definition it found (`tools`, each with its `effect`, a `suggested` one and whether it is `wrapped`), the code that wraps the tools through the project's framework (`wrap`), and for a Claude Agent SDK project where each query is fenced (`fence`). A model client built with a literal base URL is listed in `hardcodedBaseUrls`: shadowlap can't redirect it, so its calls would go unrecorded; have it read the base URL from the environment instead.
 
 ## 2. Mark what each tool does
 
@@ -52,7 +52,7 @@ When a run did what it should, keep it:
 
 ## 6. Check it in CI
 
-On GitHub, the Shadowlap action replays the goldens on every push and pull request; add it after the steps that build the agent, with the version `shadowlap --version` prints:
+On GitHub, the shadowlap action replays the goldens on every push and pull request; add it after the steps that build the agent, with the version `shadowlap --version` prints:
 
 ```yaml
 - uses: devjoinedthechat/shadowlap@v<version>
@@ -63,4 +63,4 @@ On GitHub, the Shadowlap action replays the goldens on every push and pull reque
 
 In any other CI, run `shadowlap test goldens/* --junit <file>` once the agent is built. A golden replays offline, so the job needs no provider key.
 
-Once the replay is clean and the goldens pass, the project is set up: debugging a run and checking a change to the agent are the work of Shadowlap's debug skill.
+Once the replay is clean and the goldens pass, the project is set up: debugging a run and checking a change to the agent are the work of shadowlap's debug skill.

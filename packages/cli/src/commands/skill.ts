@@ -45,7 +45,7 @@ export function register(program: Command): void {
 /** What `skill install` says it did, for people. */
 export function formatInstall(r: InstallResult): string {
   const target = TARGETS[r.agent];
-  const what = target.kind === 'plugin' ? 'the Claude Code plugin' : 'Shadowlap’s skills';
+  const what = target.kind === 'plugin' ? 'the Claude Code plugin' : 'shadowlap’s skills';
   const count = (action: string, word: string) => {
     const n = r.files.filter((f) => f.action === action).length;
     return n ? `${n} ${word}` : null;

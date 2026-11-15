@@ -115,7 +115,7 @@ describe('framework adapters', () => {
   let recording: string;
   let recorded: Record<string, unknown>;
 
-  it('are passthroughs when Shadowlap is inactive', async () => {
+  it('are passthroughs when shadowlap is inactive', async () => {
     deactivate();
     executed.length = 0;
     const out = await runAgent(buildTools());

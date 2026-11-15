@@ -201,12 +201,12 @@ describe('hosts of another provider\'s wire format', () => {
     expect(local.extractModel('/gemini/v1beta/models/gemini-2.5-flash:generateContent', {})).toBe('gemini-2.5-flash');
   });
 
-  it('refuse a declared host that is no host, no format, or a name Shadowlap uses', () => {
+  it('refuse a declared host that is no host, no format, or a name shadowlap uses', () => {
     expect(formatHostProblem({ host: 'openrouter.ai', format: 'openai', root: '/api/v1' }, 'p')).toBeNull();
     expect(formatHostProblem({ host: 'https://openrouter.ai', format: 'openai' }, 'p')).toMatch(/p\.host must be a host/);
     expect(formatHostProblem({ host: 'openrouter.ai', format: 'bedrock' }, 'p')).toMatch(/p\.format must be openai, anthropic or gemini/);
     expect(formatHostProblem({ host: 'openrouter.ai', format: 'openai', root: 'api/v1' }, 'p')).toMatch(/p\.root must be a path/);
-    for (const taken of ['openai', 'foundry', 'v1', 'http', 'r', 's']) expect(formatHostProblem({ host: taken, format: 'openai' }, 'p'), taken).toMatch(/a name Shadowlap uses itself/);
+    for (const taken of ['openai', 'foundry', 'v1', 'http', 'r', 's']) expect(formatHostProblem({ host: taken, format: 'openai' }, 'p'), taken).toMatch(/a name shadowlap uses itself/);
     expect(formatHostProblem({ host: '*.example.com:8443', format: 'openai' }, 'p')).toMatch(/takes no \*\./);
     expect(formatHostProblem({ host: 'example.com', format: 'openai', key: 'sk-x' }, 'p')).toMatch(/"key", which a provider doesn't take/);
   });

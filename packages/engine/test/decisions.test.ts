@@ -233,7 +233,7 @@ describe('samples, costs and models', () => {
     expect(estimatedTokens({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }, 500, 10)).toEqual({ input: 500, cacheRead: 0, cacheWrite: 0, output: 10 });
   });
 
-  it("tells a model's family and its other names, and the scopes that are Shadowlap's own", () => {
+  it("tells a model's family and its other names, and the scopes that are shadowlap's own", () => {
     expect(['claude-sonnet-4-5-20250929', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'claude-3-7-sonnet@20250219', 'gpt-4o', 'o3-mini', 'models/gemini-2.5-pro', 'my-deployment', 'llama-3'].map(modelFamily)).toEqual(['claude', 'claude', 'claude', 'openai', 'openai', 'gemini', null, null]);
     expect(sameModel('claude-sonnet-4-5-20250929', 'claude-sonnet-4-5')).toBe(true);
     expect(sameModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'claude-sonnet-4-5-20250929')).toBe(true);

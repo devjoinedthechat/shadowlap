@@ -89,7 +89,7 @@ describe('@shadowlap/test', () => {
     assert.equal(first.code, 0, first.out);
     assert.match(first.out, /Tests\s+3 passed/);
     assert.ok(existsSync(recording('mixed.check.mjs', 'a-recorded-test')), first.out);
-    assert.equal(hits - hitsBefore, 6); // two calls each: the recorded test's through Shadowlap, the others' direct
+    assert.equal(hits - hitsBefore, 6); // two calls each: the recorded test's through shadowlap, the others' direct
     // Replayed: the recorded test calls nothing, the others still call the model themselves.
     const again = await mixed({ CI: 'true' });
     assert.equal(again.code, 0, again.out);

@@ -38,7 +38,7 @@ import { processAlive } from './liveness.js';
  * and never goes stale that way: it waits for its holder to remove it, or for someone to delete it.
  * So two repairs in a folder shared with a container or another machine are kept apart too, as far
  * as the folder's file system creates a file only when its name is free (local disks, NFS and SMB
- * do), and a repair that died over there leaves a lock to delete by hand. An earlier Shadowlap's lock
+ * do), and a repair that died over there leaves a lock to delete by hand. An earlier shadowlap's lock
  * names its process but not when it started: it is stale once that process is gone from a machine
  * with its host name, or by its age.
  *
@@ -61,7 +61,7 @@ import { processAlive } from './liveness.js';
  *
  * The one assumption is on the locks judged by their age: a holder that keeps one longer than
  * LOCK_STALE_MS loses it. That is a holder on another machine or in another container, an earlier
- * Shadowlap's, or on Windows any holder of a lock held for a moment; no Shadowlap edit takes nearly
+ * shadowlap's, or on Windows any holder of a lock held for a moment; no shadowlap edit takes nearly
  * that long, and a repair's lock, the one held for minutes, is never judged by its age. On a file
  * system without hard links (FAT) a lock is created in place and its record written after, so a
  * taker stopped for longer than that between the two loses it too.
@@ -73,7 +73,7 @@ import { processAlive } from './liveness.js';
  * someone to delete the lock, as the message refusing a second repair says.
  */
 
-/** How long a lock whose holder can't be checked stays someone's: no Shadowlap edit takes nearly this long. */
+/** How long a lock whose holder can't be checked stays someone's: no shadowlap edit takes nearly this long. */
 export const LOCK_STALE_MS = 10_000;
 
 /** `<lock>.break`, `<lock>.break.break` and one more: guards a stale lock is removed under. The last is never broken. */
@@ -260,7 +260,7 @@ function inspect(path: string): Seen | null {
     fd = openSync(path, READ);
   } catch (err) {
     if (code(err) === 'ENOENT') return null;
-    // A link, a folder, a file this user can't read: no lock Shadowlap wrote, so known by its age only.
+    // A link, a folder, a file this user can't read: no lock shadowlap wrote, so known by its age only.
     try {
       return seenAs(lstatSync(path, { bigint: true }), '');
     } catch (again) {
@@ -297,7 +297,7 @@ interface Record2 {
   token: string;
 }
 
-/** An earlier Shadowlap's record: a process id, and the machine when it says (shadowlap.config.json's said, the project list's didn't). */
+/** An earlier shadowlap's record: a process id, and the machine when it says (shadowlap.config.json's said, the project list's didn't). */
 interface Record1 {
   v: 1;
   pid: number;
@@ -318,7 +318,7 @@ function parseRecord(text: string): Record2 | Record1 | null {
   if (typeof o !== 'object' || o === null) return null;
   const r = o as { [key: string]: unknown };
   if (!isPid(r.pid) || typeof r.host !== 'string') return null;
-  // An earlier Shadowlap's: it had no version.
+  // An earlier shadowlap's: it had no version.
   if (r.v === undefined) return { v: 1, pid: r.pid, host: r.host };
   // This version's, or a later one's, read by the fields this one knows (see the header).
   if (typeof r.v !== 'number' || !Number.isInteger(r.v) || r.v < 2 || typeof r.token !== 'string') return null;

@@ -4,13 +4,13 @@ import { isObject } from './is-object.js';
 import { load } from './load.js';
 
 /**
- * What the Claude Code CLI the Claude Agent SDK runs can connect to that Shadowlap's network guard
+ * What the Claude Code CLI the Claude Agent SDK runs can connect to that shadowlap's network guard
  * doesn't watch. The CLI is a native program, so no preload loads into it. Its model calls come
- * through Shadowlap (ANTHROPIC_BASE_URL), and so does WebSearch, a search the model API runs; the
+ * through shadowlap (ANTHROPIC_BASE_URL), and so does WebSearch, a search the model API runs; the
  * rest is the query's to decide, and the files Claude Code reads its MCP servers from, as Claude
  * Code's documentation lists them:
  *
- * - the model API itself, when the CLI's ANTHROPIC_BASE_URL isn't Shadowlap's, or it runs on Amazon
+ * - the model API itself, when the CLI's ANTHROPIC_BASE_URL isn't shadowlap's, or it runs on Amazon
  *   Bedrock, Vertex AI or Microsoft Foundry;
  * - WebFetch, which fetches each page itself, unless the query disallows it (`disallowedTools`, or a
  *   `tools` list without it);
@@ -25,13 +25,13 @@ import { load } from './load.js';
  *   `disableClaudeAiConnectors` turns them off. An organization's `managed-mcp.json` takes MCP over:
  *   only its servers load then, with `managedMcpServers`;
  * - its nonessential traffic (updates, telemetry, error reports), unless
- *   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set, which withFence does under Shadowlap.
+ *   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set, which withFence does under shadowlap.
  *
  * Each is a few words the run's summary lists. None left: nothing the guard can't watch remains,
  * and the run passes `--guard block`.
  */
 
-/** The query options that decide what the CLI connects to besides Shadowlap, as the TypeScript SDK names them. */
+/** The query options that decide what the CLI connects to besides shadowlap, as the TypeScript SDK names them. */
 export interface ReachOptions {
   tools?: unknown;
   disallowedTools?: unknown;
@@ -73,12 +73,12 @@ export function programOf(command: string): string | null {
 
 /**
  * A program whose own connections the guard watches when the Claude Code CLI starts it: Python, which
- * loads Shadowlap's preload from the PYTHONPATH the CLI passes on. The CLI passes no NODE_OPTIONS,
+ * loads shadowlap's preload from the PYTHONPATH the CLI passes on. The CLI passes no NODE_OPTIONS,
  * so a Node program it starts (node, npx) loads no preload, and a native one never does.
  */
 export const watchedProgram = (program: string): boolean => /^(python[0-9.]*|py)(\.exe)?$/i.test(program);
 
-/** A stdio server that is Shadowlap's own MCP proxy, which records and fences what it reaches: `shadowlap mcp …`, or through npx. */
+/** A stdio server that is shadowlap's own MCP proxy, which records and fences what it reaches: `shadowlap mcp …`, or through npx. */
 function shadowlapMcp(command: string, args: readonly unknown[]): boolean {
   const words = [...command.trim().split(/\s+/), ...args.filter((a): a is string => typeof a === 'string')];
   const program = programOf(command);
@@ -90,7 +90,7 @@ function shadowlapMcp(command: string, args: readonly unknown[]): boolean {
 /**
  * The servers of an MCP config (`{ name: config }`) whose connections the guard can't watch: one over
  * the network (`http`, `sse`, any type but `stdio` and the SDK's in-process `sdk`), and a `stdio` one
- * (a `command`, typed or not) unless it is Python, which loads the preload, or Shadowlap's own MCP
+ * (a `command`, typed or not) unless it is Python, which loads the preload, or shadowlap's own MCP
  * proxy. One with neither a command nor a URL connects nowhere. A stdio server's type says its
  * program: `stdio, npx`.
  */
@@ -117,13 +117,13 @@ const HELPERS = ['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAu
 
 /**
  * The CLI's reach, as the summary lists it: each path in a few words. `cliEnv` is the environment the
- * CLI runs with; `shadowlapBase`, the ANTHROPIC_BASE_URL Shadowlap gave the agent, which the CLI's
+ * CLI runs with; `shadowlapBase`, the ANTHROPIC_BASE_URL shadowlap gave the agent, which the CLI's
  * model calls must go to.
  */
 export async function claudeReach(query: ReachOptions, places: SettingsPlaces, cliEnv: Env, shadowlapBase: string | undefined): Promise<string[]> {
   const r = await Reach.open(query, places, cliEnv);
   const provider = modelApi(r, shadowlapBase);
-  // WebFetch fetches each page itself; WebSearch's search is a model call, through Shadowlap.
+  // WebFetch fetches each page itself; WebSearch's search is a model call, through shadowlap.
   const disallowed = Array.isArray(query.disallowedTools) ? query.disallowedTools : [];
   const tools = Array.isArray(query.tools) ? query.tools : null;
   if (!disallowed.includes('WebFetch') && (tools === null || tools.includes('WebFetch'))) r.out.push('WebFetch, which fetches each page itself');
@@ -209,7 +209,7 @@ class Reach {
   }
 
   unreadable(what: string): void {
-    this.out.push(`${what}, which Shadowlap could not read`);
+    this.out.push(`${what}, which shadowlap could not read`);
   }
 
   /** The servers of an MCP config (mcpConfig), or that `what` could not be read. */
@@ -238,7 +238,7 @@ class Reach {
   }
 }
 
-/** The model API: Shadowlap's, unless the CLI's environment sends it elsewhere. Returns the cloud platform it runs on, if one. */
+/** The model API: shadowlap's, unless the CLI's environment sends it elsewhere. Returns the cloud platform it runs on, if one. */
 function modelApi(r: Reach, shadowlapBase: string | undefined): string | undefined {
   const env = r.cliEnv;
   const provider = ([['CLAUDE_CODE_USE_BEDROCK', 'Amazon Bedrock'], ['CLAUDE_CODE_USE_VERTEX', 'Vertex AI'], ['CLAUDE_CODE_USE_FOUNDRY', 'Microsoft Foundry']] as const).find(([v]) => on(env[v]))?.[1];
@@ -250,7 +250,7 @@ function modelApi(r: Reach, shadowlapBase: string | undefined): string | undefin
     } catch {
       host = 'another host';
     }
-    r.out.push(`the model API at ${host.slice(0, 60)}, past Shadowlap's ANTHROPIC_BASE_URL`);
+    r.out.push(`the model API at ${host.slice(0, 60)}, past shadowlap's ANTHROPIC_BASE_URL`);
   }
   return provider;
 }

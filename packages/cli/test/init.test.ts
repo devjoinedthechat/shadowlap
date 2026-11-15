@@ -78,7 +78,7 @@ export const other = new Anthropic({ baseURL: process.env.ANTHROPIC_BASE_URL ?? 
     const text = formatInit(r, palette, true);
     expect(text).toContain('Framework: Vercel AI SDK 7.0.103');
     expect(text).toContain('Tools: 3 found, 1 with an effect');
-    expect(text).toContain("src/llm.ts:2 sets the model base URL to https://llm-proxy.internal/anthropic. Shadowlap doesn't know that host");
+    expect(text).toContain("src/llm.ts:2 sets the model base URL to https://llm-proxy.internal/anthropic. shadowlap doesn't know that host");
     expect(text).toContain('Run with SHADOWLAP_UPSTREAM_ANTHROPIC=https://llm-proxy.internal/anthropic, or read the base URL from ANTHROPIC_BASE_URL.');
     expect(text).toContain('pnpm add -D shadowlap');
     expect(text).toContain('pnpm add @shadowlap/sdk @shadowlap/adapters');
@@ -205,7 +205,7 @@ const result = await generateText({ model: process.env.MODEL ?? 'openai/gpt-5', 
       return { r, tools: r.tools.map((t) => ({ name: t.name, via: t.via, effect: t.effect, suggested: t.suggested, ...(t.decorator ? { decorator: t.decorator } : {}), ...(t.className ? { className: t.className } : {}) })), text: formatInit(r, palette, false) };
     };
 
-    it("Strands: its @tool over Shadowlap's, and Bedrock, its default model", () => {
+    it("Strands: its @tool over shadowlap's, and Bedrock, its default model", () => {
       const { r, tools, text } = found({
         'requirements.txt': 'strands-agents==1.62.0\n',
         'agent.py': 'from strands import Agent, tool as strands_tool\n\n@strands_tool\ndef send_email(to: str) -> str:\n    """Send."""\n    ...\n\nagent = Agent(tools=[send_email])\n',
@@ -259,7 +259,7 @@ const result = await generateText({ model: process.env.MODEL ?? 'openai/gpt-5', 
       expect(tools).toEqual([{ name: 'send_email', via: 'agent-framework', effect: null, suggested: 'write' }]);
     });
 
-    it("smolagents: its default model, Hugging Face's, named as a host Shadowlap doesn't know", () => {
+    it("smolagents: its default model, Hugging Face's, named as a host shadowlap doesn't know", () => {
       const { r, tools, text } = found({
         'requirements.txt': 'smolagents\n',
         'agent.py': 'from smolagents import CodeAgent, InferenceClientModel, tool as smol_tool\n\n@smol_tool\ndef send_email(to: str) -> str:\n    """Send.\n\n    Args:\n        to: The address.\n    """\n    ...\n\nagent = CodeAgent(tools=[send_email], model=InferenceClientModel())\n',
@@ -332,7 +332,7 @@ const result = await generateText({ model: process.env.MODEL ?? 'openai/gpt-5', 
       expect(py.r.fence).toEqual([{ framework: 'claude-agent-sdk-python', language: 'python', at: { file: 'agent.py', line: 6 } }]);
       expect(py.text).not.toContain("Fence Claude Code's built-in tools");
       expect(py.text).toContain('\n2. Record a run\n');
-      // A file that names the fence without Shadowlap's adapter is not it.
+      // A file that names the fence without shadowlap's adapter is not it.
       const other = found({ 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0' } }), 'agent.ts': TS_QUERY, 'fence.ts': 'export const withFence = (o: object) => o;\nwithFence({});\n' });
       expect(other.r.fence).toEqual([{ framework: 'claude-agent-sdk', language: 'typescript', at: null }]);
     });

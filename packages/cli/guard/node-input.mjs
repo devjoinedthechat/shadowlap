@@ -1,4 +1,4 @@
-// Shadowlap's recorded user input for Node agents. Preloaded with capture and the network guard
+// shadowlap's recorded user input for Node agents. Preloaded with capture and the network guard
 // (NODE_OPTIONS=--import), so an interactive agent needs no code change.
 //
 // What a person types is input from outside, like a tool's result: each line an agent reads from
@@ -8,7 +8,7 @@
 // so `shadowlap test`, `blame` and `verify`, which start agents with no one at the keyboard, run
 // interactive agents too. Reading through 'line' events is not recorded.
 //
-// Only the input Shadowlap gave the agent counts: a terminal, the null device (stdin ignored), or
+// Only the input shadowlap gave the agent counts: a terminal, the null device (stdin ignored), or
 // the very pipe or file `shadowlap` itself was given (SHADOWLAP_STDIN names it). A child process that
 // talks to its parent over a pipe, an MCP server for one, is left alone.
 import { fstatSync } from 'node:fs';
@@ -39,7 +39,7 @@ const shared = globalThis;
  * @typedef {import('node:readline').Interface & { input: NodeJS.ReadableStream & { writableEnded?: boolean; end?: () => void }; output?: NodeJS.WritableStream & { isTTY?: boolean }; closed?: boolean }} Rl
  */
 
-/** Whether fd 0 is the input Shadowlap gave the agent, and whether nobody can type on it. */
+/** Whether fd 0 is the input shadowlap gave the agent, and whether nobody can type on it. */
 function stdinOrigin() {
   try {
     if (isatty(0)) return 'person';

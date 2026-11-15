@@ -2,7 +2,7 @@
 
 Tools need no adapter: give ADK plain functions wrapped with ``shadowlap.tool``, and ADK's
 ``ToolContext`` is left out of the recording. ADK fails the run when a tool raises, though, and under
-Shadowlap a write after a fork raises ``ShadowlapWriteBlocked`` (a ``--fail-at`` failure raises too).
+shadowlap a write after a fork raises ``ShadowlapWriteBlocked`` (a ``--fail-at`` failure raises too).
 Give the agent ``report_to_model`` as its tool-error callback, or the runner the plugin, and the
 model reads the refusal as the tool's answer and carries on, as in the other frameworks::
 

@@ -377,7 +377,7 @@ describe('the whole comparison', () => {
     expect(page.one('#cmpd .cmpx').getAttribute('aria-label')).toBe('Close #19');
     expect(page.one('#cmpd .dtool b').textContent).toBe('issue_refund');
     expect(page.one('#cmpd .dstop').textContent).toBe('calls tools');
-    expect(page.one('#cmpd .cmpnote').textContent.replace(/\u00a0/g, ' ')).toBe('Never sent. Shadowlap answered with HTTP 529 (--fail-at 19=529), 3 attempts.');
+    expect(page.one('#cmpd .cmpnote').textContent.replace(/\u00a0/g, ' ')).toBe('Never sent. shadowlap answered with HTTP 529 (--fail-at 19=529), 3 attempts.');
     expect(page.all('#cmpd a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Open run at #19, 01M5GRVTKS', `#/run/${REC}/19`],
       ['Open run at #19, 01M5GRXFM1', `#/run/${FORK}/19`],

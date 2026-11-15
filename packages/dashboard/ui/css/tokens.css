@@ -73,7 +73,7 @@
   --accent: #c4f233; --accent-line: #c4f233;
   /* Where a call's answer came from. Replayed is the logo's second colour, quieter than lime, so what a run did reads before
      what it saved; live the live colour; stubbed a quiet steel blue, 20 or more apart (delta E) from every other origin
-     colour under each kind of colour blindness; overridden violet. A write Shadowlap blocked is Shadowlap working, so it is
+     colour under each kind of colour blindness; overridden violet. A write shadowlap blocked is shadowlap working, so it is
      neutral and fenced: a hatch in --o-block wherever it is a cell, a bar or a swatch (--o-block-fill), the word in --o-block;
      a mark too narrow for the hatch (under 6px) draws its tone as a solid. A fork is drawn in ink. */
   --o-rep: var(--shadow); --o-live: #e4e3da; --o-block: var(--dim); --o-stub: #6fa3c7; --o-over: #b99cff;
