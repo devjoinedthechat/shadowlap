@@ -1,4 +1,4 @@
-import { ACTIONS, blameCheckFor, blameSteps, DEFAULT_REPAIRER, HIDDEN_IN_NAME, scopeArg, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, messageOf, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, parseExpect, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type Store, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, blameSteps, DEFAULT_REPAIRER, HIDDEN_IN_NAME, scopeArg, failedCheckLabels, FixIdError, fixRecords, messageOf, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, parseExpect, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type Store, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
@@ -43,7 +43,6 @@ import { namesTeamStore } from './verdicts.js';
  * state is read from GitHub in the background as the pages are read (pr-state.ts).
  */
 
-const STATUSES = new Set<string>(['all', ...FIX_STATUSES]);
 /** The largest check a blame takes from the browser, as JSON. */
 const MAX_EXPECT = 16 * 1024;
 
@@ -474,10 +473,8 @@ export function register(router: Router, ctx: RouteContext): void {
   // Every fix's reports and every run's row: beside the server's thread (fixes-view.ts). What
   // GitHub says of each pull request is asked here, where its state is kept, and lands in the store.
   router.get('/fixes', async (r) => {
-    const status = r.query.get('status') ?? 'all';
-    if (!STATUSES.has(status)) throw new HttpError(400, `status is one of ${[...STATUSES].join(', ')}`);
     prs?.refresh(store.listFixes());
-    sendAnswer(r, await ctx.reads.run({ kind: 'fixes', status: status as FixStatus | 'all', project: ctx.project?.path ?? null, repairer: configuredRepairer(ctx), keptMax: verifyRule(ctx).keptMax, next: nextStepWork(ctx) }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'fixes', project: ctx.project?.path ?? null, repairer: configuredRepairer(ctx), keptMax: verifyRule(ctx).keptMax, next: nextStepWork(ctx) }));
   });
 
   // The attempts in a run's family, bundled as the Forks view shows them. Before /fixes/:id would

@@ -171,17 +171,14 @@ describe('GET /api/training', () => {
     expect(view.serve?.response).toContain('"run": "<run id>"');
   });
 
-  it('answers 304 when nothing changed, filters by confidence, and refuses a filter it doesn’t know', async () => {
+  it('answers 304 when nothing changed, and sends every pair whatever the chip, which the page keeps', async () => {
     const first = await api(dash, 'training');
     const etag = first.headers.get('etag')!;
     const again = await fetch(`${dash.url}/api/training`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': etag } });
     expect(again.status).toBe(304);
-    const medium = (await (await api(dash, 'training?filter=medium')).json()) as TrainingView;
-    expect(medium.pairs.groups.map((g) => g.confidence)).toEqual(['medium']);
-    expect(medium.pairs.counts).toEqual({ all: 3, high: 2, medium: 1 });
-    const bad = await api(dash, 'training?filter=low');
-    expect(bad.status).toBe(400);
-    expect(await bad.json()).toEqual({ error: 'filter must be all, high or medium' });
+    const view = (await first.json()) as TrainingView;
+    expect(view.pairs.counts).toEqual({ all: 3, high: 2, medium: 1 });
+    expect(new Set(view.pairs.groups.map((g) => g.confidence))).toEqual(new Set(['high', 'medium']));
   });
 
   it('reads the goldens once for a burst of requests, and says why they can’t be read', async () => {

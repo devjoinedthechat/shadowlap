@@ -13,6 +13,7 @@ import { links } from './links.js';
  * the browser names, never from a command line it sends. Copy follows the mock.
  */
 
+/** The pairs a Training chip keeps: every pair, or those at one confidence. The page keeps them from the whole list the server sends. */
 export type PairFilter = 'all' | 'high' | 'medium';
 
 /** The fix a pair source belongs to (Fixes, E1): set by the slice that groups failures into fixes. */
@@ -334,7 +335,6 @@ export interface TrainingView {
   tabs: { pairs: number; tasks: number };
   actions: { exportPairs: boolean; scoreModel: boolean };
   pairs: {
-    filter: PairFilter;
     counts: { all: number; high: number; medium: number };
     groups: PairGroupView[];
     /** Pairs made per source, for the Blame step's count. */
@@ -531,8 +531,7 @@ function serveSample(t: Task): { command: string; request: string; response: str
   };
 }
 
-export function trainingView(input: TrainingInput, options: { filter?: PairFilter } = {}): TrainingView {
-  const filter = options.filter ?? 'all';
+export function trainingView(input: TrainingInput): TrainingView {
   const counts = countPairs(input.pairs);
   const ready = input.tasks.filter((t) => t.status === 'ready');
   const readySet = new Set(ready.map((t) => t.golden));
@@ -583,7 +582,6 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   }));
 
   // ---- pairs ----
-  const listed = input.pairs.filter((x) => filter === 'all' || x.confidence === filter);
   const sourceOf = new Map(input.sources.map((s) => [s.key, s]));
   // A source's own fix (its run's) heads its row in the list; each group's is the fix of the run its pairs are about.
   const fixOf = (s: PairSource, runId: string) => input.fixOf?.(s, runId) ?? null;
@@ -592,7 +590,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const sourceLink = (s: PairSource) => sourceHref(s, fixOf(s, s.runId), sourceCall(s));
   const groups: PairGroupView[] = [];
   const byKey = new Map<string, PairGroupView>();
-  for (const x of listed) {
+  for (const x of input.pairs) {
     // Pairs from the same call share their conversation and rejected answer, so they show as one group.
     const key = `${x.source}:${x.rejected.runId}:${x.rejected.callNo}:${x.rejected.text}`;
     let g = byKey.get(key);
@@ -691,7 +689,6 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     tabs: { pairs: counts.all, tasks: ready.length },
     actions: { exportPairs: counts.all > 0, scoreModel: ready.length > 0 },
     pairs: {
-      filter,
       counts,
       groups,
       madeBy,

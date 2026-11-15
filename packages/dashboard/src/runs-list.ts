@@ -800,12 +800,10 @@ function filterFrom(params: URLSearchParams): RunFilter | { error: string } {
   if (types.length) filter.types = types as RunType[];
   const q = params.get('q');
   if (q) filter.q = q.slice(0, 200);
-  const attempts = params.get('attempts');
-  if (attempts === '1' || attempts === 'true') filter.includeAttempts = true;
   return filter;
 }
 
-/** Options for `listRunsPage` from a request's query string: limit, cursor, from, to, types, q, attempts, sort. */
+/** Options for `listRunsPage` from a request's query string: limit, cursor, from, to, types, q, sort. Attempts stay bundled under their runs, as the pages list them. */
 export function runsPageOptions(params: URLSearchParams): RunsPageOptions | { error: string } {
   const filter = filterFrom(params);
   if ('error' in filter) return filter;
@@ -825,7 +823,7 @@ export function runsPageOptions(params: URLSearchParams): RunsPageOptions | { er
   return out;
 }
 
-/** Options for `runsByDay` from a request's query string: weeks, tz, types, q, attempts. */
+/** Options for `runsByDay` from a request's query string: weeks, tz, types, q. */
 export function runsByDayOptions(params: URLSearchParams): RunsByDayOptions | { error: string } {
   const filter = filterFrom(params);
   if ('error' in filter) return filter;

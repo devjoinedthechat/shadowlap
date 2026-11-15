@@ -300,7 +300,9 @@ describe('the Runs table', () => {
   });
 
   it('reads its options from a query string, and refuses what it does not know', () => {
-    expect(runsPageOptions(new URLSearchParams('limit=20&types=fork,failed&q=refund&attempts=1&sort=spent&from=5&to=9'))).toEqual({ limit: 20, types: ['fork', 'failed'], q: 'refund', includeAttempts: true, sort: 'spent', from: 5, to: 9 });
+    expect(runsPageOptions(new URLSearchParams('limit=20&types=fork,failed&q=refund&sort=spent&from=5&to=9'))).toEqual({ limit: 20, types: ['fork', 'failed'], q: 'refund', sort: 'spent', from: 5, to: 9 });
+    // Attempts stay bundled under their runs, as the pages list them: no query lists them as rows.
+    expect(runsPageOptions(new URLSearchParams('attempts=1'))).toEqual({});
     expect(runsPageOptions(new URLSearchParams('types=forks'))).toMatchObject({ error: expect.stringContaining('unknown type') });
     expect(runsPageOptions(new URLSearchParams('limit=ten'))).toMatchObject({ error: expect.stringContaining('limit') });
     expect(runsPageOptions(new URLSearchParams('sort=cost'))).toMatchObject({ error: expect.stringContaining('sort') });

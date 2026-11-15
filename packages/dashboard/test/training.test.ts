@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { inconclusiveTestNote, INCONCLUSIVE_TEST_NOTE, Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
+import { filterGroups } from '../ui/training.js';
 
 /**
  * The Training screen's read model, from a store holding a blame and a verify, four goldens as
@@ -142,9 +143,9 @@ describe('the Training read model', () => {
     expect(view.pairs.confidence.map((c) => c.level)).toEqual(['high', 'medium']);
     expect(view.pairs.footnote).toBe('Identical answers count once.');
 
-    const medium = trainingView(input, { filter: 'medium' });
-    expect(medium.pairs.groups.map((g) => g.confidence)).toEqual(['medium']);
-    expect(medium.pairs.counts).toEqual({ all: 3, high: 2, medium: 1 });
+    // Every pair comes; the page's chip keeps those at a confidence (ui/training.ts).
+    expect(filterGroups(view.pairs.groups, 'medium').map((g) => g.confidence)).toEqual(['medium']);
+    expect(view.pairs.counts).toEqual({ all: 3, high: 2, medium: 1 });
     expect(view.exportDialog.levels).toEqual([
       { value: 'high', label: 'High confidence only (2)' },
       { value: 'medium', label: 'High and medium (3)' },

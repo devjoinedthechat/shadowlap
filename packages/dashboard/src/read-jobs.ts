@@ -47,7 +47,7 @@ import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.j
 import { setupUnderWay } from './store-setup.js';
 import { localRunSet, teamStoreStatus, type TeamStoreInput } from './team-store.js';
 import type { GoldenSource } from './tests.js';
-import { readTraining, sourceFixes, trainingView, type PairFilter } from './training.js';
+import { readTraining, sourceFixes, trainingView } from './training.js';
 
 export type { ReadAnswer } from './read-registry.js';
 
@@ -134,7 +134,7 @@ type CoreJob =
    */
   | { kind: 'store-facts'; stores: Array<{ id: string; dbPath: string | null; keep: string | null }> }
   /** The Training screen (training.ts `trainingView`): the pairs every run makes, with the project's goldens as tasks and its normalizers, read on the server's thread. */
-  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number | null; filter: PairFilter }
+  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number | null }
   /**
    * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
@@ -343,7 +343,7 @@ const CORE_READS: ReadTable<CoreJob> = {
   },
   'injection-run': (store, job) => (store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools, { shared: job.shared === true }), { tagged: true }) : failed(404, `no run ${job.runId}`)),
   'store-facts': (store, job) => storeFactsOf(store, job.stores),
-  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
+  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers })), { tagged: true }),
   fix: (store, job) => fixPage(store, job),
   search: (store, job) => {
     const index = loadRunIndex(store);

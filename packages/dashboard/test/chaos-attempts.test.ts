@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordEvent, Store, teamRunCounts, type DivergenceReport } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
+import { listRunsPage } from '../src/runs-list.js';
 
 /**
  * The attempts of an error-path preset (`test --chaos`) are bundled under the recording they forked,
@@ -63,7 +64,8 @@ describe("an error-path preset's attempts", () => {
     const page = await api<{ runs: Array<{ runId: string; attempts: number }> }>('runs/page');
     expect(page.runs.map((r) => r.runId).sort()).toEqual([recording, fork].sort());
     expect(page.runs.find((r) => r.runId === recording)).toMatchObject({ attempts: 3 });
-    const listed = await api<{ runs: Array<{ runId: string; attemptOf: string | null; attemptKind: string | null }> }>('runs/page?attempts=1');
+    // Each attempt's row as the run index works it out, bundled under its recording.
+    const listed = listRunsPage(store, { includeAttempts: true });
     for (const id of attempts) expect(listed.runs.find((r) => r.runId === id)).toMatchObject({ attemptOf: recording, attemptKind: 'chaos' });
     expect(listed.runs.find((r) => r.runId === fork)).toMatchObject({ attemptOf: null, attemptKind: null });
   });

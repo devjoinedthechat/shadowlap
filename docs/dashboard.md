@@ -3360,7 +3360,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /api/fixes?status=` | The fixes (all, open, verified or applied) in to-do order, with each chip's count, the page's totals and the failing runs nobody has blamed |
+| `GET /api/fixes` | Every fix in to-do order, with each chip's count, the page's totals and the failing runs nobody has blamed |
 | `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
 | `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, Verify this run, and each Verify step's more attempts bill |
@@ -3570,7 +3570,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
+| `GET /api/training` | Training: the header's facts (`strip`), every pair grouped per call with its sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | Score model's picker: each model's price per attempt and last score, those left out and why, and the tokens an attempt is priced from |
 | `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `POST /api/decisions/estimates`, `GET /api/runs/:id/decisions` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions |
 | `GET /api/migrate/start`, `GET /api/migrate/estimate?to=&from=&golden=&run=&scope=&budget=` | Migrate's start page: retiring models with their goldens, scopes and checking migration, and the models in use; Migrate to's price on what its job asks |
