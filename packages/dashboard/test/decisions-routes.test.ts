@@ -8,7 +8,7 @@ import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/train
 import { startDashboard, type Dashboard } from '../src/index.js';
 import type { ProjectConfig } from '../src/context.js';
 import type { PreviewView } from '../src/decision-view.js';
-import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionCell, type DecisionsListView } from '../src/decisions.js';
+import { decisionRow, decisionSession, decisionSessions, retirementsView, runDecisions, type DecisionCell, type DecisionsListView } from '../src/decisions.js';
 import { commandTreeUse } from '../src/worktree.js';
 
 /**
@@ -157,10 +157,10 @@ describe('the decision read models', () => {
   it('fills a migrate session\'s decisions in from its runs, and finds a run\'s decisions newest first', () => {
     const m = decisionSession(store, 'mg-01M5000000000000000000000B')!;
     expect(m).toMatchObject({ kind: 'migrate', to: 'claude-haiku-4-5', decisions: { runs: [{ runId: refunded }] } });
-    // A run's part of a session opens its Decisions view at its most consequential change, and its cell on Changes.
-    expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.href, s.changes])).toEqual([
-      ['mg-01M5000000000000000000000B', 'migrate', 1, `#/run/${refunded}/5/decisions`, `#/changes/migrate/mg-01M5000000000000000000000B/${refunded}/5`],
-      ['dc-01M5000000000000000000000A', 'decisions', 1, `#/run/${refunded}/5/decisions`, `#/changes/decisions/dc-01M5000000000000000000000A/${refunded}/5`],
+    // A run's part of a session: the rank most samples show, how many steps changed, and its cell on Changes at its most consequential change.
+    expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.changed, s.changes])).toEqual([
+      ['mg-01M5000000000000000000000B', 'migrate', 1, 1, `#/changes/migrate/mg-01M5000000000000000000000B/${refunded}/5`],
+      ['dc-01M5000000000000000000000A', 'decisions', 1, 2, `#/changes/decisions/dc-01M5000000000000000000000A/${refunded}/5`],
     ]);
     expect(runDecisions(store, refunded).sessions.map((s) => [s.name, s.samples, s.toVerify, s.verified])).toEqual([
       ['claude-sonnet-4-5-20250929 → claude-haiku-4-5', 2, true, null],
@@ -168,10 +168,10 @@ describe('the decision read models', () => {
     ]);
     // Its view lists its ranked steps, most consequential first, each worded on the server.
     expect(runDecisions(store, refunded).sessions[1].steps).toEqual([
-      { callNo: 5, rank: 1, within: null, detail: 'issue_refund is no longer called', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
-      { callNo: 3, rank: 4, within: null, detail: 'a read asked differently', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
+      { callNo: 5, rank: 1, within: null, unsettled: null, detail: 'issue_refund is no longer called', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
+      { callNo: 3, rank: 4, within: null, unsettled: null, detail: 'a read asked differently', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
     ]);
-    expect(runDecisions(store, failed).sessions.map((s) => s.href)).toEqual([`#/run/${failed}/5/decisions`]);
+    expect(runDecisions(store, failed).sessions.map((s) => s.changes)).toEqual([`#/changes/decisions/dc-01M5000000000000000000000A/${failed}/5`]);
     expect(decisionSession(store, 'dc-nope')).toBeNull();
   });
 
@@ -194,6 +194,11 @@ describe('the decision routes', () => {
       ['mg-01M5000000000000000000000B', 'migrate', 1, 1, '#/changes/migrate/mg-01M5000000000000000000000B'],
       ['dc-01M5000000000000000000000A', 'decisions', 2, 2, '#/changes/decisions/dc-01M5000000000000000000000A'],
     ]);
+    // Every session kept fits under the limit, and with no team store none says who ran it.
+    expect([view.more, view.sessions.map((s) => s.actor)]).toEqual([false, [null, null]]);
+    const one = (await (await api(dash, 'decisions?limit=1')).json()) as DecisionsListView;
+    expect([one.sessions.map((s) => s.sessionId), one.more]).toEqual([['mg-01M5000000000000000000000B'], true]);
+    expect(decisionSessions(store, { shared: true }).map((s) => s.actor)).toEqual(['dev', 'dev']);
     // Reading every golden's calls belongs on the pool: GET /api/retirements and Migrate's start read have them.
     expect('retirements' in view).toBe(false);
     const only = (await (await api(dash, 'decisions?kind=decisions')).json()) as DecisionsListView;

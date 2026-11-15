@@ -45,7 +45,7 @@ import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine
 import type { ProjectConfig } from '../src/context.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import type { ConfigVerifyRule, DecisionEstimates, FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
-import type { PreviewEstimates } from '../src/preview-estimate.js';
+import { THEN_VERIFY_UNPRICED, type PreviewEstimates } from '../src/preview-estimate.js';
 import { fixDetail } from '../src/fixes.js';
 import { pricingOf } from '../src/pricing.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -548,6 +548,27 @@ describe('a new preview’s estimate', () => {
     expect((await post({ runs: [run], fromCode: true, changed: { [run]: ['x'] } })).status).toBe(400);
     // A GET is no read of it: the targets go in the body.
     expect((await api(`decisions/estimates?runId=${run}`)).status).not.toBe(200);
+  });
+
+  it('holds the change to its Stop at $, has none while it then verifies, and names the scopes the runs’ calls were made in', async () => {
+    const run = addRun(store, { startedAt: T0, calls: [{ ...call(1840), scope: 'support-agent' }, { ...call(300), scope: 'support-agent' }, { ...call(200), scope: 'customer' }, call(100), { code: 'o' }] });
+    const full = await read({ runs: [run], model: 'claude-haiku-4-5' });
+    // The scopes a preview may keep to, the most calls first, null for the calls made in none, after a named one with as many.
+    expect(full.scopes).toEqual([
+      { scope: 'support-agent', calls: 2 },
+      { scope: 'customer', calls: 1 },
+      { scope: null, calls: 1 },
+    ]);
+    const usd = full.preview!.usd!;
+    // Under its price, Stop at $ is what it is held to, and its line says what is left unasked.
+    const held = await read({ runs: [run], model: 'claude-haiku-4-5', budget: Math.floor(usd * 50) / 100 });
+    expect(held.preview).toEqual({ ...full.preview, stops: Math.floor(usd * 50) / 100, parts: [...full.preview!.parts, 'steps past it not asked'] });
+    expect((await read({ runs: [run], model: 'claude-haiku-4-5', budget: 1000 })).preview).toEqual(full.preview);
+    // Kept to one scope, it asks that scope's calls alone.
+    expect((await read({ runs: [run], model: 'claude-haiku-4-5', scope: 'customer' })).asks).toMatchObject({ calls: 1 });
+    // What verify runs is the runs the preview can't clear: no estimate until it has asked.
+    expect((await read({ runs: [run], model: 'claude-haiku-4-5', thenVerify: true, budget: 5 })).preview).toMatchObject({ usd: null, none: THEN_VERIFY_UNPRICED });
+    expect((await post({ runs: [run], model: 'claude-haiku-4-5', budget: 0 })).status).toBe(400);
   });
 
   it('says which field the model refuses, by the engine’s table, and prices each way’s card while no change is named', async () => {

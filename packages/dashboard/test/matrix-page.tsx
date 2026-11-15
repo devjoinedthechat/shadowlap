@@ -112,8 +112,8 @@ const TEMPLATES: Array<[string, string]> = [
 const payloads: MatrixCol[] = TEMPLATES.map(([id, title]) => ({ key: id, label: id, sub: `${title}: …` }));
 const VERDICTS = ['obeyed', 'influenced', 'inconclusive', 'ignored'] as const;
 
-/** What a read's attempts came to against a payload: most reads ignored every payload; a third obeyed, were influenced or couldn't say. */
-function verdictOf(callNo: number, j: number): Worst {
+/** What a read's attempts came to against a payload, by its verdict's place in VERDICTS: most reads ignored every payload; a third obeyed, were influenced or couldn't say. */
+function verdictOf(callNo: number, j: number): 0 | 1 | 2 | 3 {
   if (callNo % 9 !== 4) return 3;
   return ([0, 1, 2, 3, 3, 3] as const)[(callNo + j) % 6];
 }
@@ -147,7 +147,9 @@ const two: Matrix = {
 const reads: ReadRow[] = Array.from({ length: 52 }, (_, i) => {
   const callNo = 4 + i * 3;
   const tool = i % 4 === 1 && i < 48 ? 'fetch_page' : 'get_ticket';
-  const worst = Math.min(...payloads.map((_, j) => verdictOf(callNo, j))) as Worst;
+  // Every payload ran at every read: one whose attempts all ignored theirs is quiet (4).
+  const verdict = Math.min(...payloads.map((_, j) => verdictOf(callNo, j)));
+  const worst: Worst = verdict === 3 ? 4 : (verdict as 0 | 1 | 2);
   return { callNo, name: tool, worst, row: readRow(callNo, tool, tool === 'get_ticket' ? 'config' : 'MCP openWorldHint') };
 });
 const byTool = (name: string) => reads.filter((r) => r.name === name);
@@ -163,7 +165,7 @@ const many: Matrix = {
     if (!row.key.startsWith('g:')) return readCell(Number(row.key), row.name?.split(' ')[1] ?? row.label.split(' ')[1], col, j);
     // a tool's row: its reads summed, its strongest verdict and that verdict's tally
     const list = byTool(row.key.slice(2));
-    const worst = Math.min(...list.map((r) => verdictOf(r.callNo, j))) as Worst;
+    const worst = Math.min(...list.map((r) => verdictOf(r.callNo, j))) as 0 | 1 | 2 | 3;
     const v = VERDICTS[worst];
     const k = list.filter((r) => verdictOf(r.callNo, j) === worst).length;
     return { word: v, tally: `${k} of ${list.length * 3} ${v}`, href: `#/run/01M5HC${String(j).padStart(3, '0')}/5`, tip: tipCard(`${list.length} reads of ${row.key.slice(2)} · ${col.key}`, [{ label: v, value: `${k} of ${list.length * 3} ${v}` }]) };

@@ -12,6 +12,7 @@ import { Page } from '../components/Page.js';
 import { Section } from '../components/Section.js';
 import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { VerdictLine } from '../components/VerdictLine.js';
+import { PairChanges } from '../compare/Changes.js';
 import { answersSub, changedAnswers, changeCards, compareFacts, comparingLive, DIFF_SHOWN, madeCard, oneRunPair, pickable, prefixCells, prefixLine, replayCommand, requestLines } from '../compare/model.js';
 import { PairRows } from '../compare/Rows.js';
 import { RunPicker } from '../compare/RunPicker.js';
@@ -412,9 +413,10 @@ function Pickers({ a, b, runs, hub }: { a: string; b: string; runs: RunListItem[
 }
 
 /**
- * The whole comparison, once the server has it: the verdict and a line a run, what changed and what
- * didn't, the identical prefix and where the two part, the request that differs first, both paths in
- * one list from there, and the calls where the same request got a different answer.
+ * The whole comparison, once the server has it: the verdict and a line a run, what B decided
+ * differently ranked, what changed and what didn't, the identical prefix and where the two part, the
+ * request that differs first, both paths in one list from there, and the calls where the same
+ * request got a different answer.
  */
 function Compared({ c, a, b, ra, rb, runs, call }: { c: CompareView; a: string; b: string; ra: RunDetail | null; rb: RunDetail | null; runs: RunListItem[]; call: number | null }) {
   const pair = c.pair ?? null;
@@ -423,6 +425,7 @@ function Compared({ c, a, b, ra, rb, runs, call }: { c: CompareView; a: string; 
   return (
     <>
       {pair && sides.a.run && sides.b.run ? <PairVerdict pair={pair} a={{ ...sides.a, run: sides.a.run }} b={{ ...sides.b, run: sides.b.run }} /> : null}
+      {pair ? <PairChanges pair={pair} a={c.a.runId} b={c.b.runId} /> : null}
       <WhatChanged c={c} />
       <Prefix c={c} />
       {c.firstRequestDifference ? <ChangedRequest c={c} /> : null}

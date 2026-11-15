@@ -84,25 +84,47 @@ export interface Recording {
   calls: number;
 }
 
-/** The chip's words, where it leads, and its card: the run by id, and its about line or, offline, when it was last heard of. */
+/**
+ * The chip's words, where it leads, and its card: the run by id, and its about line or, offline, when
+ * it was last heard of; with several recording, how many, each by its short id and its calls.
+ */
 export interface LiveChip {
-  runId: string;
+  /** The run's page, or with several recording, Runs on every run recording now. */
+  href: string;
   words: string;
   title: string;
+  rows: Array<{ label: string; value: string }>;
   line: string | null;
 }
+
+/** How many of several recordings the chip's card names; it counts the rest. */
+const NAMED = 5;
 
 /**
  * The chip of a run recording, as the design draws it: `recording · 9 calls`, its card naming the run
  * and what it is about. Not on that run's own page, which says it records (`open`, the id the page
- * was opened by): the next recording takes the chip there. While offline it stays, its card saying
- * when it was last heard of; not while the link has expired, when its card covers all.
+ * was opened by): the next recording takes the chip there. With several recording, how many, as the
+ * Overview counts them (`4 recording`, or on one's own page `3 more recording`), its card naming each
+ * and leading to Runs on them all. While offline it stays, its card saying when it was last heard
+ * of; not while the link has expired, when its card covers all.
  */
 export function liveChip(o: { recording: readonly Recording[]; open: string | null; conn: 'ok' | 'offline' | 'expired'; loadedAt: number | null; aboutOf?: (runId: string) => string | null }): LiveChip | null {
   if (o.conn === 'expired') return null;
   const { open } = o;
-  const r = o.recording.find((x) => open === null || !(x.runId === open || (open.length >= 10 && x.runId.startsWith(open))));
-  if (!r) return null;
+  const others = o.recording.filter((x) => open === null || !(x.runId === open || (open.length >= 10 && x.runId.startsWith(open))));
+  if (!others.length) return null;
   const offline = o.conn === 'offline' ? `Recording when last heard of${o.loadedAt ? `, at ${clock(o.loadedAt)}` : ''}: live updates are paused` : null;
-  return { runId: r.runId, words: `recording · ${plural(r.calls, 'call')}`, title: `Recording ${shortId(r.runId)}`, line: offline ?? o.aboutOf?.(r.runId) ?? null };
+  if (others.length === 1) {
+    const r = others[0]!;
+    return { href: href.run(r.runId), words: `recording · ${plural(r.calls, 'call')}`, title: `Recording ${shortId(r.runId)}`, rows: [], line: offline ?? o.aboutOf?.(r.runId) ?? null };
+  }
+  const more = others.length < o.recording.length ? ' more' : '';
+  const rest = others.length - NAMED;
+  return {
+    href: href.runs({ q: 'status:live' }),
+    words: `${others.length}${more} recording`,
+    title: `${others.length}${more} runs recording`,
+    rows: others.slice(0, NAMED).map((r) => ({ label: shortId(r.runId), value: plural(r.calls, 'call') })),
+    line: offline ?? (rest > 0 ? `and ${rest} more, on Runs` : null),
+  };
 }

@@ -9,16 +9,18 @@ import type { MigrateRetiring } from './types.js';
  * which loads with the palette and so takes none of the dialog's code with it. No DOM here.
  */
 
-/** What one migration switches: to `to`, from `from`, on the goldens named (paths), else the runs. */
+/** What one migration switches: to `to`, from `from`, on the goldens named (paths), else the runs; in one scope where it keeps to one, held to its Stop at $ where it has one. */
 export interface MigrateSwitch {
   from: readonly string[];
   to: string;
   goldens: readonly string[];
   runs?: readonly string[];
+  scope?: string | null;
+  budget?: number | null;
 }
 
 /** The command the job runs, quoted as a shell takes it. */
-export const migrateCommand = (s: MigrateSwitch): string => ['shadowlap', ...migrateArgv({ to: s.to, targets: s.goldens.length ? s.goldens : (s.runs ?? []), from: s.from })].map(quoteArg).join(' ');
+export const migrateCommand = (s: MigrateSwitch): string => ['shadowlap', ...migrateArgv({ to: s.to, targets: s.goldens.length ? s.goldens : (s.runs ?? []), from: s.from, scope: s.scope ?? null, budget: s.budget ?? null })].map(quoteArg).join(' ');
 
 /**
  * The palette's Migrate <a> to <b>: one per model the goldens call that retires with a replacement,

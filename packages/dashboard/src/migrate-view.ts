@@ -1,6 +1,8 @@
 import { andList, besidesLine, byHandNote, givenField, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, quoteArgv, remedyText, retirementOf, shortSessionId, staysWords, verifiedCount, verifyFlagsLine, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice } from '@shadowlap/engine';
+import { verifiedOutcome } from './decision-cells.js';
 import { strings } from './fields.js';
 import { applyInputOf, type AppliedState } from './migrate-applied.js';
+import { literal } from './pattern.js';
 import { goldenName } from './needs-look/row.js';
 import type { VerdictTone } from './verdict.js';
 
@@ -103,6 +105,12 @@ function notRunReasons(k: Kept): string[] {
   return verify?.verdict === 'not-run' ? strings(verify.reasons) : [];
 }
 
+/** What a run migrate didn't verify came to, in Preview's words: a step that got no answer, one left to verify, one that waits on a judge. */
+const UNVERIFIED: Readonly<Record<string, string>> = { 'not-asked': 'a step not asked', unsettled: 'not verified', 'not-judged': 'a step waits on a judge' };
+
+/** A run as What still passes words it (migratePassWords), its outcome as every page says it: `not fixed, verified`, never `not-fixed`. */
+const passWords = (x: PassRun): string => migratePassWords({ ...x, outcome: x.verified ? verifiedOutcome(x.outcome) : (UNVERIFIED[x.outcome] ?? x.outcome) });
+
 function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): MigrateView['passes'] {
   const verify = (k.decisions as { verify?: { verdict?: string; rule?: string | null; reasons?: string[]; warnings?: string[] } | null } | undefined)?.verify ?? null;
   const waiting = new Map((applied?.outdated ?? []).map((g) => [g.golden, g]));
@@ -112,7 +120,7 @@ function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): Migra
       const after = x.golden ? waiting.get(x.golden) : undefined;
       // Once applied, the field its replay diverged on, which migrate apply logged; before, the model, which migrate foresaw.
       const leftBehind = applied ? (after?.waits ? `diverges at #${after.callNo} on ${tick(after.path || '$.model')} until updated` : null) : x.diverges ? `diverges at #${x.diverges.callNo} on ${tick('$.model')} once applied` : null;
-      return { runId: x.runId, golden: x.golden, verdict: x.verdict, words: migratePassWords(x), leftBehind };
+      return { runId: x.runId, golden: x.golden, verdict: x.verdict, words: passWords(x), leftBehind };
     }),
     rules: migrateRules(runs.map((x) => ({ ...x, tally: x.tally as { rule?: string | null } | null })), verify?.rule ?? null).map((g) => ({ rule: g.rule, runs: g.runs.map(name) })),
     verified: verifiedCount(runs),
@@ -121,12 +129,10 @@ function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): Migra
   };
 }
 
-const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** A refused field's reason with each field What to set names, and any `=value` after it, as code. */
 function whyCoded(why: string, names: readonly string[]): string {
   if (!names.length) return why;
-  return why.replace(new RegExp(`(?<![\\w\`.-])(?:${names.map(escaped).join('|')})(?:=[^\\s.,;:)\`]+)?(?![\\w\`-])`, 'g'), tick);
+  return why.replace(new RegExp(`(?<![\\w\`.-])(?:${names.map(literal).join('|')})(?:=[^\\s.,;:)\`]+)?(?![\\w\`-])`, 'g'), tick);
 }
 
 function setOf(k: Kept, to: string): MigrateView['set'] {
@@ -180,15 +186,22 @@ function applyOf(k: Kept, runs: PassRun[]): MigrateView['apply'] {
   };
 }
 
-/** Each from-model's retirement in today's words (the table's, by the provider and model migrate read), its kept words where the table no longer has it. */
-function retirementsOf(k: Kept, from: string[], now: number): MigrateView['retirements'] {
-  return list<RetirementNotice>(k.retirements)
-    .filter((n) => from.includes(n.model))
+/**
+ * Each retirement notice a report kept, in today's words (the table's, by the provider and model it
+ * read), its kept words where the table no longer has it; `keep` picks which. A preview's and a
+ * migration's say them so.
+ */
+export function retirementWords(kept: unknown, now: number, keep: (n: RetirementNotice) => boolean = () => true): MigrateView['retirements'] {
+  return list<RetirementNotice>(kept)
+    .filter(keep)
     .map((n) => {
       const today = retirementOf(n.provider, n.model, { now });
       return { text: today?.text ?? n.text, source: (today ?? n).source ?? null };
     });
 }
+
+/** Each from-model's retirement in today's words. */
+const retirementsOf = (k: Kept, from: string[], now: number): MigrateView['retirements'] => retirementWords(k.retirements, now, (n) => from.includes(n.model));
 
 /** A kept migration (its report, its decisions' runs filled in) as the page shows it; `verdict`, Verdicts' word for it. */
 export function migrateView(k: Kept & { applied?: AppliedState | null }, sessionId: string, verdict: { word: string; tone: VerdictTone | null }, now = Date.now()): MigrateView {

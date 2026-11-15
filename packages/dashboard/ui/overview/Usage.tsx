@@ -13,7 +13,7 @@ import { ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { CacheUse, DaySums, OverviewSummary } from '../types.js';
-import { chartScale, dayText, kindGlyph, originCounts, originRows, share, tickText, usageLine } from './model.js';
+import { chartScale, dayText, kindGlyph, lastWeekWords, originCounts, originRows, share, tickText, usageLine } from './model.js';
 import { useAbouts } from './words.js';
 
 /**
@@ -67,7 +67,7 @@ export function Usage({ s }: { s: Pick<OverviewSummary, 'sums' | 'cache' | 'outc
       {open ? (
         <>
           <div className="ugrid" id={id}>
-            <OriginPart origins={s.sums.week.origins} />
+            <OriginPart origins={s.sums.week.origins} last={s.sums.lastWeek} />
             <CachePart cache={s.cache} />
             <SpendPart daily={s.daily} />
           </div>
@@ -100,7 +100,8 @@ function Part({ title, sub, actions, className, children }: { title: string; sub
   );
 }
 
-function OriginPart({ origins }: { origins: Readonly<Record<string, number>> }) {
+/** Calls by origin this week, with last week's calls and the share replayed under them. */
+function OriginPart({ origins, last }: { origins: Readonly<Record<string, number>>; last: Pick<OverviewSummary['sums']['lastWeek'], 'calls' | 'origins'> }) {
   const counts = originCounts(origins);
   const rows = originRows(counts);
   const total = rows.reduce((t, r) => t + r.count, 0);
@@ -126,6 +127,7 @@ function OriginPart({ origins }: { origins: Readonly<Record<string, number>> }) 
         ))}
       </ul>
       {total === 0 ? <Copy className="leaknote">No calls this week yet.</Copy> : null}
+      <p className="leaknote ulast">{lastWeekWords(last)}</p>
     </Part>
   );
 }
@@ -156,7 +158,7 @@ function CachePart({ cache }: { cache: CacheUse }) {
       {cache.misses.length ? (
         <>
           <div className="leakh">
-            <span>Where it stopped hitting</span>
+            <span>Where it stopped hitting{cache.missCount > cache.misses.length ? `, the ${cache.misses.length} largest of ${num(cache.missCount)}` : ''}</span>
             <b>{ktok(cache.sentAgain)} tokens sent again</b>
           </div>
           <div className="leaks" ref={box}>

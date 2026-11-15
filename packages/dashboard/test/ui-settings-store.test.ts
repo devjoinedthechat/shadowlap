@@ -18,25 +18,30 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 const config = { file: 'shadowlap.config.json', path: '/work/support-agent/shadowlap.config.json', exists: true, version: 'v1', error: null };
 const POLICY = '# The access to ask your cloud admin for (Amazon S3): one policy for people and protected branches, one for pull requests\n{}';
 
-function store(onlyLocal: number): StoreSettings {
-  const status = { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs', region: 'eu-central-1', providerName: 'Amazon S3', access: 'AWS profile northwind-dev', syncedAt: null, inStore: 3, onlyLocal, queued: 0, check: null, ciPush: true };
+/** When this machine last pushed and pulled, and the later of the two, as teamStoreStatus sends them. */
+function synced(pushedAt: number | null = null, pulledAt: number | null = null) {
+  return { pushedAt, pulledAt, syncedAt: pushedAt === null && pulledAt === null ? null : Math.max(pushedAt ?? 0, pulledAt ?? 0) };
+}
+
+function store(onlyLocal: number, sync = synced()): StoreSettings {
+  const status = { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs', region: 'eu-central-1', providerName: 'Amazon S3', access: 'AWS profile northwind-dev', ...sync, inStore: 3, onlyLocal, queued: 0, check: null, ciPush: true };
   return { config, configured: status.url, error: null, status, policy: { text: POLICY, command: 'shadowlap store policy' }, redactRules: 2 } as unknown as StoreSettings;
 }
 
 /** A setup under way at its second step, or none (finished). */
 const setupView = (underWay: boolean) => ({ active: underWay, next: underWay ? { step: 2, title: 'Push your runs' } : null, ci: [], setup: { ciProvider: null } }) as unknown as StoreSetupView;
 
-function app(onlyLocal: number, underWay: boolean, started: Array<[string, unknown]> = []): AppState {
+function app(onlyLocal: number, underWay: boolean, started: Array<[string, unknown]> = [], sync = synced(), off: { actionsOff?: string; kinds?: string[] } = {}): AppState {
   const never = () => new Promise<never>(() => undefined);
-  const settings = { store: async () => store(onlyLocal), matching: never, project: never, redaction: never, codingAgents: never, tools: never, spending: never };
+  const settings = { store: async () => store(onlyLocal, sync), matching: never, project: never, redaction: never, codingAgents: never, tools: never, spending: never };
   return {
     client: { settings, startJob: async (kind: string, body: unknown) => (started.push([kind, body]), {}), storeSetup: { view: async () => setupView(underWay) }, teamStore: async () => null, jobs: async () => [], ciWorkflows: never },
     meta: { version: '0.1.0', project: { id: 'support-agent', name: 'support-agent', path: '/work/support-agent' } },
     runs: [],
     feeds: {},
     jobs: [],
-    actionsOff: null,
-    hasKind: () => true,
+    actionsOff: off.actionsOff ?? null,
+    hasKind: (kind: string) => off.kinds?.includes(kind) ?? true,
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
@@ -99,5 +104,50 @@ describe('Settings → Store’s facts', () => {
     await r.until('the job', () => started.length > 0);
     // store check, which writes nothing: never store set --check, which reopens a finished setup.
     expect(started).toEqual([['store-check', {}]]);
+  });
+});
+
+describe('Settings → Store’s last sync', () => {
+  const lastSync = (page: Rendered) => page.all('.settab dl.kvs dd')[3].textContent.replace(/\u00a0/g, ' ');
+
+  it('says when this machine last pushed and when it last pulled, and never before either', async () => {
+    r = await storeTab(app(2, false));
+    expect(lastSync(r)).toMatch(/^never 3 runs in the store · 2 only on this machine/);
+    await r.unmount();
+    r = await storeTab(app(2, false, [], synced(new Date(2025, 8, 30, 9, 0).getTime(), null)));
+    expect(lastSync(r)).toMatch(/^pushed Sep 30, 2025 · pulled never 3 runs in the store/);
+  });
+
+  it('pulls the runs named as the store lists them, and pull requests’ runs once asked, the command following the fields', async () => {
+    const started: Array<[string, unknown]> = [];
+    r = await storeTab(app(0, false, started));
+    const open = r.byText('.settab dl.kvs dd button', 'Pull runs…');
+    expect(card(open)).toEqual({ t: 'Pull runs…', s: 'The runs you name, or pull requests’ runs too', rows: [], cmd: '$ shadowlap pull <run…>' });
+    await r.click(open);
+    const field = r.one('[role="dialog"] .form input');
+    const command = () => r!.one('[role="dialog"] .cmdline').textContent;
+    expect(command()).toBe('$shadowlap pull');
+    // Nothing the CLI would read as a flag reaches it: the way on says why, and starts nothing.
+    await r.type(field, '--all');
+    expect(r.one('[role="dialog"] .fieldnote.err').textContent.replace(/\u00a0/g, ' ')).toBe('--all is no run: name one by its id, or its first 4 characters or more.');
+    await r.click(r.one('[role="dialog"] .dlg-ok'));
+    expect(started).toEqual([]);
+    await r.type(field, '01k5cq4n7g, 01K5CR 01k5cq4n7g');
+    expect(r.all('[role="dialog"] .fieldnote.err')).toHaveLength(0);
+    expect(command()).toBe('$shadowlap pull 01K5CQ4N7G 01K5CR');
+    await r.click(r.byText('[role="dialog"] .switch', 'Pull requests’ runs too'));
+    expect(command()).toBe('$shadowlap pull 01K5CQ4N7G 01K5CR --include-pr');
+    await r.click(r.one('[role="dialog"] .dlg-ok'));
+    await r.until('the job', () => started.length > 0);
+    expect(started).toEqual([['pull', { runIds: ['01K5CQ4N7G', '01K5CR'], includePr: true }]]);
+  });
+
+  it('offers no Pull runs… on a read-only dashboard, nor where the server runs no pulls', async () => {
+    for (const off of [{ actionsOff: 'This dashboard is read-only' }, { kinds: ['push', 'store-check'] }]) {
+      r = await storeTab(app(0, false, [], synced(), off));
+      expect(r.all('.settab dl.kvs dd button').map((b) => b.textContent)).not.toContain('Pull runs…');
+      await r.unmount();
+      r = null;
+    }
   });
 });

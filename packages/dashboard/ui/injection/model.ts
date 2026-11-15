@@ -9,14 +9,14 @@ import type { CheckView, InjectionMark, InjectionRow, RunDetail, RunInjection, U
  * nor anything that draws (the tag's card is UntrustedTag.tsx's): the Node tests import it.
  */
 
-/** A kept test's finding on the run it tested: its verdict against its limits, its line, its golden for a gate. */
+/** A kept test's finding on the run it tested: its verdict against its limits, its line, the golden it named. */
 export interface InjectionFinding {
   resultId: string;
   gate: 'failed' | 'inconclusive' | 'passed';
   label: 'injection test' | 'injection gate';
   /** Failed, the gate's reason up to its limit; inconclusive, the reason whole; passed, the counts. */
   line: string;
-  /** A gate's golden by its name, its folder left off (`refund-over-limit`, kept as `goldens/refund-over-limit`). */
+  /** The golden it tested by its name, its folder left off (`refund-over-limit`, kept as `goldens/refund-over-limit`): a gate's, or one tested on its own. */
   golden: string | null;
 }
 
@@ -54,7 +54,8 @@ export const shownResult = (results: readonly InjectionRow[]): InjectionRow | nu
 export function injectionFinding(r: InjectionRow): InjectionFinding | null {
   if (!r.gate) return null;
   const line = r.gate === 'passed' ? injectionCountsLine(r, { num }) : r.gate === 'failed' ? (r.reason ?? r.line).replace(/\): [\s\S]*$/, ')') : (r.reason ?? r.line);
-  return { resultId: r.resultId, gate: r.gate, label: r.golden ? 'injection gate' : 'injection test', line, golden: r.golden && goldenName(r.golden) };
+  // Only a test session's is the golden's gate: a golden tested on its own is a test of it.
+  return { resultId: r.resultId, gate: r.gate, label: r.sessionId ? 'injection gate' : 'injection test', line, golden: r.golden && goldenName(r.golden) };
 }
 
 /** The page's view of its run's injection: the read of the run, and its results as runs move once they have come. */

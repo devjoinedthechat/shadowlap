@@ -408,7 +408,7 @@ export function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** W
       warn={busy ? { text: busy.replace(/\.$/, '') } : null}
       factsUnder={replaces !== null ? [{ label: 'Replaces', value: `its score of ${replaces.toFixed(2)}` }] : []}
       command={command}
-      cost={scoreCost(d, current, attempts, ready.length)}
+      cost={scoreCost(d, current, attempts, ready.length, models.data)}
       ok={confirmWords(ACTIONS.scoreModel.label)}
       okDisabled={!fields || !!busy}
       onOk={() => (!fields || busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts, ...(fields.goldens ? { goldens: fields.goldens } : {}), ...sentEstimate(scoreEstimate(d, current, attempts, ready.length)) }))))}

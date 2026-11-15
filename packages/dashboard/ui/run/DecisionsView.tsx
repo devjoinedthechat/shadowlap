@@ -32,12 +32,15 @@ export { forgetDecisionsPick } from './decisions-pick.js';
 /** Why New preview waits on a run still recording, as Fork does. */
 const RECORDING = 'Preview once the recording finishes';
 
-/** A session's head as its dot parts: its name, when, and how many samples a step where more than one, each dot kept with the part before it. */
+/** A session's head as its dot parts: its name, when, how many samples a step where more than one, and how many steps changed, each dot kept with the part before it. */
 function headParts(s: RunDecisionsSession): Array<{ text: string; node: ReactNode }> {
   const when = minuteStamp(s.at);
   const samples = s.samples && s.samples > 1 ? [`${s.samples} samples a step`] : [];
-  return [{ text: s.name, node: <b>{s.name}</b> }, ...[when, ...samples].map((t) => ({ text: t, node: t }))];
+  return [{ text: s.name, node: <b>{s.name}</b> }, ...[when, ...samples, changedWords(s)].map((t) => ({ text: t, node: t }))];
 }
+
+/** How many of the run's steps changed, and the rank most samples show at its most consequential: `2 steps changed, most rank 1`. */
+export const changedWords = (s: Pick<RunDecisionsSession, 'changed' | 'rank'>): string => (s.changed ? `${s.changed} step${s.changed === 1 ? '' : 's'} changed${s.rank ? `, most rank ${s.rank}` : ''}` : 'no step changed');
 
 export function DecisionsView({ runId, selected, onSelect, live = false }: { runId: string; selected: number | null; onSelect: (n: number) => void; live?: boolean }) {
   const { client, feeds } = useApp();
@@ -145,6 +148,7 @@ function Step({ st, sel, onSelect }: { st: ViewStep; sel: boolean; onSelect: (n:
         )}
         <Said detail={st.detail} />
         {st.within ? <span className="dlm">{`\u00a0· ${st.within}`}</span> : null}
+        {st.unsettled ? <span className="dsy">{`\u00a0· ${st.unsettled}`}</span> : null}
         {st.short ? <span className="dlm">{`\u00a0· ${st.short}`}</span> : null}
         {st.waits ? <span className="dsy">{'\u00a0· waits on a judge'}</span> : null}
       </p>

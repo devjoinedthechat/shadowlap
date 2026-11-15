@@ -3679,7 +3679,8 @@ A URL it names (a base URL, an upstream, the telemetry collector, a sidecar's) s
 credential in its query and no session token, each `<CREDENTIAL>`. So the report can be pasted where
 others read it.
 
-`doctor` exits 1 when something is blocking.
+`doctor` exits 1 when something is blocking. The dashboard runs it from Settings → Project's
+[Health](./dashboard.md#project) and lists the checks there.
 
 `--json` prints the checks as a list, each `{ "name", "verdict", "detail" }`:
 

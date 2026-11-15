@@ -242,15 +242,20 @@ describe('GET /api/models', () => {
     const res = await api(dash, 'models');
     expect(res.status).toBe(200);
     const view = (await res.json()) as ModelsView;
-    expect(view.ready).toBe(1);
-    expect(view.choices.map((c) => [c.group, c.id, c.local, c.lastScore])).toEqual([
+    // The picker, and what it needs besides: nothing the page doesn't read.
+    expect(Object.keys(view).sort()).toEqual(['dialog', 'notes', 'tokens']);
+    const options = view.dialog!.options;
+    expect(options.map((c) => [c.group, c.id, c.local, c.lastScore])).toEqual([
       ['Recorded with', 'claude-sonnet-5', false, 1],
       ['Anthropic API', 'claude-haiku-4-5', false, null],
       ['Ollama, on this machine', 'llama3.1:8b', true, null],
       ['Ollama, on this machine', 'qwen2.5:7b', true, 0.75],
     ]);
-    expect(view.choices.find((c) => c.id === 'claude-haiku-4-5')!.perAttempt).toBeGreaterThan(0);
-    expect(view.choices.find((c) => c.id === 'qwen2.5:7b')!.perAttempt).toBe(0);
+    expect(view.dialog!.leftOut).toEqual([]);
+    expect(options.find((c) => c.id === 'claude-haiku-4-5')!.perAttempt).toBeGreaterThan(0);
+    expect(options.find((c) => c.id === 'qwen2.5:7b')!.perAttempt).toBe(0);
+    // What an attempt's price is worked out from: the tokens the ready task's recording used after its takeover.
+    expect(view.tokens!.outputTokens).toBeGreaterThan(0);
     // No OpenAI key here, so OpenAI was never asked.
     expect(view.notes).toEqual([{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }]);
     expect(asked.sort()).toEqual(['http://127.0.0.1:11434/api/tags', 'https://api.anthropic.com/v1/models?limit=100']);
@@ -268,13 +273,7 @@ describe('GET /api/models', () => {
   it('fails soft: a provider without a key or a server becomes a note', async () => {
     const view = (await (await api(bare, 'models')).json()) as ModelsView;
     // No tasks, no keys, and nothing answers where Ollama would be: every list is a note, and there is nothing to score.
-    expect(view.ready).toBe(0);
     expect(view.dialog).toBeNull();
-    // What the store scored before is still offered: it needs no provider to list it.
-    expect(view.choices.map((c) => [c.group, c.id, c.lastScore])).toEqual([
-      ['Endpoints scored before', 'claude-sonnet-5', null],
-      ['Endpoints scored before', 'qwen2.5:7b', null],
-    ]);
     expect(view.notes).toEqual([
       { group: 'Anthropic API', note: 'ANTHROPIC_API_KEY is not set' },
       { group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' },
@@ -479,7 +478,7 @@ describe('GET /api/models on a read-only dashboard', () => {
     const view = (await res.json()) as ModelsView;
     expect(asked).toEqual([]);
     expect(view.notes).toEqual([]);
-    expect(view.choices.map((c) => [c.group, c.id, c.lastScore])).toEqual([
+    expect(view.dialog!.options.map((c) => [c.group, c.id, c.lastScore])).toEqual([
       ['Recorded with', 'claude-sonnet-5', 1],
       ['Endpoints scored before', 'qwen2.5:7b', 0.75],
     ]);

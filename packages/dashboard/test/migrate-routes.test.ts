@@ -129,7 +129,7 @@ describe('Migrate’s start read', () => {
     expect(res.status).toBe(200);
     const start = (await res.json()) as MigrateStartView;
     expect([start.goldens, start.use.map((u) => [u.model, u.goldens])]).toEqual([1, [['claude-sonnet-4-5', 1]]]);
-    expect(start.retiring.map((n) => [n.model, n.goldens, n.scopes, n.owner, n.replacements[0], n.checked])).toEqual([['claude-sonnet-4-5', ['goldens/refund'], [], 'Anthropic', 'claude-sonnet-5-5', { sessionId: BLOCKED, words: 'checked · the config change is ready' }]]);
+    expect(start.retiring.map((n) => [n.model, n.goldens, n.scopes, n.owner, n.replacements[0], n.checked])).toEqual([['claude-sonnet-4-5', ['goldens/refund'], [], 'Anthropic', 'claude-sonnet-5-5', { sessionId: BLOCKED }]]);
   });
 });
 
@@ -141,6 +141,33 @@ describe('Migrate’s price', () => {
     expect(body.estimate).not.toBeNull();
     expect(body.preview).toBeNull();
     expect((await api(dash, 'migrate/estimate?to=')).status).toBe(400);
+  });
+
+  it('prices the runs it names, as its job migrates them, and never every golden for them', async () => {
+    // A run of the store no golden holds, its calls made with another model than the switch's.
+    const other = recordRun(store, [LOOKUP, REFUND, DONE], { model: 'claude-haiku-4-5' }).run.runId;
+    const ask = async (q: string) => ((await (await api(dash, `migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5${q}`)).json()) as { estimate: { usd: number | null; parts?: string[] } | null }).estimate;
+    const golden = await ask('');
+    expect(golden?.usd).toBeGreaterThan(0);
+    expect(await ask(`&run=${other}`)).toMatchObject({ usd: 0, parts: ['no golden’s call is made with claude-sonnet-4-5'] });
+    // The golden's own recording, named as a run, is priced as the golden is.
+    expect((await ask(`&run=${runId}`))?.usd).toBe(golden?.usd);
+    expect((await api(dash, 'migrate/estimate?to=claude-sonnet-5-5&run=01NOSUCHRUN00000000000000')).status).toBe(404);
+  });
+
+  it('prices only the calls of the scope it keeps to, and holds it to its Stop at $', async () => {
+    const ask = async (q: string) => ((await (await api(dash, `migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5${q}`)).json()) as { estimate: { usd: number | null; stops?: number; parts: string[] } | null }).estimate;
+    const all = (await ask(''))!;
+    // The golden's calls were made in no scope, which is the one scope the dialog could keep to: so it offers none.
+    const body = (await (await api(dash, 'migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5')).json()) as { scopes: Array<{ scope: string | null; calls: number }> };
+    expect(body.scopes).toEqual([{ scope: null, calls: expect.any(Number) }]);
+    // A named scope has none of them, none keeps them all.
+    expect(await ask('&scope=billing')).toMatchObject({ usd: 0, parts: ['no golden’s call is made with claude-sonnet-4-5'] });
+    expect((await ask('&scope=none'))?.usd).toBe(all.usd);
+    // Under its ceiling, Stop at $ is what it is held to, and its line says what is left undone past it.
+    const half = Math.floor(all.usd! * 50) / 100;
+    expect(await ask(`&budget=${half}`)).toEqual({ ...all, stops: half, parts: [...all.parts, 'nothing asked or verified past it'] });
+    for (const q of ['&budget=0', '&budget=lots', '&scope=shadowlap:judge']) expect((await api(dash, `migrate/estimate?to=claude-sonnet-5-5${q}`)).status, q).toBe(400);
   });
 });
 
@@ -169,6 +196,15 @@ describe('a migration’s applied state', () => {
     expect([m.passes.notVerified, m.warnings]).toEqual(['Not verified yet: the agent asks for a key; no goldens.', ['1 step got no answer']]);
     const given = migrateView({ ...k, set: { fields: [], given: { temperature: 1 }, flags: ['--set', 'temperature=1'] } }, CLEAR, { word: 'accepted', tone: 'ok' });
     expect([given.set.sub, given.set.given, given.set.only, given.set.flags]).toEqual([null, ['`temperature=1` as given'], null, 'verify takes them as: `--set temperature=1`']);
+  });
+
+  it('says how each run of What still passes came to its verdict in the words every page says it, never a hyphenated outcome', () => {
+    // As migrate keeps its passes (passesOf): verify's outcome with a hyphen for a run it took, and why the others are inconclusive.
+    const tally = { passes: 0, attempts: 4, bound: null, rule: '4 of 4 attempts must pass', undecided: null };
+    const pass = (golden: string, verdict: string, outcome: string, verified: boolean) => ({ runId, golden, verdict, outcome, verified, tally: verified ? tally : null, diverges: null });
+    const runs = [pass('goldens/a', 'failed', 'not-fixed', true), pass('goldens/b', 'inconclusive', 'unsettled', true), pass('goldens/c', 'inconclusive', 'not-asked', false), pass('goldens/d', 'inconclusive', 'unsettled', false), pass('goldens/e', 'inconclusive', 'not-judged', false)];
+    const m = migrateView({ from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', passes: { verdict: 'rejected', runs } }, CLEAR, { word: 'rejected', tone: 'no' });
+    expect(m.passes.runs.map((x) => x.words)).toEqual(['not fixed, verified · 0 of 4 passed', 'verified · 0 of 4 passed', 'a step not asked', 'not verified', 'a step waits on a judge']);
   });
 
   it('names each golden an applied migration left waiting by its name, on the field its replay diverged on', () => {

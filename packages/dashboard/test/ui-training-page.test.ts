@@ -54,17 +54,17 @@ const LISTING: ModelListing = {
  * The page's answers, from the server's own read models over a store with no pairs yet, and Export
  * pairs offered as it is once a blame made some (two of high confidence, one medium).
  */
-function views() {
+function views(listing: ModelListing = LISTING) {
   const s = Store.open(':memory:');
   // Three redaction rules, as the route reads them from the config.
   const read = trainingView(readTraining(s, { tasks: TASKS, redactRules: 3 }));
   s.close();
   const training = { ...read, actions: { ...read.actions, exportPairs: true }, exportDialog: { ...read.exportDialog, high: 2, all: 3 } };
-  return { training, models: modelsView(TASKS, [], LISTING) };
+  return { training, models: modelsView(TASKS, [], listing) };
 }
 
-function page(tab: 'pairs' | 'tasks', started: Array<{ kind: string; fields: Record<string, unknown> }> = []) {
-  const { training, models } = views();
+function page(tab: 'pairs' | 'tasks', started: Array<{ kind: string; fields: Record<string, unknown> }> = [], listing: ModelListing = LISTING) {
+  const { training, models } = views(listing);
   const client = {
     training: () => Promise.resolve(training),
     models: () => Promise.resolve(models),
@@ -158,6 +158,14 @@ describe('the Training page', () => {
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap tasks score goldens/01M5GS0TFN goldens/01M5GS0VWV --model claude-haiku-4-5 --attempts 5');
     // Set as copy: its words glued with no-break spaces, so a provider's name is never broken inside.
     expect(r.one('.dialog p.trnotes').textContent.replace(/\u00a0/g, ' ')).toBe("Not listed: Ollama, on this machine (isn't running)");
+  });
+
+  it('says on its Cost line the tokens an attempt is priced from, as the server listed them', async () => {
+    r = await render(page('tasks', [], { ...LISTING, tokens: { inputTokens: 9_000, cacheReadInputTokens: 3_000, cacheCreationInputTokens: 400, outputTokens: 820 } }));
+    await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Score model…'));
+    await r.click(r.byText('button', 'Score model…'));
+    await r.until('the models to be listed', () => r!.all('.dialog .cmdline').length === 1);
+    expect(r.one('.dialog .dcost').textContent.replace(/\s+/g, ' ')).toBe('≈$0.040 · 10 attempts on the Anthropic API · about 12.4k input and 820 output tokens an attempt · live from each takeover, writes stubbed');
   });
 });
 

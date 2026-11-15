@@ -7,7 +7,7 @@ import { useLoad } from '../hooks.js';
 import { ErrorState, Skeleton } from '../components/States.js';
 import { overviewFacts } from '../overview/model.js';
 import { NeedsLook } from '../overview/NeedsLook.js';
-import { ACTIVITY_SHOWN, ActivityCard, WatchLive } from '../overview/panels.js';
+import { ACTIVITY_SHOWN, ActivityCard, LiveRecordings } from '../overview/panels.js';
 import { Usage } from '../overview/Usage.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
@@ -18,7 +18,8 @@ import { NoRunsSteps } from './no-runs.js';
 /**
  * The Overview: this week at a glance, worked out on the server in the viewer's time zone. Its
  * header says the outcomes in four facts (failures reproduced, fixes verified, goldens passing, and
- * what was spent live, last and quieter), each with its makeup and last week on hover. Needs a look
+ * what was spent live, last and quieter), each with its makeup and last week on hover, and Watch
+ * live for each recording in progress. Needs a look
  * is the page's one list, with Usage under it, folded until asked for; the activity feed is the
  * aside beside them, and goes under them below 1180px. It follows the runs as they change, a
  * recording included, and the feed each entry stored. While the server is still adding up the runs' totals (a store no dashboard
@@ -77,16 +78,15 @@ export function OverviewPage() {
   if (s.counts.runs === 0)
     return <NoRunsSteps />;
 
-  const recording = s.today.recording[0] ?? null;
-  const liveCalls = recording ? (live.find((l) => l.runId === recording.runId)?.calls ?? recording.calls) : 0;
+  const recording = s.today.recording;
   return (
     <Page>
       <PageHeader
         eyebrow={`${name} · this week`}
         title="Overview"
         text="What failed, what got fixed and proven, and what it cost."
-        facts={overviewFacts(s.outcomes, s.fixes, s.now)}
-        actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
+        facts={overviewFacts(s.outcomes, s.fixes, s.now, s.sums.week)}
+        actions={recording.length ? <LiveRecordings rows={recording} live={live} /> : null}
       />
       <div className="ovg">
         <div className="ovmain">

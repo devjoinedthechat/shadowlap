@@ -26,6 +26,8 @@ type Crumb = { label: string; href?: string; face?: 'rt' | 'code' | 'word'; anc?
 /** What the page shows, as the crumbs name it: only its section where it can't show what it opened for (`unshown`). */
 function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: string; about: string | null }>, o: { fixName: string | null; aboutOf: (id: string) => string | null; unshown: boolean; exported: boolean }): Crumb[] {
   switch (route.page) {
+    case 'activity':
+      return [{ label: 'Overview', href: href.overview() }, { label: 'Activity', face: 'word' }];
     case 'runs':
       return [{ label: 'Runs' }];
     case 'run': {
@@ -172,7 +174,7 @@ export function TopBar({ route }: { route: Route }) {
       </nav>
       <div className="sp" />
       {chip ? (
-        <a className="livechip" href={href.run(chip.runId)} data-tip={tipCard(chip.title, [], chip.line)}>
+        <a className="livechip" href={chip.href} data-tip={tipCard(chip.title, chip.rows, chip.line)}>
           <span className="dotlive" />
           {chip.words}
         </a>

@@ -379,7 +379,7 @@ A pull request's job whose number can't be found writes nothing, and says so.
 
 A pull leaves those folders out.
 
-- **`shadowlap pull --include-pr`** brings the runs pull requests' jobs pushed, to look at a failing test, say.
+- **`shadowlap pull --include-pr`** brings the runs pull requests' jobs pushed, to look at a failing test, say. In the dashboard, Settings → Store's **Pull runs…** has a switch for it.
 - **They stay on this machine.** `push --all` leaves them out and `push <run>` refuses one, so a pull request's run never reaches the team's through a teammate.
 - **The store's own folder first.** A run the store itself holds always comes from the store's own folder, even as the parent of a pull request's run. Nothing a pull request's folder says about a run already here (its labels, notes or results) is taken.
 - **Replaced once the team pushes it.** A run a pull request's folder brought before the store held it is replaced by the store's own copy on the next pull, once the team pushes it.

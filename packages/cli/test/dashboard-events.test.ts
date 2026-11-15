@@ -232,6 +232,23 @@ describe('a command started by a dashboard job', () => {
   });
 });
 
+describe('doctor started by a dashboard job', () => {
+  it('reports its checks as its result, as --json prints them', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'sl-dash-doctor-'));
+    try {
+      const projectDb = join(project, '.shadowlap', 'shadowlap.db');
+      const shown = await shadowlap(['doctor'], { cwd: project, db: projectDb });
+      const printed = await shadowlap(['doctor', '--json'], { cwd: project, db: projectDb });
+      const results = shown.events.filter((e) => e.type === 'result');
+      expect(results).toEqual([{ type: 'result', data: { checks: JSON.parse(printed.out) as unknown } }]);
+      const checks = (results[0] as { data: { checks: Array<{ name: string }> } }).data.checks;
+      expect(checks.map((c) => c.name)).toEqual(expect.arrayContaining(['node', 'sqlite', 'store']));
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('more commands a dashboard job runs', () => {
   let volatile: MockServer;
   beforeAll(async () => {

@@ -49,6 +49,7 @@ function PageFailed() {
 }
 
 export const OverviewPage = onOpen(() => import('./Overview.js').then((m) => m.OverviewPage));
+export const ActivityPage = onOpen(() => import('./Activity.js').then((m) => m.ActivityPage));
 export const RunsPage = onOpen(() => import('./Runs.js').then((m) => m.RunsPage));
 export const RunPage = onOpen(() => import('./Run.js').then((m) => m.RunPage));
 export const ChangesPage = onOpen(() => import('./Changes.js').then((m) => m.ChangesPage));
@@ -83,6 +84,8 @@ function PageFor({ route }: { route: Route }) {
   switch (route.page) {
     case 'overview':
       return <OverviewPage />;
+    case 'activity':
+      return <ActivityPage />;
     case 'runs':
       return <RunsPage filter={route.filter} />;
     case 'run':

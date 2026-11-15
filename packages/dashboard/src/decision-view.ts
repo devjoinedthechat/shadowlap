@@ -1,10 +1,10 @@
-import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyCount, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
-import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, stepsAsked, tallyCount, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { LATER_STEPS, verifiedOutcome, type DecisionCell, type DecisionRow } from './decision-cells.js';
 import { moreOf, type PreviewMore } from './decision-more.js';
 import { decisionSession, runDecisions, sessionGate, sessionKeptMax, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsWithin } from './run-about.js';
-import { migrateView, type MigrateView } from './migrate-view.js';
+import { migrateView, retirementWords, type MigrateView } from './migrate-view.js';
 import { migrationOfPreview } from './migrate-applied.js';
 import { loadRunIndex } from './run-index.js';
 import { ROW_CALLS_BUDGET } from './runs-list.js';
@@ -119,7 +119,7 @@ export interface PreviewView {
   counts: PreviewCounts;
   /** The key's entries: the ranked counts, then the quieter ones. */
   key: { main: PreviewKeyEntry[]; quiet: PreviewKeyEntry[] };
-  /** What couldn't be asked or judged, the report's and each run's, once each. */
+  /** The retirement notices of the models the runs use and of the one switched to, in today's words, then what couldn't be asked or judged, the report's and each run's, once each, as `decisions` prints them. */
   warnings: string[];
   receipt: PreviewReceipt;
   /** What a run the preview cleared rests on, once verify ran. */
@@ -243,7 +243,7 @@ function perRunTokens(runs: readonly DecisionRun[]): PreviewReceipt['tokens'] {
   return t && (t.before || t.after) ? t : null;
 }
 
-type PreviewReport = Pick<DecisionsReport, 'counts' | 'flagged' | 'samples' | 'cost' | 'stopReason' | 'judge'> & { runs: DecisionRun[]; toVerify?: string[]; verify?: DecisionsVerify | null; change?: { model?: string | null; from?: string[] | null; fromCode?: unknown; text?: string }; command?: string; notes?: string[]; warnings?: string[] };
+type PreviewReport = Pick<DecisionsReport, 'counts' | 'flagged' | 'samples' | 'cost' | 'stopReason' | 'judge'> & { runs: DecisionRun[]; toVerify?: string[]; verify?: DecisionsVerify | null; change?: { model?: string | null; from?: string[] | null; fromCode?: unknown; text?: string }; command?: string; notes?: string[]; warnings?: string[]; retirements?: unknown };
 
 /** A kept report, its parts a session kept before they were filled in as a report without them says: none flagged, nothing spent. */
 function keptReport(r: Partial<PreviewReport>): PreviewReport {
@@ -283,7 +283,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     const run = store.getRun(row.runId);
     const entry = v?.runs.find((x) => x.runId === row.runId) ?? null;
     const forkAt = run?.mode === 'replay' ? (run.divergence?.callNo ?? null) : null;
-    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
+    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: verifiedOutcome(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
   });
   const headline = decisionsHeadline({ counts: report.counts, flagged: report.flagged, runs });
   const c = report.counts;
@@ -304,7 +304,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     next: nextFacts(store, session, report, v, { sessionId, asked: headline.asked, word: verdict.word, keptMax: o.keptMax }),
     counts: { writes: c[1], stops: c[2], reads: c[3] + c[4], text: c[5], same: c.same, left: c.untouched, notAsked: c.notAsked, noise: c.noise ?? 0, waits: cells.filter(ringed).length, split: cells.filter(split).length },
     key: previewKey(c, cells, { notes: report.notes ?? [], warnings: report.warnings ?? [], samples: report.samples, refused: runs.some((x) => x.refused), fromCode: !!report.change?.fromCode }),
-    warnings: [...new Set([...(report.warnings ?? []), ...runs.flatMap((x) => (Array.isArray(x.warnings) ? x.warnings : []))])],
+    warnings: [...new Set([...retirementWords(report.retirements, Date.now()).map((n) => n.text), ...(report.warnings ?? []), ...runs.flatMap((x) => (Array.isArray(x.warnings) ? x.warnings : []))])],
     receipt: receiptOf(report),
     cleared: CLEARED,
     redacted: o.redacted === true,

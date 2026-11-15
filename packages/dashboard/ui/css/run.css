@@ -360,6 +360,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .fnode.fb .fbt:hover code { text-decoration: underline; text-underline-offset: 3px; }
 .fnode.fb .astrip { margin-top: 8px; align-items: center; }
 .fkids { margin-left: 22px; padding-left: 12px; border-left: 1px solid var(--line2); }
+/* a run whose kept injection tests the list cut at its newest: said under its tests, never silently */
+.fam .fnote { margin: 2px 12px 8px 36px; font-size: 12.5px; color: var(--faint); text-wrap: pretty; }
 .attempts { margin-top: 8px; display: grid; gap: 3px; }
 .attempts span { display: flex; align-items: center; gap: 8px; font: 12px var(--mono); color: var(--dim); }
 .attempts span i { width: 7px; height: 7px; border-radius: 2px; background: var(--cq-lime); }

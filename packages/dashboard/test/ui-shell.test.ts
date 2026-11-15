@@ -8,6 +8,7 @@ import { stripScroll } from '../ui/place.js';
 import { exportedLine, exportedNote } from '../ui/projects.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled, RM_ALL, rmCommand } from '../ui/runspage/bulk.js';
 import { phoenixProjectNote, phoenixProjectOk, TRACE_COPY, traceIdOk } from '../ui/runspage/imports.js';
+import { href } from '../ui/route.js';
 import { copyCompares } from '../ui/runs.js';
 import { crumbLineage, crumbParent, liveChip } from '../ui/shell/top.js';
 import { errorText, sentence, TOAST_MS } from '../ui/toast.js';
@@ -177,7 +178,7 @@ describe('the top bar', () => {
     const at = new Date(2026, 9, 16, 14, 2).getTime();
     const rec = [{ runId: '01M51XRN57ABCDEFGHJKMNPQRS', calls: 9 }];
     const about = (id: string) => (id === rec[0].runId ? 'Ticket T-8812: the order arrived damaged' : null);
-    expect(liveChip({ recording: rec, open: null, conn: 'ok', loadedAt: at, aboutOf: about })).toEqual({ runId: rec[0].runId, words: 'recording · 9 calls', title: 'Recording 01M51XRN57', line: 'Ticket T-8812: the order arrived damaged' });
+    expect(liveChip({ recording: rec, open: null, conn: 'ok', loadedAt: at, aboutOf: about })).toEqual({ href: href.run(rec[0].runId), words: 'recording · 9 calls', title: 'Recording 01M51XRN57', rows: [], line: 'Ticket T-8812: the order arrived damaged' });
     expect(liveChip({ recording: [{ runId: 'R1', calls: 1 }], open: null, conn: 'ok', loadedAt: at })?.words).toBe('recording · 1 call');
     expect(liveChip({ recording: rec, open: null, conn: 'offline', loadedAt: at, aboutOf: about })?.line).toBe('Recording when last heard of, at 14:02: live updates are paused');
     expect(liveChip({ recording: rec, open: null, conn: 'expired', loadedAt: at })).toBeNull();
@@ -191,8 +192,28 @@ describe('the top bar', () => {
     ];
     expect(liveChip({ recording: rec.slice(0, 1), open: rec[0].runId, conn: 'ok', loadedAt: null })).toBeNull();
     expect(liveChip({ recording: rec.slice(0, 1), open: '01M51XRN57', conn: 'ok', loadedAt: null })).toBeNull();
-    expect(liveChip({ recording: rec, open: '01M51XRN57', conn: 'ok', loadedAt: null })?.runId).toBe(rec[1].runId);
-    expect(liveChip({ recording: rec, open: '01M51', conn: 'ok', loadedAt: null })?.runId).toBe(rec[0].runId);
+    expect(liveChip({ recording: rec, open: '01M51XRN57', conn: 'ok', loadedAt: null })?.href).toBe(href.run(rec[1].runId));
+    // An id shorter than a short id names no recording: both are counted.
+    expect(liveChip({ recording: rec, open: '01M51', conn: 'ok', loadedAt: null })?.words).toBe('2 recording');
+  });
+
+  it('counts several recordings as the Overview does, its card naming each by its short id, and leads to Runs on them all', () => {
+    const rec = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ runId: `01M5${n}AAAAABCDEFGHJKMNPQRS`, calls: n }));
+    const all = href.runs({ q: 'status:live' });
+    expect(liveChip({ recording: rec.slice(0, 4), open: null, conn: 'ok', loadedAt: null })).toEqual({
+      href: all,
+      words: '4 recording',
+      title: '4 runs recording',
+      rows: [1, 2, 3, 4].map((n) => ({ label: `01M5${n}AAAAA`, value: n === 1 ? '1 call' : `${n} calls` })),
+      line: null,
+    });
+    // On one's own page, the others: more besides it.
+    expect(liveChip({ recording: rec.slice(0, 4), open: rec[0].runId, conn: 'ok', loadedAt: null })).toMatchObject({ href: all, words: '3 more recording', title: '3 more runs recording' });
+    // Five by name, the rest counted; offline, when they were last heard of instead.
+    const seven = liveChip({ recording: rec, open: null, conn: 'ok', loadedAt: null })!;
+    expect([seven.words, seven.rows.map((x) => x.label), seven.line]).toEqual(['7 recording', rec.slice(0, 5).map((x) => x.runId.slice(0, 10)), 'and 2 more, on Runs']);
+    const at = new Date(2026, 9, 16, 14, 2).getTime();
+    expect(liveChip({ recording: rec.slice(0, 2), open: null, conn: 'offline', loadedAt: at })?.line).toBe('Recording when last heard of, at 14:02: live updates are paused');
   });
 });
 

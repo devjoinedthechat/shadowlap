@@ -83,6 +83,8 @@ test("the run's finding says what its test found, and Show results opens its mat
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   // Five reads, two templates: every cell an attempt that obeyed, each a link to its proof's write.
   await expect(page.locator(CELL)).toHaveCount(10);
+  // Its receipt says what the reads the recording doesn't hold did: blocked, as the test ran without --live-reads.
+  await expect(page.locator(`${PANEL} .rmxp`)).toContainText('reads the recording doesn’t hold blocked');
   await expectAccessible(page);
   await toggle.click();
   await expect(page.locator(`${PANEL} .rmx`)).toHaveCount(0);

@@ -72,23 +72,54 @@ export function goldensTip(t: TestsTile, now: number): string[] {
 const counted = (n: number, one: string, many: string) => ({ value: num(n), words: n === 1 ? one : many });
 
 /**
+ * How far every failure got towards a fix, as Fixes counts them (the fixes funnel): `of 12 failures,
+ * 9 blamed, 5 verified, 3 applied`, then the verified fixes waiting to be applied and those applied
+ * that don't hold. None without a failure.
+ */
+export function funnelParts(f: Omit<FixesFunnel, 'attempts' | 'spent'>): string[] {
+  if (!f.failures) return [];
+  return [`of ${num(f.failures)} ${f.failures === 1 ? 'failure' : 'failures'}, ${num(f.blamed)} blamed, ${num(f.verified)} verified, ${num(f.applied)} applied`, ...(f.readyToApply ? [`${num(f.readyToApply)} ready to apply`] : []), ...(f.broken ? [`${num(f.broken)} applied that ${f.broken === 1 ? 'doesn’t' : 'don’t'} hold`] : [])];
+}
+
+/** What the week's attempts spent, of what was spent live: `$1.20 of it by 40 attempts`; null with none. */
+export const attemptsPart = (w: { attempts: number; attemptsSpent: number }): string | null => (w.attempts ? `${cents(w.attemptsSpent)} of it by ${num(w.attempts)} ${w.attempts === 1 ? 'attempt' : 'attempts'}` : null);
+
+/** What a hover card's line holds at the size it sets (HoverCard's clause). */
+const CARD_LINE = 64;
+
+/**
+ * A hover card's part kept whole where a card's line holds it, as Usage keeps its line's parts: the
+ * line breaks between parts, after a dot, and never inside one (`$1.03 not re-spent`). A part of
+ * parts (`replayed exactly · 3 still open`) keeps each of them whole.
+ */
+const whole = (part: string | null): string | null => part && part.split(' · ').map((p) => (p.length <= CARD_LINE ? p.replace(/ /g, '\u00a0') : p)).join(' · ');
+
+/** A fact with each part of its hover card kept whole (`whole`). */
+function kept(f: Fact): Fact {
+  return { ...f, ...(f.tip ? { tip: { ...f.tip, ...(f.tip.parts ? { parts: f.tip.parts.map((p) => whole(p ?? null)) } : {}) } } : {}), ...(f.was ? { was: whole(f.was) } : {}) };
+}
+
+/**
  * The header's four facts, as the mock says them: `4 failures reproduced · 1 fix verified · 2 of 7
  * goldens passing · $16.24 spent live`, the money last and quieter, each with what it is made of and
- * last week on hover. A fix verified is lime. Without goldens, `0 goldens yet`, still a link to Tests.
+ * last week on hover, each part kept whole: Fixes verified the fixes funnel too, Spent live what the
+ * week's attempts spent of it. A fix verified is lime. Without goldens, `0 goldens yet`, still a
+ * link to Tests.
  */
-export function overviewFacts(o: OverviewSummary['outcomes'], fixes: Pick<FixesFunnel, 'attempts' | 'spent'>, now: number): Fact[] {
+export function overviewFacts(o: OverviewSummary['outcomes'], fixes: FixesFunnel, now: number, week: { attempts: number; attemptsSpent: number } = { attempts: 0, attemptsSpent: 0 }): Fact[] {
   const t = o.testsPassing;
   const v = o.fixesVerified;
   const behind = fixes.attempts ? `${num(fixes.attempts)} ${fixes.attempts === 1 ? 'attempt' : 'attempts'} behind them, ${cents(fixes.spent)} spent live` : null;
   const tests: Fact = t?.goldens
     ? { value: `${num(t.passing)} of ${num(t.goldens)}`, words: t.goldens === 1 ? 'golden passing' : 'goldens passing', tip: { title: 'Goldens passing', parts: goldensTip(t, now) }, was: t.lastWeek === null ? null : `${num(t.lastWeek)} of ${num(t.goldens)} last week`, href: href.tests() }
     : { value: '0', words: 'goldens yet', href: href.tests() };
-  return [
+  const facts: Fact[] = [
     { ...counted(o.reproduced.value, 'failure reproduced', 'failures reproduced'), tip: { title: 'Failures reproduced', parts: [reproducedNote(o.reproduced)] }, was: `${num(o.reproduced.lastWeek)} last week`, href: href.fixes() },
-    { ...counted(v.value, 'fix verified', 'fixes verified'), ...(v.value > 0 ? { tone: 'ok' as const } : {}), tip: { title: 'Fixes verified', parts: [verifiedNote(v), behind] }, was: `${num(v.lastWeek)} last week`, href: href.fixes() },
+    { ...counted(v.value, 'fix verified', 'fixes verified'), ...(v.value > 0 ? { tone: 'ok' as const } : {}), tip: { title: 'Fixes verified', parts: [verifiedNote(v), behind, ...funnelParts(fixes)] }, was: `${num(v.lastWeek)} last week`, href: href.fixes() },
     tests,
-    { value: cents(o.spent.value), words: 'spent live', money: true, tip: { title: 'Spent live, the last 7 days', parts: [`${cents(o.spent.notRespent)} not re-spent`, `${durLong(o.spent.notWaitedMs)} not waited`] }, was: `${cents(o.spent.lastWeek)} last week` },
+    { value: cents(o.spent.value), words: 'spent live', money: true, tip: { title: 'Spent live, the last 7 days', parts: [attemptsPart(week), `${cents(o.spent.notRespent)} not re-spent`, `${durLong(o.spent.notWaitedMs)} not waited`] }, was: `${cents(o.spent.lastWeek)} last week` },
   ];
+  return facts.map(kept);
 }
 
 /** A piece of a row's words: plain, kept whole (`nw`), or a run's short id, named as every run is. */
@@ -173,6 +204,12 @@ export function shortPaths(text: string): string {
  * cache · $16.24 spent live this week`. No calls, no share of them; no live model call that reports
  * the cache, no cache part.
  */
+/** Last week's calls and how many were replayed, under this week's: `last week 980 calls, 48% replayed`. */
+export function lastWeekWords(last: { calls: number; origins: Readonly<Record<string, number>> }): string {
+  if (!last.calls) return 'no calls last week';
+  return `last week ${num(last.calls)} ${last.calls === 1 ? 'call' : 'calls'}, ${share(originCounts(last.origins).rep, last.calls)} replayed`;
+}
+
 export function usageLine(week: { calls: number; runs: number; origins: Readonly<Record<string, number>> }, readShare: number | null, spent: number): string[] {
   const rep = originCounts(week.origins).rep;
   return [

@@ -613,8 +613,13 @@ describe('what a session kept of its pull request and its comment', () => {
         note: "Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.",
       },
       cost: { before: 0.041, after: 0.043, line: '≈$0.041 → ≈$0.043 (+5%)', amounts: '≈$0.041 → ≈$0.043', change: '+5%' },
-      injection: [{ verdict: 'passed', golden: 'goldens/escalate-over-limit', resultId: 'ij-escalate', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }],
+      // No result kept for its gate in this store: no run to open it on.
+      injection: [{ verdict: 'passed', golden: 'goldens/escalate-over-limit', resultId: 'ij-escalate', runId: null, line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }],
     });
+    // Kept, its gate's result opens on the run it tested.
+    prs.putInjectionResult({ resultId: 'ij-escalate', runId: 'R_ESCALATE', golden: 'goldens/escalate-over-limit', sessionId: 'S1', mode: 'plant', at: 1, endedAt: 2, attempts: 6, obeyed: 0, influenced: 0, ignored: 6, inconclusive: 0, verdict: 'ignored', actor: null, data: {} });
+    expect(verdictRevision(prs, GOLDENS, 'a1a1a1a')!.comment?.injection.map((i) => i.runId)).toEqual(['R_ESCALATE']);
+    prs.deleteInjectionResult('ij-escalate');
     // Its injection gate is in the parts on its own: a session that kept nothing else still carried it.
     expect(verdictRevision(prs, GOLDENS, 'c3c3c3c')!.comment).toEqual({ decisions: null, cost: null, injection: [expect.objectContaining({ golden: 'goldens/escalate-over-limit' })] });
     // Run with uncommitted changes: its key as it is, and nothing its comment carried.

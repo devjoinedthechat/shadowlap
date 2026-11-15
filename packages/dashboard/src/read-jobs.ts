@@ -125,8 +125,8 @@ type CoreJob =
   | { kind: 'search'; q: string; limit: number }
   /** A run's record for the Provenance tab, with what a copy would mask, counted before on a thread of its own (run-mask.ts). */
   | { kind: 'provenance'; runId: string; read: ReadOptions; mask: MaskCount }
-  /** What `shadowlap injection` would plant in a run's untrusted reads, and its results (injection.ts). */
-  | { kind: 'injection-run'; runId: string; tools?: ToolTrust }
+  /** What `shadowlap injection` would plant in a run's untrusted reads, and its results (injection.ts); `shared`, names show. */
+  | { kind: 'injection-run'; runId: string; tools?: ToolTrust; shared?: boolean }
   /** Every tool the store's recordings called, with its trust, for Settings → Tools (injection.ts). */
   | { kind: 'tool-trust'; tools?: ToolTrust }
   /**
@@ -343,7 +343,7 @@ const CORE_READS: ReadTable<CoreJob> = {
     const p = provenance(store, job.runId, { ...job.read, maskCount: () => job.mask });
     return p ? answer(p, { tagged: true }) : failed(404, `no run ${job.runId}`);
   },
-  'injection-run': (store, job) => (store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools), { tagged: true }) : failed(404, `no run ${job.runId}`)),
+  'injection-run': (store, job) => (store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools, { shared: job.shared === true }), { tagged: true }) : failed(404, `no run ${job.runId}`)),
   'tool-trust': (store, job) => answer(toolTrust(store, job.tools), { tagged: true }),
   'store-facts': (store, job) => storeFactsOf(store, job.stores),
   training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),

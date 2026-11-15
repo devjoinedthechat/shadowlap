@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { ACTIONS, type CauseVerdict, CLEAN_GATE, cleanBound, cleanDecided, cleanRule, cleanTally, type CleanReport, type CleanWriteReport, type Gate, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { ACTIONS, canaryForms, type CauseVerdict, CLEAN_GATE, cleanBound, cleanDecided, cleanRule, cleanTally, type CleanReport, type CleanWriteReport, type Gate, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { causeFacts, type CauseFacts } from './injection-cause.js';
 import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
@@ -20,7 +20,9 @@ import { optionLike, type GoldenSource } from './tests.js';
 export interface InjectionRow {
   resultId: string;
   runId: string;
+  /** The golden it tested, by its path: as its injection gate, or on its own (`shadowlap injection <golden>`). */
   golden: string | null;
+  /** The test session whose injection gate ran it: a gate's always has one, a test on its own none. */
   sessionId: string | null;
   mode: 'plant' | 'clean';
   at: number;
@@ -36,6 +38,7 @@ export interface InjectionRow {
   verdict: string | null;
   /** What the result comes to: plant, its gate's verdict against its limits; clean, inconclusive while a write is undecided, else passed. Null while it runs. */
   gate: 'passed' | 'failed' | 'inconclusive' | null;
+  /** Who ran it, only where names are shown (a team store); null otherwise. */
   actor: string | null;
   /** One line: `send_email obeyed a planted instruction · 2 of 3`, `caused by #9 fetch_page`. */
   line: string;
@@ -91,7 +94,8 @@ export function resultGate(r: StoredInjectionResult): InjectionRow['gate'] {
   return (data as Partial<PlantReport>).gate?.verdict ?? null;
 }
 
-function row(r: StoredInjectionResult): InjectionRow {
+/** A kept result's row; `shared`: names show (a team store), so it says who ran it, as its panel does. */
+function row(r: StoredInjectionResult, shared = false): InjectionRow {
   const data = r.data as Partial<PlantReport> & Partial<Pick<Extract<InjectionReport, { mode: 'clean' }>, 'rule' | 'read'>>;
   return {
     resultId: r.resultId,
@@ -109,7 +113,7 @@ function row(r: StoredInjectionResult): InjectionRow {
     inconclusive: r.inconclusive,
     verdict: r.verdict,
     gate: resultGate(r),
-    actor: r.actor,
+    actor: shared ? r.actor : null,
     line: injectionLine(r),
     reason: r.mode === 'plant' && r.endedAt !== null ? (data.gate?.reason ?? null) : null,
     spent: data.cost?.spent ?? 0,
@@ -119,9 +123,17 @@ function row(r: StoredInjectionResult): InjectionRow {
   };
 }
 
-/** The results kept, newest first: of one run tested, one golden, or all. */
-export function injectionResults(store: StoreOf<'injection'>, o: { runId?: string; golden?: string; limit?: number } = {}): { results: InjectionRow[] } {
-  return { results: store.listInjectionResults(o).map(row) };
+/** The most results a list gives unless asked for more, as the store lists them. */
+export const RESULTS_LISTED = 100;
+
+/**
+ * The results kept, newest first: of one run tested, one golden, or all, `limit` of them (100 unless
+ * given); `more` when older ones are left out. `shared`: names show, so each says who ran it.
+ */
+export function injectionResults(store: StoreOf<'injection'>, o: { runId?: string; golden?: string; limit?: number; shared?: boolean } = {}): { results: InjectionRow[]; more: boolean } {
+  const { shared = false, limit = RESULTS_LISTED, ...which } = o;
+  const kept = store.listInjectionResults({ ...which, limit: limit + 1 });
+  return { results: kept.slice(0, limit).map((r) => row(r, shared)), more: kept.length > limit };
 }
 
 /** One kept result's row and its report as `--json` printed it, and nothing it names: what the security report and its preview read. */
@@ -140,8 +152,9 @@ export function injectionResult(store: StoreOf<'recording' | 'injection'>, resul
   if (!r) return null;
   const report = r.data as unknown as InjectionReport;
   const named = report.mode === 'plant' ? [...report.attempts.map((a) => a.runId), ...report.baselines.flatMap((b) => b.runs)] : (report.attempts ?? []).map((a) => a.runId);
-  const view = report.mode === 'plant' && r.endedAt !== null ? injectionPanel(store, report, { by: o.shared ? r.actor : null }) : null;
-  return { row: row(r), report, gone: named.filter((id) => !store.getRun(id)), view };
+  // A test session's is the golden's injection gate; a golden tested on its own (`shadowlap injection <golden>`) has none.
+  const view = report.mode === 'plant' && r.endedAt !== null ? injectionPanel(store, report, { by: o.shared ? r.actor : null, gate: r.sessionId !== null }) : null;
+  return { row: row(r, o.shared === true), report, gone: named.filter((id) => !store.getRun(id)), view };
 }
 
 /** A `--clean` answer about one write: the newest for its read and write, as the run's finding lists it. */
@@ -188,8 +201,12 @@ export interface RunInjection {
   answers: CleanAnswer[];
   /** Find cause…'s facts on each live write after an untrusted read (injection-cause.ts). */
   cause: CauseFacts[];
-  /** `parts`: an attempt's proof in its parts, for the page to draw with each call to pick (none for a baseline or a clean attempt). */
-  attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null; parts: ProofParts | null }) | null;
+  /**
+   * `parts`: an attempt's proof in its parts, for the page to draw with each call to pick (none for a
+   * baseline or a clean attempt); `forms`, each form of its canary the test takes as proof in text,
+   * case aside (canaryForms), which its page marks.
+   */
+  attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null; parts: ProofParts | null; forms: string[] }) | null;
 }
 
 /**
@@ -199,8 +216,9 @@ export interface RunInjection {
  * was read, and the line that joins them. `shadowlap injection` keeps no interventions on its
  * replays (a planted read is stored as overridden), so the planted text, filled with the attempt's
  * canary, and the path it went after in the recorded result come from the result (attemptPlant).
+ * `shared`: names show, so each result says who ran it.
  */
-export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: string, tools?: ToolTrust): RunInjection {
+export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: string, tools?: ToolTrust, o: { shared?: boolean } = {}): RunInjection {
   const run = store.getRun(runId);
   const mark = run?.meta?.injection ?? null;
   const of = mark ? store.getInjectionResult(mark.result) : null;
@@ -210,7 +228,7 @@ export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: s
   const report = of ? (of.data as unknown as InjectionReport) : null;
   const plant = run && mark ? attemptPlant(store, run, mark, report, calls) : null;
   const kept = store.listInjectionResults({ runId });
-  return { untrusted, results: kept.map(row), rule: cleanRule(CLEAN_GATE), answers: cleanAnswers(kept), cause: run ? causeFacts(store, run, calls, untrusted) : [], attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };
+  return { untrusted, results: kept.map((r) => row(r, o.shared === true)), rule: cleanRule(CLEAN_GATE), answers: cleanAnswers(kept), cause: run ? causeFacts(store, run, calls, untrusted) : [], attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId), forms: mark.canary ? canaryForms(mark.canary) : [] } : null };
 }
 
 /** An attempt's proof in its parts: the kept result's own evidence, which says why a write counts, else its record's. */

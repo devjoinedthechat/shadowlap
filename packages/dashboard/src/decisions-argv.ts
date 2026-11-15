@@ -36,6 +36,18 @@ export const fromFlags = (models: readonly string[]): string[] => models.flatMap
 /** `--scope`: a scope's name, or `none` for the calls made in none; nothing without one. */
 export const scopeFlags = (scope: string | null | undefined): string[] => (scope ? ['--scope', scope] : []);
 
+/** The most a Stop at $ takes, in USD, as Run injection test's does. */
+export const BUDGET_MAX = 100_000;
+
+/** `--budget`: Stop at $, to the cent; nothing without one. */
+export const budgetFlags = (usd: number | null | undefined): string[] => (typeof usd === 'number' && usd > 0 ? ['--budget', usd.toFixed(2)] : []);
+
+/** What a Stop at $ field holds, as an amount to the cent above 0 and at most BUDGET_MAX, or null for none or one that isn't. */
+export function stopAt(text: string): number | null {
+  const usd = Number(text.trim().replace(/^\$/, ''));
+  return text.trim() && Number.isFinite(usd) && usd > 0 && usd <= BUDGET_MAX ? Math.round(usd * 100) / 100 : null;
+}
+
 /** A preview as its job takes it, checked: its targets as resolved (run ids, golden paths) and its change. */
 export interface DecisionsArgs {
   targets: readonly string[];
@@ -46,6 +58,8 @@ export interface DecisionsArgs {
   fromCode?: boolean;
   samples?: number | null;
   thenVerify?: boolean;
+  /** Stop at $: no request sent, nor verify attempt started, once this much is spent. */
+  budget?: number | null;
 }
 
 /** A migration as its job takes it, checked: the model it switches to, its goldens or runs, and what it switches. */
@@ -55,6 +69,8 @@ export interface MigrateArgs {
   from?: readonly string[];
   scope?: string | null;
   set?: ReadonlyArray<readonly [string, string]>;
+  /** Stop at $: no request sent, nor attempt started, once this much is spent. */
+  budget?: number | null;
 }
 
 /**
@@ -63,7 +79,7 @@ export interface MigrateArgs {
  * palette); consent's `--yes` is the job's to add.
  */
 export function migrateArgv(o: MigrateArgs): string[] {
-  return ['migrate', '--to', o.to, ...o.targets, ...fromFlags(o.from ?? []), ...scopeFlags(o.scope), ...setFlags(o.set ?? [])];
+  return ['migrate', '--to', o.to, ...o.targets, ...fromFlags(o.from ?? []), ...scopeFlags(o.scope), ...setFlags(o.set ?? []), ...budgetFlags(o.budget)];
 }
 
 /** `decisions` with its targets and flags in the order its job runs them; consent's `--yes` is the job's to add. */
@@ -78,5 +94,6 @@ export function decisionsArgv(o: DecisionsArgs): string[] {
     ...(o.fromCode ? ['--from-code'] : []),
     ...(typeof o.samples === 'number' ? ['--samples', String(o.samples)] : []),
     ...(o.thenVerify ? ['--then-verify'] : []),
+    ...budgetFlags(o.budget),
   ];
 }

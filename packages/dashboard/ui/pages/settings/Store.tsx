@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { CopyButton } from '../../components/CodeBox.js';
 import { EmptyState } from '../../components/States.js';
@@ -18,12 +19,14 @@ import { Section } from '../../components/Section.js';
 import { Switch } from '../../components/Switch.js';
 import { Code, Copy, Words } from '../../components/Copy.js';
 import { DotParts } from '../../components/DotParts.js';
+import { PullRunsDialog } from './PullRuns.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
  * copies this machine's runs there, pull brings the team's back, and CI pushes its test runs. The
- * bucket, who has access with the policy to ask for, your access with Check again, the last sync
- * with what is in the store and only here, and Push from CI. One lime button, the next step: Push
+ * bucket, who has access with the policy to ask for, your access with Check again, the last push and
+ * pull with what is in the store and only here, and Pull runs… for the runs named or pull requests'
+ * runs, and Push from CI. One lime button, the next step: Push
  * local runs while finished runs are only here, else Continue setup while a setup is under way. A
  * project with none says so, and Set up team store opens the setup's page (`#/setup/store`, in
  * StoreSetup.tsx), as the design's Set up Team does; a setup under way leads back there from here.
@@ -123,8 +126,8 @@ function StoreActions({ status: s, lime }: { status: Status; lime: boolean }) {
 }
 
 /**
- * The bucket, who has access with the policy to ask for, your access with Check again, the last sync,
- * and the last check, which Check again's job brings up to date.
+ * The bucket, who has access with the policy to ask for, your access with Check again, the last push
+ * and pull with Pull runs…, and the last check, which Check again's job brings up to date.
  */
 function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettings['policy'] }) {
   const app = useApp();
@@ -165,10 +168,11 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
       </dd>
       <dt>Last sync</dt>
       <dd>
-        {syncText(s.syncedAt)}{' '}
+        {s.syncedAt === null ? 'never' : <DotParts parts={[`pushed ${syncText(s.pushedAt)}`, `pulled ${syncText(s.pulledAt)}`]} />}{' '}
         <small>
           <DotParts parts={[`${num(s.inStore)} ${s.inStore === 1 ? 'run' : 'runs'} in the store`, `${num(s.onlyLocal)} only on this machine`, ...(s.queued ? [`${num(s.queued)} pushed when ${s.queued === 1 ? 'it ends' : 'they end'}`] : [])]} />
-        </small>
+        </small>{' '}
+        <PullRuns />
       </dd>
       {s.check ? (
         <>
@@ -181,6 +185,24 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
         </>
       ) : null}
     </dl>
+  );
+}
+
+/**
+ * Pull runs…: its dialog names the runs to pull, or takes pull requests' runs too. None on a
+ * read-only dashboard, or on one whose server doesn't run pulls.
+ */
+function PullRuns() {
+  const app = useApp();
+  const [open, setOpen] = useState(false);
+  if (app.actionsOff || !app.hasKind(JOB_KINDS.pull)) return null;
+  return (
+    <>
+      <ActionButton className="btn sm" tip="Pull runs…" sub="The runs you name, or pull requests’ runs too" command="$ shadowlap pull <run…>" onClick={() => setOpen(true)}>
+        Pull runs…
+      </ActionButton>
+      {open ? <PullRunsDialog onClose={() => setOpen(false)} /> : null}
+    </>
   );
 }
 

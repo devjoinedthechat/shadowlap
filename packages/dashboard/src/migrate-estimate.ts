@@ -1,4 +1,5 @@
 import { type Estimate, migrateEstimate, recordedChecks, recordedRole, type Price, type Store } from '@shadowlap/engine';
+import { callScopes, heldTo, type PreviewEstimates } from './preview-estimate.js';
 import type { ConfigVerifyRule } from './estimates.js';
 import { sameSwitch } from './migrate-applied.js';
 import { estimateOf, pricingOf } from './pricing.js';
@@ -8,19 +9,25 @@ import type { GoldenSource } from './tests.js';
 
 /**
  * What Migrate to <model> bills, as `GET /api/migrate/estimate` answers it: migrate's ceiling over the
- * goldens it asks (migrateEstimate: the switched calls asked again, then each golden verified, a
- * golden whose recording fails its checks up to the gate's most attempts, one that passes in pairs),
- * and the newest preview of the same switch, which the dialog names. A pooled read: it judges each
- * golden's recording by its checks and reads its calls.
+ * goldens and runs it asks (migrateEstimate: the switched calls asked again, then each verified, one
+ * whose recording fails its checks up to the gate's most attempts, one that passes in pairs), and the
+ * newest preview of the same switch, which the dialog names. A pooled read: it judges each recording
+ * by its checks and reads its calls.
  */
 
-/** `GET /api/migrate/estimate`'s answer: migrate's ceiling, and the newest preview of the same switch, which asked these already. */
+/** `GET /api/migrate/estimate`'s answer: migrate's ceiling, the newest preview of the same switch, which asked these already, and the scopes its runs' calls were made in, which it may keep to. */
 export interface MigrateEstimateView {
   estimate: Estimate | null;
   preview: { sessionId: string; verified: boolean } | null;
+  scopes: PreviewEstimates['scopes'];
 }
 
-export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: string[]; goldens: GoldenSource[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
+/**
+ * `goldens`, the goldens it asks; `runs`, the runs of the store it asks by id, judged by the checks of
+ * the recording each comes from, as the job judges them; `scope`, the calls it keeps to; `budget`, its
+ * Stop at $.
+ */
+export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: string[]; scope?: string | null; budget?: number | null; goldens: GoldenSource[]; runs?: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
 
 /**
  * The newest preview of the same switch (`sameSwitch`) that asked every run the migration asks, which
@@ -40,19 +47,29 @@ export function newestPreviewOf(store: Store, to: string, from: readonly string[
 
 async function migrateEstimates(store: Store, job: MigrateEstimateJob): Promise<ReadAnswer> {
   const entries = parseWork(job.work)?.entries ?? [];
-  const live = job.goldens.flatMap((g) => {
+  const goldens = job.goldens.flatMap((g) => {
     const run = g.runId ? store.getRun(g.runId) : null;
-    return run ? [{ golden: g, run }] : [];
+    return run ? [{ golden: g.path, run }] : [];
   });
+  const runs = (job.runs ?? []).flatMap((id) => {
+    const run = store.getRun(id);
+    return run ? [{ golden: null, run }] : [];
+  });
+  const live = [...goldens, ...runs];
+  const pricing = pricingOf(store, job.prices);
   const estimate = await estimateOf(
     (p) =>
       migrateEstimate(
-        live.map(({ golden, run }) => ({ calls: p.calls(run.runId), failed: recordedRole(store, run, recordedChecks(entries, store, run, job.work?.dir ?? process.cwd(), golden.path)?.spec ?? null, job.prices) === 'target' })),
-        { to: job.to, from: job.from, rule: job.rule, ...(job.prices ? { prices: job.prices } : {}) },
+        live.map(({ golden, run }) => ({ calls: p.calls(run.runId), failed: recordedRole(store, run, recordedChecks(entries, store, run, job.work?.dir ?? process.cwd(), golden)?.spec ?? null, job.prices) === 'target' })),
+        { to: job.to, from: job.from, rule: job.rule, ...(job.scope ? { scope: job.scope } : {}), ...(job.prices ? { prices: job.prices } : {}) },
       ),
-    pricingOf(store, job.prices),
+    pricing,
   );
-  const view: MigrateEstimateView = { estimate, preview: newestPreviewOf(store, job.to, job.from, live.map(({ run }) => run.runId)) };
+  const view: MigrateEstimateView = {
+    estimate: heldTo(estimate, job.budget, 'nothing asked or verified past it'),
+    preview: newestPreviewOf(store, job.to, job.from, live.map(({ run }) => run.runId)),
+    scopes: callScopes(live.map(({ run }) => pricing.raw(run.runId))),
+  };
   return answer(view, { tagged: true });
 }
 

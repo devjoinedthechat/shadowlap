@@ -44,6 +44,18 @@ export function Pieces({ parts, aboutOf }: { parts: readonly KeptPart[]; aboutOf
 }
 
 /**
+ * A part's pieces with its dot inside the piece before it where that piece is kept whole (a
+ * hyphenated name): the two move to a line together, as no-break space or not, wherever the piece is
+ * set apart (at 340px and under, an inline block of its own).
+ */
+export function dotInside(parts: readonly KeptPart[]): KeptPart[] {
+  const dot = parts.at(-1);
+  const before = parts.at(-2);
+  if (!dot || !before || dot.kind !== 'text' || dot.text !== '\u00a0·' || before.kind !== 'nw') return [...parts];
+  return [...parts.slice(0, -2), { ...before, text: `${before.text}${dot.text}` }];
+}
+
+/**
  * A line of parts broken only after a dot, each part of `max` characters or fewer kept whole, its
  * words cut by `cut`. A longer part may wrap inside, but keeps its dot with its last word, so a dot
  * ends a line and never starts one.
@@ -56,10 +68,10 @@ export function DotPieces({ text, max, cut, aboutOf }: { text: string; max: numb
           {i ? ' ' : null}
           {p.keep ? (
             <span className={p.keep === 'whole' ? 'nw' : 'kc'}>
-              <Pieces parts={cut(p.text)} aboutOf={aboutOf} />
+              <Pieces parts={dotInside(cut(p.text))} aboutOf={aboutOf} />
             </span>
           ) : (
-            <Pieces parts={cut(p.text)} aboutOf={aboutOf} />
+            <Pieces parts={dotInside(cut(p.text))} aboutOf={aboutOf} />
           )}
         </Fragment>
       ))}

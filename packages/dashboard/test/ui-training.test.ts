@@ -100,6 +100,11 @@ describe('Score a model', () => {
     // What it bills is its cost line's, by where it runs and whether it has a price.
     // The picks' total, as the drawer says it: 5 attempts at each of 2 ready tasks.
     expect(scoreCost(DIALOG, '1', 5, 2)).toEqual({ price: '≈$0.040', parts: ['10 attempts on the Anthropic API', 'live from each takeover, writes stubbed'] });
+    // What an attempt is priced from, once the server says it, as `tasks models` says it: cached input counted in.
+    const tokens = { inputTokens: 9_000, cacheReadInputTokens: 3_000, cacheCreationInputTokens: 400, outputTokens: 820 };
+    expect(scoreCost(DIALOG, '1', 5, 2, { tokens })?.parts).toEqual(['10 attempts on the Anthropic API', 'about 12.4k input and 820 output tokens an attempt', 'live from each takeover, writes stubbed']);
+    expect(scoreCost({ ...DIALOG, options: DIALOG.options.map((o) => ({ ...o, perAttempt: null })) }, '1', 5, 2, { tokens })).toEqual({ price: 'Billed by your provider', parts: ['about 12.4k input and 820 output tokens an attempt', 'live from each takeover, writes stubbed'] });
+    expect(scoreCost(DIALOG, ENDPOINT, 5, 2, { tokens })?.parts).toEqual(['runs at your endpoint, writes stubbed']);
     expect(scoreEstimate(DIALOG, '1', 5, 2)).toEqual({ usd: 0.04, ceiling: false });
     // In the engine's amount words, as the drawer says the total: whole dollars from $100, and under a tenth of a cent as such.
     expect([scoreCost(DIALOG, '1', 15_000, 2)?.price, scoreCost({ ...DIALOG, options: DIALOG.options.map((o) => ({ ...o, perAttempt: 0.00002 })) }, '1', 5, 2)?.price]).toEqual(['≈$120', '<$0.001']);

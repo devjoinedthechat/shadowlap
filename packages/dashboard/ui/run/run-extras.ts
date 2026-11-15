@@ -24,7 +24,7 @@ import { presetAttempt } from './preset.js';
  *   runs move.
  */
 export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: number | null) {
-  const { client, exported, runsTick } = useApp();
+  const { client, exported, runsTick, feeds } = useApp();
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
@@ -32,7 +32,8 @@ export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: n
   const preset = useMemo(() => presetAttempt(presets, runId), [presets, runId]);
   const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
-  const results = useLoad(() => (live ? null : client.injectionResults(runId)), `${runId}:injection-results:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data?.results ?? null;
+  // Again as runs move and as a test is kept (the change feed's `injection`): a test's last write ends it after its last attempt's run.
+  const results = useLoad(() => (live ? null : client.injectionResults(runId)), `${runId}:injection-results:${live ? 'live' : 'ended'}`, live ? 0 : `${runsTick}:${feeds.injection ?? 0}`).data?.results ?? null;
   // Read again as a Find cause… ends, so its answer shows: as more have ended than when the results
   // first came, never as they first come, so a page opens on one read of every call.
   const asked = results ? results.filter((r) => r.mode === 'clean' && !r.running).length : null;

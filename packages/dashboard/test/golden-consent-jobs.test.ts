@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, fieldValue, NO_TOKENS, packRun, Store, unpackRun, type DecisionRun } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
-import { decisionsArgv } from '../src/decisions-argv.js';
+import { decisionsArgv, migrateArgv } from '../src/decisions-argv.js';
 import { decisionsJob, decisionsReadJob, migrateJob, verifyFlaggedJob } from '../src/decisions.js';
 import { injectionJob } from '../src/injection.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
@@ -52,6 +52,20 @@ describe('the jobs that pass --yes', () => {
     expect(args(decisionsJob(req, store, goldens, project))).toEqual(shown);
     expect(shown).toEqual(['decisions', 'goldens/sent', '--model', 'claude-sonnet-5-5', '--set', 'max_tokens=512', '--set', 'stop=END', '--from', 'claude-sonnet-4-5-20250929', '--scope', 'billing', '--samples', '2']);
     expect(decisionsJob({ runs: Array.from({ length: 501 }, () => 'x'), model: 'claude-sonnet-5-5' }, store, goldens, project)).toEqual({ error: 'At most 500 runs are previewed at once: 501 are picked' });
+  });
+
+  it('holds a preview, its verify too, and a migration to their Stop at $, to the cent, and refuses one that is no amount', () => {
+    const req = { goldens: ['goldens/own'], model: 'claude-sonnet-5-5', thenVerify: true, budget: 2.5 };
+    const shown = decisionsArgv({ targets: ['goldens/own'], model: 'claude-sonnet-5-5', thenVerify: true, budget: 2.5 });
+    expect(args(decisionsJob(req, store, goldens, project))).toEqual(shown);
+    expect(shown).toEqual(['decisions', 'goldens/own', '--model', 'claude-sonnet-5-5', '--then-verify', '--budget', '2.50']);
+    const migration = { to: 'claude-haiku-4-5', goldens: ['goldens/own'], scope: 'billing', budget: 25 };
+    expect(args(migrateJob(migration, store, goldens, project))).toEqual(migrateArgv({ to: 'claude-haiku-4-5', targets: ['goldens/own'], scope: 'billing', budget: 25 }));
+    expect(args(migrateJob(migration, store, goldens, project))).toEqual(['migrate', '--to', 'claude-haiku-4-5', 'goldens/own', '--scope', 'billing', '--budget', '25.00']);
+    for (const budget of [0, -1, 'lots', 100_001]) {
+      expect(decisionsJob({ ...req, budget }, store, goldens, project), String(budget)).toEqual({ error: 'budget is an amount in USD above 0, such as 25.00' });
+      expect(migrateJob({ ...migration, budget }, store, goldens, project), String(budget)).toEqual({ error: 'budget is an amount in USD above 0, such as 25.00' });
+    }
   });
 
   it('ask before a decisions job runs a sent golden from the working tree, and pass --yes once the request says yes to it', () => {

@@ -1,9 +1,10 @@
 import { createElement } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
+import { emptyCounts, NO_TOKENS, noEstimate, Store, type DecisionChange, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { runDecisions } from '../src/decisions.js';
+import { THEN_VERIFY_UNPRICED } from '../src/preview-estimate.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { typedValue } from '../src/decisions-argv.js';
 import { fieldLine, markedChange, NewPreview, previewCommand } from '../ui/changes/NewPreview.js';
@@ -130,7 +131,7 @@ describe('a kept preview’s verify', () => {
   const listed = (): DecisionSessionView => ({ sessionId: ID, kind: 'decisions', at: AT, change: 'the model claude-haiku-4-5', name: 'Model switch to claude-haiku-4-5', runs: 2, goldens: 1, unit: 'run', samples: 2, flagged: 1, actor: null, revision: null, href: `#/changes/decisions/${ID}` });
   const started: Array<[string, Record<string, unknown>]> = [];
   const client = (session: PreviewSession, more: Partial<Client> = {}): Partial<Client> => ({
-    decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }),
+    decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }),
     decisionSession: () => Promise.resolve(session),
     // An opened cell's conversation, which these tests don't read.
     call: () => new Promise(() => undefined),
@@ -252,6 +253,7 @@ describe('a new preview’s dialogs', () => {
     refused: null,
     targets: ['goldens/refund', 'goldens/budget'],
     ways: null,
+    scopes: [{ scope: null, calls: 41 }],
   });
   const tree = { fromCode: { calls: 12, instructions: { before: 'Be brief.', after: 'Be brief. Never email.' }, tools: { added: [], removed: [], changed: [] } }, runs: [{ runId: RUN, golden: 'goldens/refund', changed: [1, 3], refused: null }, { runId: OTHER, golden: 'goldens/budget', changed: [], refused: null }], notes: [], nothing: null };
   let page: Rendered | null = null;
@@ -399,6 +401,56 @@ describe('a new preview’s dialogs', () => {
       await p.unmount();
       page = null;
     }
+  });
+
+  it('narrows a switch to the goldens, the model and the scope picked, holds it to its Stop at $ and then verifies, its command and its job saying so', async () => {
+    // As the server reads the goldens picked: two models, called in the agent's scope and a simulated user's.
+    const two = (q: Record<string, unknown>) => ({
+      ...read(q),
+      preview: q.thenVerify ? noEstimate('preview', THEN_VERIFY_UNPRICED) : priced,
+      recorded: [
+        { id: 'claude-sonnet-4-5', family: 'claude', calls: 30 },
+        { id: 'claude-haiku-4-5', family: 'claude', calls: 11 },
+      ],
+      scopes: [
+        { scope: 'support-agent', calls: 30 },
+        { scope: 'customer', calls: 11 },
+      ],
+      targets: Array.isArray(q.goldens) ? q.goldens : ['goldens/refund', 'goldens/budget'],
+    });
+    const p = await open('model', (kind) => job(kind), { estimate: two });
+    await p.until('its estimate', () => shown(p.one('.dialog .cmdline')).includes('goldens/budget'));
+    await p.type(p.one('.dialog input[type="text"]'), 'claude-sonnet-5-5');
+    const select = (label: string) => p.all('.dialog label').find((l) => l.textContent.startsWith(label))!.querySelector('select')!;
+    await p.type(select('Switch from'), 'claude-haiku-4-5');
+    await p.type(select('Scope'), 'support-agent');
+    await p.click(p.byText('.dialog .togchips button', 'budget'));
+    expect(shown(p.one('.dialog .nsec .n'))).toBe('1 of 2');
+    await p.click(p.byText('.dialog .switch', 'Then verify what it can’t clear'));
+    // A Stop at $ that is no amount holds the way on, saying why.
+    await p.type(p.one('.dialog input[type="number"]'), '-1');
+    await p.click(p.one('.dialog .dlg-ok'));
+    expect(started).toEqual([]);
+    await p.type(p.one('.dialog input[type="number"]'), '2.5');
+    await p.until('the narrowed command', () => shown(p.one('.dialog .cmdline')).includes('--budget 2.50'));
+    expect(shown(p.one('.dialog .cmdline'))).toBe('$shadowlap decisions goldens/refund --model claude-sonnet-5-5 --from claude-haiku-4-5 --scope support-agent --then-verify --budget 2.50');
+    // Asked as the job runs it, once the form holds still; then verifying, it has no estimate until it has asked, and says why.
+    await p.until('the narrowed read', () => queries.some((q) => q.budget === 2.5) && shown(p.one('.dialog .dcost')).includes(THEN_VERIFY_UNPRICED));
+    expect(queries.find((q) => q.budget === 2.5)).toEqual({ goldens: ['goldens/refund'], model: 'claude-sonnet-5-5', from: ['claude-haiku-4-5'], scope: 'support-agent', thenVerify: true, budget: 2.5 });
+    await p.click(p.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['decisions', { goldens: ['goldens/refund'], model: 'claude-sonnet-5-5', from: ['claude-haiku-4-5'], scope: 'support-agent', thenVerify: true, budget: 2.5 }]]);
+  });
+
+  it('keeps a field change to the calls made with one model, and every model by default, a scope to pick only where there are two', async () => {
+    const p = await open('field', (kind) => job(kind), { estimate: (q) => ({ ...read(q), recorded: [{ id: 'claude-sonnet-4-5', family: 'claude', calls: 30 }, { id: 'gpt-5.5', family: 'gpt', calls: 11 }] }) });
+    await p.until('its estimate', () => shown(p.one('.dialog .cmdline')).includes('--set max_tokens=512'));
+    // One scope: nothing to pick there; two models: every one of them, until one is picked.
+    expect(p.all('.dialog .narrow label').map((l) => l.childNodes[0]?.textContent)).toEqual(['Calls made with', 'Stop at $']);
+    expect(p.all('.dialog .narrow select option').map(shown)).toEqual(['every model', 'claude-sonnet-4-5', 'gpt-5.5']);
+    await p.type(p.one('.dialog .narrow select'), 'gpt-5.5');
+    await p.until('its command', () => shown(p.one('.dialog .cmdline')).includes('--from gpt-5.5'));
+    await p.click(p.one('.dialog .dlg-ok'));
+    expect(started[0][1]).toMatchObject({ goldens: 'all', set: { max_tokens: 512 }, from: ['gpt-5.5'] });
   });
 
   it('says what the recorded answers show of max_tokens, refuses model in its own words, and sends a typed number as a number', async () => {

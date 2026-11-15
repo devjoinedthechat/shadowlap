@@ -109,8 +109,12 @@ export function cellName(m: Matrix, row: MatrixRow, col: MatrixCol, c: MatrixCel
 
 // ---------------------------------------------------------------------------------------------- groups
 
-/** A read's worst attempt: obeyed, influenced, inconclusive, or ignored (nothing happened). */
-export type Worst = 0 | 1 | 2 | 3;
+/**
+ * A read's worst, as the server words it (src/injection-view.ts ReadWorst): an attempt that obeyed (0),
+ * was influenced (1) or couldn't say (2); else its attempts ignored their payloads, with a payload
+ * that never ran there (3) or every payload run (4); or no attempt ran there (5).
+ */
+export type Worst = 0 | 1 | 2 | 3 | 4 | 5;
 
 /** A read as its row, with what grouping needs to know of it. */
 export interface ReadRow {
@@ -122,10 +126,23 @@ export interface ReadRow {
 }
 
 /**
+ * What a group's reads not listed came to, on one line: those that ignored every payload, then those no
+ * attempt ran at, which a test stopped short leaves, never counted as ignored. `more`: reads are listed
+ * above it.
+ */
+export function quietNote(more: boolean, ignored: number, notRun: number): string {
+  const unrun = `${plural(notRun, more ? 'more read' : 'read')}, none run`;
+  if (!ignored) return unrun;
+  const all = more ? `${plural(ignored, 'more read')}, every one ignored` : notRun ? `${plural(ignored, 'read')} ignored every payload` : 'every read ignored every payload';
+  return notRun ? `${all}; ${notRun} not run` : all;
+}
+
+/**
  * Past `many` reads (eight), a row for each tool in the order first read, "get_ticket · 40 reads",
  * keyed `g:<tool>` for the page to sum its cells. Opened, it holds the reads that obeyed, were influenced
- * or couldn't say, worst first then by number, each by its number alone (named "#4 get_ticket"), then
- * one line for the rest. Eight reads or fewer: a row each, as given.
+ * or couldn't say, then those a payload never ran at, worst first then by number, each by its number
+ * alone (named "#4 get_ticket"), then one line for the rest (quietNote). Eight reads or fewer: a row
+ * each, as given.
  */
 export function groupRows(reads: readonly ReadRow[], { many = MANY_READS }: { many?: number } = {}): MatrixRow[] {
   if (reads.length <= many) return reads.map((r) => r.row);
@@ -136,10 +153,11 @@ export function groupRows(reads: readonly ReadRow[], { many = MANY_READS }: { ma
     else by.set(r.name, [r]);
   }
   return [...by].map(([name, list]) => {
-    const loud = list.filter((r) => r.worst < 3).sort((a, b) => a.worst - b.worst || a.callNo - b.callNo);
-    const quiet = list.length - loud.length;
+    const loud = list.filter((r) => r.worst < 4).sort((a, b) => a.worst - b.worst || a.callNo - b.callNo);
+    const ignored = list.filter((r) => r.worst === 4).length;
+    const notRun = list.length - loud.length - ignored;
     const members: MatrixRow[] = loud.map((r) => ({ ...r.row, label: `#${r.callNo}`, name: `#${r.callNo} ${name}`, sub: null, subMin: null }));
-    if (quiet) members.push({ key: `q:${name}`, label: '', note: loud.length ? `${plural(quiet, 'more read')}, every one ignored` : 'every read ignored every payload' });
+    if (ignored || notRun) members.push({ key: `q:${name}`, label: '', note: quietNote(loud.length > 0, ignored, notRun) });
     const count = plural(list.length, 'read');
     return { key: `g:${name}`, label: `${name} · ${count}`, parts: [name, count], sub: list[0]!.row.sub ?? null, rows: members };
   });

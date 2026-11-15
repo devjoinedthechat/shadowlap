@@ -14,7 +14,7 @@ import { goldenName } from './offers.js';
 import { useOfflineLink } from '../components/ActionButton.js';
 import { Command, Words } from '../components/Copy.js';
 import { DotNodes, DotParts } from '../components/DotParts.js';
-import { byResult, testedRuns } from '../injection/fork-node.js';
+import { byResult, olderTestsWords, testedRuns } from '../injection/fork-node.js';
 import { TestNode } from '../injection/TestNode.js';
 import { inPresets, presetSessions } from '../presets/fork-node.js';
 import { PresetsNode } from '../presets/PresetsNode.js';
@@ -38,13 +38,33 @@ import type { InjectionRow } from '../types.js';
  */
 const sessionKey = (n: LineageNode): string | null => (n.test && n.test.attempt !== null ? `test:${n.test.session}\n${n.test.golden}` : null);
 
-/** The injection tests kept for each of the runs `testedRuns` names. */
-async function keptTests(client: Client, runs: readonly string[]): Promise<InjectionRow[]> {
-  const kept = await Promise.all(runs.map((id) => client.injectionResults(id)));
-  return kept.flatMap((k) => k.results);
+/** The injection tests kept for each of the runs `testedRuns` names, and those whose list stopped at its newest (`cut`, by run, how many it lists). */
+interface KeptTests {
+  rows: readonly InjectionRow[];
+  cut: ReadonlyMap<string, number>;
 }
 
-const NO_TESTS: readonly InjectionRow[] = [];
+async function keptTests(client: Client, runs: readonly string[]): Promise<KeptTests> {
+  const kept = await Promise.all(runs.map((id) => client.injectionResults(id)));
+  return { rows: kept.flatMap((k) => k.results), cut: new Map(kept.flatMap((k, i) => (k.more ? [[runs[i]!, k.results.length] as const] : []))) };
+}
+
+const NO_TESTS: KeptTests = { rows: [], cut: new Map() };
+
+/** A run's kept injection tests as its family draws them, oldest first, then a line where its list stopped at its newest. */
+function testItems(tests: KeptTests, parent: string | null, replays: ReadonlyMap<string, LineageNode[]>, runId: string, once: (rule: string | null | undefined) => string | null): ReactNode[] {
+  if (parent === null) return [];
+  const own = tests.rows.filter((r) => r.runId === parent).sort((a, b) => a.at - b.at);
+  const listed = tests.cut.get(parent);
+  const items: ReactNode[] = own.map((r) => <TestNode key={r.resultId} row={r} runs={replays.get(r.resultId) ?? []} current={runId} rule={once(r.rule)} />);
+  if (listed !== undefined)
+    items.push(
+      <p key="older-tests" className="fnote">
+        {olderTestsWords(parent, listed)}
+      </p>,
+    );
+  return items;
+}
 
 export function ForksView({ runId }: { runId: string }) {
   const { client, runs, runsTick, live } = useApp();
@@ -64,8 +84,8 @@ export function ForksView({ runId }: { runId: string }) {
   if (lineage.error) return <div className="empty">Could not load this run’s family: {lineage.error.message}</div>;
   if (!lineage.data || fixes.loading || tests.loading) return <div className="empty">Loading the family…</div>;
   const nodes = lineage.data;
-  const rows = tests.data ?? NO_TESTS;
-  const kept = new Set(rows.map((r) => r.resultId));
+  const found = tests.data ?? NO_TESTS;
+  const kept = new Set(found.rows.map((r) => r.resultId));
   const replays = byResult(nodes);
   // A kept test's replays are drawn in its node, never again as forks or a --repeat's bundle.
   const inTest = (n: LineageNode) => !!n.injection && kept.has(n.injection.result);
@@ -143,8 +163,7 @@ export function ForksView({ runId }: { runId: string }) {
     }
     if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} rule={ruleOf(b)} />);
     // The run's kept injection tests, after its forks and bundles, oldest first as they are.
-    const own = rows.filter((r) => r.runId === parent).sort((a, b) => a.at - b.at);
-    for (const r of own) items.push(<TestNode key={r.resultId} row={r} runs={replays.get(r.resultId) ?? []} current={runId} rule={once(r.rule)} />);
+    items.push(...testItems(found, parent, replays, runId, once));
     // Its error-path presets, a session's attempts a node, oldest first; under it, an attempt something
     // was made from (a fork, a Repeat, a fix's bundle, a test) with what was made of it.
     for (const attempts of (parent && presets.get(parent)) || []) {

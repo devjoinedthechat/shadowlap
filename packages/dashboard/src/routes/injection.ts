@@ -17,7 +17,8 @@ import { namesTeamStore } from './verdicts.js';
  * Injection tests: what `shadowlap injection` kept, for the pages that show it, and the job that
  * runs it.
  *
- *   GET /api/injection                    { results }: newest first; ?run=<id>, ?golden=<path>, ?limit=<n>
+ *   GET /api/injection                    { results, more }: newest first, 100 unless ?limit=<n> (at most 1,000), `more` when older
+ *                                         ones are left out; ?run=<id>, ?golden=<path>. Who ran each only where names show
  *   GET /api/injection/templates          the built-in templates, versioned, for the dialog
  *   GET /api/injection/payloads           ?upload=<id>: { name, count, noCanary }, a payload file sent and not yet taken by a test
  *   GET /api/injection/estimate           ?run=<id> (or ?golden=<path>)&payloads=<n>&repeat=<n>&budget=<usd>, or &gate=1: { estimate },
@@ -109,7 +110,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const limit = r.query.get('limit');
     const n = limit === null ? undefined : Number(limit);
     if (n !== undefined && (!Number.isInteger(n) || n < 1 || n > 1000)) throw new HttpError(400, 'limit is a whole number from 1 to 1000');
-    r.tagged(injectionResults(store, { ...(r.query.get('run') ? { runId: r.query.get('run')! } : {}), ...(r.query.get('golden') ? { golden: r.query.get('golden')! } : {}), ...(n !== undefined ? { limit: n } : {}) }));
+    r.tagged(injectionResults(store, { ...(r.query.get('run') ? { runId: r.query.get('run')! } : {}), ...(r.query.get('golden') ? { golden: r.query.get('golden')! } : {}), ...(n !== undefined ? { limit: n } : {}), shared: namesTeamStore(ctx.project?.path) }));
   });
   router.get('/injection/templates', (r) => r.tagged(injectionTemplatesView()));
   // A payload file once the dialog sent it: read before the test takes it, so the dialog can say what it holds.
@@ -148,7 +149,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/injection/runs/:id', async (r) => {
     if (!store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id!}`);
     const trust = tools();
-    sendAnswer(r, await ctx.reads.run({ kind: 'injection-run', runId: r.params.id!, ...(trust ? { tools: trust } : {}) }, runAffinity(ctx.store, r.params.id!)));
+    sendAnswer(r, await ctx.reads.run({ kind: 'injection-run', runId: r.params.id!, ...(trust ? { tools: trust } : {}), shared: namesTeamStore(ctx.project?.path) }, runAffinity(ctx.store, r.params.id!)));
   });
   router.get('/injection/:id', (r) => {
     const found = injectionResult(store, r.params.id!, { shared: namesTeamStore(ctx.project?.path) });

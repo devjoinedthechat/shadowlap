@@ -4,6 +4,7 @@ import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, t
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { runDecisions } from '../src/decisions.js';
+import { viewSteps } from '../src/decision-cells.js';
 import type { Client } from '../ui/api.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
 import { argParts, cellCost, cellLead, cellLook, cellWeight, chipWhen, drawnCells, nextStep, noneLine, outcomeTone, pricePair, receiptWords, sessionHint, toolMarks, verdictState, verifyLabel } from '../ui/decisions.js';
@@ -184,7 +185,7 @@ describe('the Preview page', () => {
 
   it('opens the newest preview: its picker, its verdict in its colour, the key, a row per run, the receipt and the command', async () => {
     const asked: string[] = [];
-    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: (id: string) => (asked.push(id), Promise.resolve(flagged)) });
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: (id: string) => (asked.push(id), Promise.resolve(flagged)) });
     await p.until('the matrix', () => p.all('.dmr').length === 2);
     expect(asked).toEqual([ID]);
     expect(shown(p.one('.rpick.dpick .pid'))).toBe('Model switch to claude-haiku-4-5');
@@ -212,9 +213,22 @@ describe('the Preview page', () => {
     expect(shown(p.one('.cmdline'))).toContain('shadowlap decisions goldens/* --model claude-haiku-4-5');
   });
 
+  it('says under the picker’s list where it stops, where older previews are kept than it lists', async () => {
+    Object.assign(globalThis, { innerWidth: 1440, innerHeight: 900 });
+    for (const more of [true, false]) {
+      const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more }), decisionSession: () => Promise.resolve(flagged) });
+      await p.until('the picker', () => p.all('.rpick.dpick').length === 1);
+      await p.click(p.one('.rpick.dpick'));
+      await p.until('the list', () => p.all('.pop.picker').length === 1);
+      expect(p.all('.pop.picker .pfoot').map(shown)).toEqual(more ? ['The newest 1 previews; older ones open from their runs’ Decisions views'] : []);
+      await p.unmount();
+      page = null;
+    }
+  });
+
   it('ends a verified run’s row on its outcome and tally, its bound kept whole, and a run it cleared as not run end to end', async () => {
     const verified: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], verified: { outcome: 'kept', tally: ' · 4 of 4 · rate >= 0.6 (95%)', count: '4 of 4' } }, { ...flagged.matrix[1], cleared: true }] };
-    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.resolve(verified) });
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: () => Promise.resolve(verified) });
     await p.until('the matrix', () => p.all('.dmr').length === 2);
     // The outcome is a defined term, its card's words beside it: its tally follows, the bound glued to its figures.
     const [kept, cleared] = p.all('.dsv');
@@ -225,7 +239,7 @@ describe('the Preview page', () => {
   it('has Verify wait, plain and saying why, where a run the preview left to verify is gone from the store', async () => {
     const next = flagged.view.next;
     const gone: PreviewSession = { ...flagged, view: { ...flagged.view, next: { ...next, verify: { ...next.verify!, gone: 1 } } } };
-    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.resolve(gone) });
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: () => Promise.resolve(gone) });
     await p.until('the verdict', () => !!p.one('.dverdict .actions button'));
     const verify = p.one('.dverdict .actions button');
     expect([shown(verify), verify.className, verify.getAttribute('aria-disabled'), verify.getAttribute('data-why')]).toEqual(['Verify 1 run', 'btn', 'true', 'A run this preview left to verify is no longer in the store']);
@@ -237,7 +251,7 @@ describe('the Preview page', () => {
     const runs = (flagged.runs as DecisionRun[]).map((r) => (r.runId !== a ? r : { ...r, decisions: r.decisions.map((s) => (s.callNo !== 3 ? s : { ...s, recorded: { ...s.recorded, tools: tools(['issue_refund', { amount: 240 }, 'write'], ['lookup_policy', { id: 'p1' }, 'read']) }, now: { ...s.now!, text: 'Checking.', tools: tools(['lookup_policy', { id: 'p1' }, 'read'], ['send_note', {}, 'unknown']) } })) }));
     const turns = Array.from({ length: 10 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', blocks: [{ type: 'text', text: `message ${i + 1}` }] }));
     const detail = { call: { callNo: 3, kind: 'api', outcome: 'ok' }, conversation: { turns, fromCallNo: 3, n: null } };
-    const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.resolve({ ...flagged, runs }), call: () => Promise.resolve(detail) } as unknown as Partial<Client>) }, createElement(PreviewTab, { id: ID, run: a, call: 3 })));
+    const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: () => Promise.resolve({ ...flagged, runs }), call: () => Promise.resolve(detail) } as unknown as Partial<Client>) }, createElement(PreviewTab, { id: ID, run: a, call: 3 })));
     page = p;
     await p.until('the cell', () => !!p.one('.dcell .dconv .ibar') && p.all('.dcell .msg').length > 0);
     expect(shown(p.one('.dcell .dch h2'))).toBe(`#3 · step 3 of ${a}`);
@@ -274,7 +288,7 @@ describe('the Preview page', () => {
         const r = useRoute();
         return r.page === 'changes' ? createElement(PreviewTab, { id: r.id, run: r.run ?? null, call: r.call ?? null }) : null;
       };
-      const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.resolve(flagged), call: () => Promise.resolve(detail) } as unknown as Partial<Client>) }, createElement(Routed)));
+      const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: () => Promise.resolve(flagged), call: () => Promise.resolve(detail) } as unknown as Partial<Client>) }, createElement(Routed)));
       page = p;
       await p.until('the matrix', () => p.all('.dmr').length === 2);
       const cell = () => p.all('.dmr')[0].querySelectorAll('button.dc')[1];
@@ -317,7 +331,7 @@ describe('the Preview page', () => {
     const few = Array.from({ length: 8 }, (_, i) => cell({ callNo: i + 1, step: i + 1 }));
     few[2] = cell({ callNo: 3, step: 3, state: 'ranked', rank: 1, ranks: [1, 1], changed: 2, detail: 'issue_refund is no longer called', words: 'issue_refund is no longer called · in 2 of 2 samples', rankWords: 'a write changed', scope: 'billing' });
     const wide: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], cells: many }, { ...flagged.matrix[1], cells: few }] };
-    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.resolve(wide) });
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: () => Promise.resolve(wide) });
     await p.until('the matrix', () => p.all('.dmr').length === 2);
     // 130 calls draw as 44 ranges: the row of 8 takes the same 44 columns, so call k sits under call k, and both go dense.
     expect(p.all('.dmr .dmc').map((d) => [d.className, (d.props.style as Record<string, number>)['--n']])).toEqual([
@@ -338,7 +352,7 @@ describe('the Preview page', () => {
     const priced: Array<readonly string[] | undefined> = [];
     const started: Array<[string, Record<string, unknown>]> = [];
     const client = {
-      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }),
+      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }),
       decisionSession: () => Promise.resolve(partial),
       estimates: { decisionEstimates: (_id: string, runIds?: readonly string[]) => (priced.push(runIds), Promise.resolve({ verify: null })) },
       startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ jobId: 'j1', kind, status: 'running' })),
@@ -365,7 +379,7 @@ describe('the Preview page', () => {
     const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } } } };
     const started: Array<[string, Record<string, unknown>]> = [];
     const client = {
-      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }),
+      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }),
       decisionSession: () => Promise.resolve(migrating),
       startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ jobId: 'j1', kind, status: 'running' })),
     };
@@ -384,13 +398,34 @@ describe('the Preview page', () => {
     expect(started[0]).toEqual(['migrate', expect.objectContaining({ to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'] })]);
   });
 
+  it('prices Migrate to on the runs a preview of runs asked, as its job migrates them, never on every golden', async () => {
+    const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: [], runs: [a, b] } } } };
+    const priced: unknown[][] = [];
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const client = {
+      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }),
+      decisionSession: () => Promise.resolve(migrating),
+      estimates: { migrateEstimate: (...args: unknown[]) => (priced.push(args), Promise.resolve({ estimate: null, preview: null, scopes: [] })) },
+      startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ jobId: 'j1', kind, status: 'running' })),
+    };
+    const p = await open(client as unknown as Partial<Client>);
+    await p.until('the price', () => priced.length > 0);
+    // Neither kept to a scope nor held to a Stop at $ until its dialog says so.
+    expect(priced).toEqual([['claude-haiku-4-5', ['claude-sonnet-4-5-20250929'], [], [a, b], { scope: null, budget: null }]]);
+    await p.click(p.byText('.dverdict .actions button', 'Migrate to claude-haiku-4-5'));
+    await p.until('the ask', () => p.all('.dialog').length === 1);
+    await p.click(p.one('.dialog .dlg-ok'));
+    await p.until('the job', () => started.length === 1);
+    expect(started[0]).toEqual(['migrate', expect.objectContaining({ to: 'claude-haiku-4-5', runs: [a, b] })]);
+  });
+
   it('marks the message a forked run’s cell changed against its parent’s call, with Jump to change', async () => {
     const turns = (third: string) => Array.from({ length: 4 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', blocks: [{ type: 'text', text: i === 2 ? third : `message ${i + 1}` }] }));
     const at = (third: string) => ({ call: { callNo: 3, kind: 'api', outcome: 'ok' }, conversation: { turns: turns(third), fromCallNo: 3, n: null } });
     const forked: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], parent: 'r-parent', forkAt: 2 }, flagged.matrix[1]] };
     const asked: string[] = [];
     const call = (run: string) => (asked.push(run), Promise.resolve(at(run === 'r-parent' ? 'message 3' : 'the edited prompt')));
-    const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.resolve(forked), call } as unknown as Partial<Client>) }, createElement(PreviewTab, { id: ID, run: a, call: 3 })));
+    const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: () => Promise.resolve(forked), call } as unknown as Partial<Client>) }, createElement(PreviewTab, { id: ID, run: a, call: 3 })));
     page = p;
     await p.until('the change', () => !!p.one('.dconv .msg.changed'));
     expect(asked).toEqual([a, 'r-parent']);
@@ -400,7 +435,7 @@ describe('the Preview page', () => {
 
   it('says a preview it doesn’t hold, with the way back to the newest', async () => {
     const { ApiError } = await import('../ui/api.js');
-    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1 }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')) }, 'dc-01M5NOTKEPT0000000000000');
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, more: false }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')) }, 'dc-01M5NOTKEPT0000000000000');
     await p.until('the line', () => p.all('.empty.tall').length === 1);
     expect(shown(p.one('.empty.tall'))).toBe('No preview dc-01M5NOTKEPT0000000000000. Open Preview');
     expect(p.one('.empty.tall a').getAttribute('href')).toBe('#/changes/decisions');
@@ -411,7 +446,7 @@ describe('the Preview page', () => {
     let tries = 0;
     const lines = (p: Rendered) => p.all('.loaderr p > span').map(shown);
     const late = 'a decision-session job took more than 30 s, so it was stopped';
-    const p = await open({ decisionSessions: () => (++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve({ sessions: [listed()], goldens: 1 })), decisionSession: () => Promise.reject(new ApiError(503, late)) });
+    const p = await open({ decisionSessions: () => (++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve({ sessions: [listed()], goldens: 1, more: false })), decisionSession: () => Promise.reject(new ApiError(503, late)) });
     await p.until('the list’s failure', () => p.all('.loaderr').length === 1);
     expect(lines(p)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
     await p.click(p.byText('.loaderr button', 'Retry'));
@@ -421,7 +456,7 @@ describe('the Preview page', () => {
   });
 
   it('says what a preview is with none kept, and with no goldens what to pack first', async () => {
-    const none = (goldens: number) => ({ decisionSessions: () => Promise.resolve({ sessions: [], goldens }) });
+    const none = (goldens: number) => ({ decisionSessions: () => Promise.resolve({ sessions: [], goldens, more: false }) });
     let p = await open(none(0));
     await p.until('the empty state', () => p.all('.stepempty').length === 1);
     expect(shown(p.one('.stepempty h2, .stepempty h3'))).toBe('Preview a change on your goldens');
@@ -449,7 +484,7 @@ describe('the Preview page', () => {
     it('shows the preview that asked the run, its cells, its ranked steps worded and the line about later steps; a step or a cell picks its call', async () => {
       const { p, picked } = await view(runDecisions(store, a));
       await p.until('the steps', () => p.all('.dvstep').length === 1);
-      expect(shown(p.one('.dvhead p'))).toBe(`Model switch to claude-haiku-4-5 · ${minuteStamp(AT)} · 2 samples a step`);
+      expect(shown(p.one('.dvhead p'))).toBe(`Model switch to claude-haiku-4-5 · ${minuteStamp(AT)} · 2 samples a step · 1 step changed, most rank 1`);
       expect([shown(p.one('.dvhead a.more')), p.one('.dvhead a.more').getAttribute('href')]).toEqual(['Preview in Changes →', `#/changes/decisions/${ID}/${a}/3`]);
       expect(p.all('.dvstrip button.dc').map((c) => [c.getAttribute('tabindex'), c.getAttribute('aria-current')])).toEqual([['-1', 'false'], ['0', 'true']]);
       expect([p.one('.dvstep').className, shown(p.one('.dvs1'))]).toEqual(['dvstep sel', '#3 rank 1 issue_refund is no longer called · in 2 of 2']);
@@ -493,6 +528,16 @@ describe('the Preview page', () => {
       await p.click(p.one('button.ended'));
       await p.until('the second read', () => asked.length === 2);
       expect([asked, p.all('.dvstep').length]).toEqual([[a, a], 1]);
+    });
+
+    it('lists a step its control couldn’t settle, inconclusive in amber, so a run that changed nothing else never reads as decided as recorded', async () => {
+      const open = step(3, null, { majority: null, sampled: 1, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] }, control: { asked: 3, answered: 0, changed: 0, ranks: [], error: 'overloaded' } });
+      const one = runDecisions(store, a);
+      const answer: RunDecisionsView = { ...one, sessions: [{ ...one.sessions[0], steps: viewSteps(runOf(a, null, [step(1, null), open])) }] };
+      const { p } = await view(answer);
+      await p.until('the steps', () => p.all('.dvstep').length === 1);
+      expect(shown(p.one('.dvs1 .dsy'))).toContain("inconclusive: in 1 of 3 samples; as recorded, no answer (overloaded): too few to tell from the model's own variation");
+      expect(p.all('.dvnone').length).toBe(0);
     });
 
     it('says a run decided as recorded, a run nobody previewed with the command, and that an exported copy holds no previews', async () => {

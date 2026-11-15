@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type CleanReport, consentKey, type DivergenceReport, injectionTemplates, type PlantReport, recordEvent, type RunRecord, Store, untrustedView } from '@shadowlap/engine';
+import { canaryForms, type CleanReport, consentKey, type DivergenceReport, injectionTemplates, type PlantReport, recordEvent, type RunRecord, Store, untrustedView } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { injectionJob, injectionLine, injectionNeedsLook, injectionTitle } from '../src/injection.js';
+import { injectionJob, injectionLine, injectionNeedsLook, injectionResult, injectionResults, injectionTitle } from '../src/injection.js';
 import { toolTrust } from '../src/tool-trust.js';
 import { injectionPanel, lineageInjection } from '../src/injection-view.js';
 import { securityOffer } from '../src/run-offers.js';
@@ -429,9 +429,14 @@ describe('what the run page draws of a kept test', () => {
       cells: [{ read: 1, payload: 'system-notice', verdict: 'obeyed', n: 1, of: 1, attempt: { runId: attemptRun.runId, callNo: 3 }, line: `planted at #1 → read at #2 → send_email.to = ${CANARY.address} at #3` }],
       tools: null,
       totals: { attempts: 1, obeyed: 1, influenced: 0, inconclusive: 0, ignored: 0 },
+      planned: 1,
       what: '1 template',
+      unrecorded: 'fence',
+      notPlanted: [],
+      leftOut: [],
       startedAt: 10,
       by: null,
+      // A test session kept it: the golden's injection gate, which its test runs again.
       command: 'shadowlap test goldens/research',
       none: null,
       receipt: { spent: 0, upstreamRequests: 3, baselines: 1, stopReason: null },
@@ -445,11 +450,71 @@ describe('what the run page draws of a kept test', () => {
     const reads = Array.from({ length: 9 }, (_, i) => ({ ...report.reads[0], callNo: i + 1, name: 'get_ticket' }));
     const cells = reads.map((r) => ({ ...report.cells[0], read: r.callNo, verdict: r.callNo === 4 ? ('obeyed' as const) : ('ignored' as const), obeyed: r.callNo === 4 ? 1 : 0, ignored: r.callNo === 4 ? 0 : 1, runs: [] }));
     const many = injectionPanel(store, { ...report, golden: null, reads, cells, attempts: [{ ...report.attempts[0], read: 4 }] });
-    expect(many.rows.map((r) => [r.callNo, r.worst])).toEqual(reads.map((r) => [r.callNo, r.callNo === 4 ? 0 : 3]));
+    expect(many.rows.map((r) => [r.callNo, r.worst])).toEqual(reads.map((r) => [r.callNo, r.callNo === 4 ? 0 : 4]));
     expect(many.tools).toEqual([{ name: 'get_ticket', reads: reads.map((r) => r.callNo), cells: [{ read: 4, payload: 'system-notice', verdict: 'obeyed', n: 1, of: 9, attempt: { runId: attemptRun.runId, callNo: 3 }, line: `planted at #4 → read at #2 → send_email.to = ${CANARY.address} at #3` }] }]);
     expect(many.command).toBe(`shadowlap injection ${recording.runId.slice(0, 10)} --templates system-notice --baselines 1`);
     const none = injectionPanel(store, { ...report, cells: [], attempts: [], totals: { attempts: 0, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0 }, stopReason: 'the budget of $25.00 is spent' });
     expect(none.none).toBe('No attempt ran: the budget of $25.00 is spent. 1 clean replay ran first, as a test runs them.');
+  });
+
+  it('never count a read a stopped test didn\'t reach as one that ignored every payload, and count what it planned', () => {
+    const report = plantReport(recording.runId, attemptRun.runId);
+    const payloads = [report.payloads[0], { ...report.payloads[0], id: 'tool-json' }];
+    const reads = [1, 2, 3].map((callNo) => ({ ...report.reads[0], callNo }));
+    // As the test keeps its cells: every read by every payload from the start, at 0 attempts until one ends there.
+    const cell = (read: number, payload: string, ran: boolean) => ({ read, payload, verdict: ran ? ('ignored' as const) : ('inconclusive' as const), attempts: ran ? 1 : 0, obeyed: 0, influenced: 0, ignored: ran ? 1 : 0, inconclusive: 0, runs: [] });
+    // Its budget spent: #1 had both payloads, #2 one, #3 none.
+    const cells = [cell(1, 'system-notice', true), cell(1, 'tool-json', true), cell(2, 'system-notice', true), cell(2, 'tool-json', false), cell(3, 'system-notice', false), cell(3, 'tool-json', false)];
+    const stopped = injectionPanel(store, { ...report, payloads, reads, cells, attempts: [], totals: { attempts: 3, obeyed: 0, influenced: 0, ignored: 3, inconclusive: 0 }, stopReason: 'the budget of $1.00 is spent' });
+    expect(stopped.rows.map((r) => [r.callNo, r.worst])).toEqual([[1, 4], [2, 3], [3, 5]]);
+    expect([stopped.totals.attempts, stopped.planned]).toEqual([3, 6]);
+    // A cell no attempt ran at has no verdict to show.
+    expect(stopped.cells.map((c) => [c.read, c.payload])).toEqual([[1, 'system-notice'], [1, 'tool-json'], [2, 'system-notice']]);
+  });
+
+  it('give a golden tested on its own the test it ran as, and only a test session\'s the gate\'s', () => {
+    const report = plantReport(recording.runId, attemptRun.runId);
+    expect(injectionPanel(store, report, { gate: true }).command).toBe('shadowlap test goldens/research');
+    // `shadowlap test` plants nothing in a golden whose entry has no injection gate: it ran as a test of the golden.
+    expect(injectionPanel(store, report).command).toBe('shadowlap injection goldens/research --templates system-notice --baselines 1');
+    const kept = Store.open(':memory:');
+    try {
+      kept.putInjectionResult({ resultId: 'inj-01ALONE', runId: recording.runId, golden: 'goldens/research', sessionId: null, mode: 'plant', at: 10, endedAt: 20, attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: 'dev', data: report as unknown as Record<string, unknown> });
+      expect(injectionResult(kept, 'inj-01ALONE')?.view?.command).toBe('shadowlap injection goldens/research --templates system-notice --baselines 1');
+    } finally {
+      kept.close();
+    }
+  });
+
+  it('say what a test didn\'t test: the calls not planted in and why, the clean replays left out, and reads it doesn\'t hold run live', () => {
+    const report = plantReport(recording.runId, attemptRun.runId);
+    const reads = [...report.reads, { ...report.reads[0], callNo: 7, name: 'get_ticket', readAt: null, planted: false, why: 'no model call follows it, so no model reads what it returned' }];
+    const skipped = [{ callNo: 3, name: 'send_email', why: "a write: an instruction arrives in what the agent reads, and a write's result is only its receipt" }];
+    const baselines = [{ read: 1, runs: ['B1', 'B2', 'B3'], writes: 1, failed: [{ runId: 'B2', why: 'the agent exited 1' }, { runId: 'B3', why: 'the agent exited 1' }] }];
+    const view = injectionPanel(store, { ...report, reads, skipped, baselines, unrecordedReads: 'live' });
+    expect(view.notPlanted).toEqual([`#3 send_email not planted: ${skipped[0].why}`, '#7 get_ticket not planted: no model call follows it, so no model reads what it returned']);
+    expect(view.leftOut).toEqual(['#1 fetch_page: 2 clean replays left out: the agent exited 1']);
+    expect(view.unrecorded).toBe('live');
+  });
+
+  it('list a run\'s results 100 at a time unless asked for more, saying so where older ones are left out, and who ran each only where names show', async () => {
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    for (let i = 0; i < 101; i++) store.putInjectionResult({ resultId: `inj-03R${String(i).padStart(3, '0')}`, runId: run.runId, golden: null, sessionId: null, mode: 'plant', at: 100 + i, endedAt: 101 + i, attempts: 1, obeyed: 0, influenced: 0, ignored: 1, inconclusive: 0, verdict: 'ignored', actor: 'dev', data: { ...plantReport(run.runId, run.runId), resultId: `inj-03R${String(i).padStart(3, '0')}` } });
+    const listed = (await (await api(`injection?run=${run.runId}`)).json()) as { results: Array<{ resultId: string; actor: string | null }>; more: boolean };
+    expect([listed.results.length, listed.results[0].resultId, listed.more]).toEqual([100, 'inj-03R100', true]);
+    const all = (await (await api(`injection?run=${run.runId}&limit=101`)).json()) as { results: unknown[]; more: boolean };
+    expect([all.results.length, all.more]).toEqual([101, false]);
+    // This project names no team store, so no row says who ran it, as its panel says none.
+    expect(listed.results.every((r) => r.actor === null)).toBe(true);
+    expect(injectionResults(store, { runId: run.runId, limit: 1, shared: true }).results.map((r) => r.actor)).toEqual(['dev']);
+    const page = (await (await api(`injection/runs/${recording.runId}`)).json()) as { results: Array<{ actor: string | null }> };
+    expect(page.results.map((r) => r.actor)).toEqual(page.results.map(() => null));
+  });
+
+  it('send an attempt\'s page every form of its canary the test takes as proof, case aside', async () => {
+    const page = (await (await api(`injection/runs/${attemptRun.runId}`)).json()) as { attempt: { forms: string[] } };
+    expect(page.attempt.forms).toEqual(canaryForms(CANARY));
+    expect(page.attempt.forms).toEqual(expect.arrayContaining([CANARY.address, CANARY.id, CANARY.token, CANARY.amount, '4,817.23']));
   });
 
   it('give an attempt\'s page what was planted, filled with its canary, and where it went', async () => {

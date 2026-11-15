@@ -104,6 +104,10 @@ a.rmx-c:hover { background: var(--hover); }
 .rmxp-line { margin: 10px 0 0; font-size: var(--fs-small); color: var(--faint); text-wrap: pretty; }
 .rmxp .mxfoot { margin-top: 12px; padding-top: 10px; }
 .rmxp-none { margin: 2px 0 0; font-size: var(--fs-quiet); color: var(--dim); }
+/* what it didn't test, a line each: a call not planted in muted, a clean replay left out amber, as the CLI prints them */
+.rmxp-notes { list-style: none; margin: 10px 0 0; padding: 0; font-size: var(--fs-small); color: var(--faint); overflow-wrap: anywhere; }
+.rmxp-notes li + li { margin-top: 2px; }
+.rmxp-notes .warn { color: var(--cq-amber); }
 @media (max-width: 640px) {
   .rmxp-line .rmxl { display: block; }
   .rmxp-line .rmxl + .rmxl { margin-top: 2px; }

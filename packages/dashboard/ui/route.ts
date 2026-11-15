@@ -6,6 +6,7 @@ import { isRevisionKey, links, parseRunsQuery, type LinkView, type RunsFilterRea
  * `router.ts` holds the hooks that follow the address bar.
  *
  *   #/                                   Overview
+ *   #/activity                           the activity feed, older entries a page at a time
  *   #/runs[?q=&types=&sort=&from=&to=]   Runs, with what its filter, chips, sort and calendar show
  *   #/run/<id>[/<call>[/<view>]]         a run, a call, a view (the old #/run/<id>/call/<n> still opens)
  *   #/changes[/verdicts[/<rev>]]         Changes: Verdicts, and a revision's page there
@@ -22,6 +23,7 @@ export const VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 
 
 export type Route =
   | { page: 'overview' }
+  | { page: 'activity' }
   /** `filter`: what the address asks Runs to show; absent for `#/runs` alone. */
   | { page: 'runs'; filter?: RunsFilterRead }
   | { page: 'run'; id: string; call: number | null; view: View | null }
@@ -130,6 +132,8 @@ export function parseRoute(hash: string): Route {
       const ok = (x: string | undefined) => (x && SEGMENT.test(x) ? x : null);
       return { page: 'fixes', id: ok(a), step: ok(b), sub: ok(c) };
     }
+    case 'activity':
+      return parts.length === 1 ? { page: 'activity' } : { page: 'notfound', path: raw };
     case 'tests':
       return { page: 'tests' };
     case 'training':
@@ -153,6 +157,8 @@ export function routeHref(r: Route): string {
   switch (r.page) {
     case 'overview':
       return href.overview();
+    case 'activity':
+      return href.activity();
     case 'runs':
       return href.runs(r.filter ? { q: r.filter.q, types: r.filter.types, sort: r.filter.sort, from: r.filter.days?.from ?? null, to: r.filter.days?.to ?? null } : {});
     case 'run':
@@ -217,10 +223,11 @@ export function nextView(v: View | null): View {
   return VIEWS[(i + 1) % VIEWS.length]!;
 }
 
-/** Which nav entry a route sits under: Compare is a tab of Changes. */
+/** Which nav entry a route sits under: Compare is a tab of Changes, the activity feed a page of the Overview. */
 export function navSection(r: Route): 'overview' | 'runs' | 'changes' | 'fixes' | 'tests' | 'training' | 'settings' | null {
   switch (r.page) {
     case 'overview':
+    case 'activity':
       return 'overview';
     case 'runs':
     case 'run':

@@ -22,27 +22,36 @@ import { ActionButton } from './ActionButton.js';
 /** Migrate to <model>'s one card, on every press of it. */
 export const MIGRATE_CARD = 'Verify runs the agent live from the switched calls, writes stubbed';
 
-/** The `migrate` job's fields: every golden where it names none and no run. */
-const fieldsOf = (s: MigrateSwitch): Record<string, unknown> => ({ to: s.to, ...(s.from.length ? { from: [...s.from] } : {}), ...(s.goldens.length ? { goldens: [...s.goldens] } : s.runs?.length ? { runs: [...s.runs] } : {}) });
+/** What a switch asks: its goldens, else its runs, else (neither named) every golden, as its job and its price both take it. */
+const targetsOf = (s: MigrateSwitch): { goldens: readonly string[]; runs: readonly string[] } => (s.goldens.length ? { goldens: s.goldens, runs: [] } : { goldens: [], runs: s.runs ?? [] });
+
+/** The `migrate` job's fields: every golden where it names none and no run; its scope and Stop at $ where the dialog gives them. */
+const fieldsOf = (s: MigrateSwitch): Record<string, unknown> => {
+  const { goldens, runs } = targetsOf(s);
+  return { to: s.to, ...(s.from.length ? { from: [...s.from] } : {}), ...(goldens.length ? { goldens: [...goldens] } : runs.length ? { runs: [...runs] } : {}), ...(s.scope ? { scope: s.scope } : {}), ...(s.budget ? { budget: s.budget } : {}) };
+};
 
 /**
- * What a switch bills and the preview that asked it already; nothing in an exported copy or a
- * read-only dashboard, undefined while it is worked out. A field's switch is read once it has held
- * still (`useSettled`), not on each keystroke: each read reads every golden's calls on the pool.
+ * What a switch bills on what its job asks, its goldens or runs, in the scope it keeps to and held to
+ * its Stop at $, the preview that asked it already, and the scopes its runs called in; nothing in an
+ * exported copy or a read-only dashboard, undefined while it is worked out. A field's switch is read
+ * once it has held still (`useSettled`), not on each keystroke: each read reads every golden's calls
+ * on the pool.
  */
-export function useMigrateEstimate(s: MigrateSwitch, ask = true): { estimate: Estimate | null | undefined; preview: MigrateEstimateView['preview'] } {
+export function useMigrateEstimate(s: MigrateSwitch, ask = true): { estimate: Estimate | null | undefined; preview: MigrateEstimateView['preview']; scopes: MigrateEstimateView['scopes'] } {
   const { client, exported, actionsOff } = useApp();
   const on = ask && !exported && !actionsOff && !!s.to;
-  const now = on ? JSON.stringify([s.to, s.from, s.goldens]) : '';
+  const { goldens: g, runs: r } = targetsOf(s);
+  const now = on ? JSON.stringify([s.to, s.from, g, r, s.scope ?? null, s.budget ?? null]) : '';
   const key = useSettled(now);
   const priced = useLoad(() => {
     if (!key) return null;
-    const [to, from, goldens] = JSON.parse(key) as [string, string[], string[]];
-    return client.estimates?.migrateEstimate?.(to, from, goldens) ?? null;
+    const [to, from, goldens, runs, scope, budget] = JSON.parse(key) as [string, string[], string[], string[], string | null, number | null];
+    return client.estimates?.migrateEstimate?.(to, from, goldens, runs, { scope, budget }) ?? null;
   }, `migrate-estimate:${key}`);
   // While the field still moves, what was read is another switch's: worked out, not shown.
-  if (key !== now) return { estimate: on ? undefined : null, preview: null };
-  return { estimate: priced.data ? priced.data.estimate : priced.error || !on ? null : undefined, preview: priced.data?.preview ?? null };
+  if (key !== now) return { estimate: on ? undefined : null, preview: null, scopes: [] };
+  return { estimate: priced.data ? priced.data.estimate : priced.error || !on ? null : undefined, preview: priced.data?.preview ?? null, scopes: priced.data?.scopes ?? [] };
 }
 
 /**
@@ -71,7 +80,7 @@ export function MigrateButton({ s, label = `Migrate to ${s.to}`, lime = false, c
       command={migrateCommand(s)}
       estimate={estimate}
       form
-      ask={(start, close) => (MigrateToDialog ? <MigrateToDialog s={s} estimate={estimate} preview={preview} onOk={() => start({})} onClose={close} /> : null)}
+      ask={(start, close) => (MigrateToDialog ? <MigrateToDialog s={s} estimate={estimate} preview={preview} onOk={start} onClose={close} /> : null)}
     />
   );
 }
@@ -85,7 +94,7 @@ export function MigrateAskNow({ s }: { s: MigrateSwitch }) {
   const { start, consent } = useConsentStart(JOB_KINDS.migrate, fieldsOf(s));
   return (
     <>
-      {open && MigrateToDialog ? <MigrateToDialog s={s} estimate={estimate} preview={preview} onOk={() => app.guard(() => void start(sentEstimate(estimate)))} onClose={() => setOpen(false)} /> : null}
+      {open && MigrateToDialog ? <MigrateToDialog s={s} estimate={estimate} preview={preview} onOk={(more) => app.guard(() => void start({ ...sentEstimate(estimate), ...more }))} onClose={() => setOpen(false)} /> : null}
       {consent}
     </>
   );

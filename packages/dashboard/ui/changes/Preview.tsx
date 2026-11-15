@@ -104,7 +104,7 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
   return (
     <>
       <div className="chbar">
-        <SessionPicker kind="decisions" sessions={sessions} shown={session} />
+        <SessionPicker kind="decisions" sessions={sessions} shown={session} more={list.data!.more} />
         <span className="sp" />
         <NewPreviewMenu target={{ goldens: 'all', count: list.data!.goldens }} lime={anotherChange(session.view)} why={list.data!.goldens ? null : NO_GOLDENS} />
       </div>

@@ -4,13 +4,17 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { parseStoreUrl, pull, pullRequestLocation, push, recordCheck, StoreError } from '@shadowlap/remote';
-import { countsOf, readTeamStoreInput, teamStoreStatus, type TeamStoreInput } from '../src/team-store.js';
+import { countsOf, localRunSet, readTeamStoreInput, teamStoreStatus, type TeamStoreInput } from '../src/team-store.js';
 import { MemoryStore } from '../../remote/test/fakes/memory.js';
 
 /**
  * The team store as the dashboard reports it: the bucket from the config, the last sync, runs in
- * the store and only here, the last check, and whose credentials this machine would use.
+ * the store and only here (which ones, `localRunSet`), the last check, and whose credentials this
+ * machine would use.
  */
+
+/** The runs only here, as the Runs page's Local chip lists them: newest first. */
+const localIds = (store: Store) => [...localRunSet(store, ID)];
 
 const NOW = Date.parse('2027-01-15T10:00:00Z');
 const URL_ = 's3://northwind-agent-runs/support-agent?region=eu-central-1';
@@ -49,7 +53,7 @@ describe('the team store status', () => {
     store.setTeamSync(ID, { data: { setup: { startedAt: NOW, ci: 'added', ciProvider: 'github', finishedAt: NOW } } });
     expect(teamStoreStatus(store, input())!.settingUp).toBe(false);
     expect(Object.keys(status).sort()).toEqual(
-      ['access', 'account', 'bucket', 'check', 'ciProviders', 'ciPush', 'configured', 'inStore', 'key', 'localAttempts', 'localRuns', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'settingUp', 'syncedAt', 'url'].sort(),
+      ['access', 'account', 'bucket', 'check', 'ciPush', 'configured', 'inStore', 'key', 'localAttempts', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'settingUp', 'syncedAt', 'url'].sort(),
     );
     store.close();
   });
@@ -60,7 +64,8 @@ describe('the team store status', () => {
     expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 2, inStore: 0, queued: 0, pushedAt: null });
     const remote = new MemoryStore(parseStoreUrl(URL_));
     await push({ store, remote, actor: 'dana@northwind.example', now: () => NOW }, { all: true });
-    expect(teamStoreStatus(store, input())).toMatchObject({ inStore: 2, onlyLocal: 0, queued: 1, pushedAt: NOW, syncedAt: NOW, localRuns: [] });
+    expect(teamStoreStatus(store, input())).toMatchObject({ inStore: 2, onlyLocal: 0, queued: 1, pushedAt: NOW, syncedAt: NOW });
+    expect(localIds(store)).toEqual([]);
     expect(local.slice(0, 2).every((id) => store.teamRun(ID, id)!.state === 'pushed')).toBe(true);
     // Settings → Store's switch is the config's.
     expect(teamStoreStatus(store, input({ ciPush: false }))!.ciPush).toBe(false);
@@ -95,12 +100,11 @@ describe('the team store status', () => {
     store.close();
   });
 
-  it("names the CI that made runs in the store, and leaves a pull request's runs out of the local ones", async () => {
+  it("leaves a pull request's runs out of the local ones", async () => {
     const store = Store.open(':memory:');
     for (const author of ['maya@northwind.example', 'ci']) run(store, { author });
     const remote = new MemoryStore(parseStoreUrl(URL_));
     await push({ store, remote, actor: 'jonas@northwind.example', ci: 'gitlab', now: () => NOW }, { all: true });
-    expect(teamStoreStatus(store, input())!.ciProviders).toEqual(['gitlab']);
 
     // A pull request's job pushed a run to its own folder; pulled here, it isn't a local run to push.
     const ci = Store.open(':memory:');
@@ -108,7 +112,8 @@ describe('the team store status', () => {
     const folder = new MemoryStore(pullRequestLocation(parseStoreUrl(URL_), '42'));
     await push({ store: ci, remote: folder, actor: 'ci', pullRequest: '42', now: () => NOW }, { all: true });
     await pull({ store, remote: folder, actor: 'dana@northwind.example', pullRequest: '42', now: () => NOW });
-    expect(teamStoreStatus(store, input())).toMatchObject({ inStore: 2, onlyLocal: 0, localRuns: [] });
+    expect(teamStoreStatus(store, input())).toMatchObject({ inStore: 2, onlyLocal: 0 });
+    expect(localIds(store)).toEqual([]);
     ci.close();
     store.close();
   });
@@ -122,14 +127,17 @@ describe('counted by run', () => {
       const a = store.createRun({ mode: 'replay', parentRunId: rec, command: cmd, meta: { repeat: { group: 'g', attempt, of: 3 } } });
       store.endRun(a.runId, 'completed');
     }
-    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, localRuns: [rec], inStore: 0 });
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, inStore: 0 });
+    expect(localIds(store)).toEqual([rec]);
     const remote = new MemoryStore(parseStoreUrl(URL_));
     const ctx = { store, remote, actor: 'dana@northwind.example', now: () => NOW };
     // shadowlap push <run> sends the run alone: its attempts keep it local.
     await push(ctx, { runIds: [rec] });
-    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, localRuns: [rec], inStore: 1 });
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, inStore: 1 });
+    expect(localIds(store)).toEqual([rec]);
     await push(ctx, { all: true });
-    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 0, localAttempts: 0, localRuns: [], inStore: 1 });
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 0, localAttempts: 0, inStore: 1 });
+    expect(localIds(store)).toEqual([]);
     store.close();
   });
 
@@ -157,8 +165,8 @@ describe('a large store', () => {
     expect(status).toMatchObject({ inStore: 10, onlyLocal: 20, queued: 0 });
     // Newest first, as the Runs page lists them.
     const newest = store.allRuns().filter((r) => r.status !== 'running' && !ids.slice(0, 10).includes(r.runId)).sort((a, b) => b.startedAt - a.startedAt || (a.runId < b.runId ? 1 : -1));
-    expect(status.localRuns).toEqual(newest.map((r) => r.runId));
-    expect(store.teamLocalOnly(ID, 5).ids).toEqual(status.localRuns.slice(0, 5));
+    expect(localIds(store)).toEqual(newest.map((r) => r.runId));
+    expect(store.teamLocalOnly(ID, 5).ids).toEqual(localIds(store).slice(0, 5));
     store.close();
   });
 

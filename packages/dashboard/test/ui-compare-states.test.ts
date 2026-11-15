@@ -6,6 +6,7 @@ import { oneRunPair, replayCommand } from '../ui/compare/model.js';
 import { ComparePage } from '../ui/pages/Compare.js';
 import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import type { PairDifferences } from '../src/fork-differences.js';
 import type { CallDetail, CompareView, RunDetail, RunListItem } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -280,9 +281,19 @@ describe('the whole comparison', () => {
   const failAt = { run: 'b' as const, kind: 'fail' as const, flag: '--fail-at 19=529', callNo: 19, name: 'POST /v1/messages', before: 'an answer', after: 'HTTP 529', words: '#19 got HTTP 529 instead of an answer' };
   const call = (callNo: number, o: Record<string, unknown> = {}) => ({ callNo, kind: 'api', name: 'POST /v1/messages', effect: null, origin: 'replayed', input: false, failure: null, decision: null, ...o });
   const refund = { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { order: 'A-1', amount: 240 }, effect: 'write' }], text: '', stops: 'calls tools' };
+  // What B decided differently, as the server ranks it (pairDifferences): the refund it no longer made, and how it ended.
+  const ranked: PairDifferences['changes'] = [
+    { rank: 1, kind: 'write-removed', tool: 'issue_refund', effect: 'write', detail: 'issue_refund is no longer called', before: '{"order":"A-1","amount":240}', after: null, a: { callNo: 20, href: `#/run/${REC}/20` }, b: null },
+    { rank: 2, kind: 'ended', tool: null, effect: null, detail: 'it ends otherwise', before: 'completed', after: 'failed: HTTP 529', a: null, b: null },
+  ];
   const pair = {
     from: { a: 19, b: 19 },
     verdict: { words: 'Different endings', where: 'after #18', tone: 'warn' },
+    rank: 1,
+    changes: ranked,
+    ended: { a: { status: 'completed', failed: false, words: 'completed', tone: 'ok' }, b: { status: 'failed', failed: true, words: 'failed: HTTP 529', tone: 'err' } },
+    cut: false,
+    ranks: { 1: 'a write changed', 2: 'it stops, hands over or is judged differently', 3: 'a read added or removed', 4: 'a read asked differently', 5: 'text only' },
     endings: {
       a: { failures: null, writes: [{ fate: null, tools: [{ tool: 'issue_refund', count: 1 }] }], end: { kind: 'answered', callNo: 21 }, quit: false },
       b: { failures: null, writes: [], end: { kind: 'stopped', callNo: 19, status: 529 }, quit: true },
@@ -327,6 +338,27 @@ describe('the whole comparison', () => {
     expect(rows[0].textContent).toBe('#19 01M5GRVTKS: →\u00a0issue_refund {"order":"A-1","amount":240} replayed 01M5GRXFM1: HTTP 529 injected');
     expect(rows[1].textContent).toBe('#20 01M5GRVTKS: issue_refund write replayed 01M5GRXFM1: no call');
     expect(page.all('.pside.none')).toHaveLength(1);
+  });
+
+  it('ranks under the verdict what B did differently, each change with the call it is about on each side, as a fork’s page does', async () => {
+    addressBar(`#/compare/${REC}/${FORK}`);
+    page = await render(createElement(AppContext.Provider, { value: app(client, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    await page.until('the comparison', () => page!.all('.cmpdiff li').length > 0);
+    expect([page.one('.cmpdiff h2').textContent, page.one('.cmpdiff header .sub').textContent]).toEqual(['What 01M5GRXFM1 did differently', 'than 01M5GRVTKS, from #19']);
+    expect(page.all('.cmpdiff li').map((li) => [li.className, li.querySelector('.rk')!.textContent])).toEqual([
+      ['r1', 'a write'],
+      ['r2', 'how it ends'],
+    ]);
+    expect(page.all('.cmpdiff li .at a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['#20 in 01M5GRVTKS', `#/run/${REC}/20`]]);
+    // How each ended, in its tone, on the change of how they end.
+    expect(page.all('.cmpdiff li.r2 em').map((e) => [e.textContent, e.className])).toEqual([
+      ['completed', 'ok'],
+      ['failed: HTTP 529', 'err'],
+    ]);
+    // Two runs that decided alike draw none of it: the verdict says so.
+    await page.unmount();
+    page = await shown({ ...client, compare: compared({ ...pair, changes: [], rank: null }) }, `#/compare/${REC}/${FORK}`, (r) => r.all('.verdict.cmpv').length > 0);
+    expect(page.all('.cmpdiff')).toHaveLength(0);
   });
 
   it('opens both calls under a row as its address says, and closes them from the row or its ×', async () => {

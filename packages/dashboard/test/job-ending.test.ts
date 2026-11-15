@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CHECK_MARKS, checkOutcome, checkWords, formatDivergence, formatRepeats, formatSummary, plain, statusTally, type CheckResult, type DivergenceReport, type RepeatReport, type RunSummary } from '@shadowlap/engine';
+import { formatDoctor, runDoctor, type DoctorOptions } from '../../cli/src/doctor.js';
 import { reportError } from '../../cli/src/exit-codes.js';
 import { UNJUDGED_PLANT } from '../../cli/src/interventions.js';
 import { parseFailures } from '../../cli/src/run-agent.js';
@@ -400,6 +404,32 @@ describe('the drawer’s header', () => {
 
   it('says a skill installed in the past tense', () => {
     expect(jobHeader({ kind: 'skill-install', title: 'Installing the skill', args: ['init'], done: true, code: 0 }, [])).toMatchObject({ title: 'Installed the skill', text: 'finished · exit 0' });
+  });
+});
+
+describe('a setup check', () => {
+  it('sums its checks up as shadowlap doctor ends its output, in a problem’s, a warning’s or a pass’s tone', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-doctor-end-'));
+    try {
+      const plain = { green: (x: string) => x, yellow: (x: string) => x, red: (x: string) => x, dim: (x: string) => x };
+      // The checks as doctor makes them: a guard folder without its files fails, a machine without Python warns.
+      const checks = (o: Partial<DoctorOptions>) => runDoctor({ cwd: dir, env: {}, version: '0.0.0', dbPath: join(dir, 'store.db'), nodeVersion: 'v22.16.0', sqlite: () => null, python: () => 'Python 3.12.1', guardDir: dir, ...o });
+      const ended = (o: Partial<DoctorOptions>, code: number) => {
+        const c = checks(o);
+        const lines = formatDoctor(c, plain).split('\n');
+        const job = done({ kind: 'doctor', title: 'Checking setup', args: ['doctor'], code, result: { checks: c } });
+        return { status: jobStatus(job, lines), said: lines.at(-1), toast: endToast(job, lines) };
+      };
+      const failed = ended({ python: () => null }, 1);
+      expect(failed).toEqual({ status: { text: '1 problem, 1 warning · exit 1', tone: 'err' }, said: '1 problem, 1 warning', toast: 'Checked setup · 1 problem, 1 warning · exit 1' });
+      for (const f of ['node-guard.mjs', 'sitecustomize.py']) writeFileSync(join(dir, f), '');
+      expect(ended({ python: () => null }, 0)).toEqual({ status: { text: '1 warning, nothing blocking · exit 0', tone: 'warn' }, said: '1 warning, nothing blocking', toast: 'Checked setup · 1 warning, nothing blocking · exit 0' });
+      expect(ended({}, 0)).toEqual({ status: { text: 'everything looks fine · exit 0', tone: 'ok' }, said: 'everything looks fine', toast: 'Checked setup · everything looks fine · exit 0' });
+      // Stopped, it says so, whatever its checks.
+      expect(jobStatus(done({ kind: 'doctor', args: ['doctor'], code: 130, stopped: true, result: null }), []).text).toBe('stopped · exit 130');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

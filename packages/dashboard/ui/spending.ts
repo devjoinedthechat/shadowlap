@@ -16,6 +16,8 @@ import type { TipEst } from './components/HoverCard.js';
 export type Priced = Pick<Estimate, 'usd' | 'ceiling' | 'always' | 'per' | 'stops'> | null | undefined;
 
 let now: Spending | undefined;
+/** Whether someone set it (else it is the default), and what in its file was ignored and why, as the server last said them. */
+let facts: { set: boolean; problems: readonly string[] } | null = null;
 let loading: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
@@ -49,6 +51,21 @@ export function useSpending(): Spending | undefined {
   return useSyncExternalStore(onSpending, spendingNow);
 }
 
+/** Whether the threshold was set and what in its file was ignored, as the server last said them; null until it has. */
+export const spendingFacts = (): { set: boolean; problems: readonly string[] } | null => facts;
+
+/** Shows what the server says of the threshold's file: a broken settings.json, a relative SHADOWLAP_HOME, the default in use. */
+export function showSpendingFacts(next: { set: boolean; problems: readonly string[] }): void {
+  if (facts && facts.set === next.set && facts.problems.join('\n') === next.problems.join('\n')) return;
+  facts = { set: next.set, problems: [...next.problems] };
+  for (const on of [...listeners]) on();
+}
+
+/** The threshold's facts, redrawn as they change: for the Spending row only. */
+export function useSpendingFacts(): { set: boolean; problems: readonly string[] } | null {
+  return useSyncExternalStore(onSpending, spendingFacts);
+}
+
 /** What the threshold's store needs of the client: none in an exported copy, or a stand-in that prices nothing. */
 export type SpendingClient = { estimates?: Pick<EstimatesApi, 'spending' | 'setSpending'> } | null | undefined;
 
@@ -59,7 +76,10 @@ export function loadSpending(client: SpendingClient): Promise<void> {
   loading ??= api
     .spending()
     .then(
-      (v) => showSpending(v.askAbove),
+      (v) => {
+        showSpending(v.askAbove);
+        showSpendingFacts(v);
+      },
       () => undefined,
     )
     .finally(() => {
@@ -114,9 +134,10 @@ export function pressBilled(p: BilledPress): 'started' | 'asked' {
   return 'started';
 }
 
-/** For tests: forget the threshold, as a page that has just opened. */
+/** For tests: forget the threshold and what was said of its file, as a page that has just opened. */
 export function resetSpending(v?: Spending): void {
   loading = null;
+  facts = null;
   showSpending(v);
 }
 

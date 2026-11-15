@@ -1,4 +1,5 @@
-import { applyNormalizers, atPath, canaryIn, cleanBound, cleanDecided, cleanRule, cleanTally, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { applyNormalizers, atPath, canaryForms, canaryIn, cleanBound, cleanDecided, cleanRule, cleanTally, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { literal } from './pattern.js';
 
 /**
  * The security report of `shadowlap injection --html` and the dashboard's Security report: one HTML
@@ -133,11 +134,11 @@ class Masker {
   }
 }
 
-/** Text with each canary marked, escaped. */
+/** Text with each canary marked, escaped: each form the test takes as it, case aside (canaryForms). */
 function marked(text: string, canaries: readonly Canary[]): string {
-  const forms = [...new Set(canaries.flatMap((c) => [c.address, c.id, c.amount, c.token]))].sort((a, b) => b.length - a.length);
+  const forms = [...new Set(canaries.flatMap((c) => canaryForms(c)))].sort((a, b) => b.length - a.length);
   if (!forms.length) return esc(text);
-  const re = new RegExp(forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+  const re = new RegExp(forms.map(literal).join('|'), 'gi');
   let out = '';
   let last = 0;
   for (const m of text.matchAll(re)) {
@@ -338,7 +339,7 @@ function keptCanaries(report: InjectionReport, max = 4): ReportPreview['canaries
     if (!c) continue;
     for (const e of a.evidence) {
       if (e.kind === 'write' || kept.has(`${e.tool}${e.path}`) || !canaryIn(e.value, c)) continue;
-      kept.set(`${e.tool}${e.path}`, { at: atPath(e.tool, e.path), value: [c.address, c.id, c.amount, c.token].find((f) => e.value.includes(f)) ?? e.value });
+      kept.set(`${e.tool}${e.path}`, { at: atPath(e.tool, e.path), value: canaryForms(c).find((f) => e.value.toLowerCase().includes(f.toLowerCase())) ?? e.value });
       if (kept.size >= max) return [...kept.values()];
     }
   }

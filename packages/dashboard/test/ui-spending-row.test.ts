@@ -1,10 +1,14 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ProjectRegistry, readSpending } from '@shadowlap/engine';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import type { Client } from '../ui/api.js';
 import { ToastHost } from '../ui/components/Toast.js';
 import { SpendingRow } from '../ui/pages/settings/SpendingRow.js';
-import { askSpendingFocus, resetSpending, spendingNow } from '../ui/spending.js';
+import { askSpendingFocus, loadSpending, resetSpending, spendingNow } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction, ToastKind } from '../ui/toast.js';
 import { render, type Rendered } from './ui-render.js';
@@ -44,7 +48,8 @@ async function row(start: Spending, o: { refuse?: string; actionsOff?: string; h
       if (o.refuse) return Promise.reject(new Error(o.refuse));
       const was = kept;
       kept = v;
-      return Promise.resolve({ askAbove: v, was });
+      // As PUT /api/user/spending answers: what it keeps, and what it was.
+      return Promise.resolve({ askAbove: v, set: true, problems: [], was });
     },
   };
   const app = { client: { estimates } as unknown as Client, exported: false, conn: 'online', jobs: [], actionsOff: o.actionsOff ?? null, guard: (fn: () => void) => (fn(), true), toast: (text: string, kind?: string, action?: ToastAction) => toasts.push({ text, kind, action }) } as unknown as AppState;
@@ -159,5 +164,58 @@ describe('the Spending row', () => {
     await r!.unmount();
     await row(0.5);
     expect(r!.focused()).not.toBe(input());
+  });
+});
+
+describe('what the Spending row says of its file', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  /** A home folder whose settings.json isn't JSON, under a relative SHADOWLAP_HOME, which is ignored: what the server reads there. */
+  function brokenHome() {
+    const home = mkdtempSync(join(tmpdir(), 'sl-spending-home-'));
+    dirs.push(home);
+    mkdirSync(join(home, '.shadowlap'));
+    writeFileSync(join(home, '.shadowlap', 'settings.json'), '{ "spending": ');
+    const env = { SHADOWLAP_HOME: 'shadowlap-home' };
+    // As GET /api/user/spending and /api/projects send them.
+    const { askAbove, set, problems } = readSpending({ env, home });
+    return { said: { askAbove, set, problems }, warnings: new ProjectRegistry({ env, home }).warnings };
+  }
+
+  async function shown(said: { askAbove: Spending; set: boolean; problems: string[] }, shownAlready: readonly string[] = []) {
+    resetSpending();
+    const estimates = { spending: () => Promise.resolve(said), setSpending: () => Promise.reject(new Error('not here')) };
+    const app = { client: { estimates } as unknown as Client, exported: false, conn: 'online', jobs: [], actionsOff: null, guard: (fn: () => void) => (fn(), true), toast: () => undefined } as unknown as AppState;
+    // As the shell reads it when the page opens.
+    await loadSpending(app.client);
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(SpendingRow, { shown: shownAlready })));
+    await r.wait(0);
+  }
+  const amber = () => r!.all('#spending .spendsay .spendbad').map((l) => l.textContent);
+
+  it('says the value is the default nobody set, and in amber each thing the server ignored and why', async () => {
+    const { said } = brokenHome();
+    expect(said).toMatchObject({ askAbove: 0.5, set: false });
+    expect(said.problems).toHaveLength(2);
+    await shown(said);
+    expect(words()).toEqual(['Ask before spending more than $0.50.', 'A job with no estimate always asks.', 'The default, until you change it.', ...said.problems]);
+    expect(amber()).toEqual(said.problems);
+  });
+
+  it('leaves out what the page says already: a relative SHADOWLAP_HOME under This machine', async () => {
+    const { said, warnings } = brokenHome();
+    expect(warnings).toHaveLength(1);
+    expect(said.problems).toContain(warnings[0]);
+    await shown(said, warnings);
+    expect(amber()).toEqual(said.problems.filter((p) => p !== warnings[0]));
+    expect(amber()[0]).toMatch(/settings\.json isn’t valid JSON$/);
+  });
+
+  it('says nothing of a value someone set from a file that reads well', async () => {
+    await shown({ askAbove: 2, set: true, problems: [] });
+    expect(words()).toEqual(['Ask before spending more than $2.', 'A job with no estimate always asks.']);
   });
 });

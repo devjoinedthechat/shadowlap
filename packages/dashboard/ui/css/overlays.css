@@ -197,6 +197,7 @@
 .pop.picker .opt .pid { flex: none; font: 500 var(--fs-quiet) var(--mono); color: var(--ink); white-space: nowrap; }
 .pop.picker .opt .pab { flex: 1 1 auto; min-width: 0; color: var(--faint); font-size: var(--fs-quiet); white-space: nowrap; overflow: hidden; }
 .pop.picker .pnone { margin: 0; padding: 8px 10px; color: var(--faint); font-size: var(--fs-quiet); }
+.pop.picker .pfoot { margin: 0; padding: 8px 10px 6px; border-top: 1px solid var(--line); color: var(--faint); font-size: var(--fs-quiet); }
 .pop.picker.sheet { max-height: min(78vh, 640px); max-height: min(78dvh, 640px); }
 .pop.picker.sheet .opt { min-height: 44px; align-items: center; }
 .pop.picker.sheet .pfilter { height: 44px; }

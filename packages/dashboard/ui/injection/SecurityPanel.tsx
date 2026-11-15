@@ -10,6 +10,7 @@ import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { SECURITY_TEST_ASK } from '../page-ask.js';
 import { href } from '../route.js';
+import { openResults } from '../run/panel-state.js';
 import { useApp } from '../state.js';
 import { readsWords } from './reads-words.js';
 import { TestButton } from './TestButton.js';
@@ -18,8 +19,9 @@ import { TestButton } from './TestButton.js';
  * Tests → Security: the untrusted reads each golden's recording makes, where an injection test
  * plants, its last test or injection gate, and Run injection test… on it, asked as the fork menu's
  * is. The read is the server's (`GET /api/injection/security`, pooled): read again as an injection
- * test or Pack with injection gate… started here ends, and as a test session ends, so a row says the
- * test just run. None where no golden's recording reads anything untrusted.
+ * test or Pack with injection gate… started here ends, as a test session ends, and as a test kept
+ * from anywhere lands (the change feed's `injection`), so a row says the test just run. A row's last
+ * test opens the run it tested with its results. None where no golden's recording reads anything untrusted.
  */
 
 const ENDS = new Set<string>([JOB_KINDS.injection, JOB_KINDS.keepGolden]);
@@ -34,13 +36,15 @@ function named(names: readonly string[]): ReactNode {
   ));
 }
 
-/** A golden's last test: its verdict, then injectionLine's words, saying so where it was the golden's gate; not tested where none planted. */
+/** A golden's last test: its verdict, then injectionLine's words, saying so where it was the golden's gate, which open the run it tested with its results; not tested where none planted. */
 function Last({ last }: { last: SecurityRow['last'] }) {
   if (!last) return <Status tone="mu">not tested</Status>;
   return (
     <>
       <Status tone={statusTone(last.verdict)}>{last.verdict}</Status>
-      <span className="rsub">{last.gate ? `${last.line} · its injection gate` : last.line}</span>
+      <a className="rsub" href={href.run(last.runId)} onClick={() => openResults(last.runId, `injection:${last.resultId}`)}>
+        {last.gate ? `${last.line} · its injection gate` : last.line}
+      </a>
     </>
   );
 }
@@ -87,7 +91,7 @@ const SUB = 'the untrusted reads each golden makes, where an injection test plan
 export function SecurityPanel() {
   const { client, jobs, feeds } = useApp();
   const ended = jobs.filter((w) => w.job.done && ENDS.has(w.job.kind ?? '')).length;
-  const loaded = useLoad(() => client.injectionSecurity(), 'injection-security', `${ended}:${feeds.tests ?? 0}`);
+  const loaded = useLoad(() => client.injectionSecurity(), 'injection-security', `${ended}:${feeds.tests ?? 0}:${feeds.injection ?? 0}`);
   if (loaded.data) return <SecurityTable read={loaded.data} />;
   return loaded.error ? (
     <Section title="Security" sub={SUB}>

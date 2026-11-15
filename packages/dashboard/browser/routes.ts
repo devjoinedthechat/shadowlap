@@ -148,8 +148,10 @@ export async function previewed(page: Page): Promise<Previewed> {
   const { matrix } = await get<{ matrix: Array<{ runId: string; inStore: boolean }> }>(`decisions/${s.sessionId}`);
   const runId = matrix.find((r) => r.inStore)?.runId;
   if (!runId) throw new Error('the demo’s preview names no run the store holds');
-  const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
-  return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
+  const mine = (await get<{ sessions: Array<{ sessionId: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
+  // The run's Decisions view at the call its cell on Changes opens at, the run's most consequential.
+  const call = /\/(\d+)$/.exec(mine.changes)?.[1];
+  return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: `/run/${runId}${call ? `/${call}` : ''}/decisions` };
 }
 /** Changes' Migrate (port/migrate): a migration's report, drawn with its verdict. */
 export const MIGRATED = 'main#view .mgverdict';
@@ -521,6 +523,7 @@ const unaskedCard = async (page: Page): Promise<void> => {
 
 export const ROUTES: readonly RouteState[] = [
   route('/', 'overview'),
+  route('/activity', 'main#view .actfeed .feed > a'),
   route('/runs', 'main#view table.runst tbody tr'),
   ...['capture', 'test', 'failed'].map((t) => route(`/runs?types=${t}`)),
   route('/runs?q=label%3Agood'),

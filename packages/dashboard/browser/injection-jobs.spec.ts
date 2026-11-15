@@ -232,6 +232,8 @@ test("Tests' Security lists the golden's untrusted reads and its last gate, with
   await expect(row.locator('.sreads .nw')).toHaveCount(5);
   await expect(row).toContainText('its injection gate');
   await expect(page.locator('main#view a.more', { hasText: 'Trust on Settings → Tools' })).toHaveAttribute('href', '#/settings/tools');
+  // Its last gate's line opens the run it tested, with its results open.
+  await expect(row.locator('a.rsub')).toHaveAttribute('href', new RegExp(`^#/run/${runId}$`));
   await expectAccessible(page);
 
   await row.getByRole('button', { name: /^Run injection test…/ }).click();

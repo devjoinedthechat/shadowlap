@@ -126,6 +126,9 @@ function cleanParts(own: readonly Marked[], missing: number) {
   return { lines, label, more };
 }
 
+/** A run whose kept tests the list cut at its newest (`GET /api/injection`'s `more`), never silently: what isn't drawn, and where its replays go. */
+export const olderTestsWords = (runId: string, listed: number): string => `Older injection tests of ${shortId(runId)} aren’t drawn, only its newest ${num(listed)}: their replays show as forks`;
+
 /** The attempts a test ran that the family's list doesn't hold, never left out silently: gc took them, or the list stopped at its first 1,000 runs. */
 const missingWords = (n: number) => (n > 0 ? `${plural(n, 'attempt')} not drawn: gone from the store, or past the family’s first 1,000 runs` : '');
 
@@ -138,7 +141,8 @@ export function testNode(row: InjectionRow, runs: readonly LineageNode[]): TestN
   const missing = Math.max(0, row.attempts - own.length);
   const { lines, label, more } = plant ? plantParts(own, replays, missing) : cleanParts(own, missing);
   return {
-    title: plant ? (row.golden ? 'injection gate' : 'injection test') : `injection --clean${row.read !== null ? ` ${row.read}` : ''}`,
+    // Only a test session's is a golden's gate: a golden tested on its own is an injection test.
+    title: plant ? (row.sessionId ? 'injection gate' : 'injection test') : `injection --clean${row.read !== null ? ` ${row.read}` : ''}`,
     glyph: glyphOf(row),
     parts: lineParts(row),
     cells: own.map(plant ? attemptCell : cleanCell),
