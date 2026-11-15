@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { ForkChange, ForkDifferences as Differences, ForkEnd, ForkWrite } from '../../src/fork-differences.js';
-import { Copy } from '../components/Copy.js';
+import { Code, Copy } from '../components/Copy.js';
 import { shortId } from '../format.js';
 import { href } from '../route.js';
 
@@ -187,9 +187,10 @@ function Change({ c, ended, ranks, sides }: { c: ForkChange; ended: Differences[
             {c.before !== null || c.after !== null ? (
               <>
                 {' '}
-                {c.before !== null ? <code className="was">{c.before}</code> : null}
+                {/* Set as inline code is: a long value, a call's JSON, breaks after its commas where the line can't hold it. */}
+                {c.before !== null ? <Code className="was">{c.before}</Code> : null}
                 {c.before !== null && c.after !== null ? ' → ' : null}
-                {c.after !== null ? <code>{c.after}</code> : null}
+                {c.after !== null ? <Code>{c.after}</Code> : null}
               </>
             ) : null}
             {c.parent || c.fork ? (
