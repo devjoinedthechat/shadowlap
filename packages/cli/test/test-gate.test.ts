@@ -1,9 +1,9 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
@@ -38,6 +38,29 @@ let mock: MockServer;
 let work: string;
 let attemptsSeen = 0;
 let flaky = false;
+/** The CLI runs a test started that haven't ended. */
+const live = new Set<ChildProcessWithoutNullStreams>();
+
+/** Starts the CLI, kept in `live` until it exits. */
+function spawnCli(args: string[], env: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams {
+  const child = spawn(process.execPath, [CLI, ...args], { cwd: work, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.end();
+  live.add(child);
+  child.on('exit', () => live.delete(child));
+  return child;
+}
+
+// A test that times out leaves its CLI running against the shared mock, which counts every run's
+// first turn in `attemptsSeen`: the next test's agent would then stop passing every other attempt.
+// So no run outlives its test, and the next test starts from the counters as they begin.
+afterEach(async () => {
+  await Promise.all([...live].map((child) => new Promise<void>((done) => {
+    child.once('exit', () => done());
+    child.kill('SIGKILL');
+  })));
+  attemptsSeen = 0;
+  flaky = false;
+});
 
 beforeAll(async () => {
   mock = await startMockAnthropic({
@@ -77,11 +100,7 @@ function runTest(tests: unknown, env: NodeJS.ProcessEnv = {}, o: { db?: string; 
   const markdown = join(work, 'summary.md');
   for (const f of [report, junit, markdown]) rmSync(f, { force: true });
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', o.db ?? ':memory:', 'test', 'goldens/reference-agent', '--cwd', ROOT, '--json', report, '--junit', junit, '--markdown', markdown, ...(o.flags ?? [])], {
-      cwd: work,
-      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_GUARD: 'off', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawnCli(['--db', o.db ?? ':memory:', 'test', 'goldens/reference-agent', '--cwd', ROOT, '--json', report, '--junit', junit, '--markdown', markdown, ...(o.flags ?? [])], { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_GUARD: 'off', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
@@ -447,11 +466,7 @@ function shadowlapTestAll(tests: unknown, env: NodeJS.ProcessEnv = {}, flags: st
   const markdown = join(work, 'summary-all.md');
   for (const f of [report, markdown]) rmSync(f, { force: true });
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', ':memory:', 'test', 'goldens/*', '--cwd', ROOT, '--json', report, '--markdown', markdown, ...flags], {
-      cwd: work,
-      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_GUARD: 'off', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawnCli(['--db', ':memory:', 'test', 'goldens/*', '--cwd', ROOT, '--json', report, '--markdown', markdown, ...flags], { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_GUARD: 'off', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
