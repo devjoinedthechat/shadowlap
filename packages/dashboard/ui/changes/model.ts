@@ -1,6 +1,6 @@
 import type { VerdictTone } from '../../src/verdict.js';
 import type { Tone } from '../components/Status.js';
-import { personName } from '../overview/model.js';
+import { personName } from '../person.js';
 import { href } from '../route.js';
 import type { SessionVerdict, VerdictPullRequest, VerdictRow, VerdictsKind } from '../types.js';
 
