@@ -17,7 +17,7 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  *
  * The shell's pages load this way (pages/lazy.tsx), its shortcuts sheet (shell/Shell.tsx), and each
  * part of a page heavy enough to wait for a script of its own: a run's views but Calls
- * (pages/Run.tsx), and what a run's page rarely opens, which keeps it within its budget: Share's
+ * (pages/Run.tsx) and the inspector's Details tab (run/InspectorDetails.tsx), and what a run's page rarely opens, which keeps it within its budget: Share's
  * menu with its rows' words (pages/served.tsx, run/share.ts: the page's header, steps and keys read
  * theirs from run/share-steps.ts) and its Export dataset… and Export OpenTelemetry trace…
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), the words of a run's notes

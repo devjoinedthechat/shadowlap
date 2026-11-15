@@ -8,7 +8,8 @@ import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/train
 import { startDashboard, type Dashboard } from '../src/index.js';
 import type { ProjectConfig } from '../src/context.js';
 import type { PreviewView } from '../src/decision-view.js';
-import { decisionRow, decisionSession, decisionSessions, retirementsView, runDecisions, type DecisionCell, type DecisionsListView } from '../src/decisions.js';
+import { decisionRow, decisionSession, decisionSessions, runDecisions, type DecisionCell, type DecisionsListView } from '../src/decisions.js';
+import { retiringModels } from '../src/retirements.js';
 import { commandTreeUse } from '../src/worktree.js';
 
 /**
@@ -176,10 +177,10 @@ describe('the decision read models', () => {
   });
 
   it('names the models the goldens use that retire, with the goldens that use each', () => {
-    const view = retirementsView(store, [{ path: 'goldens/refund', runId: golden, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }, { path: 'goldens/gone', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }], Date.parse('2026-10-19T12:00:00Z'));
-    expect(view.version).toBe('2026-10-19');
-    expect(view.notices).toHaveLength(1);
-    expect(view.notices[0]).toMatchObject({ model: 'claude-sonnet-4-5-20250929', retires: '2026-11-30', days: 42, goldens: ['goldens/refund'], source: 'https://platform.claude.com/docs/en/about-claude/model-deprecations' });
+    // As Migrate's start and Needs a look read them (retirements.ts).
+    const notices = retiringModels(store, [{ path: 'goldens/refund', runId: golden, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }, { path: 'goldens/gone', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }], Date.parse('2026-10-19T12:00:00Z'));
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ model: 'claude-sonnet-4-5-20250929', retires: '2026-11-30', days: 42, goldens: ['goldens/refund'], source: 'https://platform.claude.com/docs/en/about-claude/model-deprecations' });
   });
 });
 
@@ -199,14 +200,14 @@ describe('the decision routes', () => {
     const one = (await (await api(dash, 'decisions?limit=1')).json()) as DecisionsListView;
     expect([one.sessions.map((s) => s.sessionId), one.more]).toEqual([['mg-01M5000000000000000000000B'], true]);
     expect(decisionSessions(store, { shared: true }).map((s) => s.actor)).toEqual(['dev', 'dev']);
-    // Reading every golden's calls belongs on the pool: GET /api/retirements and Migrate's start read have them.
+    // Reading every golden's calls belongs on the pool: Migrate's start read has them.
     expect('retirements' in view).toBe(false);
     const only = (await (await api(dash, 'decisions?kind=decisions')).json()) as DecisionsListView;
     expect(only.sessions.map((s) => s.kind)).toEqual(['decisions']);
     expect((await api(dash, 'decisions?kind=other')).status).toBe(400);
   });
 
-  it('serves a session whole, a run\'s decisions, and the retirements', async () => {
+  it('serves a session whole, and a run\'s decisions', async () => {
     const one = (await (await api(dash, 'decisions/dc-01M5000000000000000000000A')).json()) as { runs: DecisionRun[]; matrix: unknown[]; command: string; view: PreviewView };
     expect(one.runs.map((r) => r.runId)).toEqual([refunded, failed]);
     expect(one.matrix).toHaveLength(2);
@@ -217,8 +218,6 @@ describe('the decision routes', () => {
     const run = (await (await api(dash, `runs/${failed}/decisions`)).json()) as ReturnType<typeof runDecisions>;
     expect(run.sessions.map((s) => s.sessionId)).toEqual(['dc-01M5000000000000000000000A']);
     expect((await api(dash, 'runs/01NOPE000000000000000000/decisions')).status).toBe(404);
-    const retirements = (await (await api(dash, 'retirements')).json()) as { notices: Array<{ model: string }> };
-    expect(retirements.notices.map((n) => n.model)).toEqual(['claude-sonnet-4-5-20250929']);
   });
 
   it('reads what the working tree sends the runs as a job of its own, offline, titled as the CLI says it', async () => {

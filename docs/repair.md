@@ -518,6 +518,7 @@ Each entry of `targets`:
 | `rescuedRunId` | string or null | The fork that rescued it |
 | `rescuedBy` | string or null | The model that rescued it, when it wasn't the recorded one |
 | `unsettled` | boolean | `true` for an `unrescuable` run only because its blame's first probe could not tell |
+| `firstOnly` | boolean | `true` for an `unrescuable` run whose blame's bound bears out only the first model call |
 | `reused` | boolean | Whether a blame already kept was used |
 | `recorded`, `rescued` | string or null | What the agent answered there, in the recording and in the rescue |
 | `note` | string or null | A note, such as why blame couldn't run |
@@ -525,6 +526,7 @@ Each entry of `targets`:
 - **`outcome`** is `passes` when the run passed the check as replayed, so there was no failure to blame, and `error` when blame couldn't run.
 - **`range`** has `gradual: true` when its check found no drop beyond chance from one to the next: rescue falls by less than the gate's rates apart, or the check could not tell. That is as [blame](./blame.md#how-it-works) words it (*lost gradually, around model calls #17 and #18*), `callNo` being the first. It is `null` otherwise.
 - **`unsettled`** marks a run inconclusive at the first model call rather than not rescued. It is absent otherwise.
+- **`firstOnly`** marks a run not rescued from the first model call, as [blame](./blame.md) heads it under a fixed count, rather than from any. It is absent otherwise.
 
 ### Each candidate
 

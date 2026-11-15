@@ -715,6 +715,22 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
   });
 
+  it("builds the agent with the config's build where fix-build is unset, as shadowlap repair does, and with fix-build over it", () => {
+    for (const [given, built] of [['', 'npm run build'], ['make agent', 'make agent']] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-config-build-'));
+      dirs.push(dir);
+      const fake = fakeCli(dir);
+      const work = project();
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ build: ' npm run build ' }));
+      const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: work, FIX_ON_FAILURE: 'true', FIX_BUILD: given, REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' }, { ...REPO, SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push' });
+      expect(r.code, r.out).toBe(0);
+      const repair = fake.seen()[1].args;
+      expect(repair.slice(repair.indexOf('--build'), repair.indexOf('--build') + 2), given).toEqual(['--build', built]);
+      // Where the config gave it, the log says so, as the CLI's progress does.
+      expect(r.out.includes('build: npm run build, from shadowlap.config.json'), given).toBe(!given);
+    }
+  });
+
   it("starts no repair where it couldn't push the fix it pays for: a checkout of another repository, or a job that names none", () => {
     for (const [origin, env, why] of [
       ['https://github.test/northwind/fork.git', REPO, "the checkout's origin is not northwind/agent, the repository this workflow runs in, so no fix is pushed from it"],

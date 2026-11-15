@@ -1,5 +1,5 @@
 import { approx, goldenName, num, plural } from '../format.js';
-import { blameStateWord, INCONCLUSIVE_FIRST, unrescuedWords } from '../../../engine/src/blame-words.js';
+import { blameStateWord, INCONCLUSIVE_FIRST, unrescuedKept } from '../../../engine/src/blame-words.js';
 import { fencedLabel, judgeSourceParts, notApplicableParts, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
 import type { JudgeOutcome } from '../../../engine/src/types.js';
 import { isObject } from '../../../engine/src/is-object.js';
@@ -53,7 +53,7 @@ export interface BannerInput {
   /** A fork blame rescued its parent with: the call it asked again. */
   rescued: { callNo: number | null } | null;
   /** `range`: the two calls it was lost around or between, when no one call is pinned. */
-  blame: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; short?: string | null } | null;
+  blame: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; firstOnly?: boolean; short?: string | null } | null;
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
   checks: ReadonlyArray<JudgedCheck & { label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
@@ -705,11 +705,11 @@ function checksBanner(i: BannerInput): Banner | null {
 /** What the engine's words for a blame that placed nothing say after its label (blame-words.ts), so the label and its line read as the CLI and the TUI say it. */
 const afterLabel = (label: BlameState, words: string): string => (words.startsWith(`${label} `) ? words.slice(label.length + 1) : words);
 
-/** How a blame that placed the failure on no call says what it stands on, by its word: the failure, and where blame got to. */
-const UNPLACED: Readonly<Record<BlameState, (failure: string) => string>> = {
+/** How a blame that placed the failure on no call says what it stands on, by its word: the failure, and where blame got to, from any model call only where its bound bears that out. */
+const UNPLACED: Readonly<Record<BlameState, (failure: string, b: { firstOnly?: boolean }) => string>> = {
   stopped: (f) => `${f} · before it found the call`,
   inconclusive: (f) => `${f} · ${afterLabel('inconclusive', INCONCLUSIVE_FIRST)}`,
-  'not rescued': (f) => `${afterLabel('not rescued', unrescuedWords(false))} · ${f}`,
+  'not rescued': (f, b) => `${afterLabel('not rescued', unrescuedKept(b))} · ${f}`,
 };
 
 /**
@@ -726,7 +726,7 @@ function failedBanner(i: BannerInput): Banner | null {
   const b = i.blame;
   if (b && !i.fix) {
     const label = blameStateWord(b.outcome === 'stopped' ? 'stopped' : 'unrescuable', !!b.unsettled);
-    return { kind: 'failed', why: UNPLACED[label](failure), fix: null, blamed: true, label };
+    return { kind: 'failed', why: UNPLACED[label](failure, b), fix: null, blamed: true, label };
   }
   // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !i.checks.some(checkFailed) ? 'blame needs a run that ended on its own' : null;

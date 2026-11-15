@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { JUDGE_NOT_ASKED, markToast, Store, unpackRun, type CallRecord, type RunRecord, type StoredFix } from '@shadowlap/engine';
+import { JUDGE_NOT_ASKED, markToast, Store, unpackRun, unrescuedMarks, unrescuedSaid, type CallRecord, type RunRecord, type StoredFix } from '@shadowlap/engine';
+import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { App } from '../src/app.js';
 import { attemptResult, attemptsText, attemptTallies, leftRunning } from '../src/attempts.js';
 import { forkEffects } from '../src/fork-effects.js';
@@ -272,6 +273,10 @@ describe('how a run stands, in the terminal', () => {
     const blamed = (blame: Record<string, unknown>) => ({ status: 'failed', meta: { blame: { at: 1, callNo: null, confidence: 'low', ...blame } } }) as unknown as RunRecord;
     expect(blameFact(blamed({ outcome: 'unrescuable', unsettled: true }))).toEqual({ text: 'inconclusive at the first model call', tone: 'warn' });
     expect(blameFact(blamed({ outcome: 'unrescuable' }))).toEqual({ text: 'not rescued from any model call', tone: 'warn' });
+    // From the first model call only, where its bound bears out no more, as its report heads it.
+    const weak = { ...blameReport('R', 'unrescuable'), errorBound: 0.087, confidence: 'medium' as const };
+    expect(blameFact(blamed({ outcome: 'unrescuable', ...unrescuedMarks(weak) }))).toEqual({ text: unrescuedSaid(weak), tone: 'warn' });
+    expect(unrescuedSaid(weak)).toBe('not rescued from the first model call');
   });
 
   it('says an open fix has no change yet, as the dashboard’s run page does: repair makes a change, a fix is the failure worked through', () => {

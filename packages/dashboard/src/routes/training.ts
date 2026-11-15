@@ -1,16 +1,15 @@
 import { ACTIONS, listingInput, messageOf, type Normalizer, type Task } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
-import { HttpError } from '../http.js';
 import { listModels } from '../model-listing.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { liveAsk } from '../tests-live.js';
-import { exportPairsJob, modelsView, scoreModelJob, taskUpdateJob, type PairFilter } from '../training.js';
+import { exportPairsJob, modelsView, scoreModelJob, taskUpdateJob } from '../training.js';
 
 /**
  * Training (`#/training`, `#/training/tasks`):
  *
- *   GET /api/training[?filter=all|high|medium]   the screen: the strip, pairs, tasks and scores
+ *   GET /api/training                            the screen: the strip, every pair, tasks and scores
  *   GET /api/models                              the models Score a model offers, each with its price per attempt (A7)
  *   POST /api/jobs { kind: "pairs", format?, minConfidence? }                  shadowlap export pairs
  *   POST /api/jobs { kind: "score", model, baseUrl?, attempts?, goldens? }    shadowlap tasks score
@@ -28,7 +27,6 @@ import { exportPairsJob, modelsView, scoreModelJob, taskUpdateJob, type PairFilt
  * read-only dashboard asks no provider.
  */
 
-const FILTERS: readonly PairFilter[] = ['all', 'high', 'medium'];
 /** How long a read of the goldens is reused: a page that reloads on every change of a live run doesn't reread them each time. */
 const TASKS_TTL_MS = 1500;
 const NO_LOADER = 'This dashboard doesn’t read the project’s goldens: start it with shadowlap dashboard in the project folder.';
@@ -75,10 +73,8 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // The pairs every run makes, read beside the server (read-jobs.ts `training`); the goldens and the config here.
   router.get('/training', async (r) => {
-    const filter = (r.query.get('filter') ?? 'all') as PairFilter;
-    if (!FILTERS.includes(filter)) throw new HttpError(400, 'filter must be all, high or medium');
     const t = tasks();
-    sendAnswer(r, await ctx.reads.run({ kind: 'training', tasks: t.tasks, tasksError: t.error, normalizers: normalizers(), redactRules: redactRules(), filter }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'training', tasks: t.tasks, tasksError: t.error, normalizers: normalizers(), redactRules: redactRules() }));
   });
 
   router.get('/models', async (r) => {

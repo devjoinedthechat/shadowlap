@@ -185,7 +185,7 @@ shadowlap blame <run> --expect @checks.json --model claude-opus-5-5
 
 ### When no call rescues the run
 
-When the first model call's probe finds the run lost, resampling from it, and so from any later call, rescues the run less than 60% of the time. The report then says **Not rescued from any model call**, when that holds but for the gate's risk. A fixed count, which can be wrong more often, says only *Not rescued from the first model call*.
+When the first model call's probe finds the run lost, resampling from it, and so from any later call, rescues the run less than 60% of the time. The report then says **Not rescued from any model call**, when that holds but for the gate's risk. A fixed count, which can be wrong more often, says only *Not rescued from the first model call*. `shadowlap show`, the terminal UI, repair's report and the dashboard say it in the same words.
 
 That is a finding, not an error: the failure is not one unlucky answer the model gets right most of the time. It comes from the prompt, the tools, the harness, or a task the model cannot do. Blame with a stronger model tells the last two apart:
 

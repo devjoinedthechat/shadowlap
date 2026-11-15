@@ -1,13 +1,14 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { bannerFor, beforeFork, failedCheckText, failureText, fencedWords, type BannerInput } from '../ui/run/banner.js';
 import { keyItems } from '../ui/run/call-filter.js';
 import { CallsTable } from '../ui/run/CallsView.js';
 import { StripKey } from '../ui/run/StripKey.js';
 import { ContextView } from '../ui/run/ContextView.js';
 import { TimelineView } from '../ui/run/TimelineView.js';
-import { Inspector } from '../ui/run/Inspector.js';
+import { DetailsPart, Inspector } from '../ui/run/Inspector.js';
+import { scriptIn } from './ui-served-now.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CallDetail, CallRow, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -25,6 +26,9 @@ afterEach(async () => {
   await page?.unmount();
   page = null;
 });
+
+// The inspector's Details tab waits in a script of its own until it first shows: in, it draws at once.
+beforeAll(() => scriptIn(DetailsPart));
 
 describe('a failed check, in the CLI’s words', () => {
   // The planted fork's own check: send_email called twice after the fork, both blocked.

@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
 import type { TestsAnswer } from '../src/golden-report.js';
-import { inTestFamily, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
+import { bisectChoices, inTestFamily, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
+import { chaosSessionLive } from '../src/chaos.js';
+import { testOffer } from '../src/run-offers.js';
 
 /**
  * The Tests screen's API: `GET /api/tests` over the goldens the CLI lists, `GET /api/ci/workflows`
@@ -125,6 +127,17 @@ afterAll(async () => {
 });
 
 describe('GET /api/tests', () => {
+  it('says who ran the session its verdict names only where names show, a team store set in the project', async () => {
+    expect((await getJson<TestsView>(dash, 'tests')).verdict?.session.actor).toBeNull();
+    const config = join(project, 'shadowlap.config.json');
+    writeFileSync(config, `${JSON.stringify({ store: 's3://northwind-agent-runs/support-agent' }, null, 2)}\n`);
+    try {
+      expect((await getJson<TestsView>(dash, 'tests')).verdict?.session.actor).toBe('ci');
+    } finally {
+      rmSync(config, { force: true });
+    }
+  });
+
   it('reads the goldens the CLI lists and how each did', async () => {
     const view = await getJson<TestsView>(dash, 'tests');
     expect(view.empty).toBe(false);
@@ -221,18 +234,16 @@ describe('a gate against history, figured against a golden’s own', () => {
   });
 });
 
-describe('GET /api/tests/runs/:id', () => {
-  it('gives a run\'s page Find the commit\'s choices, and the banner of a test replay that diverged', async () => {
+describe('a test replay\'s page', () => {
+  it('offers Find the commit\'s choices, and the banner of a test replay that diverged', () => {
     // R2_LIMIT is a replay `shadowlap test` made of refund-in-limit in the failing session.
     store.updateRunMeta('R2_LIMIT', { test: { golden: 'goldens/refund-in-limit', session: store.listTestSessions()[0].sessionId } });
-    const view = await getJson<{ banner: { golden: string; normalizerFixes: boolean } | null; bisect: { target: unknown; failed: boolean; good: string | null } | null }>(dash, 'tests/runs/R2_LIMIT');
-    expect(view.bisect).toMatchObject({ target: { kind: 'golden', golden: 'goldens/refund-in-limit' }, failed: true, good: 'c91d0f4' });
+    // As its page's offers work them out (run-offers.ts, `GET /api/runs/:id/offers`).
+    expect(bisectChoices(store, 'R2_LIMIT', { goldens })).toMatchObject({ target: { kind: 'golden', golden: 'goldens/refund-in-limit' }, failed: true, good: 'c91d0f4' });
     // Its run has no divergence of its own in this store, so there is no banner to show.
-    expect(view.banner).toBeNull();
-    // The calendar's first day picked limits the good commits to before it.
-    expect((await getJson<{ bisect: { good: string | null } }>(dash, `tests/runs/R2_LIMIT?before=${T0 - 86_400_000}`)).bisect.good).toBeNull();
-    expect((await api(dash, 'tests/runs/NOPE')).status).toBe(404);
-    expect((await api(dash, 'tests/runs/R2_LIMIT?before=yesterday')).status).toBe(400);
+    expect(testOffer(store, store.getRun('R2_LIMIT')!, null, goldens)).toBeNull();
+    // The calendar's first day picked limits the good commits to before it (runs-list.ts).
+    expect(bisectChoices(store, 'R2_LIMIT', { goldens, before: T0 - 86_400_000 })?.good).toBeNull();
   });
 });
 
@@ -328,20 +339,20 @@ describe('one job at a time on the goldens', () => {
       ]);
       // The page shows it, so its buttons wait too, and the presets' sessions read it as running.
       expect(await getJson<TestsView>(dash, 'tests')).toMatchObject({ running: null, chaosRunning: { id: s.sessionId, command: 'shadowlap test goldens/refund-flow --chaos' } });
-      expect((await getJson<{ sessions: Array<{ sessionId: string; live: boolean }> }>(dash, 'chaos')).sessions.find((x) => x.sessionId === s.sessionId)).toMatchObject({ live: true });
+      expect(chaosSessionLive(store, store.getChaosSession(s.sessionId)!)).toBe(true);
     } finally {
       store.finishChaosSession(s.sessionId, { passed: 0, failed: 0, inconclusive: 0, upstreamRequests: 0 });
     }
     expect((await getJson<TestsView>(dash, 'tests')).chaosRunning).toBeNull();
-    expect((await getJson<{ sessions: Array<{ sessionId: string; live: boolean }> }>(dash, 'chaos')).sessions.find((x) => x.sessionId === s.sessionId)).toMatchObject({ live: false });
+    expect(chaosSessionLive(store, store.getChaosSession(s.sessionId)!)).toBe(false);
     // One whose process was killed holds nothing up and did not finish; nor do presets on a run, which touch no golden.
     const killed = store.startChaosSession({ command: ['shadowlap', 'test', 'goldens/*', '--chaos'], presets: ['timeout'], owner: { pid: 2_147_483_646, host: hostname() } });
     const onRun = store.startChaosSession({ command: ['shadowlap', 'replay', 'GOLDEN_FLOW', '--chaos'], presets: ['timeout'] });
     try {
       expect((await getJson<TestsView>(dash, 'tests')).chaosRunning).toBeNull();
-      const sessions = (await getJson<{ sessions: Array<{ sessionId: string; endedAt: number | null; live: boolean }> }>(dash, 'chaos')).sessions;
-      expect(sessions.find((x) => x.sessionId === killed.sessionId)).toMatchObject({ endedAt: null, live: false });
-      expect(sessions.find((x) => x.sessionId === onRun.sessionId)).toMatchObject({ endedAt: null, live: true });
+      const session = (id: string) => store.getChaosSession(id)!;
+      expect([session(killed.sessionId).endedAt, chaosSessionLive(store, session(killed.sessionId))]).toEqual([null, false]);
+      expect([session(onRun.sessionId).endedAt, chaosSessionLive(store, session(onRun.sessionId))]).toEqual([null, true]);
       expect((await job({ kind: 'test', golden: 'goldens/refund-flow' })).code).toBe(0);
     } finally {
       for (const x of [killed, onRun]) store.finishChaosSession(x.sessionId, { passed: 0, failed: 0, inconclusive: 0, upstreamRequests: 0 });

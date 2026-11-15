@@ -7,8 +7,9 @@ import { runUnrecorded, runWebSockets } from '../src/run-unrecorded.js';
 import { shortReason } from '../src/tests.js';
 import { hintWords } from '../ui/tests/report-words.js';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
+import { allowAgainLabel } from '../ui/allow-words.js';
 import { declareSnippet, noteText, notesSaid } from '../ui/run/note-lines.js';
-import { runNotes, viaWords } from '../ui/run/notes.js';
+import { runNotes, viaWords, type UnrecordedToolView } from '../ui/run/notes.js';
 import { preloadsOf, preloadWords } from '../ui/run/preloads.js';
 
 /**
@@ -55,6 +56,19 @@ describe('the notes under a run’s banner', () => {
     // Beside one that writes: they write, or may; of unknown effect alone, they may write.
     expect(noteText(notesSaid({ unrecorded: { tools: [BASH, FROB], partial: false }, mode: 'record' })[0].parts)).toContain('Bash and frobnicate write, or may, so every command that replays the run refuses to run them again until they are recorded');
     expect(noteText(notesSaid({ unrecorded: { tools: [FROB, { ...FROB, name: 'zap' }], partial: false }, mode: 'record' })[0].parts)).toContain('frobnicate and zap may write, so');
+  });
+
+  it('says a job here that refuses a tool offers Run again, allowing it, where this dashboard runs jobs, and the CLI’s flag where it can’t', () => {
+    const FROB = { name: 'frobnicate', count: 2, firstCallNo: 5, effect: 'unknown' as const, why: 'its name says nothing of what it does' };
+    const said = (allowsAgain: boolean, tools: readonly UnrecordedToolView[] = [BASH, SEARCH]) => noteText(notesSaid({ unrecorded: { tools, partial: false }, mode: 'record', allowsAgain })[0].parts);
+    // The way on its drawer and toast offer, by the label its button has (allow-again.tsx, from allow-words.ts).
+    expect(said(true)).toBe(
+      `The model called 2 tools shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. Bash writes, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed: a job here that refuses it offers ${allowAgainLabel(['Bash'])}.`,
+    );
+    expect(said(true, [BASH, FROB])).toContain(`until they are recorded, declared a read, or allowed: a job here that refuses them offers ${allowAgainLabel(['Bash', 'frobnicate'])}.`);
+    expect(said(true)).not.toContain('--allow-unrecorded');
+    // Read-only, or an exported copy: nothing runs from here, so the flag the CLI takes.
+    expect(said(false)).toMatch(/or allowed with --allow-unrecorded\.$/);
   });
 
   it('says a run that holds its model calls alone runs the tools they asked for live, refusing nothing', () => {

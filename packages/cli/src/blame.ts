@@ -1,4 +1,4 @@
-import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, blameRules, blameSteps, canonicalize, checkStatus, decideCountUnavailable, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, NO_PAIRS, normalizeResponse, pinRisk, pinWords, probeFinding, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type BlameRule, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type StoreOf, type StoredCheck } from '@shadowlap/engine';
+import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, blameRules, blameSteps, canonicalize, checkStatus, decideCountUnavailable, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, NO_PAIRS, normalizeResponse, pinRisk, pinWords, probeFinding, probeRisk, probeTally, searchBlame, unrescuedMarks, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type BlameRule, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type StoreOf, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -444,8 +444,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       blame: {
         at: Date.now(),
         outcome: report.outcome,
-        // Placed on no call only because its first probe couldn't tell: what reads this record says so.
-        ...(unsettledFirst(report) ? { unsettled: true } : {}),
+        // Placed on no call only because its first probe couldn't tell, or past only the first model call by its bound: what reads this record says so.
+        ...unrescuedMarks(report),
         callNo: report.blamed?.callNo ?? null,
         confidence: report.confidence,
         range: report.range ?? null,

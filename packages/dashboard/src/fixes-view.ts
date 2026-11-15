@@ -62,9 +62,9 @@ export interface UnblamedRow {
 }
 
 export interface FixesView {
-  /** In to-do order, filtered by `status` when asked. */
+  /** Every fix, in to-do order: the page's chips keep a bucket each. */
   fixes: FixesViewRow[];
-  /** Per chip, every fix whatever `status` keeps; `verified` is every fix not open. */
+  /** Per chip; `verified` is every fix not open. */
   counts: { all: number; open: number; ready: number; applied: number; verified: number };
   /** Every fix's failing runs, and what blame, repair and verify took for them (a verdict shared by several fixes once). */
   totals: { failing: number; attempts: number; spent: number };
@@ -72,8 +72,6 @@ export interface FixesView {
 }
 
 export interface FixesViewOptions {
-  /** As `?status=` keeps the rows: `verified` keeps every fix not open. */
-  status?: FixStatus | 'all';
   /** The repairer shadowlap.config.json names, for the repair commands. */
   repairer?: string | null;
   /** The config's `verify.max`, which Run more attempts keeps a good run's pairs to. */
@@ -125,8 +123,6 @@ function unblamedRow(store: Store, index: RunIndex, key: string | null, o: Fixes
   const step = unblamedListedStep(store, run.runId, o.next ?? null, { reads: stepReads(store, index) });
   return { count: runs.length, runId: run.runId, issue: issueKeyOf(store, index, run.runId), about: about || null, failed: indexed ? failedWords(indexed, { capture: capturedFailure(indexed) ? run : null }) : null, checks: failedCheckLabels(run), ...(step?.key === 'blame' ? { from: step.offer.from, next: stepRow(step) } : { from: null, next: null }) };
 }
-
-const keeps = (status: FixStatus | 'all' | undefined, f: FixesViewRow): boolean => !status || status === 'all' || (status === 'verified' ? f.status !== 'open' : f.status === status);
 
 /**
  * The store, with every run's record read once for one answer: an open fix's repair command asks
@@ -194,15 +190,15 @@ export function fixesView(store: Store, o: FixesViewOptions = {}): FixesView {
   const open = count('open');
   const cost = fixCost(records);
   return {
-    fixes: all.filter((f) => keeps(o.status, f)),
+    fixes: all,
     counts: { all: all.length, open, ready: count('ready'), applied: count('applied'), verified: all.length - open },
     totals: { failing: all.reduce((n, f) => n + f.failing, 0), attempts: cost.attempts, spent: cost.spent },
     unblamed: unblamedRow(store, index, changes, o),
   };
 }
 
-/** The read job: `status` as the route checked it, the project's folder (git is asked there about each patch), the configured repairer and `verify.max`, and what the next step reads. */
-export type FixesJob = { kind: 'fixes'; status: FixStatus | 'all'; project: string | null; repairer: string | null; keptMax?: number | null; next: NextStepWork | null };
+/** The read job: the project's folder (git is asked there about each patch), the configured repairer and `verify.max`, and what the next step reads. */
+export type FixesJob = { kind: 'fixes'; project: string | null; repairer: string | null; keptMax?: number | null; next: NextStepWork | null };
 
 /**
  * Whether each patch the list could apply is in the working tree already, and why `fix apply`
@@ -215,7 +211,7 @@ async function fixesRead(store: Store, job: FixesJob, whole: boolean): Promise<R
   const pulled = job.project ? records.flatMap((rec) => pulledPatchOf(store, rec) ?? []) : [];
   const patchInTree = job.project && patches.length ? await patchesInTree(job.project, patches) : undefined;
   const rewriteHere = job.project && pulled.length ? await rewritesHere(job.project, pulled) : undefined;
-  return answer(fixesView(store, { status: job.status, repairer: job.repairer, keptMax: job.keptMax ?? null, next: job.next, patchInTree, rewriteHere, budget: whole ? undefined : SUMMARY_CALLS_BUDGET }), { tagged: true });
+  return answer(fixesView(store, { repairer: job.repairer, keptMax: job.keptMax ?? null, next: job.next, patchInTree, rewriteHere, budget: whole ? undefined : SUMMARY_CALLS_BUDGET }), { tagged: true });
 }
 
 export const FIXES_READS: ReadTable<FixesJob> = { fixes: (store, job, o) => fixesRead(store, job, o.whole) };

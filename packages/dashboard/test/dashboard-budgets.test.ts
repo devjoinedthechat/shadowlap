@@ -37,8 +37,8 @@ import { recordLoop } from './long-run.js';
  *   there come before the whole analysis does, from the calls around them.
  * - Comparing it with its fork shows the identical prefix and the first difference before the whole
  *   comparison comes, and holds the server's thread up no more than any other read.
- * - Its Provenance, its untrusted reads, the tools' trust over every call and the page of the fix
- *   that blamed it, each of which reads every call of the run, cost the server's thread a few
+ * - Its Provenance, its untrusted reads and the page of the fix that blamed it, each of which
+ *   reads every call of the run, cost the server's thread a few
  *   milliseconds each, a small share of the time each takes (`beside`).
  */
 
@@ -580,13 +580,13 @@ describe('a run of twenty thousand calls', () => {
     }
   }, TIMEOUT);
 
-  it('reads its Provenance, its untrusted reads, the tools’ trust and the fix that blamed it beside the server', async () => {
+  it('reads its Provenance, its untrusted reads and the fix that blamed it beside the server', async () => {
     const store = Store.open(dbPath);
     const d = await startDashboard({ store, dbPath, port: 0 });
     try {
       await ask(d, 'meta');
       await wait(300);
-      for (const path of [`runs/${big.runId}/provenance`, `injection/runs/${big.runId}`, 'injection/tools', `fixes/${fixId}`]) {
+      for (const path of [`runs/${big.runId}/provenance`, `injection/runs/${big.runId}`, `fixes/${fixId}`]) {
         const t = await onServerThread(() => ask(d, path));
         said(`${path.replace(big.runId, '<run>')} answered in ${t.out.ms.toFixed(0)} ms`, t);
         expect(t.out.status, path).toBe(200);

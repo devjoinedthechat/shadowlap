@@ -51,6 +51,8 @@ export interface NotesInput {
   websockets?: ReadonlyArray<{ target: string; count: number; action: 'tunnelled' | 'refused' }> | null;
   extraReads?: ReadonlyArray<{ callNo: number; kind: string; name: string }> | null;
   mode: 'record' | 'replay' | (string & {});
+  /** This dashboard runs jobs and offers Run again, allowing on one the CLI refuses (allow-again.tsx), so a note says that rather than the flag. */
+  allowsAgain?: boolean;
 }
 
 /** The unrecorded tools a replay refuses: one that writes, and one whose effect nothing tells, which may (the CLI's refusedEffect). */

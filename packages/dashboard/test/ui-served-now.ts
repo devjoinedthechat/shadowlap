@@ -8,6 +8,13 @@ import { SERVED_PARTS } from '../ui/pages/served.js';
 import { StepDialog } from '../ui/run/StepDialogs.js';
 import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
 
+/** Waits until `part`'s script is in, so a test draws it at once, as a page does once it first came. */
+export async function scriptIn(part: Pick<OnShow<never>, 'preload' | 'script'>): Promise<void> {
+  part.preload();
+  while (part.script === 'loading') await new Promise((r) => setTimeout(r, 1));
+  if (part.script !== 'loaded') throw new Error(`a part's script did not load: ${part.script}`);
+}
+
 /** A part the served dashboard hands in, its script already in, as once it first came: it draws at once. */
 export function shownNow<P extends object>(part: ComponentType<P>): OnShow<P> {
   const shown = onShow(() => Promise.resolve(part));

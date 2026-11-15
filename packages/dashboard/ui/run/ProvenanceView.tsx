@@ -14,7 +14,7 @@ import { navigate } from '../router.js';
 import { kindWord } from '../runs.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
-import { NoteForm } from './Inspector.js';
+import { NoteForm } from './InspectorDetails.js';
 import { modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
 import { lineageRunLike } from './view-model.js';
 import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes, tallyProviders, upstreamParts } from './provenance.js';

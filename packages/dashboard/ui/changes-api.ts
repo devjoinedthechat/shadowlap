@@ -1,5 +1,5 @@
 import type { Request } from './settings-api.js';
-import type { DecisionSessionDetail, DecisionsListView, MigrateStartView, RetirementsView, RunDecisionsView, VerdictRevision, VerdictsKind, VerdictsView } from './types.js';
+import type { DecisionSessionDetail, DecisionsListView, MigrateStartView, RunDecisionsView, VerdictRevision, VerdictsKind, VerdictsView } from './types.js';
 
 /**
  * What Changes reads from the server: the decision diff (`/api/decisions`, `shadowlap decisions` and
@@ -7,14 +7,12 @@ import type { DecisionSessionDetail, DecisionsListView, MigrateStartView, Retire
  * client, as each of its reads is. Nothing here is drawn, so nothing comes from ui/changes/.
  */
 export interface ChangesApi {
-  /** The decisions and migrate sessions kept, newest first (`limit` of them, 50 unless asked, 200 at most), the project's goldens, and their models that retire. */
+  /** The decisions and migrate sessions kept, newest first (`limit` of them, 50 unless asked, 200 at most), and the project's goldens. */
   decisionSessions(kind?: 'decisions' | 'migrate', limit?: number): Promise<DecisionsListView>;
   /** One session whole, by its id (`dc-…`, `mg-…`): its report, its matrix and its `view`. */
   decisionSession(id: string): Promise<DecisionSessionDetail>;
   /** A run's decisions under each session that asked its model calls again, for its Decisions view. */
   runDecisions(runId: string): Promise<RunDecisionsView>;
-  /** The models the goldens use that retire, by the table that ships with shadowlap. */
-  retirements(): Promise<RetirementsView>;
   /** What Migrate opens on (`GET /api/migrate/start`, a pooled read): the goldens' retiring models, worded, each with the migration that checked it, and the models the goldens call. */
   migrateStart(): Promise<MigrateStartView>;
   /** Verdicts: the changes of a chip, newest first, `limit` at most, each chip's count, and the newest revision's verdict. */
@@ -33,7 +31,6 @@ export function changesApi(request: Request): ChangesApi {
     },
     decisionSession: (sessionId) => request<DecisionSessionDetail>(`decisions/${id(sessionId)}`),
     runDecisions: (runId) => request<RunDecisionsView>(`runs/${id(runId)}/decisions`),
-    retirements: () => request<RetirementsView>('retirements'),
     migrateStart: () => request<MigrateStartView>('migrate/start'),
     verdicts: (kind, limit) => request<VerdictsView>(`verdicts?kind=${kind}&limit=${limit}`),
     verdictRevision: (rev) => request<VerdictRevision>(`verdicts/${id(rev)}`),

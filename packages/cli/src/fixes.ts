@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { BLAME_DEFAULTS, ciProvider, commitTitle, fieldValue, messageOf, outcomeOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, fieldValue, messageOf, outcomeOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unrescuedMarks, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { EXIT_LABEL } from './oracle.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -358,7 +358,7 @@ export function recordBlameFix(
       runId: input.runId,
       ref: recorded.fix.fixId,
       // The calls it was lost between, so the activity feed can say a run lost gradually around two (`gradual`).
-      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created, ...(unsettledFirst(input.report) ? { unsettled: true } : {}), ...(input.report.range ? { range: { from: input.report.range.from, to: input.report.range.to, ...(input.report.range.gradual ? { gradual: true } : {}) } } : {}) },
+      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created, ...unrescuedMarks(input.report), ...(input.report.range ? { range: { from: input.report.range.from, to: input.report.range.to, ...(input.report.range.gradual ? { gradual: true } : {}) } } : {}) },
     });
     return recorded;
   } catch (err) {

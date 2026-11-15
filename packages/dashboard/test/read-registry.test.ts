@@ -44,16 +44,15 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   search: { kind: 'search', q: 'refund', limit: 10 },
   provenance: { kind: 'provenance', runId: REC, read: {}, mask: { rules: 0, values: null } },
   'injection-run': { kind: 'injection-run', runId: REC },
-  'tool-trust': { kind: 'tool-trust' },
   'tools-read': { kind: 'tools-read', goldens: [], project: '/nowhere' },
   'injection-security': { kind: 'injection-security', goldens: [], project: '/nowhere' },
   'injection-estimate': { kind: 'injection-estimate', runId: REC, plan: { payloads: 2 }, gate: false },
   'presets-plan': { kind: 'presets-plan', runId: REC, work: null, shared: false },
   'coverage-view': { kind: 'coverage-view', shared: false },
   'store-facts': { kind: 'store-facts', stores: [{ id: 'here', dbPath: null, keep: null }] },
-  training: { kind: 'training', tasks: [], tasksError: null, normalizers: [], redactRules: 0, filter: 'all' },
+  training: { kind: 'training', tasks: [], tasksError: null, normalizers: [], redactRules: 0 },
   fix: { kind: 'fix', fixId: FIX, repairer: null },
-  fixes: { kind: 'fixes', status: 'all', project: null, repairer: null, next: null },
+  fixes: { kind: 'fixes', project: null, repairer: null, next: null },
   outcome: { kind: 'outcome', runId: FORK, work: null },
   next: { kind: 'next', runId: FORK, outcome: null, next: null },
   'tests-steps': { kind: 'tests-steps', goldens: ['goldens/refund'], next: null },
@@ -168,7 +167,7 @@ describe('the pooled reads by kind', () => {
       for (let i = 0; i < 400 && !one.warmed; i++) await new Promise((r) => setTimeout(r, 25));
       expect(one.warmed).toBe(true);
       await expect(one.run(nope)).rejects.toThrow(words);
-      expect((await one.run({ kind: 'tool-trust' })).status).toBe(200);
+      expect((await one.run(JOBS.activity)).status).toBe(200);
       // Through the thread's 'error', which logs the failure, and never as a thread that stopped.
       const said = lines.join('\n');
       expect(said).toMatch(/^a read model failed: .*no read model answers a job of kind "nope": is the dashboard built\?/m);

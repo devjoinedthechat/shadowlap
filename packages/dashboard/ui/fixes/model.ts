@@ -580,20 +580,15 @@ const statusOf = (err: unknown): number | null => {
 
 /**
  * A run's bundles for the Forks view, asked for with `get` (`GET /api/fixes/family/:runId`): null
- * when the server doesn't know the run (404) or doesn't bundle attempts (405), and the view lists
- * the attempts as runs. A server that doesn't bundle them isn't asked again. Any other failure is
- * thrown, for the view to show.
+ * when the server doesn't know the run (404), and the view lists the attempts as runs. Any other
+ * failure is thrown, for the view to show.
  */
 export function bundleSource(get: (runId: string) => Promise<FixBundle[]>): (runId: string) => Promise<FixBundle[] | null> {
-  let unsupported = false;
   return async (runId) => {
-    if (unsupported) return null;
     try {
       return await get(runId);
     } catch (err) {
-      const status = statusOf(err);
-      if (status === 405) unsupported = true;
-      if (status === 404 || status === 405) return null;
+      if (statusOf(err) === 404) return null;
       throw err;
     }
   };

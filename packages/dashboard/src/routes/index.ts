@@ -114,7 +114,3 @@ export const ROUTE_MODULES: RouteModule[] = [
   dismissals,
   health,
 ];
-
-export function registerRoutes(router: Router, ctx: RouteContext): void {
-  for (const m of ROUTE_MODULES) m.register(router, ctx);
-}

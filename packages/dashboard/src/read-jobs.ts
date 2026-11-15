@@ -8,7 +8,6 @@ import { fixDetail, goldensFolderIn, patchesToCheck, pulledPatchesToCheck, withA
 import type { FoundServing } from './found-here.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection } from './injection.js';
-import { toolTrust } from './tool-trust.js';
 import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree, rewritesHere } from './patch-in-tree.js';
@@ -48,7 +47,7 @@ import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.j
 import { setupUnderWay } from './store-setup.js';
 import { localRunSet, teamStoreStatus, type TeamStoreInput } from './team-store.js';
 import type { GoldenSource } from './tests.js';
-import { readTraining, sourceFixes, trainingView, type PairFilter } from './training.js';
+import { readTraining, sourceFixes, trainingView } from './training.js';
 
 export type { ReadAnswer } from './read-registry.js';
 
@@ -128,7 +127,6 @@ type CoreJob =
   /** What `shadowlap injection` would plant in a run's untrusted reads, and its results (injection.ts); `shared`, names show. */
   | { kind: 'injection-run'; runId: string; tools?: ToolTrust; shared?: boolean }
   /** Every tool the store's recordings called, with its trust, for Settings → Tools (injection.ts). */
-  | { kind: 'tool-trust'; tools?: ToolTrust }
   /**
    * What projects' stores say, for the project switcher and a project's setup (engine `storeFacts`,
    * which reads every run), by project id: the store this job reads for the one with no `dbPath`, the
@@ -136,7 +134,7 @@ type CoreJob =
    */
   | { kind: 'store-facts'; stores: Array<{ id: string; dbPath: string | null; keep: string | null }> }
   /** The Training screen (training.ts `trainingView`): the pairs every run makes, with the project's goldens as tasks and its normalizers, read on the server's thread. */
-  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number | null; filter: PairFilter }
+  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number | null }
   /**
    * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
@@ -344,9 +342,8 @@ const CORE_READS: ReadTable<CoreJob> = {
     return p ? answer(p, { tagged: true }) : failed(404, `no run ${job.runId}`);
   },
   'injection-run': (store, job) => (store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools, { shared: job.shared === true }), { tagged: true }) : failed(404, `no run ${job.runId}`)),
-  'tool-trust': (store, job) => answer(toolTrust(store, job.tools), { tagged: true }),
   'store-facts': (store, job) => storeFactsOf(store, job.stores),
-  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
+  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers })), { tagged: true }),
   fix: (store, job) => fixPage(store, job),
   search: (store, job) => {
     const index = loadRunIndex(store);

@@ -134,9 +134,6 @@ describe('GET /api/fixes', () => {
     expect(all.fixes.map((f: { fixId: string }) => f.fixId)).toEqual([openFix.fixId, fixId]);
     expect(all.fixes[1]).toMatchObject({ status: 'verified', rung: 'verified', bucket: 'ready', label: 'refund-bug', failing: 1, good: 1, href: `#/fixes/${fixId}`, next: { key: 'apply', label: 'Apply fix' } });
     expect(all.fixes[0]).toMatchObject({ rung: 'blamed', bucket: 'open', next: { key: 'repair', label: 'Run repair', use: 'writes' } });
-    expect((await json(await api('fixes?status=open'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([openFix.fixId]);
-    expect((await json(await api('fixes?status=verified'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([fixId]);
-    expect((await api('fixes?status=closed')).status).toBe(400);
     expect((await fetch(`${dash!.url}/api/fixes`)).status).toBe(401);
   });
 

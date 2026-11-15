@@ -123,14 +123,13 @@ interface Choices {
 describe('Find the commit in this checkout', () => {
   it('offers a teammate’s failure only the commits here, up to HEAD, on its page and to the job', async () => {
     const expected = { good: first, bad: null, revisions: [expect.objectContaining({ rev: first })], args: ['bisect', ids.failedTheirs, '--good', first, '--fork'] };
-    expect((await getJson<{ bisect: Choices }>(`tests/runs/${ids.failedTheirs}`)).bisect).toMatchObject(expected);
     expect((await getJson<{ bisect: Choices }>(`runs/${ids.failedTheirs}/offers`)).bisect).toMatchObject(expected);
     // The page sends the good commit alone; the job then searches up to HEAD, not up to theirs.
     expect((await job({ kind: 'bisect', runId: ids.failedTheirs, good: first })).args).toEqual(['bisect', ids.failedTheirs, '--good', first, '--fork']);
   });
 
   it('still stops at the commit where a run failed when this checkout has it', async () => {
-    const offered = (await getJson<{ bisect: Choices }>(`tests/runs/${ids.failedHere}`)).bisect;
+    const offered = (await getJson<{ bisect: Choices }>(`runs/${ids.failedHere}/offers`)).bisect;
     expect(offered).toMatchObject({ good: first, bad: second });
     expect(offered.revisions.map((r) => r.rev)).toEqual([first]);
     expect((await job({ kind: 'bisect', runId: ids.failedHere, good: first })).args).toEqual(['bisect', ids.failedHere, '--good', first, '--bad', second, '--fork']);
@@ -188,7 +187,7 @@ describe('Find the commit in this checkout', () => {
   });
 
   it('names each commit a run’s Find the commit offers by its subject', async () => {
-    const offered = (await getJson<{ bisect: Choices & { revisions: Array<{ rev: string; subject: string | null }> } }>(`tests/runs/${ids.failedHere}`)).bisect;
+    const offered = (await getJson<{ bisect: Choices & { revisions: Array<{ rev: string; subject: string | null }> } }>(`runs/${ids.failedHere}/offers`)).bisect;
     expect(offered.revisions).toEqual([expect.objectContaining({ rev: first, subject: 'Start' })]);
   });
 });

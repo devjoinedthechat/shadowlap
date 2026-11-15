@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { links as built } from '../src/links.js';
+import type { UnrecordedView } from '../src/run-unrecorded.js';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
 import { contrast, dash, demoId, focusedLabel, openPage, patched, RESET_RETRY, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
@@ -660,6 +661,18 @@ test('what a run did that shadowlap did not record is among its findings, with n
   await page.waitForSelector('main#view .findings .rnote');
   await expect(page.locator('main#view .findings .rntools code').first()).toHaveText('check_policy');
   expect(await seriousViolations(page)).toEqual([]);
+});
+
+test('a run’s note on a tool a replay refuses says a job here that refuses it offers Run again, allowing it, not the CLI’s flag', async ({ page }) => {
+  // check_policy, read as a write: every command that replays the run refuses it.
+  await page.route((url) => /^\/api\/runs\/[^/]+\/unrecorded$/.test(url.pathname), (route) =>
+    patched<{ unrecorded: UnrecordedView | null }>(route, (u) => ({ unrecorded: u.unrecorded && { ...u.unrecorded, tools: u.unrecorded.tools.map((t) => ({ ...t, effect: 'write' })) } })),
+  );
+  await openPage(page, `/run/${demoId('eval')}`, 'run');
+  await openFindings(page);
+  const note = page.locator('main#view .findings .rnote', { has: page.locator('.rntools') });
+  await expect(note).toContainText('or allowed: a job here that refuses it offers Run again, allowing check_policy.');
+  await expect(note).not.toContainText('--allow-unrecorded');
 });
 
 test('on a phone, what a run did that shadowlap did not record wraps inside the page, its hint a sentence', async ({ page }) => {

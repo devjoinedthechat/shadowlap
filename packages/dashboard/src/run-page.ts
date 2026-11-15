@@ -551,6 +551,8 @@ export interface RunBlame {
   outcome: 'blamed' | 'unrescuable' | 'stopped';
   /** It placed the failure on no call only because its first probe couldn't tell: inconclusive at the first model call, never "not rescued". Absent otherwise. */
   unsettled?: true;
+  /** It placed the failure on no call, but its bound bears out only the first model call: not rescued from the first, never from any. Absent otherwise. */
+  firstOnly?: true;
   /** The model call whose recorded answer lost the run. */
   callNo: number | null;
   /** The two calls it was lost around or between, when no one call is pinned (lostRange). */
@@ -647,6 +649,7 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[], step?: { k: numbe
   return {
     outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
     ...(b.unsettled === true ? { unsettled: true as const } : {}),
+    ...(b.firstOnly === true ? { firstOnly: true as const } : {}),
     callNo,
     range: lostRange(b.range),
     modelCall,

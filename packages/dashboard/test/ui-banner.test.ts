@@ -202,6 +202,10 @@ describe('the run’s banner', () => {
       return `${f.label} ${f.why.split(' · ').at(at)!}`;
     };
     expect([said({ outcome: 'unrescuable' }, 0), said({ outcome: 'unrescuable', unsettled: true }, -1)]).toEqual([unrescuedWords(false), INCONCLUSIVE_FIRST]);
+    // From any model call only where the blame's bound bears that out: as the server says it, and as an exported copy's run keeps it.
+    const served = normalizeRunDetail({ run: { meta: {} }, calls: [], blame: { outcome: 'unrescuable', callNo: null, firstOnly: true } } as never);
+    const copied = normalizeRunDetail({ run: { meta: { blame: { outcome: 'unrescuable', callNo: null, firstOnly: true } } }, calls: [] } as never);
+    expect([served, copied].map((d) => said({ ...blameOf(d) }, 0))).toEqual([unrescuedWords(false, false), unrescuedWords(false, false)]);
   });
 
   it('shows nothing for a run with nothing to say', () => {

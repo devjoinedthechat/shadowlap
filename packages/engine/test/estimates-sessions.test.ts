@@ -394,6 +394,15 @@ describe('a migration', () => {
     expect(migrateEstimate([{ calls: pricedCalls(golden()), failed: false }], { to: 'my-model', from: ['claude-sonnet-4-5-20250929'] }).none).toBe('no price for my-model: add it under "prices" in shadowlap.config.json');
   });
 
+  it('names the runs it was given, not goldens, where it prices runs picked by id', () => {
+    const plan = { to: 'claude-sonnet-5-5', from: ['claude-3-opus-20240229'] };
+    expect(migrateEstimate([{ calls: calls(), failed: false, run: true }], plan).parts).toEqual(['no run’s call is made with claude-3-opus-20240229']);
+    expect(migrateEstimate([{ calls: calls(), failed: false }, { calls: calls(), failed: false, run: true }], plan).parts).toEqual(['no golden’s or run’s call is made with claude-3-opus-20240229']);
+    const switched = { to: 'claude-sonnet-5-5', from: ['claude-sonnet-4-5-20250929'] };
+    expect(migrateEstimate([{ calls: pricedCalls(golden()), failed: true, run: true }], switched).card?.title).toBe('If every run’s gate ran to its limit');
+    expect(migrateEstimate([{ calls: pricedCalls(golden()), failed: true }, { calls: pricedCalls(golden()), failed: true, run: true }], switched).card?.title).toBe('If every golden’s and run’s gate ran to its limit');
+  });
+
   it('says which switched call kept no token counts, rather than a price the new model has', () => {
     const uncounted = pricedCalls([api(1, 'claude-sonnet-4-5', { inputTokens: 1000, outputTokens: 100 }), api(2, 'claude-sonnet-4-5', null)]);
     const e = migrateEstimate([{ calls: uncounted, failed: true }], { to: 'claude-sonnet-5', from: ['claude-sonnet-4-5'] });

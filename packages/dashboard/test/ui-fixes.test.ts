@@ -445,7 +445,7 @@ describe('the Forks view’s bundles', () => {
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1 }), money)).toBe('2 attempts, 1 passed');
   });
 
-  it('asks the server for them until it says it has none, and leaves a run it doesn’t know unbundled', async () => {
+  it('asks the server for them each time, and leaves a run it doesn’t know unbundled', async () => {
     const answers: Array<() => Promise<FixBundle[]>> = [];
     let asked = 0;
     const fail = (status: number) => () => Promise.reject(Object.assign(new Error(`HTTP ${status}`), { status }));
@@ -454,14 +454,12 @@ describe('the Forks view’s bundles', () => {
       return answers.shift()!();
     });
     const one = bundle({});
-    answers.push(() => Promise.resolve([one]), fail(404), fail(500), fail(405));
+    answers.push(() => Promise.resolve([one]), fail(404), fail(500), () => Promise.resolve([one]));
     expect(await source('R')).toEqual([one]);
     // A run the server doesn't know: none this time, and it is asked again next time.
     expect(await source('R')).toBeNull();
     await expect(source('R')).rejects.toThrow('HTTP 500');
-    // A server that doesn't bundle them: none, and it isn't asked again.
-    expect(await source('R')).toBeNull();
-    expect(await source('S')).toBeNull();
+    expect(await source('R')).toEqual([one]);
     expect(asked).toBe(4);
   });
 

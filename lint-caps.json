@@ -21,7 +21,7 @@
       "sessionSource": 39
     },
     "packages/cli/src/blame.ts": {
-      "runBlame": 54
+      "runBlame": 53
     },
     "packages/cli/src/chaos.ts": {
       "runPresets": 75
@@ -154,7 +154,7 @@
       "testsView": 45
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 81
+      "trainingView": 79
     },
     "packages/dashboard/test/static.test.ts": {
       "scriptEnd": 56
@@ -363,10 +363,7 @@
       "register": 216
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 166
-    },
-    "packages/dashboard/ui/api.ts": {
-      "createClient": 162
+      "trainingView": 163
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 158
@@ -381,7 +378,7 @@
       "PaletteDialog": 167
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 300
+      "AppProvider": 297
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217
@@ -439,7 +436,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 846,
+    "packages/dashboard/src/tests.ts": 838,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/engine/src/pairs.ts": 818,

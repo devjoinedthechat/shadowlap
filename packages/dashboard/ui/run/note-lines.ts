@@ -1,3 +1,4 @@
+import { allowAgainLabel } from '../allow-words.js';
 import { num } from '../format.js';
 import { jsString as literal } from '../../../engine/src/text.js';
 import { UNGUARDED_FIX } from './note-words.js';
@@ -50,7 +51,13 @@ function acts(tools: readonly Pick<UnrecordedToolView, 'effect'>[]): string {
   return unknown && writes ? 'write, or may' : unknown ? 'may write' : 'write';
 }
 
-function unrecordedLines(u: NonNullable<NotesInput['unrecorded']>, mode: string): NoteLines {
+/** How a replay refused for tools that write is allowed to run them: the way on a job here offers where this dashboard runs jobs, else the CLI's flag. */
+function allowedWith(refused: readonly UnrecordedToolView[], allowsAgain: boolean): NotePart[] {
+  const it = refused.length === 1 ? 'it' : 'them';
+  return allowsAgain ? [`allowed: a job here that refuses ${it} offers `, allowAgainLabel(refused.map((t) => t.name))] : ['allowed with ', { code: '--allow-unrecorded' }];
+}
+
+function unrecordedLines(u: NonNullable<NotesInput['unrecorded']>, mode: string, allowsAgain = false): NoteLines {
   const tools = u.tools;
   const n = tools.length;
   const them = n === 1 ? 'it' : 'them';
@@ -64,7 +71,7 @@ function unrecordedLines(u: NonNullable<NotesInput['unrecorded']>, mode: string)
   const parts: NotePart[] = [`The model called ${n === 1 ? 'a tool' : `${num(n)} tools`} shadowlap did not record: ${mode === 'replay' ? `this replay ran ${them} for real` : `${n === 1 ? 'it' : 'they'} ran in your agent unseen, and a replay runs ${them} for real`}.`];
   if (refused.length) {
     const w = refused.length === 1;
-    parts.push(' ', ...names(refused.map((t) => t.name)), ` ${acts(refused)}, so every command that replays the run refuses to run ${w ? 'it' : 'them'} again until ${w ? 'it is' : 'they are'} recorded, declared a read, or allowed with `, { code: '--allow-unrecorded' }, '.');
+    parts.push(' ', ...names(refused.map((t) => t.name)), ` ${acts(refused)}, so every command that replays the run refuses to run ${w ? 'it' : 'them'} again until ${w ? 'it is' : 'they are'} recorded, declared a read, or `, ...allowedWith(refused, allowsAgain), '.');
   }
   // As the CLI shows it: the first refused, else the first that leaves Claude Code's session, and how to have it recorded.
   const shown = refused[0] ?? tools.find((t) => t.fix !== 'none');
@@ -138,7 +145,7 @@ export function noteLines(n: RunNote): NoteLines {
   const i = n.of;
   switch (n.kind) {
     case 'unrecorded':
-      return unrecordedLines(i.unrecorded!, i.mode);
+      return unrecordedLines(i.unrecorded!, i.mode, i.allowsAgain);
     case 'preload':
       return n.which === 'unguarded' ? { parts: [i.preloads!.unguarded!], hint: { parts: [...UNGUARDED_FIX] } } : { parts: [i.preloads!.missing!] };
     case 'websocket':

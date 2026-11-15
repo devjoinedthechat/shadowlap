@@ -24,14 +24,16 @@ import { presetAttempt } from './preset.js';
  *   runs move.
  */
 export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: number | null) {
-  const { client, exported, runsTick, feeds } = useApp();
+  const { client, exported, runsTick, feeds, actionsOff } = useApp();
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const presets = useLoad(() => (live ? null : client.runChaos(runId)), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, runId), [presets, runId]);
   const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
-  const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
+  // Where nothing runs from here (read-only, an exported copy), the note gives the CLI's flag instead.
+  const allowsAgain = !actionsOff && !!client.jobAgain;
+  const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode, allowsAgain }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode, allowsAgain]);
   // Again as runs move and as a test is kept (the change feed's `injection`): a test's last write ends it after its last attempt's run.
   const results = useLoad(() => (live ? null : client.injectionResults(runId)), `${runId}:injection-results:${live ? 'live' : 'ended'}`, live ? 0 : `${runsTick}:${feeds.injection ?? 0}`).data?.results ?? null;
   // Read again as a Find cause… ends, so its answer shows: as more have ended than when the results

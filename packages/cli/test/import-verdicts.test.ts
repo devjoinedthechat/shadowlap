@@ -125,6 +125,10 @@ describe('an imported trace, with the developer\'s own agent', () => {
     const blamed = await shadowlap(['blame', run, '--expect', ORACLE, '--attempts', '2']);
     expect(blamed.code, blamed.err).toBe(0);
     expect(blamed.out).toContain('✗ Not rescued from the first model call');
+    // show says what the blame kept on the run found in the words its report heads: from the first model call, not any.
+    const shown = await shadowlap(['show', run]);
+    expect(shown.code, shown.err).toBe(0);
+    expect(shown.out).toContain('blame: not rescued from the first model call');
     const verified = await shadowlap(['verify', '--fixes', run, '--expect', ORACLE, '--attempts', '2'], { AGENT_SYSTEM: FIX });
     expect(verified.code, verified.err).toBe(0);
     expect(verified.out).toContain('✓ Accepted: the change fixes 1 of 1 target run');

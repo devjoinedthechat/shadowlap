@@ -10,7 +10,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commentNote, postComment } from './comment.mjs';
 import { refusal } from './events.mjs';
-import { fixSummary, runFixes, testPath } from './fix.mjs';
+import { fixBuildOf, fixSummary, runFixes, testPath } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
 import { annotation, logLine } from './log.mjs';
 
@@ -91,7 +91,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const repairer = input('REPAIRER');
   // As shadowlap repair --repairer takes it: an openai repairer names its model.
   if (repairer && !/^(?:(?:anthropic|claude-code)(?::.+)?|openai:.+)$/.test(repairer)) fail(`input repairer must be claude-code, claude-code:<model>, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
-  // What builds the agent once a fix changes its source, as shadowlap repair --build runs it.
+  // What builds the agent once a fix changes its source, as shadowlap repair --build runs it: the config's build where none is given.
   const fixBuild = input('FIX_BUILD');
   // The test history, and the runs a fix starts from: the project's store unless one is named.
   const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
@@ -159,7 +159,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // A session a signal stopped (the job is being cancelled) starts nothing that spends money.
   if (report.interrupted) process.stdout.write('shadowlap test was interrupted: the report has the recordings that finished\n');
   if (fixOnFailure && report.failed && !report.interrupted) {
-    fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, build: fixBuild, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
+    const log = (/** @type {string} */ line) => process.stdout.write(`${line}\n`);
+    fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, build: fixBuildOf(fixBuild, workdir, log), push, env: cliEnv, auth, fetch: fetchFn, log });
     for (const f of fixes) {
       // A fix's why can quote a run (a write's recorded error) or git and GitHub: never a workflow command here.
       if (f.outcome === 'opened') process.stdout.write(`${annotation('notice', `${f.name}: opened ${String(f.pr)}`)}\n`);

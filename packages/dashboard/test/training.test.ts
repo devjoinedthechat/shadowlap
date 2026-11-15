@@ -143,9 +143,9 @@ describe('the Training read model', () => {
     expect(view.pairs.confidence.map((c) => c.level)).toEqual(['high', 'medium']);
     expect(view.pairs.footnote).toBe('Identical answers count once.');
 
-    const medium = trainingView(input, { filter: 'medium' });
-    expect(medium.pairs.groups.map((g) => g.confidence)).toEqual(['medium']);
-    expect(medium.pairs.counts).toEqual({ all: 3, high: 2, medium: 1 });
+    // Every pair comes, each group at its confidence, which the page's chips keep (ui/training.ts filterGroups).
+    expect(view.pairs.groups.map((g) => g.confidence).sort()).toEqual(['high', 'medium']);
+    expect(view.pairs.counts).toEqual({ all: 3, high: 2, medium: 1 });
     expect(view.exportDialog.levels).toEqual([
       { value: 'high', label: 'High confidence only (2)' },
       { value: 'medium', label: 'High and medium (3)' },

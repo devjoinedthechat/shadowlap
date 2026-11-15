@@ -89,9 +89,9 @@ describe('the Fixes page', () => {
     expect(fixDetail(store, hand.fixId)!.defaultStep).toBe('blame');
     expect(view.counts).toEqual({ all: 7, open: 4, ready: 1, applied: 2, verified: 3 });
     expect(view.totals.failing).toBe(7);
-    // `?status=` keeps the rows it always kept, in the same order; the counts stay whole.
-    expect(fixesView(store, { status: 'verified' }).fixes.map((f) => f.fixId)).toEqual([ready.fixId, broken.fixId, applied.fixId]);
-    expect(fixesView(store, { status: 'applied' })).toMatchObject({ counts: view.counts, fixes: [{ fixId: broken.fixId }, { fixId: applied.fixId }] });
+    // Every fix comes, each in its bucket, which the page's chips keep (ui/fixes/model.ts chipKeeps), in the same order.
+    expect(view.fixes.filter((f) => f.bucket === 'ready').map((f) => f.fixId)).toEqual([ready.fixId]);
+    expect(view.fixes.filter((f) => f.bucket === 'applied').map((f) => f.fixId)).toEqual([broken.fixId, applied.fixId]);
   });
 
   it('says by hand for a change made by hand after a repair that accepted nothing', () => {

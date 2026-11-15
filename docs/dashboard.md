@@ -752,8 +752,9 @@ What shadowlap did not record is a finding in the bar, under **N findings** when
 4. **WebSockets** that went to a provider live and are in no recording, and those an offline replay refused.
 5. **A replay's extra reads**: the clock, random and pure reads it answered live because its recording held no counterpart for them, each opening its call.
 
-**Unrecorded tools.** Each line gives the tool, how often it was called, from which model call (a click opens it), and what it does, as `tools.unrecorded` in `shadowlap.config.json` declares it or a built-in's or its name says. These tools ran in the agent unseen, and a replay runs them for real. So every command that replays the run refuses one that writes, or may (one whose effect nothing tells, *may write*), until it is recorded, declared a read, or allowed with `--allow-unrecorded`.
+**Unrecorded tools.** Each line gives the tool, how often it was called, from which model call (a click opens it), and what it does, as `tools.unrecorded` in `shadowlap.config.json` declares it or a built-in's or its name says. These tools ran in the agent unseen, and a replay runs them for real. So every command that replays the run refuses one that writes, or may (one whose effect nothing tells, *may write*), until it is recorded, declared a read, or allowed.
 
+- **How to allow one**: the line says a job here that refuses one offers **Run again, allowing Bash** (below). A read-only dashboard names `--allow-unrecorded` instead.
 - **How to record them**: the line says how to have them recorded (a Claude Code built-in through the Claude Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped). It gives the config's lines that declare them, with **Copy**.
 - **A refused replay**: a replay the CLI refuses for one, a fix's rerun among them (it passes no `--allow-unrecorded`), ends its drawer on why, *refused · an unrecorded tool may write · exit 2*, above the CLI's words on what to do. Where the CLI suggests `--allow-unrecorded`, the drawer and its toast offer **Run again, allowing Bash**, below.
 - **Declaring one**: [Settings → Tools](#tools) declares an unrecorded tool a read or a write under `tools.unrecorded`.
@@ -3169,6 +3170,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
+- **The inspector's Details tab** has a script of its own too, which loads once the pointer or the focus reaches the inspector's tabs.
 - **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset, OpenTelemetry trace and Security report dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **A run page's other dialogs** load the same way: an action's, a diverged test's Update golden dialogs, the steps' dialogs (Pack as golden…'s, say), and those Run injection test…, Run error-path presets… and Pack with injection gate… open.
 - **Other dialogs** load the same way too: Revert's, `New preview`'s, Not covered's pack dialogs, Preview pull request comment, Apply config change?, Migrate to… and Remove project.
@@ -3361,7 +3363,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /api/fixes?status=` | The fixes (all, open, verified or applied) in to-do order, with each chip's count, the page's totals and the failing runs nobody has blamed |
+| `GET /api/fixes` | Every fix in to-do order, with each chip's count, the page's totals and the failing runs nobody has blamed |
 | `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
 | `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, Verify this run, and each Verify step's more attempts bill |
@@ -3381,7 +3383,6 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=&suiteRisk=`, `?baseline=history&drop=&window=&min=&max=&history=47/50&risk=&suiteRisk=` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/gate?baseline=history&…&golden=` | The same against the golden's own last sessions |
-| `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
 | `GET /api/tests/estimates?update=&run=` | What Run tests and each golden's buttons bill, Update goldens for the goldens `update` names, and Run tests on… for those `run` names |
 | `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
@@ -3393,7 +3394,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 **The Tests screen** (`/api/tests`) holds:
 
 - the goldens on disk;
-- the verdict of their last results, with the line of the newest session that ran them all (`session`, with `live` while its process runs), and what ran since on its own (`since`);
+- the verdict of their last results, with the line of the newest session that ran them all (`session`, with `live` while its process runs, and its `actor` only where names show), and what ran since on its own (`since`);
 - inconclusive goldens counted apart (`inconclusive`);
 - each golden's history by revision: each cell's `verdict`, its pass `rate` as passes of attempts, the `bound` its gate put on that rate, and `dropped` where a [gate](./gating.md) against history found a drop, with what it compared (`drop`). A cell has `updated` where `test --update` re-recorded it, with its `reason` where one was kept;
 - each revision's commit as git has it (`revisionFacts`): its `subject`, and its author (`by`) only where names show;
@@ -3473,7 +3474,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 With `golden`, a gate against history is figured against that golden's own last sessions, its `window` of them pooled under its recording and checks, its first `min` attempts of each, as its next test pools them. `from` names the golden and how many `sessions` it pooled, 0 when it has none yet and `history` stands in. A golden not on disk is a 400. Settings → Gates offers the goldens marked fork, which `/api/ci/workflows` lists in `gates.forks`.
 
-**A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start, with `onTests` where that reason sends you to Tests. `before` limits the good commits to runs before it.
+**A run's test** (`/api/runs/:id/offers`): a replay `shadowlap test` made that diverged has its banner in `test`, `normalized` once the config has its rules. Find breaking commit's choices are in `bisect`: the target, good and bad commits, and revisions to pick from with their subjects. Then come the check a run is judged by in `expect`, whether it costs tokens, or why it can't start, with `onTests` where that reason sends you to Tests.
 
 **Their estimates** are the engine's for each job as it runs, worked out beside the server:
 
@@ -3572,15 +3573,15 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
+| `GET /api/training` | Training: the header's facts (`strip`), every pair grouped per call with its sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | Score model's picker: each model's price per attempt and last score, those left out and why, and the tokens an attempt is priced from |
-| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `POST /api/decisions/estimates`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions, the retirement notices |
+| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `POST /api/decisions/estimates`, `GET /api/runs/:id/decisions` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions |
 | `GET /api/migrate/start`, `GET /api/migrate/estimate?to=&from=&golden=&run=&scope=&budget=` | Migrate's start page: retiring models with their goldens, scopes and checking migration, and the models in use; Migrate to's price on what its job asks |
 | `GET /api/model-choices` | The models a preview's switch can take, beside the ones its runs use |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
-| `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
+| `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/runs/:id`, `/api/injection/templates` | [Injection tests](./injection.md): results, one result, its report, a run's untrusted reads and the templates |
 | `GET /api/injection/estimate?run=\|golden=&payloads=&repeat=&budget=\|gate=1\|clean=`, `/api/injection/payloads?upload=`, `/api/injection/security` | A dialog's plan priced, a payload file once sent, and Tests' Security |
-| `GET /api/chaos`, `/api/chaos/runs/:id`, `/api/chaos/runs/:id/plan?presets=&tool=&expect=1` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix; Run error-path presets…'s plan |
+| `GET /api/chaos/runs/:id`, `/api/chaos/runs/:id/plan?presets=&tool=&expect=1` | [Error-path presets](./error-paths.md): one run's matrix; Run error-path presets…'s plan |
 | `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan and what it found |
 
 **Training.** A task blocked by an early fork comes with what Update golden runs. For `/api/models`, a provider that couldn't be listed is a note, and a read-only dashboard asks none.
@@ -3589,7 +3590,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 
 **The decision diff:**
 
-- `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), `more` where older ones are left out, and the project's `goldens` count. The models the goldens use that retire are `/api/retirements`'.
+- `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), `more` where older ones are left out, and the project's `goldens` count. The models the goldens use that retire are `/api/migrate/start`'s.
 - **Each session** gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `actor` names who ran it only where names show. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Migrate (`#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix` and its `view`, read on a thread of its own. The `view` holds Preview's words, worked out on the server: the verdict as Verdicts gives it, what was asked, verify's verdict and what it verified end to end, the next step's facts, the key, the warnings and the receipt.
 - A migration's `/api/decisions/:id` adds its `applied` state, each golden it left behind with whether it still `waits`, and its `migration`: Migrate's report, worded on the server.
@@ -3601,7 +3602,6 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 - A `budget` under the price stops it there, as `stops`. With `thenVerify` the preview has no estimate: what verify runs is known once it has asked.
 - `/api/migrate/estimate` keeps to a `scope` and is held to a `budget` the same way. It answers the scopes its runs' calls were made in (`scopes`).
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first, read on a thread of its own. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
-- `/api/retirements`: the retirement notices on their own, for the agent's models, shadowlap's own judge calls left out.
 
 The `matrix` has a row per run and a cell per model call. A row is named by its run's short id (`title`) with its `about` line. It says whether the store still holds the run (`inStore`), whether the session left it to verify, what verify found, and what the row ends on (`ending`). Each cell holds:
 
@@ -3633,10 +3633,8 @@ The `matrix` has a row per run and a cell per model call. A row is named by its 
 - **A result's `sessionId`** names the test session whose injection gate ran it, and its `actor` who ran it, only where names show.
 - `/api/injection/:id`: one result as `injection --json` printed it, with its row, and the runs it names that gc has deleted since (`gone`). A finished plant also has its results as the run page draws them (`view`): each untrusted read by payload, each cell with the attempt that shows it and its proof.
 - `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied. With `?preview=1`, what its dialog says first: how many rules apply, two values they mask, each canary kept, and the file.
-- `/api/injection/needs-look`: the newest result of each run or golden that obeyed, was influenced or is inconclusive, for Needs a look.
 - `/api/injection/runs/:id`: a run's untrusted reads, each with the model call that reads it (`readAt`), its tests, and the test it is an attempt of: the canary, the line that joins the read to the write, and what was planted where.
 - `/api/injection/templates`: the built-in payload templates, versioned.
-- `/api/injection/tools`: every recorded tool with its trust and where that comes from, for Settings → Tools.
 - `/api/injection/estimate`: the price of a dialog's picks, `payloads` planted with `repeat` attempts each and `budget` as Stop at $, from the engine's estimators. With `gate=1`, a gate's price every test session; with `clean=<read>`, Find cause's on that read. It prices a run of the store, or a golden by its path (`golden=`), from its pack where the store doesn't hold its recording, and is revalidated as a run's estimates are.
 - `/api/injection/payloads`: a payload file the dialog sent, before a test takes it: its `name`, `count` and the payloads with no `{{canary}}` (`noCanary`). A file that can't be read is a 400 in the test's words, and one gone a 404.
 - `/api/injection/security`: each golden whose recording reads something untrusted (`goldens`), with its reads a model call reads, its last test or gate and its test's price; the rest by name (`none`); and those whose recording can't be read, with why (`unread`). It is revalidated from the store's changes, the goldens and the trust marks.
@@ -3644,7 +3642,6 @@ The `matrix` has a row per run and a cell per model call. A row is named by its 
 
 **Error-path presets:**
 
-- `/api/chaos`: the presets; a matrix for every recording they ran on, newest first; and the newest sessions, each with `live` while its process runs.
 - `/api/chaos/runs/:id`: one run's matrix, or for a preset's attempt the matrix of the session that decided it, on its recording (`null` when no preset ran on either).
 
 A matrix has a cell per preset: its verdict, the call it hit, passes and attempts, why, each attempt's run and verdict, and the preset's gate. A cell is inconclusive when its replay never reached the call, or only a check no attempt can decide held it back. Each attempt in a cell carries why it failed or couldn't say (`reason`). A cell also gives the gate's `bound`, what it `spent` and its `upstreamRequests`.
@@ -3685,7 +3682,6 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
 | `chaos { golden, presets?, tool?, confirmed? }` | `test <golden> --chaos` |
 | `chaos { runId, presets?, tool?, expect?, confirmed? }` | `replay <run> --chaos`, with `--expect` |
-| `check { expect?, recordings? }` | [`shadowlap check`](./cli.md#check): a check tried on run ids, `label:<name>` or the project's goldens, nothing replayed |
 | `coverage {}` | Scan again |
 | `coverage-pack { key?, command?, confirmed?, fork?, expect? }` | `coverage --pack` |
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }` | A decision diff |
@@ -3739,7 +3735,6 @@ What some of them do:
 - **`chaos`'s `expect`** is Run error-path presets…'s Judged by on a run, the text of its `--expect`, checked as the CLI checks it: a 400 in its words, or *those checks are too long*. A golden takes none, refused as *expect goes with a run*.
 - **`chaos` on a golden** from a pack your repository doesn't track runs only `confirmed`, the `confirm` of the 409 that named the command each preset runs.
 - **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.
-- **`check`** without run ids, a label or the goldens tries every recording; its result is the report.
 - **`pack-test`** without `runId` packs the setup's recording. It is refused with a 409 while packing waits: a write tool isn't wrapped, or the recording was made before it was.
 - **`coverage-pack`** packs a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed. With `fork` and `expect`, it packs a golden that forks. It is refused with a 409 while a test session, an update or another pack runs.
 - **`coverage-pack`'s `expect`** is checked as the CLI checks `--expect`: a check it would refuse is a 400 in its words.

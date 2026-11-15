@@ -16,8 +16,8 @@ import { goldensOf, projectWork } from '../outcome-work.js';
  * The Runs page: the table a page at a time, the 12-week calendar above it, Find breaking commit for the
  * failures on the days picked, and the bulk bar's label and delete.
  *
- *   GET  /api/runs/page?limit&cursor&from&to&types&q&attempts&sort   a page of the table
- *   GET  /api/runs/days?weeks&tz&types&q&attempts                    runs per day, in the viewer's days
+ *   GET  /api/runs/page?limit&cursor&from&to&types&q&sort            a page of the table
+ *   GET  /api/runs/days?weeks&tz&types&q                             runs per day, in the viewer's days
  *
  * With a team store, `types=local` (the Local chip, where Needs a look's Push leads) is the runs only
  * on this machine, as the store's status counts them, and the chip counts say how many.

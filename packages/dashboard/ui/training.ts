@@ -6,6 +6,7 @@ import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import { amountWords } from '../../engine/src/estimates/spending.js';
 import { href } from './route.js';
 import type { JobView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
+import type { PairFilter } from '../src/training.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 
 /** A job's price as a control holds it (spending.ts's Priced, kept apart so this file loads no browser code): an estimate, null for none, undefined until known. */
@@ -18,7 +19,7 @@ type Priced = Pick<Estimate, 'usd' | 'ceiling' | 'per'> | null | undefined;
  * browser: the palette's actions take what they use from the palette's context.
  */
 
-export type PairChip = 'all' | 'high' | 'medium';
+export type PairChip = PairFilter;
 
 /** The groups a confidence filter shows. A group's pairs come from one source, so they share its confidence. */
 export function filterGroups(groups: readonly PairGroupView[], chip: PairChip): PairGroupView[] {
