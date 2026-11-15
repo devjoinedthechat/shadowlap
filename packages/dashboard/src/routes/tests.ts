@@ -1,7 +1,7 @@
 import { ACTIONS, confirmWords, messageOf, noEstimate, normalizeAddArgs, type Normalizer, type StoreOf } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
-import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
+import { commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { foundsHere, servesFound } from '../found-here.js';
 import { goldenReports, withFailedRuns, withStepHints, type TestsAnswer } from '../golden-report.js';
@@ -23,12 +23,11 @@ import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../t
 import { withJudgeAsks } from '../tests-checks.js';
 import { gateQuery } from '../tests-gate.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, checkedRevision, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testRunBanner, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
+import { bisectChoices, bisectJob, checkedRevision, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
 import { divergenceOf, rulesToAdd, volatileOf } from '../tests-normalize.js';
 
 /**
- * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
- * replay and Find breaking commit (`GET /api/tests/runs/:id`), what a gate's figures would do
+ * Tests: the goldens and how they did (`GET /api/tests`), what a gate's figures would do
  * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=&max=`
  * figured against `&history=47/50`, with `&suiteRisk=` for CI's figure, as Settings → Gates
  * previews them, worked out beside the server: tests-gate.ts), what Tests' buttons and
@@ -44,7 +43,7 @@ import { divergenceOf, rulesToAdd, volatileOf } from '../tests-normalize.js';
  *                        { goldens, normalize: true } Add normalizer and update: first `normalize add` for each value made
  *                                                       anew on every run that they diverged on, each rule once
  *   bisect               { golden | runId, good, bad? }  Find breaking commit: replays at each commit, halving the range;
- *                                                       for a run, as `GET /api/tests/runs/:id` offers it
+ *                                                       for a run, as its page offers it (`GET /api/runs/:id/offers`)
  *   normalize-and-test   { golden | runId, path?, yes? } `normalize add` for each value made anew on every run, then `test` on the golden
  *
  * The goldens are the packs on disk, as the CLI lists them (`DashboardOptions.goldens`); a request
@@ -288,18 +287,6 @@ export function register(router: Router, ctx: RouteContext): void {
     const written = (gated: readonly string[]) => (ctx.project ? writtenEntries(ctx.project.path, gated) : new Map<string, unknown>());
     // A golden whose tests entry sets its error-path presets offers to run them until they have.
     r.tagged(withPresetsEntries(withInjectionGates(ctx.store, await withSteps(withJudgeAsks(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path), (golden) => goldenExpect(tests, golden))), goldens(), written), outcomeWork(ctx)));
-  });
-
-  // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
-  // choices for any run (`before`: the calendar's first day picked, in milliseconds).
-  router.get('/tests/runs/:id', async (r) => {
-    const run = ctx.store.getRun(r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
-    const raw = r.query.get('before');
-    const before = raw === null || raw === '' ? undefined : Number(raw);
-    if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
-    const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
-    r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && (await choicesInCheckout(ctx.project?.path, bisect)) });
   });
 
   // A gated golden's attempts, each judged from its run, asked when the row under it opens: read in

@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, JUDGED_FROM, keptGate, keptPresetBound, messageOf, parsePresets, PRESET_LABELS, presetHits, quoteArgv, recorderGone, recordingRule, type ChaosJudge, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, JUDGED_FROM, keptGate, keptPresetBound, messageOf, parsePresets, PRESET_LABELS, quoteArgv, recorderGone, recordingRule, type ChaosJudge, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -6,13 +6,6 @@ import { CHAOS_PRESETS, isChaosPreset, JUDGED_FROM, keptGate, keptPresetBound, m
  * newest result of each preset first. The fork menu's Run error-path presets and a Tests row start
  * the job (`chaos`); the CLI builds every attempt.
  */
-
-/** A preset as the matrix lists it: its id, its words, and whether it hits a tool call or a model call. */
-export interface ChaosPresetInfo {
-  preset: string;
-  label: string;
-  hits: 'tool' | 'model';
-}
 
 /** One cell: how a preset last came out on the recording. */
 export interface ChaosCell {
@@ -70,36 +63,6 @@ export interface ChaosMatrix {
   /** The tool call the tool presets hit, or null when none did. */
   toolCall: { name: string; callNo: number } | null;
 }
-
-export interface ChaosSessionView {
-  sessionId: string;
-  startedAt: number;
-  endedAt: number | null;
-  command: string[];
-  revision: string | null;
-  actor: string | null;
-  presets: string[];
-  passed: number;
-  failed: number;
-  inconclusive: number;
-  upstreamRequests: number;
-  interrupted: boolean;
-  /**
-   * It hasn't ended and its process is still there: it is running now, from this dashboard, another
-   * one or a terminal. False for one that ended, or whose process is gone (it did not finish).
-   */
-  live: boolean;
-}
-
-export interface ChaosView {
-  presets: ChaosPresetInfo[];
-  /** Every recording presets have run on, newest first. */
-  matrices: ChaosMatrix[];
-  /** The newest sessions, newest first. */
-  sessions: ChaosSessionView[];
-}
-
-export const PRESET_INFO: ChaosPresetInfo[] = CHAOS_PRESETS.map((p) => ({ preset: p, label: PRESET_LABELS[p], hits: presetHits(p) }));
 
 const order = (preset: string) => {
   const i = (CHAOS_PRESETS as readonly string[]).indexOf(preset);
@@ -220,8 +183,6 @@ function matrices(results: readonly ChaosResult[], commandOf: CommandOf): ChaosM
     .sort((a, b) => b.at - a.at || a.runId.localeCompare(b.runId) || (a.golden ?? '').localeCompare(b.golden ?? ''));
 }
 
-const sessionView = (store: StoreOf<'chaos'>, s: ChaosSession): ChaosSessionView => ({ ...s, live: chaosSessionLive(store, s) });
-
 /**
  * Whether a session of presets that hasn't ended is running now: the process the store names for it
  * is still there (on this machine; elsewhere, it was heard from lately: its newest result, else its
@@ -246,11 +207,6 @@ export function liveChaosSession(store: StoreOf<'chaos'>): ChaosSession | null {
 
 /** A session's command as the CLI keeps it: `shadowlap test …` runs the presets on goldens, `shadowlap replay …` on a run. */
 const onGoldens = (s: ChaosSession): boolean => s.command[1] === 'test';
-
-/** Every recording's presets, and the newest sessions. */
-export function chaosView(store: StoreOf<'chaos'>, o: { sessions?: number } = {}): ChaosView {
-  return { presets: PRESET_INFO, matrices: matrices(store.latestChaosResults(), commandsOf(store)), sessions: store.listChaosSessions({ limit: o.sessions ?? 20 }).map((s) => sessionView(store, s)) };
-}
 
 /** A session's results on one recording (every session's, under an empty session id), read once for every attempt of a family that asks. */
 type SessionResults = Map<string, ChaosResult[]>;

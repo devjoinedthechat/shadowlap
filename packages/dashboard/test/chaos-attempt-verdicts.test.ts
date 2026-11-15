@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type ChaosResultData } from '@shadowlap/engine';
-import { chaosOfGolden, chaosView } from '../src/chaos.js';
+import { chaosMatrices, chaosOfGolden } from '../src/chaos.js';
 
 /**
  * Each attempt of an error-path preset, as the dashboard's presets matrix gives it, carries its own
@@ -41,8 +41,8 @@ describe("an error-path preset's attempts on the dashboard", () => {
         ['500', 'passed', ['A8 passed']],
       ]);
       expect(m.counts).toEqual({ passed: 1, failed: 1, inconclusive: 4, notApplicable: 0 });
-      // Every route that serves the matrix serves the same cells.
-      expect(chaosView(store).matrices).toEqual([m]);
+      // Every read of the matrices, Tests' and Needs a look's, has the same cells.
+      expect(chaosMatrices(store)).toEqual([m]);
     } finally {
       store.close();
     }

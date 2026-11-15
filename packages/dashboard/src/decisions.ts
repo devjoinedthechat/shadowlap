@@ -1,4 +1,4 @@
-import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, MIGRATE_ID, migrateApplyProblem, type JobConsent, jobConsent, quoteArgv, retirementTable, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
+import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, MIGRATE_ID, migrateApplyProblem, type JobConsent, jobConsent, quoteArgv, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
 import { decisionRow, LATER_STEPS, verifiedOutcome, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import { sprtGate } from './fix-shared.js';
@@ -7,7 +7,6 @@ import { BUDGET_MAX, decisionsArgv, FIELD_NAME, migrateArgv, MODEL_NAME, PREVIEW
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { appliedState, applyInputOf, type AppliedState } from './migrate-applied.js';
-import { type RetiringModel, retiringModels } from './retirements.js';
 import { optionLike, type GoldenSource } from './tests.js';
 import { sessionFacts } from './verdicts.js';
 
@@ -49,12 +48,6 @@ export interface DecisionsListView {
   goldens: number;
   /** Older sessions are kept than the list holds: it stopped at its limit. */
   more: boolean;
-}
-
-export interface RetirementsView {
-  /** The day the providers' pages were read: the table holds what they said then. */
-  version: string;
-  notices: RetiringModel[];
 }
 
 /** A row's most consequential call, the one its links open: its lowest rank, the first such call; null when none changed. */
@@ -155,15 +148,6 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
       };
     }),
   };
-}
-
-/**
- * The models the project's goldens are recorded on that retire, by the table that ships with
- * shadowlap: each with the goldens that use it, the soonest first. A golden not in the store yet
- * (never tested here) can't be read, and is left out.
- */
-export function retirementsView(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], now = Date.now()): RetirementsView {
-  return { version: retirementTable().version, notices: retiringModels(store, goldens, now) };
 }
 
 // ---- jobs ----

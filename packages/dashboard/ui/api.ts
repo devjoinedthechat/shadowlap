@@ -19,7 +19,7 @@ import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js'
 import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, IssueRunsPage, IssuesPage, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { CompareView, NextStep } from './types.js';
-import type { ChaosMatrix, ChaosView, CoverageView, PresetsPicks, PresetsPlan } from './types.js';
+import type { ChaosMatrix, CoverageView, PresetsPicks, PresetsPlan } from './types.js';
 import type { InjectionPanelView, InjectionReport, InjectionRow, ReportPreview, RunInjection } from './types.js';
 import type { TemplateSet } from '../../engine/src/injection.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
@@ -310,8 +310,6 @@ export interface Client extends ChangesApi, TestsApi {
   // ---- Error-path presets and production coverage
   /** The last coverage scan: what imported runs did, and which behaviours no golden covers (`/api/coverage`); null on a server without it. */
   coverage(): Promise<CoverageView | null>;
-  /** Every recording's error-path presets, and the newest sessions (`/api/chaos`); null on a server without it. */
-  chaos(): Promise<ChaosView | null>;
   /** One run's presets matrix, its recording's for a preset's attempt (`/api/chaos/runs/:id`); null when none ran. */
   runChaos(id: string): Promise<ChaosMatrix | null>;
   /** Run error-path presets…'s plan for the picks (`/api/chaos/runs/:id/plan`): what they run on, hit, are judged and decided by, the command someone else recorded, and what they bill. */
@@ -618,15 +616,14 @@ export interface InjectionPlanQuery {
   gate?: boolean | undefined;
 }
 
-type ChaosReads = 'coverage' | 'chaos' | 'runChaos' | 'presetsPlan';
+type ChaosReads = 'coverage' | 'runChaos' | 'presetsPlan';
 
-/** What the pages read of error-path presets and production coverage (`/api/chaos`, `/api/coverage`): none on a server without them. */
+/** What the pages read of error-path presets and production coverage (`/api/chaos/runs/:id`, `/api/coverage`): none on a server without them. */
 function chaosReads(request: Request): Pick<Client, ChaosReads> {
   const id = encodeURIComponent;
   const none = (err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err));
   return {
     coverage: () => request<CoverageView>('coverage').catch(none),
-    chaos: () => request<ChaosView>('chaos').catch(none),
     runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, none),
     presetsPlan: (runId, p) => request<PresetsPlan>(`chaos/runs/${id(runId)}/plan?${p.presets ? `presets=${p.presets.join(',')}&` : ''}${p.tool ? `tool=${id(p.tool)}&` : ''}${p.expect ? 'expect=1' : ''}`),
   };
@@ -728,7 +725,6 @@ export function createExportedClient(data: StaticPayload): Client {
     renameFix: readOnly,
     fixBundles: () => Promise.resolve(null),
     tests: () => get<TestsView>('tests'),
-    testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     testEvidence: () => Promise.reject(new ApiError(404, 'this is an exported copy, and a golden’s attempts are not part of it')),
     settings: noSettings(readOnly),
@@ -746,10 +742,8 @@ export function createExportedClient(data: StaticPayload): Client {
     verdicts: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     verdictRevision: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     runDecisions: () => Promise.resolve({ runId: '', sessions: [], later: null }),
-    retirements: () => Promise.resolve({ version: '', notices: [] }),
     migrateStart: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     coverage: () => Promise.resolve(null),
-    chaos: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
     // A copy runs no preset, so nothing in it asks what they would hit or bill.
     presetsPlan: readOnly,

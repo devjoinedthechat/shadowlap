@@ -537,11 +537,6 @@ export type { CrashError } from '../src/crash-error.js';
 export type { Followed, GoldenReport, HintKey, Piece, ReportLine, ReportPart, ReportTone, TestsAnswer } from '../src/golden-report.js';
 /** `GET /api/tests/evidence`: a gated golden's attempts, each judged from its own run, and the words its evidence says why its gate stopped with. */
 export type { EvidenceAttempt, EvidenceWords, TestEvidence } from '../src/tests-evidence.js';
-/** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */
-export interface TestRunView {
-  banner: import('../src/tests.js').TestRunBanner | null;
-  bisect: import('../src/tests.js').BisectChoices | null;
-}
 /** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
 export type { CiListRow, CiSession, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
 /** `GET /api/ci/comment`: the pull request comment as the Action would post it, from the newest session that ran every golden. */
@@ -551,7 +546,7 @@ export type { PrCommentPreview } from '../src/pr-comment-preview.js';
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
 
 // The decision diff (`/api/decisions`): the read model's own shapes, as the server sends them.
-export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView, RowEnding, RunDecisionsSession, ViewStep } from '../src/decisions.js';
+export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RowEnding, RunDecisionsSession, ViewStep } from '../src/decisions.js';
 export type { CellOpen, Toned } from '../src/decision-cells.js';
 export type { PreviewCounts, PreviewKeyEntry, PreviewNext, PreviewReceipt, PreviewRowFacts, PreviewSession, PreviewVerify, PreviewView } from '../src/decision-view.js';
 export type { DecisionChange, DecisionRun, DecisionStep, DecisionsReport, DecisionView } from '../../engine/src/decisions.js';
@@ -572,7 +567,7 @@ export type { CommentDecision } from '../../engine/src/pr-comment.js';
 // ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
 export type { CodeChange } from '../src/compare.js';
 // Error-path presets (a run's presets matrix) and production coverage (Tests' Not covered panel).
-export type { ChaosCell, ChaosMatrix, ChaosPresetInfo, ChaosSessionView, ChaosView } from '../src/chaos.js';
+export type { ChaosCell, ChaosMatrix } from '../src/chaos.js';
 export type { PresetsPicks, PresetsPlan } from '../src/presets-plan.js';
 export type { CoverageGroupView, CoverageLook, CoverageView } from '../src/coverage.js';
 /** `GET /api/compare`: the engine's comparison, and the code card's commits (absent from an exported copy, which has no git behind it). */

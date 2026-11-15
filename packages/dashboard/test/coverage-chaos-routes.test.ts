@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { keptPresetBound, messageOf, PACK_FORMAT, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import { lineage } from '../src/api.js';
-import { chaosMatrices, chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
+import { chaosMatrices, chaosOfGolden, chaosOfRun, type ChaosMatrix } from '../src/chaos.js';
 import { coverageLook, coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
 import { MAX_EXPECT } from '../src/expect-field.js';
 import { treeUse } from '../src/worktree.js';
@@ -288,19 +288,10 @@ describe('the activity feed', () => {
 });
 
 describe('error-path presets', () => {
-  it('serves every recording\'s matrix, preset by outcome in the presets\' order, and the sessions', async () => {
-    const view = await getJson<ChaosView>('chaos');
-    expect(view).toEqual(chaosView(store));
-    expect(view.presets.map((p) => [p.preset, p.label, p.hits])).toEqual([
-      ['timeout', 'tool timeout', 'tool'],
-      ['empty', 'empty result', 'tool'],
-      ['malformed', 'malformed JSON', 'tool'],
-      ['oversized', 'oversized result', 'tool'],
-      ['429', 'provider 429', 'model'],
-      ['500', 'provider 500', 'model'],
-    ]);
-    expect(view.matrices).toHaveLength(1);
-    const m = view.matrices[0];
+  it('reads every recording\'s matrix, preset by outcome in the presets\' order', () => {
+    const matrices = chaosMatrices(store);
+    expect(matrices).toHaveLength(1);
+    const m = matrices[0];
     expect(m).toMatchObject({ runId: golden, golden: 'goldens/forecast', at: T0 + 5, counts: { passed: 1, failed: 1, inconclusive: 0, notApplicable: 1 } });
     expect(m.cells.map((c) => [c.preset, c.verdict])).toEqual([
       ['timeout', 'not-applicable'],
@@ -308,7 +299,6 @@ describe('error-path presets', () => {
       ['429', 'passed'],
     ]);
     expect(m.cells[1]).toMatchObject({ label: 'malformed JSON', callNo: 3, target: { kind: 'tool', name: 'get_forecast' }, reason: 'the agent exited with code 1', runs: [{ runId: attempt, passed: false, exitCode: 1 }], sessionId: 'X1' });
-    expect(view.sessions).toEqual([expect.objectContaining({ sessionId: 'X1', passed: 1, failed: 1, upstreamRequests: 3, endedAt: T0 + 6 })]);
   });
 
   it('opens a run\'s matrix: its own, or its recording\'s for one of the attempts', async () => {

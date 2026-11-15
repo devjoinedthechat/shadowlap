@@ -7,6 +7,7 @@ import { canaryForms, type CleanReport, consentKey, type DivergenceReport, injec
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { injectionJob, injectionLine, injectionNeedsLook, injectionResult, injectionResults, injectionTitle } from '../src/injection.js';
 import { toolTrust } from '../src/tool-trust.js';
+import type { ToolsSettings } from '../src/settings-tools.js';
 import { injectionPanel, lineageInjection } from '../src/injection-view.js';
 import { securityOffer } from '../src/run-offers.js';
 import { injectionReportHtml, reportPreview } from '../src/injection-report.js';
@@ -182,7 +183,8 @@ describe('the injection read models', () => {
   });
 
   it('give each recorded tool its trust for Settings → Tools: the config first, then what was recorded', async () => {
-    const { tools } = (await (await api('injection/tools')).json()) as ReturnType<typeof toolTrust>;
+    const { live, fenced } = (await (await api('settings/tools')).json()) as ToolsSettings;
+    const tools = [...live, ...fenced].sort((a, b) => a.name.localeCompare(b.name));
     expect(tools.map((t) => [t.name, t.trust, t.from])).toEqual([
       ['fetch_page', 'untrusted', 'sdk'],
       ['search', 'untrusted', 'config'],

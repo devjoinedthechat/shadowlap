@@ -1,7 +1,7 @@
 import { ACTIONS, askConsent, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, parsePresets, presetsTarget, quoteArgv, saidYes, type RunRecord } from '@shadowlap/engine';
 import { gitIndexStamp } from '../git-index.js';
 import { lookupRun, noSuchRun } from '../api.js';
-import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
+import { chaosFlags, chaosOfRun } from '../chaos.js';
 import type { RouteContext } from '../context.js';
 import { expectArgs } from '../expect-field.js';
 import { HttpError } from '../http.js';
@@ -16,9 +16,9 @@ import { sessionBusy, testsBusy } from './tests.js';
 import { namesTeamStore } from './verdicts.js';
 
 /**
- * Error-path presets: every recording's matrix and the newest sessions (`GET /api/chaos`), one
- * run's matrix (`GET /api/chaos/runs/:id`: a preset's attempt opens on its recording's), Run
- * error-path presets…'s plan (`GET /api/chaos/runs/:id/plan`), and the job that runs them:
+ * Error-path presets: one run's matrix (`GET /api/chaos/runs/:id`: a preset's attempt opens on its
+ * recording's), Run error-path presets…'s plan (`GET /api/chaos/runs/:id/plan`), and the job that
+ * runs them:
  *
  *   chaos   { golden, presets?, tool?,           `test <golden> --chaos`: a golden on disk; one from a pack the
  *             confirmed? }                         repository doesn't track runs only confirmed
@@ -65,8 +65,6 @@ function presetsPlanJob(ctx: RouteContext, run: RunRecord, query: URLSearchParam
 }
 
 export function register(router: Router, ctx: RouteContext): void {
-  router.get('/chaos', (r) => r.tagged(chaosView(ctx.store)));
-
   router.get('/chaos/runs/:id', (r) => {
     const run = lookupRun(ctx.store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id!}`);

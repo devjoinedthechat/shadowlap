@@ -4,7 +4,7 @@ import type { InjectionPlan, ToolTrust } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { budgetFlags, injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection, payloadsRead } from '../injection.js';
+import { budgetFlags, injectionJob, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection, payloadsRead } from '../injection.js';
 import { injectionReportHtml, reportFile, reportPreview } from '../injection-report.js';
 import type { InjectionReadInput } from '../injection-security.js';
 import { sendAnswer, sendAnswerTagged } from '../read-pool.js';
@@ -24,8 +24,6 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/injection/estimate           ?run=<id> (or ?golden=<path>)&payloads=<n>&repeat=<n>&budget=<usd>, or &gate=1: { estimate },
  *                                         a dialog's plan priced; ?run=<id>&clean=<read>: Find cause…'s on that read
  *   GET /api/injection/security           { goldens, none, unread }: each golden's recording's untrusted reads, its last test, its test's price
- *   GET /api/injection/tools              { tools }: every recorded tool with its trust, for Settings → Tools
- *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed, was influenced or is inconclusive
  *   GET /api/injection/runs/:id           { untrusted, results, rule, answers, cause, attempt }: a run's untrusted reads, its tests,
  *                                         Find cause…'s gate, answers and writes to ask about, and the test it is an attempt of
  *   GET /api/injection/:id                { row, report, gone, view }: one result, as --json printed it, and a plant's panel
@@ -140,12 +138,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const job = { kind: 'injection-estimate' as const, runId: on.runId, ...(on.pack ? { pack: on.pack } : {}), ...(clean !== undefined ? { clean } : {}), plan, gate, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(trust ? { tools: trust } : {}) };
     await sendAnswerTagged(r, on.tag, () => ctx.reads.run(job, on.pack ? undefined : runAffinity(store, on.runId)));
   });
-  // Both read every call they are about, of a run or of every run: worked out beside the server.
-  router.get('/injection/tools', async (r) => {
-    const trust = tools();
-    sendAnswer(r, await ctx.reads.run({ kind: 'tool-trust', ...(trust ? { tools: trust } : {}) }));
-  });
-  router.get('/injection/needs-look', (r) => r.tagged({ items: injectionNeedsLook(store) }));
+  // It reads every call of the run: worked out beside the server.
   router.get('/injection/runs/:id', async (r) => {
     if (!store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id!}`);
     const trust = tools();

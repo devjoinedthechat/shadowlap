@@ -81,13 +81,14 @@ test('Not covered says the goldens its scan couldn’t read, in amber, and a ste
   await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
-/** The recording the demo's error-path presets ran on: the in-limit refund golden's, else the first the API gives. */
+/** The recording the demo's error-path presets ran on: the in-limit refund golden's, else the first Tests' rows give. */
 async function presetsRecording(page: Page): Promise<string> {
   const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/chaos`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { matrices: Array<{ runId: string; golden: string | null }> };
-  const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
-  if (!m) throw new Error('the demo store has no error-path presets');
-  return m.runId;
+  const view = (await (await page.request.get(`${origin}/api/tests`, { headers: { 'x-shadowlap-token': token }, ...RESET_RETRY })).json()) as { rows: Array<{ path: string; presets?: { recording: string } | null }> };
+  const ran = view.rows.filter((r) => r.presets);
+  const m = ran.find((r) => r.path === 'goldens/refund-in-limit') ?? ran[0];
+  if (!m?.presets) throw new Error('the demo store has no error-path presets');
+  return m.presets.recording;
 }
 
 const PANEL = 'main#view section.rmxp[data-kind="presets"]';
