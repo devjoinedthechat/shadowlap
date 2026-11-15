@@ -298,9 +298,11 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     input.current?.focus();
   }, []);
   useEffect(() => setSideOpen(false), [setSideOpen]);
-  // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again.
+  // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again, and
+  // so are the actions once the server says which jobs it runs: a palette opened as the dashboard loads gains them.
   const [sourcesChanged, setSourcesChanged] = useState(0);
   useEffect(() => onPaletteSourcesChanged(() => setSourcesChanged((n) => n + 1)), []);
+  const kinds = app.meta?.jobKinds?.join(' ') ?? null;
 
   const items = useMemo<PaletteCommand[]>(() => {
     const out: PaletteCommand[] = [...app.runCommands];
@@ -337,8 +339,8 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     const runs = withoutPending(app.runs ?? [], pendingHidden()).filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
     for (const r of runs) out.push(runCommand(r));
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
-  }, [sourcesChanged]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived or the job kinds come: the run list moving under it would move the selection
+  }, [sourcesChanged, kinds]);
 
   const { hits, note, noteSaid } = useRecordedHits(app, scope ? '' : q);
   const byId = useRunsById(app, scope ? '' : q);

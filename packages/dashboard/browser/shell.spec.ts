@@ -20,6 +20,33 @@ test('a fresh dashboard’s palette finds the actions and the tests of pages not
   await expect(palette.locator('.palg', { hasText: /^Tests$/ })).toBeVisible();
 });
 
+test('a palette opened before the server says which jobs it runs lists their actions once it does', async ({ page }) => {
+  // The server's answer held until the palette is open, as a slow server answers ⌘K pressed while the dashboard opens.
+  let answer = () => {};
+  const said = new Promise<void>((done) => (answer = done));
+  await page.route(/\/api\/meta(\?.*)?$/, async (route) => {
+    await said;
+    await route.continue().catch(() => undefined);
+  });
+  try {
+    await openPage(page, '/', 'overview');
+    await page.keyboard.press('ControlOrMeta+k');
+    const palette = page.locator('.palette');
+    await expect(palette).toBeVisible();
+    // Its other sources answered first (Tests, which it reads as it opens), so nothing but the server's answer reads them again.
+    const field = palette.locator('input');
+    await field.fill('refund-in-limit');
+    await expect(palette.locator('.palg', { hasText: /^Tests$/ })).toBeVisible();
+    await field.fill('Import capture');
+    const action = palette.locator('.palit', { hasText: 'Import capture…' });
+    await expect(action).toHaveCount(0);
+    answer();
+    await expect(action).toBeVisible();
+  } finally {
+    answer();
+  }
+});
+
 /** The status bar's parts that show, by the key their class names. */
 const shownParts = (page: Page) =>
   page.locator('footer.status > span:not(.sep):not(.sp)').evaluateAll((els) => els.filter((el) => getComputedStyle(el).display !== 'none').map((el) => [...el.classList].find((c) => c.startsWith('st-')) ?? el.getAttribute('class') ?? ''));
