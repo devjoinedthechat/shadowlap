@@ -1,7 +1,7 @@
 import { isObject, unrecordedTools, type RunRecord, type StoreOf, type UnrecordedTool } from '@shadowlap/engine';
 
 /**
- * What a run did that Shadowlap did not record, read from the run itself, for its page: the tools the
+ * What a run did that shadowlap did not record, read from the run itself, for its page: the tools the
  * model called whose calls the run never recorded (the engine's `unrecordedTools`, contract 10), each
  * with how often, from which model call and what it does, as the project's `tools.unrecorded`
  * declares it, or a built-in's or its name says; and the WebSockets the run's sidecar tunnelled to a

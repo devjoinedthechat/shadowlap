@@ -90,7 +90,7 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
   // What an injection test showed, opening the run it tested. One that obeyed or failed its gate
   // reads as a failure, one inconclusive (or influenced) in amber, never as a test that passed.
   ['injection.tested', injectionText],
-  // Settings → Tools' declaration of what a tool Shadowlap doesn't record does, and the Undo that takes one out.
+  // Settings → Tools' declaration of what a tool shadowlap doesn't record does, and the Undo that takes one out.
   ['tool.unrecorded', (e, d) => ({ kind: 'setting', text: `${d.effect === 'read' || d.effect === 'write' ? `Unrecorded tool declared a ${d.effect}` : 'Unrecorded tool declaration removed'} · ${e.ref ?? 'a tool'}`, href: links.settings('tools') })],
   // Settings → Project's Build: the command that builds the agent, and the Undo or the empty field that takes it out.
   ['build.set', (_e, d) => ({ kind: 'setting', text: typeof d.build === 'string' && d.build ? `Build set · ${d.build}` : 'Build removed', href: links.settings('project') })],

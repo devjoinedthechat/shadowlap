@@ -59,7 +59,7 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, await ctx.reads.run({ kind: 'request-diff', runId: run.runId, callNo, normalizers: [...normalizers()] }, runAffinity(ctx.store, run.runId)));
   });
 
-  // What the run did that Shadowlap never recorded: it reads every model call's answer, so it is worked out beside the server too.
+  // What the run did that shadowlap never recorded: it reads every model call's answer, so it is worked out beside the server too.
   const declared = (): Record<string, 'read' | 'write'> => {
     if (!ctx.options.loadConfig) return {};
     try {

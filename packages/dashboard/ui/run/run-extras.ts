@@ -14,7 +14,7 @@ import { presetAttempt } from './preset.js';
  *   breaking commit);
  * - `preset`: an error-path preset's attempt, the preset it played in and its verdict, from the presets
  *   of the session that decided it;
- * - `notes`: what the run did that Shadowlap did not record, or answered as it went (notes.ts), the
+ * - `notes`: what the run did that shadowlap did not record, or answered as it went (notes.ts), the
  *   tools the model called that it never recorded read beside the server;
  * - `rescued`: where the fork that rescued its parent's blame sets out, by the server's `rescuedBy` or
  *   the parent's blame (`parent`, rescuedAt);

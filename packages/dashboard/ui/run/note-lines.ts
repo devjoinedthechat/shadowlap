@@ -61,7 +61,7 @@ function unrecordedLines(u: NonNullable<NotesInput['unrecorded']>, mode: string)
     };
   // A replay refuses one that writes, and one whose effect nothing tells, which may: the CLI's refusedEffect.
   const refused = refusedTools(tools);
-  const parts: NotePart[] = [`The model called ${n === 1 ? 'a tool' : `${num(n)} tools`} Shadowlap did not record: ${mode === 'replay' ? `this replay ran ${them} for real` : `${n === 1 ? 'it' : 'they'} ran in your agent unseen, and a replay runs ${them} for real`}.`];
+  const parts: NotePart[] = [`The model called ${n === 1 ? 'a tool' : `${num(n)} tools`} shadowlap did not record: ${mode === 'replay' ? `this replay ran ${them} for real` : `${n === 1 ? 'it' : 'they'} ran in your agent unseen, and a replay runs ${them} for real`}.`];
   if (refused.length) {
     const w = refused.length === 1;
     parts.push(' ', ...names(refused.map((t) => t.name)), ` ${acts(refused)}, so every command that replays the run refuses to run ${w ? 'it' : 'them'} again until ${w ? 'it is' : 'they are'} recorded, declared a read, or allowed with `, { code: '--allow-unrecorded' }, '.');

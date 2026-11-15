@@ -23,7 +23,7 @@ import { CONFIG_FILE, type useEditor } from './common.js';
  * in the order the page first drew them, so a mark made here keeps its row in place until the page
  * loads again. Mark untrusted and Mark trusted write `tools.<name>.trust` against the version the
  * tab read, with an Undo; under the table, the `tools` entry they write, folded, the line written
- * here marked. Under it, the tools Shadowlap doesn't record, each declared a read or a write under
+ * here marked. Under it, the tools shadowlap doesn't record, each declared a read or a write under
  * `tools.unrecorded` the same way (UnrecordedTools).
  */
 
@@ -242,7 +242,7 @@ function ToolsEntry({ entry }: { entry: ToolsSettings['entry'] }) {
   );
 }
 
-/** A tool Shadowlap doesn't record, as `tools.unrecorded` declares it. */
+/** A tool shadowlap doesn't record, as `tools.unrecorded` declares it. */
 type Declared = NonNullable<ToolsSettings['unrecorded']>[number];
 
 /** The words that write a declaration, and its toasts' line. */

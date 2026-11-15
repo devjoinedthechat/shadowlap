@@ -39,7 +39,7 @@ beforeAll(async () => {
     socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
   });
   await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', () => r()));
-  // Something the agent connects to that Shadowlap doesn't record: the guard reports it to the sidecar.
+  // Something the agent connects to that shadowlap doesn't record: the guard reports it to the sidecar.
   other = createTcpServer((s) => s.end());
   await new Promise<void>((r) => other.listen(0, '127.0.0.1', () => r()));
   mock = await startMockOpenAI({ script: (ctx) => ({ turn: turn(`refund noted (${ctx.request.messages.length})`) }) });

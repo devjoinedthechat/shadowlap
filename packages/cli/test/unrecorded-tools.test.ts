@@ -92,13 +92,13 @@ const TOOLS = [
   { name: 'Bash', count: 14, firstCallNo: 3, effect: 'write', why: 'a Claude Code built-in that runs a command', fix: 'fence' },
 ];
 
-describe('a run whose model called tools Shadowlap never recorded', () => {
+describe('a run whose model called tools shadowlap never recorded', () => {
   it('names them at the end of run, as the docs show it, and in --summary-json', async () => {
     expect(recorded.code, recorded.out).toBe(0);
     expect(ran()).toBe(14);
     // The sample in how-it-works.md is this output, line for line.
     const docs = readFileSync(DOCS, 'utf8');
-    const section = docs.slice(docs.indexOf('## Tools Shadowlap did not record'));
+    const section = docs.slice(docs.indexOf('## Tools shadowlap did not record'));
     const sample = /```(?:text)?\n([\s\S]*?)\n```/.exec(section)![1].split('\n');
     const lines = recorded.out.split('\n');
     const at = lines.indexOf(sample[0]);
@@ -122,7 +122,7 @@ describe('a run whose model called tools Shadowlap never recorded', () => {
     const before = ran();
     const r = await shadowlap(['replay', runId]);
     expect(r.code, r.out).toBe(2);
-    expect(r.stderr).toContain(`shadowlap: ${runId.slice(0, 10)} holds model calls of a tool Shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`);
+    expect(r.stderr).toContain(`shadowlap: ${runId.slice(0, 10)} holds model calls of a tool shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`);
     expect(r.stderr).toContain('    Bash  14 calls from model call #3 · a Claude Code built-in that runs a command');
     // A Claude Code built-in is recorded through the Claude Agent SDK's fence, not wrapped.
     expect(r.stderr).toContain('  So Shadowlap records it and a replay serves it: run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in shadowlap.adapters.claude_agent_sdk), which records Bash and fences it on replay.');
@@ -138,7 +138,7 @@ describe('a run whose model called tools Shadowlap never recorded', () => {
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain('✓ Replay clean');
     expect(ran()).toBe(before + 14);
-    expect(r.out).toContain('! The model called 2 tools Shadowlap did not record: this replay ran them for real');
+    expect(r.out).toContain('! The model called 2 tools shadowlap did not record: this replay ran them for real');
     expect((JSON.parse(readFileSync(join(project, 'replayed.json'), 'utf8')) as { unrecordedTools: unknown[] }).unrecordedTools).toEqual(TOOLS);
   });
 
@@ -158,13 +158,13 @@ describe('a run whose model called tools Shadowlap never recorded', () => {
     const before = ran();
     const r = await shadowlap(['test', 'goldens/cleanup']);
     expect(r.code, r.out).toBe(2);
-    expect(r.stderr).toContain('shadowlap: a golden holds model calls of a tool Shadowlap never recorded, which writes: a replay would run it again for real, so no golden was run.');
+    expect(r.stderr).toContain('shadowlap: a golden holds model calls of a tool shadowlap never recorded, which writes: a replay would run it again for real, so no golden was run.');
     expect(r.stderr).toContain('  goldens/cleanup\n    Bash  14 calls from model call #3 · a Claude Code built-in that runs a command');
     expect(r.stderr).toContain('Or let the test run it: --allow-unrecorded Bash');
     expect(ran()).toBe(before);
     const allowed = await shadowlap(['test', 'goldens/cleanup', '--allow-unrecorded', 'Bash']);
     expect(allowed.code, allowed.out).toBe(0);
-    expect(allowed.stderr).toContain('! goldens/cleanup: the model called lookup_kb (3 calls), Bash (14 calls), which Shadowlap never recorded: its replay runs them for real');
+    expect(allowed.stderr).toContain('! goldens/cleanup: the model called lookup_kb (3 calls), Bash (14 calls), which shadowlap never recorded: its replay runs them for real');
     expect(ran()).toBe(before + 14);
   }, 60_000);
 
@@ -183,7 +183,7 @@ describe('a run whose model called tools Shadowlap never recorded', () => {
     const given = args();
     const r = await shadowlap(given);
     expect(r.code, r.out).toBe(2);
-    expect(r.stderr).toContain(`${runId.slice(0, 10)} holds model calls of a tool Shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`);
+    expect(r.stderr).toContain(`${runId.slice(0, 10)} holds model calls of a tool shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`);
     const dash = given.indexOf('--');
     const suggested = ['shadowlap', ...(dash === -1 ? [...given, '--allow-unrecorded', 'Bash'] : [...given.slice(0, dash), '--allow-unrecorded', 'Bash', ...given.slice(dash)])];
     expect(r.stderr).toContain(quoteArgv(suggested));
@@ -198,7 +198,7 @@ describe('a run whose model called tools Shadowlap never recorded', () => {
     const before = ran();
     const r = await shadowlap(['bisect', runId, '--good', 'HEAD~1']);
     expect(r.code, r.out).toBe(2);
-    expect(r.stderr).toContain(`${runId.slice(0, 10)} holds model calls of a tool Shadowlap never recorded, which writes`);
+    expect(r.stderr).toContain(`${runId.slice(0, 10)} holds model calls of a tool shadowlap never recorded, which writes`);
     expect(r.stderr).toContain(quoteArgv(['shadowlap', 'bisect', runId, '--good', 'HEAD~1', '--allow-unrecorded', 'Bash']));
     expect(ran()).toBe(before);
   }, 60_000);

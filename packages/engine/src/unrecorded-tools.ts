@@ -7,7 +7,7 @@ import type { CallRecord } from './types.js';
 import { isObject } from './is-object.js';
 
 /**
- * Tools the model called that Shadowlap never recorded. A recording holds every model answer, and
+ * Tools the model called that shadowlap never recorded. A recording holds every model answer, and
  * each answer names the tools the model asked for (Anthropic's `tool_use`, OpenAI's `tool_calls`,
  * the Responses API's `function_call`, Gemini's `functionCall`, Bedrock's `toolUse`). A tool the
  * agent wraps leaves a tool call of its own in the run; one it doesn't wrap (the Claude Agent SDK's
@@ -34,7 +34,7 @@ export interface UnrecordedTool {
 }
 
 export interface UnrecordedOptions {
-  /** `tools.unrecorded` in shadowlap.config.json: the effect of a tool Shadowlap doesn't record, by name. */
+  /** `tools.unrecorded` in shadowlap.config.json: the effect of a tool shadowlap doesn't record, by name. */
   declared?: Readonly<Record<string, 'read' | 'write'>>;
   /** Whether the run's agent is Claude Code, whose built-ins are told apart by name; worked out from the run when absent (fromClaudeCode). */
   claudeCode?: boolean;
@@ -42,7 +42,7 @@ export interface UnrecordedOptions {
 
 // ---- the config: tools.unrecorded ----
 
-/** The key under `tools` in shadowlap.config.json that declares the effect of tools Shadowlap doesn't record; no tool's trust. */
+/** The key under `tools` in shadowlap.config.json that declares the effect of tools shadowlap doesn't record; no tool's trust. */
 export const UNRECORDED_KEY = 'unrecorded';
 
 /**

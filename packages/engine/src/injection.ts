@@ -44,7 +44,7 @@ export function parseToolTrust(raw: unknown, file = CONFIG): ToolTrust {
   if (!isObject(raw)) throw new Error(`${file}: tools must map tool names to settings, e.g. { "fetch_page": { "trust": "untrusted" } }`);
   const out: ToolTrust = {};
   for (const [name, v] of Object.entries(raw)) {
-    // `tools.unrecorded` declares the effect of tools Shadowlap doesn't record (unrecorded-tools.ts): no tool's trust.
+    // `tools.unrecorded` declares the effect of tools shadowlap doesn't record (unrecorded-tools.ts): no tool's trust.
     if (name === 'unrecorded') continue;
     const at = `${file}: tools["${name}"]`;
     if (!isObject(v)) throw new Error(`${at} must be an object, e.g. { "trust": "untrusted" }`);

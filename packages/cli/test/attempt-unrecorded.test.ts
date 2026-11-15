@@ -89,7 +89,7 @@ describe('an attempt whose live model calls a tool the agent runs unwrapped', ()
     const ranInBlame = ran() - before;
     expect(ranInBlame).toBeGreaterThan(0);
     expect(r.stderr).toMatch(/attempt \d+ {2}.* · send_email ran for real, unrecorded/);
-    expect(r.stderr).toContain('! The model called a tool Shadowlap did not record: the attempts ran it for real, and nothing stubbed it');
+    expect(r.stderr).toContain('! The model called a tool shadowlap did not record: the attempts ran it for real, and nothing stubbed it');
     expect(r.stderr).toMatch(/send_email {2}\d+ calls? in \d+ of \d+ attempts · "send" changes something/);
     expect(r.stderr).toContain("To have it recorded, and a write stubbed after a fork as the others are, wrap it where your agent runs it: tool('send_email', { effect: 'write' }, fn) with @shadowlap/sdk");
     const json = JSON.parse(r.stdout) as { probes: Array<{ runs: Array<{ unrecordedTools?: UnrecordedTool[] }> }> };

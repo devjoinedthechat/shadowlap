@@ -23,7 +23,7 @@ import { canonicalize } from './canonical.js';
  *   and the undated name) when they name the one dated snapshot the table has.
  *
  * Models that hold no conversation (embeddings, images, speech, video) and the Live APIs, which
- * Shadowlap doesn't record, are left out. The same file keeps the request fields newer models stop
+ * shadowlap doesn't record, are left out. The same file keeps the request fields newer models stop
  * accepting (`fields`), which `migrate` changes: set to a value they still take, left out, or sent
  * under another name.
  */

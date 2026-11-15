@@ -10,7 +10,7 @@ import { forgetPickedCalls } from '../ui/run/open-at.js';
 afterEach(forgetPickedCalls);
 
 /**
- * A run's page draws, under its banner, what the run did that Shadowlap did not record (the tools
+ * A run's page draws, under its banner, what the run did that shadowlap did not record (the tools
  * the model called, a preload that never loaded, WebSockets, a replay's extra reads), each call it
  * names opening on a click; Calls tags an extra read; Provenance names the host a call went through
  * and the guard.
@@ -77,7 +77,7 @@ function addressBar(hash: string) {
 }
 
 describe('the notes on a run’s page', () => {
-  it('says what the run did that Shadowlap did not record, the most pressing first, each call opening on a click', async () => {
+  it('says what the run did that shadowlap did not record, the most pressing first, each call opening on a click', async () => {
     const bar = addressBar(`#/run/${RUN}/1`);
     r = await render(createElement(AppContext.Provider, { value: app }, createElement(RunPage, { id: RUN, call: 1, view: null })));
     // Each note a finding, the most pressing first, the others folded until `4 findings` opens them.

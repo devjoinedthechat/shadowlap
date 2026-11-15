@@ -590,7 +590,7 @@ const DifferencesPanel = onShow(() => import('./ForkDifferences.js').then((m) =>
 const NoteWords = onShow(() => import('./RunNotes.js').then((m) => m.NoteWords), { failed: <LoadFailed what="finding" /> });
 
 /**
- * A thing the run did that Shadowlap did not record, or answered as it went (notes.ts), as one of the
+ * A thing the run did that shadowlap did not record, or answered as it went (notes.ts), as one of the
  * run's findings: its label, then its words and what is under them (`NoteWords`), and `more` (the
  * bar's toggle) at its end. `fx`: a finding the closed bar folds away.
  */

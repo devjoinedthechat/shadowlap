@@ -4,7 +4,7 @@ import { openPage, patched, seriousViolations, startJob } from './dashboard.js';
 import { DIALOG } from './routes.js';
 
 /**
- * Tools Shadowlap never recorded, in a real browser over the demo store: a replay the CLI refused for
+ * Tools shadowlap never recorded, in a real browser over the demo store: a replay the CLI refused for
  * one ends its drawer on Run again, allowing it, which its toast offers too, asks first in a dialog
  * warning in red that a write acts on your systems, and runs the same job again with the tool
  * allowed (`POST /api/jobs/:id/again`, answered here, so nothing runs); and Settings → Tools declares
@@ -16,7 +16,7 @@ test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
 /** The CLI's refusal of a replay whose model called Bash, unrecorded, as `unrecordedRefusal` words it with the command it suggests the flag on. */
 const refusal = (run: string) => [
-  `shadowlap: ${run.slice(0, 10)} holds model calls of a tool Shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`,
+  `shadowlap: ${run.slice(0, 10)} holds model calls of a tool shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`,
   '    Bash  2 calls from model call #3 · a Claude Code built-in that runs a command',
   '  So Shadowlap records it and a replay serves it: run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in shadowlap.adapters.claude_agent_sdk), which records Bash and fences it on replay.',
   `  If running it again is safe, declare it a read in shadowlap.config.json, "tools": { "unrecorded": { "Bash": "read" } }, or let this replay run it: shadowlap replay ${run} --allow-unrecorded Bash`,

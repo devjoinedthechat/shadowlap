@@ -24,7 +24,7 @@ describe('the name of the job', () => {
   });
 
   it('opens the docs’ introduction and the page that compares tools', () => {
-    for (const page of ['docs/index.md', 'docs/compare.md']) expect(lede(read(page)), page).toMatch(new RegExp(`^Shadowlap is ${LINE.toLowerCase()}[:,]`));
+    for (const page of ['docs/index.md', 'docs/compare.md']) expect(lede(read(page)), page).toMatch(new RegExp(`^shadowlap is ${LINE.toLowerCase()}[:,]`));
   });
 
   it('leads the listings people find Shadowlap in', () => {

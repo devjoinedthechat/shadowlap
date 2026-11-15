@@ -10,7 +10,7 @@ import type { JobView } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
- * A job the CLI refused because its run's model called a tool Shadowlap never recorded that writes,
+ * A job the CLI refused because its run's model called a tool shadowlap never recorded that writes,
  * or may: its drawer offers Run again, allowing the tools the CLI named in the flag it suggested,
  * which asks first, saying a write acts on your systems, then starts the same job again with them
  * allowed, answering the yes its kind asks in place.
@@ -33,7 +33,7 @@ describe('a job the CLI refused for tools its run never recorded', () => {
   it('names the tools the CLI’s refusal lets run, from the flag it suggests, a test session’s too, and none where it suggests no flag', () => {
     expect(unrecordedAllow(refusal([tool('Bash', 'write'), tool('frobnicate', 'unknown')]))).toEqual(['Bash', 'frobnicate']);
     // `shadowlap test`'s refusal ends on the flag alone (cli unrecorded-goldens.ts, as unrecorded-tools.test.ts pins it).
-    expect(unrecordedAllow(['shadowlap: a golden holds model calls of a tool Shadowlap never recorded, which writes: a replay would run it again for real, so no golden was run.', '  Or let the test run it: --allow-unrecorded Bash'])).toEqual(['Bash']);
+    expect(unrecordedAllow(['shadowlap: a golden holds model calls of a tool shadowlap never recorded, which writes: a replay would run it again for real, so no golden was run.', '  Or let the test run it: --allow-unrecorded Bash'])).toEqual(['Bash']);
     // A command that takes no flag gets no suggestion: nothing to allow from here.
     expect(unrecordedAllow(`shadowlap: ${unrecordedRefusal(run, [tool('Bash', 'write')], new Set(), null)!}`.split('\n'))).toBeNull();
     expect(unrecordedAllow(['✓ reproduced'])).toBeNull();

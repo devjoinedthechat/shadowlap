@@ -653,7 +653,7 @@ test('a batch fork’s ticket folded around the fork holds the selection, with t
   expect(await seriousViolations(page)).toEqual([]);
 });
 
-test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {
+test('what a run did that shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {
   // The eval's agent hands the policy check to a function it never wrapped: the model called it, and nothing recorded it.
   await openPage(page, `/run/${demoId('eval')}`, 'run');
   await openFindings(page);
@@ -662,7 +662,7 @@ test('what a run did that Shadowlap did not record is among its findings, with n
   expect(await seriousViolations(page)).toEqual([]);
 });
 
-test('on a phone, what a run did that Shadowlap did not record wraps inside the page, its hint a sentence', async ({ page }) => {
+test('on a phone, what a run did that shadowlap did not record wraps inside the page, its hint a sentence', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openPage(page, `/run/${demoId('eval')}`, 'run');
   await openFindings(page);
