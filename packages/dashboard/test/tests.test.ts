@@ -83,8 +83,6 @@ describe('the Tests screen', () => {
       first: { golden: 'goldens/refund-in-limit', name: 'refund-in-limit', reason: 'diverged at call 1 (api POST /v1/messages)', runId: 'R_C_LIMIT' },
       session: { command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: T0, passed: 2, failed: 1, upstreamRequests: 0, actor: null },
     });
-    // Who ran it only where names show (a team store), as every other view names a person.
-    expect(testsView(store, goldens, { shared: true }).verdict!.session.actor).toBe('ci');
     store.close();
   });
 

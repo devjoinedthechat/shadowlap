@@ -1,7 +1,8 @@
 import { ACTIONS, attemptsOf, judgedUnder as underChecks, goldensPassed, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
-import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
+import { asksForAll, historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
+export { asksForAll };
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
 import { addedTimes, changedReason, checksChanged, checksNow, goldenChecks, heldVerdict, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
 import { causeOf, divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
@@ -111,7 +112,7 @@ export interface TestsOptions {
   folder?: string;
   /** The normalizers in the project's config now: a divergence whose rules are all there needs only a re-run. */
   normalizers?: readonly Normalizer[];
-  /** Names show (a team store), so a session says who ran it. */
+  /** Names show (a team store), so a session says who ran it (`actor`); none says otherwise. */
   shared?: boolean;
 }
 
@@ -128,7 +129,6 @@ export interface TestsSessionView {
   failed: number;
   inconclusive: number;
   upstreamRequests: number;
-  /** Who ran it, only where names show (a team store); null otherwise. */
   actor: string | null;
   /** A signal stopped it: the goldens after the one it was replaying didn't run. */
   interrupted: boolean;
@@ -448,7 +448,6 @@ export function nameOf(path: string, folder: string): string {
 /**
  * A session as the screen shows it. Its totals are written when it ends; one that hasn't (it is
  * running, or its process was killed) counts the results it has, as every other count here does.
- * Who ran it only where names show (`shared`).
  */
 function sessionView(store: StoreOf<'tests'>, s: TestSession, shared: boolean): TestsSessionView {
   let { passed, failed } = s;
@@ -751,24 +750,6 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
 /** How many of the newest sessions the history and the verdict's line are read from. */
 const SESSION_WINDOW = 200;
 
-/** A pattern among `test`'s arguments as a regular expression: `*` and `?` within one folder name, as the CLI expands them. */
-function globRe(pattern: string): RegExp {
-  const body = [...pattern].map((c) => (c === '*' ? '[^/]*' : c === '?' ? '[^/]' : c.replace(/[.+^${}()|[\]\\]/g, '\\$&'))).join('');
-  return new RegExp(`^${body}$`);
-}
-
-/**
- * Whether a session's command asks for every golden in `need`: each named, or matched by a pattern
- * (`goldens/*`, which the CLI expands). What a session asked to run, whether or not it got through
- * them (one stopped by a signal), and what one running now will run.
- */
-export function asksForAll(command: readonly string[], need: readonly string[]): boolean {
-  const args = command.slice(command.indexOf('test') + 1).map((a) => a.replace(/^\.\//, '').replace(/\/+$/, ''));
-  const patterns = args.filter((a) => /[*?]/.test(a)).map(globRe);
-  const named = new Set(args);
-  return need.every((p) => named.has(p) || patterns.some((re) => re.test(p)));
-}
-
 /** Where a result shows in the history: a column of its own revision, or, run again with changes on top, the column of the commit under them. */
 const columnOfRevision = (revision: string | null, columns: ReadonlySet<string | null>): string | null | undefined => (columns.has(revision) ? revision : columns.has(committed(revision)) ? committed(revision) : undefined);
 
@@ -851,7 +832,6 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
 export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'chaos' | 'readModels'>, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
   const rules = options.normalizers ?? [];
-  const shared = options.shared ?? false;
   const sessionsView = testSessions(store, goldens, options.revisions ?? 6);
   const { revisions } = sessionsView;
   // Only what the page shows is read: each golden's newest result, and the results of the sessions
@@ -972,7 +952,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       untested,
       title: verdictTitle({ first, goldens, passing, total, notRun, presetsOnly }, folder),
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
-      session: sessionView(store, shown, shared),
+      session: sessionView(store, shown, options.shared === true),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),
     };
   }
@@ -990,7 +970,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
     failures,
     inconclusive,
     diverged,
-    ...liveSessionFields(store, liveTestSession(store), goldens.map((g) => g.path), { view: (s) => sessionView(store, s, shared), asks: asksForAll }),
+    ...liveSessionFields(store, liveTestSession(store), goldens.map((g) => g.path), { view: (s) => sessionView(store, s, options.shared === true), asks: asksForAll }),
     chaosRunning: presets ? { id: presets.sessionId, command: presets.command.join(' '), startedAt: presets.startedAt } : null,
     commands: {
       ci: `shadowlap test ${patterns.map(ciWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`,

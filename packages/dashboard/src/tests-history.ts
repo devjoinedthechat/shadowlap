@@ -244,3 +244,21 @@ export function liveSessionFields<S>(store: StoreOf<'tests' | 'recording' | 'rea
   if (!live) return { running: null, following: null };
   return { running: o.view(live), following: sessionProgress(store, live, paths.filter((p) => o.asks(live.command, [p])), o.asks(live.command, paths)) };
 }
+
+/** A pattern among `test`'s arguments as a regular expression: `*` and `?` within one folder name, as the CLI expands them. */
+function globRe(pattern: string): RegExp {
+  const body = [...pattern].map((c) => (c === '*' ? '[^/]*' : c === '?' ? '[^/]' : c.replace(/[.+^${}()|[\]\\]/g, '\\$&'))).join('');
+  return new RegExp(`^${body}$`);
+}
+
+/**
+ * Whether a session's command asks for every golden in `need`: each named, or matched by a pattern
+ * (`goldens/*`, which the CLI expands). What a session asked to run, whether or not it got through
+ * them (one stopped by a signal), and what one running now will run.
+ */
+export function asksForAll(command: readonly string[], need: readonly string[]): boolean {
+  const args = command.slice(command.indexOf('test') + 1).map((a) => a.replace(/^\.\//, '').replace(/\/+$/, ''));
+  const patterns = args.filter((a) => /[*?]/.test(a)).map(globRe);
+  const named = new Set(args);
+  return need.every((p) => named.has(p) || patterns.some((re) => re.test(p)));
+}

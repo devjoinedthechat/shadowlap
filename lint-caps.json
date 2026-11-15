@@ -154,7 +154,7 @@
       "testsView": 45
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 81
+      "trainingView": 79
     },
     "packages/dashboard/test/static.test.ts": {
       "scriptEnd": 56
@@ -363,7 +363,7 @@
       "register": 216
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 166
+      "trainingView": 163
     },
     "packages/dashboard/ui/api.ts": {
       "createClient": 162
@@ -439,7 +439,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 846,
+    "packages/dashboard/src/tests.ts": 838,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/engine/src/pairs.ts": 818,
