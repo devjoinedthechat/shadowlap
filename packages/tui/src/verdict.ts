@@ -12,7 +12,7 @@ import {
   shortRunId as short,
   statusTally,
   unrecordedTools,
-  unrescuedWords,
+  unrescuedKept,
   type CallRecord,
   type RunOutcome,
   type RunRecord,
@@ -84,7 +84,7 @@ export function blameFact(run: RunRecord): Fact | null {
     const rescued = typeof b.rescuedRunId === 'string' ? `, rescued by ${short(b.rescuedRunId)}` : '';
     return { text: `lost ${lostWhere(b.callNo!, b.range)} (${String(b.confidence)} confidence)${rescued}`, tone: 'err' };
   }
-  return { text: b.outcome === 'unrescuable' ? unrescuedWords(b.unsettled === true) : 'blame stopped before it finished', tone: 'warn' };
+  return { text: b.outcome === 'unrescuable' ? unrescuedKept(b) : 'blame stopped before it finished', tone: 'warn' };
 }
 
 export function fixFor(store: StoreOf<'fixes'>, runId: string): StoredFix | null {

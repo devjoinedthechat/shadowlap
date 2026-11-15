@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { gateResult, packRun, recordEvent, Store, unavailableReason, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
+import { gateResult, packRun, recordEvent, Store, unavailableReason, unpackRun, unrescuedMarks, unrescuedSaid, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
+import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { activity, describeEvent, type ActivityItem } from '../src/index.js';
 
 /** The activity feed: what runs tell by themselves, merged with what commands recorded, newest first. */
@@ -569,6 +570,25 @@ describe('runs from a pack someone else made', () => {
     // Paging still works through them.
     const first = activity(store, { limit: 1 });
     expect(activity(store, { limit: 50, before: first.next }).items.length).toBe(items.length - 1);
+    store.close();
+  });
+});
+
+describe('a blame that placed the failure on no call', () => {
+  it('says not rescued from any model call only where its bound bears that out, as its report heads it, in its event and on its run', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 100 }).runId;
+    store.endRun(rec, 'failed', 200);
+    // A fixed count's first probe can be wrong 8.7% of the time: its report heads it from the first model call only.
+    const weak = { ...blameReport(rec, 'unrescuable'), errorBound: 0.087, confidence: 'medium' as const };
+    expect(unrescuedSaid(weak)).toBe('not rescued from the first model call');
+    // As `shadowlap blame` keeps them (blame.ts, fixes.ts recordBlameFix).
+    store.updateRunMeta(rec, { blame: { at: 300, outcome: 'unrescuable', ...unrescuedMarks(weak), callNo: null, confidence: weak.confidence, errorBound: weak.errorBound, rescuedRunId: null, fields: {}, oracle: weak.oracle, probes: [], spent: 0 } });
+    // The event of a blame of another run, which the feed tells by its event rather than by the run's record.
+    recordEvent(store, { kind: 'blame.done', ref: 'fx-weak', data: { outcome: 'unrescuable', callNo: null, confidence: weak.confidence, title: 'wrong ticket closed', opened: true, ...unrescuedMarks(weak) }, at: 400 });
+    const items = activity(store).items;
+    expect(items.find((i) => i.id === `r:${rec}:blame`)?.text).toBe('Blamed · not rescued from the first model call');
+    expect(items.find((i) => i.at === 400)?.text).toBe('Blamed · wrong ticket closed, not rescued from the first model call');
     store.close();
   });
 });

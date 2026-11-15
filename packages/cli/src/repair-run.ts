@@ -1,5 +1,5 @@
 import { relative } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, blameSteps, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, modelSwitch, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewritesAt, reusedBlame, rewritableAnchors, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, blameSteps, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, modelSwitch, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewritesAt, reusedBlame, rewritableAnchors, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedKept, unrescuedMarks, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, type AttemptTarget } from './attempts.js';
 import { BlameError, responseBlocks, runBlame } from './blame.js';
@@ -552,10 +552,11 @@ class RepairRun {
     if (stored.outcome === 'unrescuable') {
       // What it found is kept whole with its fix: the same search, when the kept blame is the one on the run.
       const same = kept.outcome === 'unrescuable' && JSON.stringify(kept.report.oracle) === JSON.stringify(this.oracle) && JSON.stringify(kept.report.rescue?.fields ?? {}) === JSON.stringify(fields);
-      // One whose first probe couldn't tell is inconclusive, which is no finding that no call rescues the run.
-      const unsettled = stored.unsettled === true || (same && unsettledFirst(kept.report));
-      this.log(`  ${shortId(runId)}: ${unrescuedWords(unsettled)}, from the blame already stored on it`);
-      return { target: { ...base, outcome: 'unrescuable', ...(unsettled ? { unsettled: true } : {}), reused: true }, repairCase: null, request: null, model: null, notTheAnswer: same ? notTheAnswer(kept.report) : null };
+      // One whose first probe couldn't tell is inconclusive, which is no finding that no call rescues the run;
+      // one whose bound bears out only the first model call says that much, as its report does.
+      const marks = stored.unsettled === true ? { unsettled: true as const } : same ? unrescuedMarks(kept.report) : stored.firstOnly === true ? { firstOnly: true as const } : {};
+      this.log(`  ${shortId(runId)}: ${unrescuedKept(marks)}, from the blame already stored on it`);
+      return { target: { ...base, outcome: 'unrescuable', ...marks, reused: true }, repairCase: null, request: null, model: null, notTheAnswer: same ? notTheAnswer(kept.report) : null };
     }
     this.log(`  ${shortId(runId)}: lost ${lostWhere(stored.callNo, stored.range)}, from the blame already stored on it`);
     base.reused = true;
@@ -579,7 +580,7 @@ class RepairRun {
       });
       this.cost.blame += r.spent;
       this.judgeSpent(r);
-      if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable', ...(unsettledFirst(r) ? { unsettled: true } : {}) }, repairCase: null, request: null, model: null, notTheAnswer: r.outcome === 'stopped' ? null : notTheAnswer(r), ...(r.outcome === 'stopped' ? { stopReason: r.stopReason } : {}) };
+      if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable', ...unrescuedMarks(r) }, repairCase: null, request: null, model: null, notTheAnswer: r.outcome === 'stopped' ? null : notTheAnswer(r), ...(r.outcome === 'stopped' ? { stopReason: r.stopReason } : {}) };
       return { callNo: r.blamed.callNo, rescuedRunId: r.contrast.rescuedRunId, range: rangeOf(r.range, steps), failures: r.recordedFailures };
     } catch (err) {
       if (!(err instanceof BlameError)) throw err;

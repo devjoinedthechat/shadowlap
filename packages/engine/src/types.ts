@@ -439,6 +439,12 @@ export interface BlameRecord {
    * Absent otherwise, and from blames kept before it was.
    */
   unsettled?: boolean;
+  /**
+   * True when it placed the failure on no call but its bound bears out only that the first model call
+   * doesn't rescue the run (blame.ts `unrescuedMarks`): not rescued from the first model call, never from any.
+   * Absent otherwise, and from blames kept before it was.
+   */
+  firstOnly?: boolean;
   /** The model call whose recorded answer lost the run, or null. */
   callNo: number | null;
   confidence: 'high' | 'medium' | 'low';

@@ -1,4 +1,4 @@
-import { unsettledFirst } from './blame.js';
+import { unrescuedMarks } from './blame.js';
 import { canonicallySame } from './canonical.js';
 import type { StoreOf, StoredBlame } from './store.js';
 import type { BlameRecord } from './types.js';
@@ -25,7 +25,7 @@ function recordOf(kept: StoredBlame): BlameRecord {
   return {
     at: kept.at,
     outcome: r.outcome,
-    ...(unsettledFirst(r) ? { unsettled: true } : {}),
+    ...unrescuedMarks(r),
     callNo: r.blamed?.callNo ?? null,
     confidence: r.confidence,
     range: r.range ?? null,

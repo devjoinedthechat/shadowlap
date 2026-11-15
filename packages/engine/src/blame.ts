@@ -637,7 +637,7 @@ export function unsettledFirst(r: Pick<BlameReport, 'outcome' | 'probes' | 'same
 // A blame that placed the failure on no call, in a few words, as a run's page, Needs a look and
 // `shadowlap show` say it: inconclusive at the first model call when its first probe couldn't tell
 // (`unsettledFirst`), else not rescued from any model call. In a module of its own, so a page bundles it.
-export { blameStateWord, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, unrescuedWords } from './blame-words.js';
+export { blameStateWord, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, unrescuedKept, unrescuedWords } from './blame-words.js';
 
 /**
  * Where a blamed run was lost, as blame's report says it: `at model call #5` when the check pinned
@@ -769,6 +769,17 @@ const rescuedByNone = (r: Pick<BlameReport, 'sameAnswer' | 'failedWrite' | 'conf
 /** A blame that placed the failure on no call, in a few words, as `unrescuedHead` heads it: wherever a page or a list sums the blame up. */
 export function unrescuedSaid(r: Pick<BlameReport, 'outcome' | 'probes' | 'sameAnswer' | 'failedWrite' | 'confidence'> & { errorBound?: number | null }): string {
   return unrescuedWords(unsettledFirst(r), rescuedByNone(r));
+}
+
+/**
+ * What a run's blame record, its `blame.done` event and a repair's target keep of a blame that placed
+ * the failure on no call, so each is said as `unrescuedSaid` says the report (`unrescuedKept`):
+ * `unsettled` when its first probe couldn't tell, `firstOnly` when its bound bears out only the first
+ * model call. Nothing for any other blame.
+ */
+export function unrescuedMarks(r: Pick<BlameReport, 'outcome' | 'probes' | 'sameAnswer' | 'failedWrite' | 'confidence'> & { errorBound?: number | null }): { unsettled?: true; firstOnly?: true } {
+  if (unsettledFirst(r)) return { unsettled: true };
+  return r.outcome === 'unrescuable' && !rescuedByNone(r) ? { firstOnly: true } : {};
 }
 
 /**

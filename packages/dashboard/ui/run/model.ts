@@ -282,6 +282,7 @@ export function blameOf(d: Pick<RunDetail, 'blame' | 'calls'> & { run: { meta?: 
           scope: stored.scope ?? null,
           outcome: stored.outcome === 'blamed' || stored.outcome === 'unrescuable' || stored.outcome === 'stopped' ? stored.outcome : null,
           ...(stored.unsettled === true ? { unsettled: true } : {}),
+          ...(stored.firstOnly === true ? { firstOnly: true } : {}),
         }
       : null);
   if (!b) return null;

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { INCONCLUSIVE_FIRST_HEAD } from '../src/blame-words.js';
-import { blameSpan, confidenceWhy, decidePin, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, pinRisk, pinRule, pinWords, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedSaid, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport, type PinCheck } from '../src/blame.js';
+import { blameSpan, confidenceWhy, decidePin, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, pinRisk, pinRule, pinWords, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedKept, unrescuedMarks, unrescuedSaid, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport, type PinCheck } from '../src/blame.js';
 import { addPair, NO_PAIRS, pairedOdds, pairedWorstCase } from '../src/noninferiority.js';
 import { plain } from '../src/report.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
@@ -244,6 +244,11 @@ describe('formatBlame', () => {
     expect([unrescuedSaid(supported), unrescuedSaid(weak)]).toEqual(['not rescued from any model call', 'not rescued from the first model call']);
     // A report made before blame bounded its error keeps "any", as its head does.
     expect(unrescuedSaid(base({ outcome: 'unrescuable', probes: [first], lost: first, confidence: 'medium' }))).toBe('not rescued from any model call');
+    // A run's blame record, its event and a repair's target keep which it is, and are said from it in the same words.
+    const unsettled = base({ outcome: 'unrescuable', probes: [{ ...first, decision: 'inconclusive' }], lost: first, errorBound: null, confidence: 'low' });
+    expect([supported, weak, unsettled].map(unrescuedMarks)).toEqual([{}, { firstOnly: true }, { unsettled: true }]);
+    expect([supported, weak, unsettled].map((r) => unrescuedKept(unrescuedMarks(r)))).toEqual([supported, weak, unsettled].map(unrescuedSaid));
+    expect(unrescuedMarks(base({ outcome: 'blamed', probes: [first], lost: first, errorBound: 0.087, confidence: 'medium' }))).toEqual({});
   });
 
   it('says no answer lost a run whose attempts met its recorded write error again, or passed answering as it did', () => {

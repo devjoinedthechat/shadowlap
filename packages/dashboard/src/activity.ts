@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, NO_REPAIRER, outcomeCounts, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, NO_REPAIRER, outcomeCounts, pulledRun, summarizeRun, unrescuedKept, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { num } from './fields.js';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
@@ -110,7 +110,8 @@ const EVENT_TEXT = new Map<string, Describe>([
       if (d.outcome === 'stopped') return { kind: 'blame', outcome: 'warn', text: parts('Blame stopped', title), href };
       // Its first probe couldn't tell: inconclusive, which is no finding that no call rescues it.
       if (d.outcome === 'unrescuable' && d.unsettled === true) return { kind: 'blame', outcome: 'warn', text: `Blamed · ${title ? `${title}, ` : ''}${INCONCLUSIVE_FIRST}`, href };
-      if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}${unrescuedWords(false)}`, href };
+      // From any model call only where its bound bears that out, else from the first, as its report heads it.
+      if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}${unrescuedKept(d)}`, href };
       // Lost around or between two calls, when no one call is pinned (lostRange).
       // The mock's two lines: with the failure's title when the fix has one, else with the confidence.
       if (title) return { kind: 'blame', text: `Blamed · ${title}, ${lostWords(callNo, d.range, 'calls')}`, href };
@@ -608,8 +609,8 @@ function blamed(run: RunRecord): ActivityItem {
   if (b.outcome === 'stopped') return { ...item, kind: 'blame', outcome: 'warn', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
   // Its first probe couldn't tell: inconclusive, which is no finding that no call rescues it.
   if (b.unsettled === true) return { ...item, kind: 'blame', outcome: 'warn', text: `Blamed · ${INCONCLUSIVE_FIRST}` };
-  // In the words every other place says it (`unrescuedWords`).
-  return { ...item, kind: 'blame', text: `Blamed · ${unrescuedWords(false)}` };
+  // In the words every other place says it, from what the record keeps (`unrescuedKept`).
+  return { ...item, kind: 'blame', text: `Blamed · ${unrescuedKept(b)}` };
 }
 
 function repeated(store: StoreOf<'recording'>, attempts: RunRecord[], parent: RunRecord | undefined): ActivityItem {

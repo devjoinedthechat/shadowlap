@@ -378,6 +378,10 @@ describe('the run page: header and banners', () => {
     // One that placed the failure on no call because its first probe couldn't tell says so.
     store.updateRunMeta(b.runId, { blame: { ...blame, outcome: 'unrescuable', callNo: null, rescuedRunId: null, unsettled: true } });
     expect(runDetail(store, b.runId)!.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, callNo: null });
+    // One whose bound bears out only the first model call says so, for the banner to say it as the report heads it.
+    store.updateRunMeta(b.runId, { blame: { ...blame, outcome: 'unrescuable', callNo: null, rescuedRunId: null, unsettled: undefined as never, firstOnly: true } });
+    expect(runDetail(store, b.runId)!.blame).toMatchObject({ outcome: 'unrescuable', firstOnly: true, callNo: null });
+    expect(runDetail(store, b.runId)!.blame).not.toHaveProperty('unsettled');
     store.close();
   });
 

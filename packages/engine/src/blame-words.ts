@@ -21,6 +21,14 @@ export const INCONCLUSIVE_FIRST_HEAD = INCONCLUSIVE_FIRST.charAt(0).toUpperCase(
 export const unrescuedWords = (unsettled: boolean, any = true): string => (unsettled ? INCONCLUSIVE_FIRST : `not rescued from ${any ? 'any' : 'the first'} model call`);
 
 /**
+ * A blame that placed the failure on no call, as a run's record of it (`meta.blame`), its `blame.done`
+ * event or a repair's target keeps it, in the words its report sums it up in (blame.ts `unrescuedSaid`):
+ * each keeps `unsettled` or `firstOnly` (blame.ts `unrescuedMarks`). One kept before `firstOnly` was
+ * says any, as a report made before blame bounded its error does.
+ */
+export const unrescuedKept = (b: { unsettled?: unknown; firstOnly?: unknown }): string => unrescuedWords(b.unsettled === true, b.firstOnly !== true);
+
+/**
  * A blame that found no call, in one word, as a list or a job's status line says it: `inconclusive`
  * when its first probe couldn't tell, `not rescued` when no call rescues the run, `stopped` when it
  * was cut short, by hand or at its budget, before the search finished.

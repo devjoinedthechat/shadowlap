@@ -1,4 +1,4 @@
-import { commitTitle, eachRun, fixVerifyHead, noRepairerOf, patchFiles, repairMarkdown, repairOutcomeWord, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type RepairReport, type RepairTarget, type StoreOf, type StoredRepair, unrescuedSaid, unrescuedWords } from '@shadowlap/engine';
+import { commitTitle, eachRun, fixVerifyHead, noRepairerOf, patchFiles, repairMarkdown, repairOutcomeWord, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type RepairReport, type RepairTarget, type StoreOf, type StoredRepair, unrescuedKept, unrescuedSaid } from '@shadowlap/engine';
 import { repairSpent } from './fix-lead.js';
 import { acceptedCandidate, fixHref, repairerLabel, ROLE, runHref, s, short, sprtGate, type StepLine } from './fix-shared.js';
 import { verdictHeadline } from './fix-verify-step.js';
@@ -124,7 +124,7 @@ function lostAt(store: StoreOf<'fixes'>, r: StoredRepair, t: RepairTarget): stri
   if (t.outcome === 'blamed' && t.callNo !== null) return `${targetWhere(t)}${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}`;
   if (t.outcome === 'unrescuable') {
     const kept = store.blamesOfRun(t.runId).filter((b) => b.at <= r.at).at(-1);
-    return kept?.outcome === 'unrescuable' ? unrescuedSaid(kept.report) : unrescuedWords(t.unsettled === true);
+    return kept?.outcome === 'unrescuable' ? unrescuedSaid(kept.report) : unrescuedKept(t);
   }
   return t.note ?? TARGET_WORDS[t.outcome];
 }

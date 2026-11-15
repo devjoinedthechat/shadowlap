@@ -118,7 +118,7 @@ function normalizeBlame(v: unknown): BlameView | null {
   if (!isObject(v)) return null;
   const modelCall = isObject(v.modelCall) && int(v.modelCall.k) !== null && int(v.modelCall.m) !== null ? { k: int(v.modelCall.k)!, m: int(v.modelCall.m)! } : null;
   const outcome = v.outcome === 'blamed' || v.outcome === 'unrescuable' || v.outcome === 'stopped' ? v.outcome : null;
-  return { callNo: int(v.callNo), range: lostRange(v.range), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome, ...(v.unsettled === true ? { unsettled: true } : {}), short: str(v.short) };
+  return { callNo: int(v.callNo), range: lostRange(v.range), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome, ...(v.unsettled === true ? { unsettled: true } : {}), ...(v.firstOnly === true ? { firstOnly: true } : {}), short: str(v.short) };
 }
 
 const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];

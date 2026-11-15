@@ -3,10 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { lostWhere } from '../src/blame.js';
+import { lostWhere, unrescuedMarks } from '../src/blame.js';
 import { plain } from '../src/report.js';
 import { applyEdit, caseDetails, checkEdit, editSize, findAnchors, forbiddenDetails, formatRepair, noRepairerOf, repairMarkdown, unifiedDiff, type Anchor } from '../src/repair.js';
-import { repairReport } from './fix-fixtures.js';
+import { blameReport, repairReport } from './fix-fixtures.js';
 
 const AGENT = `const system = process.env.AGENT_SYSTEM ?? 'You are a support agent. Follow the refund policy.';
 const tools = [
@@ -182,6 +182,11 @@ describe('repairMarkdown', () => {
     expect(repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])).toEqual(['model call #<span></span>5 (3 of 4)', 'inconclusive at the first model call', 'passes when replayed']);
     expect(formatRepair(report)).toMatch(/01M540RWR1 +inconclusive at the first model call/);
     expect(formatRepair(report)).not.toContain('not rescued');
+    // One whose blame's bound bears out only the first model call says that much, as its blame's report heads it.
+    const weak = { ...blameReport('01M540RWR1MGKZC97YKV0T4DB6', 'unrescuable'), errorBound: 0.087, confidence: 'medium' as const };
+    report.targets[1] = { ...report.targets[1], unsettled: undefined, ...unrescuedMarks(weak) };
+    expect(repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])[1]).toBe('not rescued from the first model call');
+    expect(formatRepair(report)).toMatch(/01M540RWR1 +not rescued from the first model call/);
   });
 
   it('says a run blame found lost gradually around two calls, or between two, so, as blame words it, in the pull request and the terminal', () => {

@@ -149,6 +149,8 @@ export interface BlameView {
   outcome?: 'blamed' | 'unrescuable' | 'stopped' | null;
   /** An `unrescuable` blame whose first probe couldn't tell: inconclusive at the first model call, never "no call saves the run". */
   unsettled?: boolean;
+  /** An `unrescuable` blame whose bound bears out only the first model call: not rescued from the first, never from any. */
+  firstOnly?: boolean;
   /** What asking again did, in a few words: "asked again, it calls escalate instead". */
   short?: string | null;
 }

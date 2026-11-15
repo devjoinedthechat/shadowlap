@@ -1,4 +1,4 @@
-import { lostWhere, unrescuedWords } from './blame.js';
+import { lostWhere, unrescuedKept } from './blame.js';
 import { markdownCode, markdownFence, markdownText } from './markdown.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
@@ -676,6 +676,11 @@ export interface RepairTarget {
    * Absent otherwise, and from reports made before it was.
    */
   unsettled?: boolean;
+  /**
+   * An `unrescuable` blame whose bound bears out only that the first model call doesn't rescue the run
+   * (blame.ts `unrescuedMarks`): not rescued from the first model call, never from any. Absent otherwise.
+   */
+  firstOnly?: boolean;
   callNo: number | null;
   step: number | null;
   steps: number;
@@ -855,7 +860,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain, columns?: numb
         t.outcome === 'blamed' && t.callNo !== null
           ? `${targetWhere(t)}${t.rescuedBy ? `, rescued by ${safeLine(t.rescuedBy)}` : ''}${t.reused ? p.dim(' · from an earlier blame') : ''}`
           : t.outcome === 'unrescuable'
-            ? unrescuedWords(t.unsettled === true)
+            ? unrescuedKept(t)
             : safeLine(t.note ?? t.outcome);
       lines.push(...fitRow(`    ${short(t.runId)}  `, where, columns));
     }
@@ -915,7 +920,7 @@ export function repairMarkdown(r: RepairReport): string {
     out.push(`Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (\`shadowlap blame\`)${r.targets.some((t) => t.range?.gradual) ? ', or gradually around two calls, where no one call lost it' : ''}.`, '');
     out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
     for (const t of r.targets) {
-      const at = t.outcome === 'blamed' && t.callNo !== null ? targetWhere(t) : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
+      const at = t.outcome === 'blamed' && t.callNo !== null ? targetWhere(t) : t.outcome === 'unrescuable' ? unrescuedKept(t) : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
       out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
     }
   } else {
