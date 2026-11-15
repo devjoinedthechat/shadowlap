@@ -87,7 +87,7 @@ The model calls need nothing more, whichever way the agent names its model:
 
 | The agent names its model | Its calls |
 |---|---|
-| As a provider instance (`anthropic('claude-sonnet-4-5')` from `@ai-sdk/anthropic`) | Read its provider's base URL, which `shadowlap run` sets |
+| As a provider instance (`anthropic('claude-sonnet-5-5')` from `@ai-sdk/anthropic`) | Read its provider's base URL, which `shadowlap run` sets |
 | As a string (`model: 'openai/gpt-5'`) | Go to Vercel's AI Gateway, which the AI SDK addresses itself, in its own format |
 
 `shadowlap run` captures the gateway's calls in the process, and records them with their model, usage

@@ -3512,7 +3512,7 @@ workspace's root, it is the workspace's manager. That is the root above it, up t
 root, that takes the folder in: `pnpm-workspace.yaml`, `workspaces` in `package.json` with its lockfile
 or `packageManager` field, or `[tool.uv.workspace]`.
 
-**The models a framework names**: Mastra's router ids (`model: 'anthropic/claude-sonnet-4-5'`), the AI
+**The models a framework names**: Mastra's router ids (`model: 'anthropic/claude-sonnet-5-5'`), the AI
 SDK's string ids (`model: 'openai/gpt-5'`, Vercel's AI Gateway), LangChain's `init_chat_model`,
 Pydantic AI's, CrewAI's, Google ADK's, Agno's and Strands' model strings, and the model classes those
 frameworks and smolagents import. An agent given no model counts as its framework's default (Strands:
@@ -3571,7 +3571,7 @@ provider's. Each of these counts as an OpenAI client:
 
 An agent on Anthropic's or Gemini's SDK alone (or Pydantic AI's slim package with its `[anthropic]`
 extra) never sends to it. Neither does Pydantic AI when every model its code names is another
-provider's (`Agent("anthropic:claude-sonnet-4-5")`) and it builds no OpenAI model or provider. Pydantic
+provider's (`Agent("anthropic:claude-sonnet-5-5")`) and it builds no OpenAI model or provider. Pydantic
 AI makes a client only for the providers of its models, so the OpenAI client it installs, and the
 `openai` that puts in a lockfile, go unused.
 
