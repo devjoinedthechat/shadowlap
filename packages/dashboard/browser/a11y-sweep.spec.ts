@@ -618,7 +618,11 @@ test('below 400px a chart of eleven or more calls labels every other one, never 
   const sizes: number[] = [];
   for (const name of ['override', 'batch', 'batchFork']) {
     await openPage(page, `/run/${demoId(name)}/context`, 'run');
+    // Counted once the chart is drawn, its view's script in, and every call read: a long run's come a page at a time, a
+    // bar more with each, the note that counts them shown until the last.
     const bars = page.locator('main#view .cbars .cbar');
+    await expect(bars.first()).toBeAttached();
+    await expect(page.locator('main#view .views > .toolbar')).toHaveCount(0);
     const n = await bars.count();
     sizes.push(n);
     expect(await labelsTouch(page), `${n} calls`).toEqual([]);

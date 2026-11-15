@@ -134,11 +134,20 @@ const DRAWN: Record<string, string> = {
   fix: 'main#view .stepper',
 };
 
+/**
+ * What says the page `path` opens has drawn: a run's page by the run it names, as a run opened over
+ * another on the same page keeps the one before's header until its own comes.
+ */
+function drawnOf(path: string, drawn: string): string {
+  const run = drawn === 'run' ? /^\/run\/([^/?#]+)/.exec(path)?.[1] : undefined;
+  return run ? `${DRAWN.run}[data-run^="${run}"]` : (DRAWN[drawn] ?? drawn);
+}
+
 /** Opens a page of the dashboard (global setup's, or `at`) with the session token, as its printed link does, and waits for it to draw. */
 export async function openPage(page: Page, path: string, drawn: string, at: Served = dash()): Promise<void> {
   const { origin, token } = at;
   await page.goto(`${origin}/#token=${token}&open=${path}`);
-  await page.waitForSelector(DRAWN[drawn] ?? drawn, { state: 'visible' });
+  await page.waitForSelector(drawnOf(path, drawn), { state: 'visible' });
   // Fonts settle the layout that the fitted lines (about lines, hints) are measured against.
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page.waitForTimeout(150);
