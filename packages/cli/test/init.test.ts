@@ -87,6 +87,26 @@ export const other = new Anthropic({ baseURL: process.env.ANTHROPIC_BASE_URL ?? 
     expect(text).toContain('npx shadowlap run -- pnpm agent');
   });
 
+  it('names the build package.json runs, and suggests it as the config\'s build until the config names one', () => {
+    const dir = project({
+      'package.json': JSON.stringify({ name: 'compiled-agent', scripts: { build: 'tsc -p .', start: 'node dist/agent.js' }, dependencies: { '@anthropic-ai/sdk': '^0.69.0' } }),
+      'package-lock.json': '{}',
+      'tsconfig.json': '{}',
+    });
+    const r = inspectProject(dir, {});
+    expect(r.build).toEqual({ argv: ['npm', 'run', 'build'], from: 'package.json scripts.build: tsc -p .', configured: null });
+    const text = formatInit(r, palette, true);
+    expect(text).toContain('  Build: npm run build (package.json scripts.build: tsc -p .)\n    if the agent runs what it builds, add "build": "npm run build" to shadowlap.config.json: repair, fix apply, verify, migrate apply and bisect rebuild it then\n');
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ build: 'npm ci && npm run build' }));
+    const set = inspectProject(dir, {});
+    expect(set.build).toMatchObject({ configured: 'npm ci && npm run build' });
+    expect(formatInit(set, palette, false)).toContain('    shadowlap.config.json builds with npm ci && npm run build before repair, fix apply, verify, migrate apply and bisect replay the agent\n');
+    // A pnpm project builds with pnpm; a script that watches builds nothing a replay runs.
+    expect(inspectProject(project({ 'package.json': JSON.stringify({ scripts: { build: 'tsc' } }), 'pnpm-lock.yaml': '' }), {}).build?.argv).toEqual(['pnpm', 'build']);
+    expect(inspectProject(project({ 'package.json': JSON.stringify({ scripts: { build: 'tsc --watch' } }) }), {}).build).toBeNull();
+    expect(inspectProject(ts, {}).build).toBeNull();
+  });
+
   it('leaves the CLI out of the install step when a global shadowlap runs it, and runs that one', () => {
     const text = formatInit(inspectProject(ts, {}), palette, true, { globalCli: true });
     expect(text).not.toContain('add -D shadowlap');

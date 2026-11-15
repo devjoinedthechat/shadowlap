@@ -47,9 +47,6 @@
     "packages/cli/src/commands/training.ts": {
       "register > action(\"score\")": 60
     },
-    "packages/cli/src/config.ts": {
-      "loadConfig": 43
-    },
     "packages/cli/src/decisions-capture.ts": {
       "captureFromCode": 52
     },
@@ -63,7 +60,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 64
+      "applyFix": 60
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64
@@ -127,7 +124,7 @@
     "packages/dashboard/src/activity.ts": {
       "derived": 34,
       "replayEnd": 34,
-      "testEnd": 50
+      "testEnd": 49
     },
     "packages/dashboard/src/agent-skill.ts": {
       "installedCopy": 37
@@ -141,9 +138,6 @@
     },
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
-    },
-    "packages/dashboard/src/routes/imports.ts": {
-      "register > build": 35
     },
     "packages/dashboard/src/routes/settings.ts": {
       "register > build #2": 31
@@ -448,7 +442,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 896,
+    "packages/dashboard/src/tests.ts": 846,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/engine/src/pairs.ts": 818,

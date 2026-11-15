@@ -229,6 +229,10 @@ describe('shadowlap migrate apply', () => {
   it("marks a patch already in the tree applied, and says what it left behind as JSON", async () => {
     const id = keepMigration();
     writeFileSync(join(cwd, 'agent.config.json'), readFileSync(join(cwd, 'agent.config.json'), 'utf8').replace(FROM, TO));
+    // The agent's build, as the config names it: run before the replay though no --build was given.
+    const build = `"${process.execPath}" -e "require('fs').writeFileSync('built.txt', 'yes')"`;
+    const config = join(cwd, 'shadowlap.config.json');
+    writeFileSync(config, JSON.stringify({ ...JSON.parse(readFileSync(config, 'utf8')), build }, null, 2));
     try {
       const r = await shadowlap(['migrate', 'apply', id, '--json']);
       expect(r.code, r.out).toBe(0);
@@ -236,8 +240,12 @@ describe('shadowlap migrate apply', () => {
       expect(departures('migrateApply', result)).toEqual({ missing: [], extra: [] });
       expect(result).toEqual({ migrateId: id, status: 'applied', patch: 'already', files: ['agent.config.json'], leftOut: [], outdated: [{ golden: 'goldens/research', callNo: firstModelCall(), kind: 'api', name: expect.stringContaining('/v1/messages'), path: '$.model' }], update: 'shadowlap test goldens/research --update' });
       expect(r.out).toContain('the config change is already in the working tree');
+      expect(r.out).toContain(`\n  build: ${build}, from shadowlap.config.json (--build "" for none)\n`);
+      expect(r.out).toContain(`\n  rebuilt: ${build}\n`);
+      expect(readFileSync(join(cwd, 'built.txt'), 'utf8')).toBe('yes');
     } finally {
-      git('checkout', '--', 'agent.config.json');
+      git('checkout', '--', 'agent.config.json', 'shadowlap.config.json');
+      rmSync(join(cwd, 'built.txt'), { force: true });
     }
   }, 240_000);
 });

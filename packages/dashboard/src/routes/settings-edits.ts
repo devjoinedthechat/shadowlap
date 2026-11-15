@@ -10,6 +10,7 @@ import {
   removeRule,
   resolveAuthor,
   restoreRule,
+  setBuild,
   setClock,
   type ConfigEvent,
   type RuleList,
@@ -21,6 +22,7 @@ import { folderGoneText } from '../folder-gone.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { proposedRules } from '../settings.js';
+import { buildSettings } from '../settings-build.js';
 
 /**
  * Settings' edits to shadowlap.config.json, and the Undo of each that has one.
@@ -30,6 +32,8 @@ import { proposedRules } from '../settings.js';
  *   POST   /api/settings/rules/:list/:n/restore    { rule, expect }: put a removed rule back at its number
  *   PUT    /api/settings/clock                     { mode: 'auto' | 'exact' | null, expect }; answers `was`
  *   PUT    /api/settings/store/ci-push             { on: true | false | null, expect }: Push from CI; answers `was`
+ *   GET    /api/settings/build                     Build, on Project: the command that builds the agent, and the file's version
+ *   PUT    /api/settings/build                     { command: string | null, expect }; answers `was`
  *   POST   /api/settings/calibrate/write           { jobId }: add what a calibrate job proposed
  *
  * Every edit names the version of the file it was read from (`expect`, from a tab's `config`), so a
@@ -37,8 +41,8 @@ import { proposedRules } from '../settings.js';
  * Undo names the version the edit it undoes wrote, from that edit's answer, so it is refused the
  * same way once anything else has changed the file. The rules are checked by the engine, as
  * `shadowlap normalize add` checks them (400 with the same words); a file that can't be read or
- * written is a 422. Each edit lands in the activity feed. Null for the clock or Push from CI takes
- * the key out of the file: how an Undo puts back a file that didn't have one.
+ * written is a 422. Each edit lands in the activity feed. Null for the clock, Push from CI or the
+ * build takes the key out of the file: how an Undo puts back a file that didn't have one.
  */
 
 const LISTS: readonly RuleList[] = ['normalize', 'redact'];
@@ -199,6 +203,21 @@ export function register(router: Router, ctx: RouteContext): void {
     const on: boolean | null = body.on;
     const expect = expectOf(body.expect);
     await edit(async (cwd) => r.json(await writeCiPush(ctx, cwd, on, expect)));
+  });
+
+  // Build, on Project: what repair, fix apply, verify, migrate apply and bisect run where no --build is given.
+  router.get('/settings/build', (r) => r.json(buildSettings(settingsFolder(ctx))));
+  router.put('/settings/build', async (r) => {
+    const body = await r.body();
+    if (typeof body.command !== 'string' && body.command !== null) throw new HttpError(400, 'command is the command that builds the agent, such as "npm run build", or null for none');
+    // An empty field is no build: the key comes out.
+    const command: string | null = typeof body.command === 'string' && body.command.trim() ? body.command : null;
+    const expect = expectOf(body.expect);
+    await edit(async (cwd) => {
+      const set = await editWhenFree((o) => setBuild(cwd, command, { ...o, expect }));
+      log(ctx, set.event ? [set.event] : []);
+      r.json({ build: set.build, was: set.was, changed: set.changed, version: set.file.version });
+    });
   });
 
   // "Add normalizer" after a calibrate job: exactly the rules it proposed, the ones the person just

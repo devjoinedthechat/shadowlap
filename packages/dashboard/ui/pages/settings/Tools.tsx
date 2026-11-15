@@ -15,7 +15,7 @@ import { useListKeys } from '../../list-keys.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, LoadProblem, Loading, MCP_GONE, SAVING, TOOLS_GONE, useEditor, useFolderGone, useSettingsData } from './common.js';
-import { TrustTable } from './ToolTrust.js';
+import { TrustTable, UnrecordedTools } from './ToolTrust.js';
 import { TestButton } from '../../injection/TestButton.js';
 import { readsWords } from '../../injection/reads-words.js';
 import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, mcpRows, pasteFile, pasteWhere, serverNameFor, type McpRow } from './logic.js';
@@ -63,6 +63,7 @@ export function ToolsTab() {
           <TrustTable data={data} editor={editor} off={off} version={data.config.version ?? 'absent'} test={(row) => (row.test ? <TestButton test={row.test} sub={`Plants payloads at ${readsWords(row.test.reads)} of ${row.test.whose}`} /> : null)} />
         </div>
       )}
+      {gone ? null : <UnrecordedTools data={data} editor={editor} off={off} version={data.config.version ?? 'absent'} />}
       {data.http.length && !gone ? (
         <div className="egrp">
           <span className="k">hosts recorded as tools</span>

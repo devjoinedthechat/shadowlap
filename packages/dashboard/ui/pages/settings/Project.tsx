@@ -10,11 +10,13 @@ import { Section } from '../../components/Section.js';
 import { Code, Words } from '../../components/Copy.js';
 import { DotParts } from '../../components/DotParts.js';
 import { SpendingRow } from './SpendingRow.js';
+import { BuildRow } from './BuildRow.js';
 
 /**
  * Project: what Shadowlap is here (its version, its licence, no account), then the project's name,
  * store, runs and attempts, the store's size and the dashboard's address, what is data as code; Spending,
- * when a billed job asks before it starts (SpendingRow); Clean
+ * when a billed job asks before it starts (SpendingRow); Build, the command that builds the agent
+ * (BuildRow); Clean
  * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
  * "Free X" for what deleted runs left unused); and Remove project…, which opens the projects
  * feature's own dialog, here in the page.
@@ -88,6 +90,7 @@ export function ProjectTab() {
         </dd>
       </dl>
       <SpendingRow />
+      <BuildRow />
       <div className="pbody setfoot">
         <ActionButton
           className="btn"

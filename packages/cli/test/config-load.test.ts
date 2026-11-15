@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { guardAccept, loadConfig, upstreamOverrides } from '../src/config.js';
+import { buildCommand, guardAccept, loadConfig, upstreamOverrides } from '../src/config.js';
 
 /** loadConfig's lists of rules: checked when a command first reads them, and otherwise plain properties. */
 let cwd: string;
@@ -61,6 +61,29 @@ describe('loadConfig', () => {
 
   it('reads a missing file as no rules', () => {
     expect(loadConfig(cwd)).toEqual({ normalize: [], redact: [] });
+  });
+});
+
+describe('build', () => {
+  it('reads the command that builds the agent, which a command runs where --build is not given, "" running none', () => {
+    write({ build: 'npm run build' });
+    const config = loadConfig(cwd);
+    expect(config.build).toBe('npm run build');
+    expect(buildCommand(undefined, () => config)).toEqual({ command: 'npm run build', note: 'build: npm run build, from shadowlap.config.json (--build "" for none)' });
+    // A --build given wins, and the config isn't read for it; "" runs none.
+    const unread = () => {
+      throw new Error('read');
+    };
+    expect(buildCommand('npm ci && npm run build', unread)).toEqual({ command: 'npm ci && npm run build', note: null });
+    expect(buildCommand('', unread)).toEqual({ command: null, note: null });
+    expect(buildCommand(undefined, () => loadConfig(join(cwd, 'nowhere')))).toEqual({ command: null, note: null });
+  });
+
+  it('refuses a build that is no command on one line, naming the file', () => {
+    for (const build of ['', 'npm run build\nnpm test', 7, ['npm', 'run', 'build']]) {
+      write({ build });
+      expect(() => loadConfig(cwd), JSON.stringify(build)).toThrow('shadowlap.config.json: build must be the command that builds the agent, on one line, such as "npm run build"');
+    }
   });
 });
 

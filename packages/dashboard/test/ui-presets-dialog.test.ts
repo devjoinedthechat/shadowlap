@@ -103,7 +103,9 @@ describe('Run error-path presets…’s words', () => {
 
   it('says where the provider presets hit, what judges and what decides each attempt', () => {
     expect(whereWords(PLAN.at)).toBe('and model call #3, which reads its answer');
-    expect(whereWords({ tool: { none: 'no tool call' }, model: { callNo: 1, name: 'POST /v1/messages' } })).toBe('and model call #1');
+    // Where the tool presets can't hit (engine chaos.ts chaosTargets), why, before where the provider presets do.
+    expect(whereWords({ tool: { none: 'the recording never calls get_policy' }, model: { callNo: 1, name: 'POST /v1/messages' } })).toBe('the recording never calls get_policy: the tool presets are not applicable; the provider presets hit model call #1');
+    expect(whereWords({ tool: { none: 'the recording makes no tool call' }, model: { none: 'the recording makes no model call' } })).toBe('the recording makes no tool call: the tool presets are not applicable; no model call: the provider presets are not applicable');
     expect(whereWords({ ...PLAN.at, model: { none: 'the recording makes no model call' } })).toBe('no model call: the provider presets are not applicable');
     expect(goldenJudged(GOLDEN, 'goldens/refund')).toEqual({ value: 'issue_refund called at most 1 time', quiet: 'the write limits of refund’s expect' });
     expect(goldenJudged({ judge: { source: 'chaos.expect', checks: ['escalate called at least 1 time'], from: 'chaos.expect' } }, 'goldens/refund')).toEqual({ value: 'escalate called at least 1 time', quiet: 'refund’s chaos.expect' });
@@ -150,6 +152,13 @@ describe('Run error-path presets…’s dialog', () => {
     expect(r!.one('.dialog label.cxj small').textContent).toBe('what every attempt must do besides exiting 0; empty, the exit alone');
     expect(rows().at(-1)).toEqual(['Decided by', 'one attempt each']);
     expect(cmd()).toBe('$shadowlap replay 01K5CQ4N7G --chaos --expect \'{"tools":{"issue_refund":"<= 200"}}\'');
+  });
+
+  it('says where a recording with no tool the tool presets can hit has them hit nothing, and why, beside the model call the provider presets hit', async () => {
+    await dialog({ ...PLAN, choices: [], tool: null, at: { tool: { none: 'the recording makes no tool call' }, model: { callNo: 1, name: 'POST /v1/messages' } } });
+    expect(rows().map(([k]) => k)).toEqual(['Presets', 'At', 'Judged by', 'Decided by']);
+    expect(rows()[1]).toEqual(['At', 'the recording makes no tool call: the tool presets are not applicable; the provider presets hit model call #1']);
+    expect(r!.all('.dialog select')).toHaveLength(0);
   });
 
   it('asks the plan again a moment after a pick, waits on Pick at least one preset with none, and starts with exactly the fields the command shows', async () => {

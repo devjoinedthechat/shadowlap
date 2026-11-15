@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
+import { ActionButton } from '../components/ActionButton.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
-import { divergenceButtons, findCommitButton } from '../goldens.js';
+import { divergenceButtons, findCommitButton, findCommitWait } from '../goldens.js';
 import { ACTIONS } from '../labels.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
@@ -18,8 +19,8 @@ import { LeadButton, type LeadPress } from './Verdict.js';
  * server leads it (next-step.ts, the run page's rule), then what else its report offers, from the
  * page's own helpers: a divergence's normalizer, Update golden beside it, and Find breaking commit
  * (never where Update golden leads); a crash's Run blame beside its step, from the step's own offer; Find breaking
- * commit where it is offered; Run more attempts and Update golden for an inconclusive golden; an
- * injection gate's Security report. A golden whose checks changed since its last test offers Run
+ * commit where it is offered, kept off with why for a pack that can't be read; Run more attempts and
+ * Update golden for an inconclusive golden; an injection gate's Security report. A golden whose checks changed since its last test offers Run
  * tests alone, the whole session as the page's header runs it, as more attempts or a commit search
  * would judge checks the config no longer holds; one whose own recording fails a check added since
  * leads with Edit check…. Open proof is the header's link, never a step. A press opens the report,
@@ -89,7 +90,18 @@ function divergenceSiblings(d: DivergenceView, { has, press, leads, step }: Sibl
     ) : null,
     b.update && normalizer && !leads('update') ? <UpdateButton key="update" golden={d.golden} judge={null} press={press} /> : null,
     b.bisect && !leads('bisect') && step?.key !== 'update-golden' ? <FindCommitButton key="bisect" f={d} live={press.live(d)} why={press.wait('find the breaking commit')} onBisect={() => press.onFind(d)} /> : null,
+    step?.key !== 'update-golden' ? unreadFindCommit(d, has) : null,
   ];
+}
+
+/** Find breaking commit for a golden whose pack can't be read: kept in its place, its card and a press saying why it can't search (findCommitWait). */
+function unreadFindCommit(f: DivergenceView | FailureView, has: (kind: string) => boolean): ReactNode {
+  const why = findCommitWait(f, has);
+  return why ? (
+    <ActionButton key="unread" className="btn" why={why}>
+      {ACTIONS.findBreakingCommit.label}
+    </ActionButton>
+  ) : null;
 }
 
 /** A crash's Run blame beside its step, from the step's own offer (none where a fix holds the run); Find breaking commit where it is offered. */
@@ -98,6 +110,7 @@ function failureSiblings(f: FailureView, runId: string | null, { has, press, lea
   return [
     blame && runId && has('blame') && !leads('blame') ? <RunBlameButton key="blame" runId={runId} offer={blame.offer} estimate={blame.estimate ?? null} line={blame.command} tip={tipCard(ACTIONS.runBlame.label, [], blame.sub, blame.command)} className="btn" /> : null,
     findCommitButton(f, has) && !leads('bisect') ? <FindCommitButton key="bisect" f={f} live={press.live(f)} why={press.wait('find the breaking commit')} onBisect={() => press.onFind(f)} /> : null,
+    unreadFindCommit(f, has),
   ];
 }
 

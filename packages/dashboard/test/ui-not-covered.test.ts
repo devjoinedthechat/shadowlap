@@ -321,6 +321,29 @@ describe('Tests › Not covered', () => {
     expect(packedTestAsk('goldens/answer-3f9a2c', true).lead).toBe('Replays production’s run until your agent parts from it, then judges it by your checks.');
   });
 
+  it('says a step of unknown effect, counted as a write, as one, on its line, to a screen reader and in its details', async () => {
+    // lookup_kb's effect nothing recorded or configured names: the scan counts it as a write (engine coverage.ts runBehaviour).
+    const unknown = group({ path: ['get_ticket', 'lookup_kb', 'issue_refund'], writes: ['lookup_kb', 'issue_refund'], unknown: ['lookup_kb'], nearest: null });
+    r = await render(tests(view({ groups: [unknown] })));
+    const row = rows()[0];
+    expect(row.querySelectorAll('code.wr').map((c) => [c.textContent, c.getAttribute('title')])).toEqual([
+      ['lookup_kb', 'effect unknown: counted as a write'],
+      ['issue_refund', 'a write'],
+    ]);
+    expect(row.querySelector('.cvln')!.getAttribute('aria-label')).toBe('get_ticket, then lookup_kb, then issue_refund, then answered. Writes lookup_kb, issue_refund (effect unknown: lookup_kb).');
+    await r.click(row.querySelector('button.cvn')!);
+    expect(r.all(`dl#cvx-${KEY.slice(0, 8)} dd`)[0].textContent).toBe('get_ticket → lookup_kb → issue_refund3 tool calls · writes lookup_kb and issue_refund (effect unknown: lookup_kb) · then it answered');
+  });
+
+  it('says which goldens the scan couldn’t read, as covering nothing, and none where it read them all', async () => {
+    const unread = view({ scan: { ...view().scan!, data: { goldens: ['goldens/refund-flow-budget'], unreadable: [{ golden: 'goldens/refund-in-limit', error: 'no run.json: not a pack' }, { golden: 'evals/budget', error: 'run.json lists no run' }] } } });
+    r = await render(tests(unread));
+    expect(text(r.one('#notcovered .cvunread')).replace(/\u00a0/g, ' ')).toBe('2 goldens can’t be read, so they cover nothing here: refund-in-limit (no run.json: not a pack); evals/budget (run.json lists no run)');
+    await r.unmount();
+    r = await render(tests(view()));
+    expect(r.all('#notcovered .cvunread')).toHaveLength(0);
+  });
+
   it('works the lines out of the scan: folds, where it parts, and the command a pack runs', () => {
     expect(foldSteps(['a', 'b', 'c', 'd', 'e'], [], 2)).toEqual([{ name: 'a', write: false }, { name: 'b', write: false }, { more: 2, names: ['c', 'd'] }, { name: 'e', write: false }]);
     expect(foldSteps(['a', 'b', 'c', 'd'], [], 2)).toEqual(['a', 'b', 'c', 'd'].map((name) => ({ name, write: false })));

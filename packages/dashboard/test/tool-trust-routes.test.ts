@@ -112,3 +112,42 @@ describe('PUT /api/settings/tools/trust', () => {
     expect(Object.keys(config().tools as object)).toEqual(['__proto__']);
   });
 });
+
+describe('PUT /api/settings/tools/unrecorded', () => {
+  const declare = (body: Record<string, unknown>) => api('settings/tools/unrecorded', { method: 'PUT', body: JSON.stringify(body) });
+
+  it('declares a tool shadowlap doesn’t record a read, keeping the rest of the file, answers the line and what it held, and undoes it', async () => {
+    write({ tools: { get_ticket: { trust: 'untrusted' }, unrecorded: { Write: 'write' } }, clock: 'exact' });
+    const res = await declare({ tool: 'Bash', effect: 'read', expect: await version() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { version: string; was: null };
+    expect(body).toMatchObject({ tool: 'Bash', effect: 'read', was: null, changed: true, line: '"tools": { "unrecorded": { "Bash": "read" } }' });
+    expect(config()).toEqual({ tools: { get_ticket: { trust: 'untrusted' }, unrecorded: { Write: 'write', Bash: 'read' } }, clock: 'exact' });
+    expect((await feed()).find((i) => i.text.startsWith('Unrecorded tool'))).toMatchObject({ text: 'Unrecorded tool declared a read · Bash', href: '#/settings/tools' });
+    // Its Undo, against the version it wrote: the key out again.
+    const undo = (await (await declare({ tool: 'Bash', effect: body.was, expect: body.version })).json()) as Record<string, unknown>;
+    expect(undo).toMatchObject({ effect: null, was: 'read', changed: true, line: '"tools": { "unrecorded": { "Bash": "read" } }' });
+    expect(config()).toEqual({ tools: { get_ticket: { trust: 'untrusted' }, unrecorded: { Write: 'write' } }, clock: 'exact' });
+    expect((await feed()).map((i) => i.text)).toContain('Unrecorded tool declaration removed · Bash');
+    // A write declared a read; its last declaration taken out takes `unrecorded` with it, and `tools` once empty.
+    await declare({ tool: 'Write', effect: 'read', expect: await version() });
+    expect(config()).toEqual({ tools: { get_ticket: { trust: 'untrusted' }, unrecorded: { Write: 'read' } }, clock: 'exact' });
+    write({ tools: { unrecorded: { Write: 'read' } } });
+    await declare({ tool: 'Write', effect: null, expect: await version() });
+    expect(config()).toEqual({});
+  });
+
+  it('refuses a page’s old version, a name that is no tool’s, and an effect other than read or write', async () => {
+    const v = await version();
+    const error = async (body: Record<string, unknown>, status = 400) => {
+      const res = await declare(body);
+      expect(res.status).toBe(status);
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await error({ tool: '', effect: 'read', expect: v })).toMatch(/^tool is the tool's name/);
+    expect(await error({ tool: 'Bash\nrm', effect: 'read', expect: v })).toMatch(/^tool is the tool's name/);
+    expect(await error({ tool: 'Bash', effect: 'pure', expect: v })).toBe('effect is "read", "write" or null (no declaration)');
+    await declare({ tool: 'Bash', effect: 'read', expect: v });
+    expect(await error({ tool: 'Edit', effect: 'read', expect: v }, 409)).toMatch(/changed since it was read/);
+  });
+});

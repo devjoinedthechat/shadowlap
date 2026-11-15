@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { packRun, plain, recordBlame, recordRepair, Store, unifiedDiff, type RepairReport } from '@shadowlap/engine';
+import { CONFIG_FILE, packRun, plain, recordBlame, recordRepair, Store, unifiedDiff, type RepairReport } from '@shadowlap/engine';
 import { fixDetail, patchesInTree, patchesToCheck, pulledPatchesToCheck, rewritesHere } from '@shadowlap/dashboard';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
 import { CONFIG_REWRITES, RUNNERS } from '../../engine/test/runner-fixtures.js';
@@ -106,6 +107,53 @@ describe('fix apply on the goldens it copies', () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe('fix apply through the CLI', () => {
+  const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+  // A build that leaves a mark: run in the working tree once the patch is in.
+  const build = `"${process.execPath}" -e "require('fs').writeFileSync('built.txt', 'yes')"`;
+
+  /** `shadowlap fix apply`, never asking a model, with a home of its own. */
+  function fixApply(args: string[]) {
+    const env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_HOME: join(project, 'home'), SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9', SHADOWLAP_UPSTREAM_OPENAI: 'http://127.0.0.1:9', SHADOWLAP_UPSTREAM_GEMINI: 'http://127.0.0.1:9' };
+    return spawnSync(process.execPath, [CLI, '--db', join(project, 'shadowlap.db'), 'fix', 'apply', ...args], { cwd: project, env, encoding: 'utf8' });
+  }
+
+  /** A fix repair --apply put in the working tree, its recording left to copy. */
+  function appliedFix(): string {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const run = makeRun(store, { labels: ['refund-over-limit'] });
+      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+      const report = repairReport({ targets: [run], applied: true, dir });
+      packRun(store, makeRun(store, { status: 'completed' }), join(project, dir, 'goldens', run.slice(0, 10)));
+      writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
+      writeFileSync(join(project, 'agent.mjs'), `${AFTER}\n`);
+      return recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix.fixId;
+    } finally {
+      store.close();
+    }
+  }
+
+  it('runs the build shadowlap.config.json names where --build isn\'t given, saying where it came from', () => {
+    const fixId = appliedFix();
+    writeFileSync(join(project, CONFIG_FILE), JSON.stringify({ build }));
+    const r = fixApply([fixId, '--no-test']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain(`\n  build: ${build}, from ${CONFIG_FILE} (--build "" for none)\n  rebuilt: ${build}\n`);
+    expect(readFileSync(join(project, 'built.txt'), 'utf8')).toBe('yes');
+  });
+
+  it('runs none for --build ""', () => {
+    const fixId = appliedFix();
+    writeFileSync(join(project, CONFIG_FILE), JSON.stringify({ build }));
+    const r = fixApply([fixId, '--no-test', '--build', '']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).not.toContain('rebuilt');
+    expect(existsSync(join(project, 'built.txt'))).toBe(false);
   });
 });
 

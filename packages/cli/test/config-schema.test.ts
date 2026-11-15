@@ -86,6 +86,14 @@ describe('shadowlap.config.json schema', () => {
     for (const bad of ['http://api.example.com', 'api.example.com/path', '*', '-bad.com']) expect(re.test(bad), bad).toBe(false);
   });
 
+  it('takes a build as the parser does: a command on one line', () => {
+    const build = schema.properties.build as { type: string; maxLength: number; pattern: string };
+    expect([build.type, build.maxLength]).toEqual(['string', 1000]);
+    const re = new RegExp(build.pattern, 'u');
+    for (const ok of ['npm run build', 'npm ci && npm run build', ' make agent ']) expect(re.test(ok), ok).toBe(true);
+    for (const bad of ['', '   ', 'npm run build\nnpm test', 'tsc\r']) expect(re.test(bad), JSON.stringify(bad)).toBe(false);
+  });
+
   it('marks tools untrusted and gates goldens on injection tests, with the templates that ship', () => {
     const tools = schema.properties.tools as { additionalProperties: { properties: { trust: { enum: string[] } }; required: string[] } };
     expect(tools.additionalProperties.properties.trust.enum).toEqual(['trusted', 'untrusted']);

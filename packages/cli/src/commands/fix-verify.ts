@@ -3,7 +3,7 @@ import { ACTIONS, describeBaselineRule, describeGate, dimLines, formatVerify, GA
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
-import { loadConfig } from '../config.js';
+import { buildCommand, configBuildNote, loadConfig } from '../config.js';
 import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { recordVerifyFix, verifyCommand, verifyRerun, type VerifyFlags } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
@@ -100,7 +100,8 @@ function parseVerify(flags: VerifyCommandFlags): VerifyRequest {
   if (!rule.gate && (flags.margin !== undefined || flags.keptMax !== undefined || flags.baseline !== undefined || flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('a fixed count (--attempts, --passes) judges every run on its own: --margin, --kept-max, --baseline, --base and --build are for the gate, which keeps a good run against its baseline');
   if (flags.keptMax !== undefined && (flags.keptMax < 1 || flags.keptMax > GATE_MAX_ATTEMPTS)) throw new InvalidArgumentError(`--kept-max is a whole number from 1 to ${GATE_MAX_ATTEMPTS}`);
   if (source === 'history') return { rule, expect, fields, baseline: { source: 'history' } };
-  const found = resolveBase(process.cwd(), { base: flags.base, fields: Object.keys(fields).length > 0, build: flags.build ?? null });
+  // The checkout of the code before the change builds as --build says, else as the config's build does.
+  const found = resolveBase(process.cwd(), { base: flags.base, fields: Object.keys(fields).length > 0, build: buildCommand(flags.build, () => loadConfig(process.cwd())).command });
   // A commit named that isn't one is a mistake; a working tree with nothing to compare is not.
   if ('none' in found && flags.base !== undefined) throw new InvalidArgumentError(found.none);
   return { rule, expect, fields, baseline: 'base' in found ? { source: 'paired', base: found.base } : { source: 'none', why: found.none } };
@@ -136,7 +137,7 @@ function chooseRuns(opts: GlobalOpts, flags: VerifyCommandFlags): Map<string, { 
  * What the verification will do, said before it starts: the runs by role, how each decides, and how a
  * good run that forks is kept, each dim line fit to a terminal `columns` wide (null: a pipe or a file).
  */
-export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'baseline'>, runs: ReadonlyArray<{ role: VerifyRole }>, flags: Pick<VerifyCommandFlags, 'writes' | 'budget' | 'margin' | 'keptMax'>, columns: number | null): string[] {
+export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'baseline'>, runs: ReadonlyArray<{ role: VerifyRole }>, flags: Pick<VerifyCommandFlags, 'writes' | 'budget' | 'margin' | 'keptMax' | 'build'>, columns: number | null): string[] {
   const n = (role: VerifyRole) => runs.filter((r) => r.role === role).length;
   const counts = [n('target') ? `${n('target')} to fix` : '', n('holdout') ? `${n('holdout')} held out` : '', n('good') ? `${n('good')} to keep` : ''].filter(Boolean).join(', ');
   const decides = rule.gate ? `each run's gate: ${describeGate(rule.gate)}` : `a run passes at ${rule.needed} of ${rule.attempts} attempts`;
@@ -147,6 +148,8 @@ export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'bas
     const max = flags.keptMax ?? loadConfig(process.cwd()).verify?.max ?? KEPT_DEFAULTS.max;
     if (baseline.source === 'none') lines.push(...dimLines(p, '  ', `a good run that forks: by its gate on its own, as ${baseline.why}`, columns));
     else lines.push(...dimLines(p, '  ', `a good run that forks: ${describeBaselineRule({ margin, risk: rule.gate.risk, max, source: baseline.source, revision: baseline.source === 'paired' ? (baseline.base.revision ? baseline.base.label : 'the working tree, without the change') : null })}`, columns));
+    // A checkout of a commit built as the config says, nobody having typed --build: said, as every command that runs it says it.
+    if (baseline.source === 'paired' && baseline.base.revision && baseline.base.build && flags.build === undefined) lines.push(...dimLines(p, '  ', configBuildNote(baseline.base.build), columns));
   }
   return lines;
 }

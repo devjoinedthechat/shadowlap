@@ -32,7 +32,7 @@ const goldens = [
   { path: 'goldens/refund-over-limit', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
 ];
 const FILE = '.github/workflows/agent.yml';
-const GATES: NonNullable<CiContext['gates']> = { suiteRisk: 0.05, uses: { sprt: ['refund-flow-budget'], baseline: [] } };
+const GATES: NonNullable<CiContext['gates']> = { suiteRisk: 0.05, uses: { sprt: ['refund-flow-budget'], baseline: [] }, forks: [{ path: 'goldens/refund-flow-budget', name: 'refund-flow-budget' }, { path: 'goldens/escalates', name: 'escalates' }] };
 const SESSION = { ci: false, revision: 'd2e8a1f0c4', at: Date.now() - 3_600_000, text: '2 of 7 goldens passed · 3 failed, 2 inconclusive' };
 
 /** The comment's preview as `GET /api/ci/comment` answers it: a session that ran both goldens, with the decisions its job kept, a run's cost and an injection gate. */
@@ -614,13 +614,44 @@ describe('Settings → Gates', () => {
     expect(plain(r!.one('#gates .gdef'))).toMatch(/^The defaults:/);
   });
 
+  it('figures a gate against history against a golden’s own history where one is picked, saying where its baseline came from', async () => {
+    address = '#/settings/gates?gate=baseline';
+    const s = fakeServer(DEFAULTS_FILE);
+    // As GET /api/tests/gate answers with a golden: its own last sessions pooled, or none yet.
+    s.gate.mockImplementation(async (query: string) => {
+      const q = new URLSearchParams(query);
+      const p = gatePreview(q);
+      const golden = q.get('golden');
+      if (!golden) return p;
+      return golden === 'goldens/escalates' ? { ...p, from: { golden, sessions: 0 } } : { ...p, history: { passes: 38, attempts: 40 }, from: { golden, sessions: 10 } };
+    });
+    await openGates(s);
+    await r!.until('the history preview', () => r!.all('#gates select[aria-label="Against"]').length === 1);
+    const against = r!.one('#gates select[aria-label="Against"]');
+    expect(against.querySelectorAll('option').map((o) => o.textContent)).toEqual(['47 of 50, an example', 'refund-flow-budget', 'escalates']);
+    await r!.type(against, 'goldens/refund-flow-budget');
+    await r!.until('its own history', () => /refund-flow-budget/.test(r!.one('#gates .gprev').textContent));
+    expect(s.gate).toHaveBeenLastCalledWith('baseline=history&suiteRisk=0.05&golden=goldens%2Frefund-flow-budget', expect.anything());
+    expect(plain(r!.one('#gates .gfrom'))).toBe('refund-flow-budget’s own history: its last 10 sessions');
+    expect(plain(r!.one('#gates .godh .k'))).toBe('how it comes out, against 38 of 40');
+    await r!.type(r!.one('#gates select[aria-label="Against"]'), 'goldens/escalates');
+    await r!.until('none yet', () => /escalates/.test(r!.one('#gates .gfrom').textContent));
+    expect(plain(r!.one('#gates .gfrom'))).toBe('escalates has no session that passed on its baseline branch yet: an example stands in');
+    // The example again, and fork · gate, as what was tried is kept while the dashboard is open.
+    await r!.type(r!.one('#gates select[aria-label="Against"]'), '');
+    await r!.until('the example', () => r!.all('#gates .gfrom').length === 0);
+    await r!.click(r!.byText('#gates header .seg button', 'fork · gate'));
+    await r!.until('the gate preview', () => r!.all('#gates select[aria-label="Good"]').length === 1);
+  });
+
   it('opens on the kind a link asks for, history’s figures with it, and puts the address back to the tab’s own', async () => {
     address = '#/settings/gates?gate=baseline';
     const s = fakeServer(DEFAULTS_FILE);
     await openGates(s);
     await r!.until('the history preview', () => r!.all('#gates select[aria-label="Window"]').length === 1 && s.gate.mock.calls.some((c) => c[0] === 'baseline=history&suiteRisk=0.05'));
     expect(address).toBe('#/settings/gates');
-    expect(r!.all('#gates select').map((x) => x.getAttribute('aria-label'))).toEqual(['Drop', 'Risk', 'Window', 'Min', 'Max']);
+    // Its figures, then what its odds are figured against, where goldens fork.
+    expect(r!.all('#gates select').map((x) => x.getAttribute('aria-label'))).toEqual(['Drop', 'Risk', 'Window', 'Min', 'Max', 'Against']);
     expect(r!.byText('#gates header .seg button', 'fork · history').getAttribute('aria-pressed')).toBe('true');
     const history = gatePreview(new URLSearchParams('baseline=history&suiteRisk=0.05'));
     await r!.until('its sentence', () => plain(r!.one('#gates .gsays')) === history.sentence);

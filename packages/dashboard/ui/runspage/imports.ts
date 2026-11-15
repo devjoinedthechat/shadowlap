@@ -1,6 +1,7 @@
 import type { FactWords } from '../actions.js';
 import { quoteArg } from '../job-title.js';
 import { guessImportFormat, IMPORT_FILE_FORMATS, type ImportFileFormat } from '../../../engine/src/import-format.js';
+import { IMPORT_WINDOW_FLAGS, importWindowFieldProblem, importWindowProblem, type ImportWindow } from '../../../engine/src/import-window.js';
 import { OTEL_SAMPLE, OTEL_SAMPLE_NAME, type OtlpSpan, type OtlpTrace } from './sample-otel.js';
 
 /**
@@ -10,7 +11,7 @@ import { OTEL_SAMPLE, OTEL_SAMPLE_NAME, type OtlpSpan, type OtlpTrace } from './
  * dialog says which it will run and lets the person change it. No DOM here: the tests import it.
  */
 
-export { IMPORT_FILE_FORMATS, OTEL_SAMPLE_NAME, type ImportFileFormat };
+export { IMPORT_FILE_FORMATS, OTEL_SAMPLE_NAME, importWindowFieldProblem, type ImportFileFormat, type ImportWindow };
 
 /** The formats the select offers, in the CLI's order; `IMPORT_FILE_FORMATS` names each. */
 export const FILE_FORMATS = Object.keys(IMPORT_FILE_FORMATS) as ImportFileFormat[];
@@ -41,6 +42,33 @@ export function pickedFormat(name: string, bytes: number, head: Uint8Array | str
   return { format: g.format, error: g.reason ?? tooLargeNote(bytes, limit, g.format) };
 }
 
+/** The formats whose import puts a run together from several files: a LiteLLM proxy's file per worker, traces apart from their logs. */
+export const SEVERAL_FILES: ReadonlySet<ImportFileFormat> = new Set(['litellm', 'otel']);
+
+/** The most files one import takes from the dashboard (routes/imports.ts MAX_IMPORT_FILES). */
+export const MAX_FILES = 20;
+
+/**
+ * What the dialog makes of several files picked at once: the format each one's name and first bytes
+ * give, the same for all, and one the CLI puts a run together from (LiteLLM, OpenTelemetry); else why
+ * they can't go in together. A file the guess refuses, or one too large, says why with its name.
+ */
+export function pickedFormats(files: ReadonlyArray<{ name: string; bytes: number; head: Uint8Array | string | undefined }>, limit: number | null): { format: ImportFileFormat | null; error: string | null } {
+  if (files.length === 1) return pickedFormat(files[0]!.name, files[0]!.bytes, files[0]!.head, limit);
+  if (files.length > MAX_FILES) return { format: null, error: `${files.length} files are more than one import takes (${MAX_FILES}): import the rest in a terminal, or in a second import.` };
+  const each = files.map((f) => ({ name: f.name, ...pickedFormat(f.name, f.bytes, f.head, limit) }));
+  const refused = each.find((f) => f.error);
+  if (refused) return { format: null, error: `${refused.name}: ${refused.error!}` };
+  const formats = [...new Set(each.map((f) => f.format!))];
+  if (formats.length > 1) return { format: null, error: `These files are of different formats (${formats.map((f) => IMPORT_FILE_FORMATS[f]).join(' and ')}): several go in together only as LiteLLM captures or as OpenTelemetry exports.` };
+  return { format: formats[0]!, error: severalNote(files.length, formats[0]!) };
+}
+
+/** Why the files can't go in together as `format`, or null: several only where the CLI puts a run together from them. */
+export function severalNote(count: number, format: ImportFileFormat): string | null {
+  return count > 1 && !SEVERAL_FILES.has(format) ? `Several files go in together only as LiteLLM captures or as OpenTelemetry exports: import a ${IMPORT_FILE_FORMATS[format]} file on its own.` : null;
+}
+
 /** A file larger than the dashboard takes: what to do instead. */
 export function tooLargeNote(bytes: number, limit: number | null, format: ImportFileFormat | null): string | null {
   if (limit === null || bytes <= limit) return null;
@@ -56,8 +84,8 @@ export type TraceSource = 'langfuse' | 'langsmith' | 'phoenix' | 'logfire';
  * a UUID, or 32 hex characters since they moved onto OpenTelemetry; LangSmith's trace is its root
  * run's UUID; Phoenix and Logfire show OpenTelemetry's. `holds` is what the source keeps beyond the
  * messages and model settings; `keys` names them until the dashboard says which it reads; `keyQuiet`
- * says where they matter (a Phoenix without authentication needs none); `looksBack` that it is
- * searched back 30 days only, which the CLI can pass.
+ * says where they matter (a Phoenix without authentication needs none); `looksBack` that a trace is
+ * searched for back 30 days unless Looks back says further, as the CLI's --since does.
  */
 export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string; idRule: string; holds: string; keys: string; keyQuiet?: string; looksBack?: true }>> = {
   langfuse: {
@@ -91,6 +119,39 @@ export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string
     looksBack: true,
   },
 };
+
+/** The stores whose traces an import reads in a window, as `shadowlap import` does without a trace id; LangSmith's go one at a time. */
+export const WINDOWED: ReadonlySet<TraceSource> = new Set(['langfuse', 'phoenix', 'logfire']);
+
+/** A window's fields as the dialog shows them, each empty until typed (the CLI's own then: the last 30 days, the newest 100). */
+export interface WindowFields {
+  since: string;
+  until: string;
+  limit: string;
+  traceName: string;
+}
+
+export const NO_WINDOW: WindowFields = { since: '', until: '', limit: '', traceName: '' };
+
+/** The window as the job sends it and the command line shows it: only the fields typed. */
+export function windowGiven(w: WindowFields): ImportWindow {
+  const given: ImportWindow = {};
+  for (const k of Object.keys(IMPORT_WINDOW_FLAGS) as Array<keyof ImportWindow>) if (w[k].trim()) given[k] = w[k].trim();
+  return given;
+}
+
+/** Why the window typed can't be read, in the CLI's words; null when it can. */
+export function windowNote(w: WindowFields, now: number = Date.now()): string | null {
+  return importWindowProblem(windowGiven(w), now);
+}
+
+/** The window's flags as one types them: `--since 7d --limit 50`. */
+function windowFlags(w: ImportWindow): string {
+  return (Object.keys(IMPORT_WINDOW_FLAGS) as Array<keyof ImportWindow>)
+    .filter((k) => w[k])
+    .map((k) => ` ${IMPORT_WINDOW_FLAGS[k]} ${quoteArg(w[k]!)}`)
+    .join('');
+}
 
 /** A trace id as Langfuse and LangSmith write them, as the CLI checks it. */
 export const TRACE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/;
@@ -153,39 +214,53 @@ export function sampleTrace(now = Date.now()): { name: string; text: string } {
   return { name: OTEL_SAMPLE_NAME, text: `${JSON.stringify(redateTrace(OTEL_SAMPLE, now), null, 1)}\n` };
 }
 
-/** What Import capture says of the source picked: its amber line, its rows, and the command it runs. */
-export function importWords(o: {
+/** What Import capture is told of the source picked, as `importWords` reads it. */
+interface ImportWordsInput {
   source: 'file' | TraceSource;
-  picked: { file: { name: string }; format?: string | null } | null;
+  picked: { files: ReadonlyArray<{ name: string }>; format?: string | null } | null;
   id: string;
   host: string;
   project: string;
+  /** The traces in a window, without a trace id (`many`), or how far back one trace may have started (Logfire's Looks back). */
+  window?: { many: boolean; fields: WindowFields } | undefined;
   /** What the server says of a trace store: the keys it reads, and whether they are set. */
   keys: { keyNames: readonly string[]; keys: boolean } | null;
   defaults: { host?: string | null; project?: string | null } | null;
   uploads: boolean;
-}): { line: string | null; rows: FactWords[]; command: string } {
-  const onReplay = { label: 'On replay', value: 'what it doesn’t hold runs live, writes fenced' };
-  if (o.source === 'file') {
-    return {
-      line: o.uploads ? null : 'This dashboard takes no files: start it in your project with shadowlap dashboard, or import in a terminal with shadowlap import',
-      rows: [onReplay],
-      command: `shadowlap import ${o.picked?.format ?? '<format>'} ${o.picked ? quoteArg(o.picked.file.name) : '<file>'}`,
-    };
-  }
-  const copy = TRACE_COPY[o.source];
+}
+
+const ON_REPLAY: FactWords = { label: 'On replay', value: 'what it doesn’t hold runs live, writes fenced' };
+
+/** What Import capture says of the source picked: its amber line, its rows, and the command it runs. */
+export function importWords(o: ImportWordsInput): { line: string | null; rows: FactWords[]; command: string } {
+  if (o.source !== 'file') return traceWords(o, o.source);
+  const files = o.picked?.files ?? [];
+  return {
+    line: o.uploads ? null : 'This dashboard takes no files: start it in your project with shadowlap dashboard, or import in a terminal with shadowlap import',
+    rows: [ON_REPLAY],
+    command: `shadowlap import ${o.picked?.format ?? '<format>'} ${files.length ? files.map((f) => quoteArg(f.name)).join(' ') : '<file>'}`,
+  };
+}
+
+/** What Import capture says of a trace store: its keys where they aren't set, what it holds, and the command, one trace's or a window's. */
+function traceWords(o: ImportWordsInput, source: TraceSource): { line: string | null; rows: FactWords[]; command: string } {
+  const copy = TRACE_COPY[source];
   const names = o.keys ? keyList(o.keys.keyNames.map((n) => `\`${n}\``)) : copy.keys;
   const one = o.keys?.keyNames.length === 1;
   const host = o.host && o.host !== o.defaults?.host ? ` --host ${quoteArg(o.host)}` : '';
-  const project = o.source === 'phoenix' && o.project.trim() !== o.defaults?.project ? ` ${quoteArg(`--project=${o.project.trim()}`)}` : '';
+  const project = source === 'phoenix' && o.project.trim() !== o.defaults?.project ? ` ${quoteArg(`--project=${o.project.trim()}`)}` : '';
+  const many = !!o.window?.many && WINDOWED.has(source);
+  const given = o.window ? windowGiven(o.window.fields) : {};
+  // One trace takes no window, but Logfire's how far back it looks.
+  const flags = many ? windowFlags(given) || ' --since 30d' : copy.looksBack && given.since ? windowFlags({ since: given.since }) : '';
   return {
     line: o.keys && !o.keys.keys ? `${names} ${one ? 'is' : 'are'} not set where this dashboard runs: set ${one ? 'it' : 'them'}, then start shadowlap dashboard again` : null,
     rows: [
+      ...(many ? [{ label: 'Imports', value: 'each trace a run of its own', quiet: 'newest first; one imported before is skipped' }] : []),
       { label: 'Holds', value: 'messages and model settings', quiet: copy.holds },
-      ...(copy.looksBack ? [{ label: 'Looks back', value: '30 days', quiet: 'an older trace takes `--since` in a terminal' }] : []),
-      onReplay,
+      ON_REPLAY,
       { label: 'Key', value: `${names} on this machine`, quiet: copy.keyQuiet ?? 'nothing passes through Shadowlap' },
     ],
-    command: `shadowlap import ${o.source} ${o.id.trim() ? quoteArg(o.id.trim()) : '<trace-id>'}${host}${project}`,
+    command: `shadowlap import ${source}${many ? '' : ` ${o.id.trim() ? quoteArg(o.id.trim()) : '<trace-id>'}`}${flags}${host}${project}`,
   };
 }

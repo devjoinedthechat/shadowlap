@@ -288,7 +288,9 @@ describe('an exported copy', () => {
     // The page's code that loads them: the served entry's, and modules only the served dashboard holds,
     // the drawer itself and Fixes' (COPY_PARTS in test/ui-bundle-size.test.ts).
     expect(loadersOf(/\bcomponents\/Drawer\.js['"]/)).toEqual(['pages/served.tsx']);
-    expect(loadersOf(/['"]\.\.?\/jobs\.js['"]/).sort()).toEqual(['components/Drawer.tsx', 'fixes/ApplyNames.tsx', 'pages/served.tsx']);
+    // A refused job's Run again, allowing reads its job's lines, and only the drawer draws it.
+    expect(loadersOf(/['"]\.\.?\/allow-again\.js['"]/)).toEqual(['components/Drawer.tsx']);
+    expect(loadersOf(/['"]\.\.?\/jobs\.js['"]/).sort()).toEqual(['allow-again.tsx', 'components/Drawer.tsx', 'fixes/ApplyNames.tsx', 'pages/served.tsx']);
     await open([forkId, runId], `#/run/${runId}`, createElement('footer', { className: 'status' }, createElement(JobChip)), createElement(Probe));
     await r!.until('the run’s page', () => runOpen().length === 1);
     const app = seen.app!;

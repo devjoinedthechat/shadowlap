@@ -8,6 +8,7 @@ import type {
   StoreSettings,
   ToolsSettings,
 } from '../src/settings.js';
+import type { BuildSettings } from '../src/settings-build.js';
 import type { CiWorkflowOptions } from '../src/ci-workflows.js';
 import type { PrCommentPreview } from '../src/pr-comment-preview.js';
 import type { GatePreview } from '../src/tests-gate.js';
@@ -21,7 +22,7 @@ import type { GatePreview } from '../src/tests-gate.js';
  * revision's page under Changes opens too.
  */
 
-export type { CodingAgentsSettings, MatchingSettings, ProjectSettings, RedactionPreviewView, RedactionSettings, RuleRow, StoreSettings, ToolsSettings };
+export type { BuildSettings, CodingAgentsSettings, MatchingSettings, ProjectSettings, RedactionPreviewView, RedactionSettings, RuleRow, StoreSettings, ToolsSettings };
 
 export type RuleListName = 'normalize' | 'redact';
 
@@ -58,6 +59,8 @@ export interface SettingsApi {
   tools(): Promise<ToolsSettings>;
   mcpLine(input: { command?: string; url?: string }): Promise<McpLine>;
   project(): Promise<ProjectSettings>;
+  /** Build, on Project: the command that builds the agent, as shadowlap.config.json names it. */
+  build(): Promise<BuildSettings>;
   store(): Promise<StoreSettings>;
   addRule(list: RuleListName, rule: RuleInput, expect: string): Promise<{ n: number; added: boolean; version: string }>;
   /** Answers the rule as the file held it, for its Undo (`restoreRule`). */
@@ -67,11 +70,15 @@ export interface SettingsApi {
   /** Null takes the key out (the Undo of a file that had none); `was` is what the file said before, null for nothing. */
   setClock(mode: 'auto' | 'exact' | null, expect: string): Promise<{ clock: 'auto' | 'exact'; was: 'auto' | 'exact' | null; changed: boolean; version: string }>;
   setCiPush(on: boolean | null, expect: string): Promise<{ ciPush: boolean; was: boolean | null; changed: boolean; version: string }>;
+  /** `build`, against the version read (`expect`); null takes the key out (an empty field, or the Undo of a file that had none). */
+  setBuild(command: string | null, expect: string): Promise<{ build: string | null; was: string | null; changed: boolean; version: string }>;
   /**
    * Mark untrusted and Mark trusted on Settings → Tools: `tools.<tool>.trust`, null taking the key out
    * (the Undo of a file that had none). `line` is the line written, the box's marked one.
    */
   setToolTrust(tool: string, trust: 'trusted' | 'untrusted' | null, expect: string): Promise<{ tool: string; trust: 'trusted' | 'untrusted' | null; was: 'trusted' | 'untrusted' | null; changed: boolean; version: string; line: string | null }>;
+  /** What a tool Shadowlap doesn't record does, under `tools.unrecorded`, against the version read (`expect`); null takes its line out (the Undo of a file that declared none). */
+  setUnrecorded(tool: string, effect: 'read' | 'write' | null, expect: string): Promise<{ tool: string; effect: 'read' | 'write' | null; was: 'read' | 'write' | null; changed: boolean; version: string; line: string | null }>;
   /** "Add normalizer": the normalizers a finished calibrate job proposed, read from its result on the server. */
   writeCalibration(jobId: string): Promise<{ added: number[]; already: number[]; version: string }>;
   /**
@@ -101,13 +108,16 @@ export function settingsApi(request: Request): SettingsApi {
     tools: () => request('settings/tools'),
     mcpLine: (input) => request(`settings/tools/mcp?${input.url !== undefined ? `url=${q(input.url)}` : `command=${q(input.command ?? '')}`}`),
     project: () => request('settings/project'),
+    build: () => request('settings/build'),
     store: () => request('settings/store'),
     addRule: (list, rule, expect) => send('POST', `settings/rules/${list}`, { rule, expect }),
     removeRule: (list, n, expect) => request(`settings/rules/${list}/${n}?expect=${q(expect)}`, { method: 'DELETE' }),
     restoreRule: (list, n, rule, expect) => send('POST', `settings/rules/${list}/${n}/restore`, { rule, expect }),
     setClock: (mode, expect) => send('PUT', 'settings/clock', { mode, expect }),
     setCiPush: (on, expect) => send('PUT', 'settings/store/ci-push', { on, expect }),
+    setBuild: (command, expect) => send('PUT', 'settings/build', { command, expect }),
     setToolTrust: (tool, trust, expect) => send('PUT', 'settings/tools/trust', { tool, trust, expect }),
+    setUnrecorded: (tool, effect, expect) => send('PUT', 'settings/tools/unrecorded', { tool, effect, expect }),
     writeCalibration: (jobId) => send('POST', 'settings/calibrate/write', { jobId }),
     writeWorkflow: (options, expect, shown) => send('PUT', 'ci/workflow', { options, expect, shown }),
     undoWorkflow: (was) => send('POST', 'ci/workflow/undo', { was }),
@@ -126,13 +136,16 @@ export function noSettings(refuse: () => Promise<never>): SettingsApi {
     tools: refuse,
     mcpLine: refuse,
     project: refuse,
+    build: refuse,
     store: refuse,
     addRule: refuse,
     removeRule: refuse,
     restoreRule: refuse,
     setClock: refuse,
     setCiPush: refuse,
+    setBuild: refuse,
     setToolTrust: refuse,
+    setUnrecorded: refuse,
     writeCalibration: refuse,
     writeWorkflow: refuse,
     undoWorkflow: refuse,

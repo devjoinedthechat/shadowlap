@@ -10,7 +10,7 @@ import type { CoverageGroupView, CoverageView } from '../types.js';
  * (coverage-words.ts); the short ones here are the dashboard's own.
  */
 
-type Group = Pick<CoverageGroupView, 'path' | 'writes' | 'outcome' | 'ended' | 'nearest'>;
+type Group = Pick<CoverageGroupView, 'path' | 'writes' | 'outcome' | 'ended' | 'nearest'> & Partial<Pick<CoverageGroupView, 'unknown'>>;
 
 /** How a run ended, at the end of line 1 and of a strip: the short words, its swatch, red where it failed. */
 const END: Readonly<Record<string, { words: string; swatch: 'k-model' | 'k-err' | 'k-read' }>> = {
@@ -35,11 +35,14 @@ const THEN: Readonly<Record<string, string>> = {
 export const endOf = (g: Pick<Group, 'outcome' | 'ended'>) => END[g.outcome] ?? { words: g.ended, swatch: 'k-model' as const };
 export const thenOf = (g: Pick<Group, 'outcome' | 'ended'>): string => THEN[g.outcome] ?? g.ended;
 
-/** A step on a line: a tool the model called (a write or a read), or the reads between folded, their names on its card. */
-export type LineStep = { name: string; write: boolean } | { more: number; names: string[] };
+/**
+ * A step on a line: a tool the model called (a write or a read; `unknown`, one whose effect nothing
+ * names, which the scan counts as a write), or the reads between folded, their names on its card.
+ */
+export type LineStep = { name: string; write: boolean; unknown?: true } | { more: number; names: string[] };
 
 /** The steps of `path` a line keeps: the first `head`, every write and the last; a single read between stays, more fold into one. */
-export function foldSteps(path: readonly string[], writes: readonly string[], head: number): LineStep[] {
+export function foldSteps(path: readonly string[], writes: readonly string[], head: number, unknown: readonly string[] = []): LineStep[] {
   const keep = path.map((x, i) => i < head || writes.includes(x) || i === path.length - 1);
   const out: LineStep[] = [];
   for (let i = 0; i < path.length; ) {
@@ -48,7 +51,7 @@ export function foldSteps(path: readonly string[], writes: readonly string[], he
     if (j - i > 1) out.push({ more: j - i, names: path.slice(i, j) });
     else {
       j = i + 1;
-      out.push({ name: path[i]!, write: writes.includes(path[i]!) });
+      out.push({ name: path[i]!, write: writes.includes(path[i]!), ...(unknown.includes(path[i]!) ? { unknown: true as const } : {}) });
     }
     i = j;
   }
@@ -66,7 +69,7 @@ const sharedOf = (g: Pick<Group, 'path' | 'nearest'>): number => (g.nearest ? Ma
 export function lineSteps(g: Group): LineStep[] {
   const shared = sharedOf(g);
   const from = g.nearest && !g.nearest.differs && shared > 0 && shared === g.path.length ? shared - 1 : shared;
-  return foldSteps(g.path.slice(from), g.writes, 2);
+  return foldSteps(g.path.slice(from), g.writes, 2, g.unknown);
 }
 
 /** Line 2: where it parts from its nearest golden, the last step they share and what the golden does there; or that no golden starts this way. */
@@ -87,10 +90,13 @@ export function nearestWords(n: NonNullable<Group['nearest']>, sep: string): str
   return `${goldenName(n.golden)}, the same for ${plural(n.shared, 'step')}${then ? `${sep}${then}` : `, ${ENDS_ANOTHER_WAY}`}`;
 }
 
+/** The tools it counts as writes for want of an effect, after its writes: ` (effect unknown: lookup_kb)`, as `shadowlap coverage` prints it; '' for none. */
+const unknownWords = (g: Group): string => (g.unknown?.length ? ` (effect unknown: ${g.unknown.join(', ')})` : '');
+
 /** A behaviour in words, as a screen reader is told its two lines (or, `alone`, a dialog's strip): its whole path, how it ended, what it wrote, and its nearest golden. */
 export function coverageSaid(g: Group, alone = false): string {
   const steps = g.path.length ? `${g.path.join(', then ')}, then ` : '';
-  const writes = g.writes.length ? `Writes ${g.writes.join(', ')}` : 'No writes';
+  const writes = g.writes.length ? `Writes ${g.writes.join(', ')}${unknownWords(g)}` : 'No writes';
   return `${steps}${thenOf(g)}. ${writes}.${!alone && g.nearest ? ` Nearest golden ${nearestWords(g.nearest, ', ')}.` : ''}`;
 }
 
@@ -98,7 +104,15 @@ export function coverageSaid(g: Group, alone = false): string {
 export const andList = (names: readonly string[]): string => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]!}` : (names[0] ?? ''));
 
 /** The details' Path under the path: how many tool calls, what it wrote, and how it ended. */
-export const pathWords = (g: Group): string => [plural(g.path.length, 'tool call'), g.writes.length ? `writes ${andList(g.writes)}` : 'no writes', `then it ${thenOf(g)}`].join(' · ');
+export const pathWords = (g: Group): string => [plural(g.path.length, 'tool call'), g.writes.length ? `writes ${andList(g.writes)}${unknownWords(g)}` : 'no writes', `then it ${thenOf(g)}`].join(' · ');
+
+/** The goldens the scan couldn't read, which cover nothing, as `shadowlap coverage` warns of them: null where it read every one. */
+export function unreadWords(v: Pick<CoverageView, 'scan'>): string | null {
+  const unread = v.scan?.data?.unreadable ?? [];
+  if (!unread.length) return null;
+  const many = unread.length > 1;
+  return `${plural(unread.length, 'golden')} can’t be read, so ${many ? 'they cover' : 'it covers'} nothing here: ${unread.map((u) => `${goldenName(u.golden)} (${u.error})`).join('; ')}`;
+}
 
 /** The last `coverage --pack` that couldn't pack it, else null: a pack that made a golden leaves nothing to try again. */
 export const lastTried = (g: Pick<CoverageGroupView, 'lastPack'>) => (g.lastPack && g.lastPack.golden === null ? g.lastPack : null);

@@ -151,6 +151,13 @@
         }
       }
     },
+    "build": {
+      "description": "The command that builds the agent, such as \"npm run build\": repair (in each candidate's worktree, and in the working tree after --apply), fix apply, verify (in the checkout of the code before a change), migrate apply and bisect (in each commit's worktree) run it where they would run --build and none is given. Run in a shell; --build \"\" runs none.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*\\S[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+    },
     "repair": {
       "description": "`shadowlap repair`: the model that proposes fixes. It is yours, from any vendor, and is only asked; the verify gate decides what is kept.",
       "type": "object",

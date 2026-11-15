@@ -228,7 +228,7 @@ That guards against a repository's links and against such a swap. It doesn't gua
 
 ### Building a candidate
 
-`--build "npm run build"` builds in the worktree, once the candidate is in it. A build writes into what it builds with, so with `--build` nothing it builds with is linked from your working tree:
+`--build "npm run build"` builds in the worktree, once the candidate is in it, as `build` in the [config](./cli.md#the-configuration-file) does when no `--build` is given. A build writes into what it builds with, so with `--build` nothing it builds with is linked from your working tree:
 
 | What | With `--build` |
 |---|---|
@@ -451,7 +451,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#repair) lists
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](./verify.md#how-a-run-is-judged) | A run passes at 90% or more and fails at 70% or less, each at 5% risk, up to 80 attempts |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, such as `--attempts 5 --passes 4` | — |
 | `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, its rewrite alone measured before it runs | 25 |
-| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` | — |
+| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` | `build` in the [config](./cli.md#the-configuration-file) |
 | `--apply`, `--branch <name>`, `--pr`, `--goldens <dir>` | Hand the fix over ([handing it over](#handing-it-over)) | — |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer, verification and judge checks | — |
 | `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for [verify](./verify.md) | — |

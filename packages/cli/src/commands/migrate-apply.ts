@@ -1,6 +1,7 @@
 import { type Command } from 'commander';
 import { links } from '@shadowlap/dashboard';
 import { ACTIONS, shortSessionId } from '@shadowlap/engine';
+import { buildCommand, loadConfig } from '../config.js';
 import { EXIT } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { applyMigration, type MigrateApplyResult } from '../migrate-apply.js';
@@ -18,14 +19,15 @@ export function registerMigrateApply(migrate: Command, program: Command): void {
     .description("Apply a migration's config change: git apply the patch it wrote, checked as fix apply checks a repair's, then replay the project's goldens offline and name each that now diverges on $.model, with the command that re-records it. Only a migration that is all clear, whose patch is the whole switch, is applied")
     .argument('<id>', "the migration's mg-… id, or a unique prefix of it: 4 characters or more after mg-")
     .option('--goldens <dir>', "the project's goldens folder, replayed offline once the patch is in", 'goldens')
-    .option('--build <command>', 'rebuild the agent after the patch is applied, before the replay: a compiled agent replays its old build without it')
+    .option('--build <command>', 'rebuild the agent after the patch is applied, before the replay: a compiled agent replays its old build without it (default: build in shadowlap.config.json; "" for none)')
     .option('--json', 'print what was done as JSON (progress still goes to stderr)')
     .action(async (id: string, flags: { goldens: string; build?: string; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const store = openStore(opts);
       const log = (line: string) => process.stderr.write(`${line}\n`);
       try {
-        const result = await applyMigration(store, id, { cwd: process.cwd(), goldens: flags.goldens, build: flags.build ?? null, log, start: (from, to, sessionId) => log(`${p.yellow('⑂')} Applying ${shortSessionId(sessionId)} · ${from.join(', ')} → ${to}`) });
+        const build = buildCommand(flags.build, () => loadConfig(process.cwd()));
+        const result = await applyMigration(store, id, { cwd: process.cwd(), goldens: flags.goldens, build: build.command, buildNote: build.note, log, start: (from, to, sessionId) => log(`${p.yellow('⑂')} Applying ${shortSessionId(sessionId)} · ${from.join(', ')} → ${to}`) });
         reportApplied(result, flags.json);
       } catch (err) {
         if (!(err instanceof ApplyError)) throw err;

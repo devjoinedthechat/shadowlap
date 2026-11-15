@@ -5,8 +5,9 @@ import type { Router } from '../router.js';
 
 /**
  * Jobs: `POST /api/jobs { kind, ... }` starts one (each kind's builder turns the fields into CLI
- * arguments), `GET /api/jobs/:id?after=n` follows its output and what it made, `GET /api/jobs`
- * lists recent ones. This module registers the `action` kind: the run actions the terminal UI
+ * arguments), `POST /api/jobs/:id/again { allowUnrecorded, yes? }` starts one that ended again with
+ * tools its run never recorded allowed, `GET /api/jobs/:id?after=n` follows its output and what it
+ * made, `GET /api/jobs` lists recent ones. This module registers the `action` kind: the run actions the terminal UI
  * shares (replay, the fork menu, repeat, pack, add the suggested normalizer), also reachable as
  * `POST /api/runs/:id/actions`: `{ runId, key, callNo?, value?, yes?, expect? }`, `expect` being
  * Plant instruction…'s Judged by, the text of its `--expect`.
@@ -33,6 +34,12 @@ export function register(router: Router, ctx: RouteContext): void {
   router.post('/jobs', async (r) => {
     const body = await r.body();
     r.json(await jobs.start(body.kind, body), 202);
+  });
+
+  // Run again, allowing: a job the CLI refused for tools its run never recorded, its request built again with them allowed.
+  router.post('/jobs/:id/again', async (r) => {
+    const body = await r.body();
+    r.json(await jobs.again(r.params.id!, body), 202);
   });
 
   router.get('/jobs', (r) => r.json({ jobs: jobs.list() }));

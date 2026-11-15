@@ -317,6 +317,20 @@ describe('a recording’s presets on its page', () => {
     expect(JSON.parse(cell('429').tip!)).toMatchObject({ t: 'provider 429 · failed · 1 of 2 passed', s: 'model call #3 failed with HTTP 429' });
   });
 
+  it('says on a cell’s card why its preset couldn’t apply, and what each preset’s attempts spent and sent upstream', () => {
+    // As the CLI's notApplicable keeps them (cli chaos.ts): no call to hit, or one whose recorded result the preset can't change.
+    const none = { ...matrix.cells[3], preset: '500', label: 'provider 500', verdict: 'not-applicable' as const, callNo: null, target: null, passes: 0, attempts: 0, detail: 'the recording makes no model call', reason: null, runs: [] };
+    const refused = { ...matrix.cells[1], preset: 'empty', verdict: 'not-applicable' as const, passes: 0, attempts: 0, detail: 'list_inbox (#2): it already answered with nothing', reason: null, runs: [] };
+    const timed = { ...matrix.cells[0], spent: 0.012, upstreamRequests: 4 };
+    const m = presetsMatrix({ ...matrix, cells: [timed, refused, none] }, about);
+    const tip = (key: string) => JSON.parse(m.cell(m.rows[0], m.cols.find((c) => c.key === key)!)!.tip!) as { t: string; s?: string; rows: string[][] };
+    expect(tip('500')).toMatchObject({ t: 'provider 500 · not applicable', s: 'the recording makes no model call' });
+    expect(tip('empty')).toMatchObject({ t: 'empty result · not applicable', s: 'list_inbox (#2): it already answered with nothing' });
+    expect(tip('timeout').rows.at(-1)).toEqual(['spent', '≈$0.012 · 4 upstream requests', '']);
+    // A preset that ran nothing spent nothing: no row says so.
+    expect(tip('500').rows).toEqual([]);
+  });
+
   it('says what ran, where and when, what judged it and what it spent, as the panel draws it', () => {
     expect(presetsMeta({ ...matrix, at: Date.now() }).slice(0, 2)).toEqual(['4 presets', 'at list_inbox (#2) and model call #3']);
     expect(presetsReceipt({ ...matrix, spent: 0.486, upstreamRequests: 132 })).toEqual([{ parts: ['these presets spent ≈$0.486', 'every call before #2 replayed free'] }, { parts: ['132 upstream requests'] }]);

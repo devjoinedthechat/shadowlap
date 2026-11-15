@@ -1101,7 +1101,7 @@ free attempt.
 | `--kept-max <n>` | The most pairs a good run that forks takes against its baseline, or attempts against its history | `verify.max`, else 200, or a `--gate` max off its default |
 | `--baseline paired\|history` | What a good run is compared with (below) | `verify.baseline`, else `paired` |
 | `--base <rev>` | With a paired baseline: the commit before the change, checked out on its own for the baseline's attempts | HEAD, when the working tree has a change |
-| `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` | — |
+| `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` | `build` in the [config](#the-configuration-file) |
 | `--json` | Print the report as JSON on stdout ([fields](./verify.md#json)) | — |
 | `--guard`, `--allow-unrecorded`, `-y` | As for [`replay`](#replay) | `--guard`: `warn` |
 
@@ -1170,7 +1170,7 @@ verified against the same run under the code without the candidate, in another w
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](#verify) | `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, as for [`verify`](#verify) | — |
 | `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, before verify runs it when its rewrite alone does | 25 |
-| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` | — |
+| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` | `build` in the [config](#the-configuration-file) |
 | `--apply` | Leave the accepted fix in the working tree | — |
 | `--branch <name>` | Commit it to a branch it makes, without checking anything out | — |
 | `--pr` | With `--branch`: push it and open a pull request with `gh` | — |
@@ -1247,7 +1247,7 @@ Its subcommands take these flags:
 | `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run, at most 64 characters and not a name Windows keeps (repeatable) | The fix's label |
 | `--goldens <dir>` | `fix apply`: where the recordings go | `goldens` |
 | `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them | — |
-| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test | — |
+| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test | `build` in the [config](#the-configuration-file) |
 | `--json` | Print it as JSON: the dashboard's read model of Fixes (below) | — |
 
 With `--json`, each subcommand prints:
@@ -2184,7 +2184,7 @@ The migration keeps its applied state, and Activity gets a `migrate.applied` eve
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--goldens <dir>` | The project's goldens folder, replayed offline | `goldens` |
-| `--build <command>` | Rebuild the agent after the patch is applied, before the replay. A compiled agent needs it, or the old build replays and no golden diverges | — |
+| `--build <command>` | Rebuild the agent after the patch is applied, before the replay. A compiled agent needs it, or the old build replays and no golden diverges | `build` in the [config](#the-configuration-file) |
 | `--json` | Print what was done as JSON on stdout (below) | — |
 
 `migrate apply` exits with `2` when it refuses the migration or the folder it runs in, `1` when the
@@ -2734,7 +2734,7 @@ one.
 | `--bad <rev>` | A commit where it fails | `HEAD` |
 | `--expect <json\|@file>` | The checks a replay must pass besides exiting 0 | The golden's, under `tests` |
 | `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide (below) | — |
-| `--build <command>` | Run in each worktree before its replay, e.g. `"npm ci && npm run build"`. A commit where it fails is skipped | — |
+| `--build <command>` | Run in each worktree before its replay, e.g. `"npm ci && npm run build"`. A commit where it fails is skipped | `build` in the [config](#the-configuration-file) |
 | `--cwd <dir>` | Where the recorded command runs, inside the repository | The current directory |
 | `--timeout <seconds>` | Stop a replay after this long, and count it as failing | 300 |
 | `--guard <mode>` | The network guard: `block`, `warn` or `off` | `block` |
@@ -3494,6 +3494,9 @@ afresh.
   own client to call.
 - **The agent framework and its version.**
 - **The command that starts the agent.**
+- **The command that builds it**, from `package.json`'s `build` script, with the project's package
+  manager (`npm run build`). Until `shadowlap.config.json` names a [`build`](#the-configuration-file), it
+  says how to name that one there, for an agent that runs what it builds.
 - **Every tool definition it can find**, whether it declares an effect, and a suggested effect for
   those that don't.
 - **Whether a Claude Agent SDK query runs through the [fence](./frameworks.md#claude-agent-sdk).**
@@ -3601,6 +3604,7 @@ line each, and what it did with `shadowlap.config.json`.
 | `providers` | Each SDK, and the package it came `via` |
 | `frameworks` | The frameworks found |
 | `command` | Its `argv`, and where it came `from` |
+| `build` | The build `package.json` runs: its `argv`, where it came `from`, and the `build` the config names already (`configured`), or `null` |
 | `tools` | Each with its `file`, `line`, `effect`, `suggested` effect, `why` and `wrapped` |
 | `unwrapped` | The tools that aren't wrapped |
 | `wrap` | The code that wraps them (below) |
@@ -5076,6 +5080,7 @@ Its keys are these:
 | `prices` | USD per million tokens by model prefix, for cost estimates |
 | `tests` | Outcome checks for `shadowlap test`, by recording directory, and each golden's gates, task and presets (below) |
 | `repair` | `repairer` (`provider:model`), `baseUrl` and `timeout` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes (below) |
+| `build` | The command that builds the agent, such as `npm run build`, run where a command takes `--build` and none is given (below) |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
 | `ciPush` | `false` keeps `test --push` in CI, and the GitHub Action, from pushing (`shadowlap store push-from-ci on\|off`; below) |
 | `guard` | `accept: ["claude-code"]`: take the Claude Code CLI as it is under `--guard block` (below) |
@@ -5092,6 +5097,19 @@ More on some of them:
   `write`. That decides whether every command that replays a run may run them again
   ([details](./how-it-works.md#tools-shadowlap-did-not-record)).
 - **`repair.timeout`**: the seconds the repairer may take to answer, default 600.
+- **`build`**: one line, run in a shell, so a compiled agent never replays an old build. Each command
+  says so as it runs it; `--build` overrides it, and `--build ""` runs none:
+
+  | Command | Where it runs |
+  | --- | --- |
+  | `repair` | Each candidate's worktree and its baseline's, and the working tree after `--apply` |
+  | `fix apply`, `migrate apply` | The working tree, once the patch is in |
+  | `verify` | The checkout of the code before the change, for a paired baseline at a commit |
+  | `bisect` | Each commit's worktree, before its replay |
+
+  In `verify`'s and `bisect`'s checkouts, as with `--build`, nothing is linked from your working tree:
+  a build there installs what it needs, such as `npm ci && npm run build`. Settings → Project sets it
+  in the dashboard, and `shadowlap init` suggests the `build` script `package.json` has.
 - **`ciPush`**: `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action
   from pushing the fixes it opens.
 - **`guard`**: what the Claude Code CLI the [Claude Agent SDK](./frameworks.md#claude-agent-sdk) runs can

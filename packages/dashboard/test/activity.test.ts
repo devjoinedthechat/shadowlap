@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { gateResult, packRun, recordEvent, Store, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
+import { gateResult, packRun, recordEvent, Store, unavailableReason, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
 import { activity, describeEvent, type ActivityItem } from '../src/index.js';
 
 /** The activity feed: what runs tell by themselves, merged with what commands recorded, newest first. */
@@ -457,6 +457,34 @@ describe('a test session', () => {
     expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'test', outcome: 'err', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });
     expect(items.find((i) => i.at === 220)).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Tests ran · 4 passed, 0 failed, 1 inconclusive' });
     expect(items.find((i) => i.at === 230)).toMatchObject({ kind: 'blame', text: 'Blamed · Refunds above the limit, inconclusive at the first model call' });
+    store.close();
+  });
+
+  it('says a golden the provider left undecided is the provider’s doing, never a check that could not be judged', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1 }).runId;
+    store.endRun(rec, 'completed', 2);
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: 100 });
+    const replay = (golden: string, at: number) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: at, meta: { test: { golden, session: session.sessionId } } });
+      store.endRun(r.runId, 'completed', at + 5);
+      return r.runId;
+    };
+    const SPRT = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
+    const down = { callNo: 3, provider: 'anthropic', status: 529, error: null, retryAfterMs: null, reason: 'HTTP 529 from anthropic at call #3', early: true };
+    // Gated: the provider unavailable three attempts in a row stopped it while its gate was still open.
+    const gaveUp = replay('goldens/gave-up', 110);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/gave-up', ok: false, failure: 'inconclusive', reason: unavailableReason(3, down), runId: gaveUp, at: 120, data: { mode: 'fork', attempts: { total: 2, passed: 2, required: null, runs: [gaveUp], unavailable: 3 }, verdict: 'inconclusive', gate: gateResult(SPRT, [true, true], { decision: 'continue' }) } });
+    // A fixed count the attempts the provider cut short decide either way (golden-test.ts failureOf, test-unavailable.test.ts).
+    const cut = replay('goldens/cut', 130);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/cut', ok: false, failure: 'inconclusive', reason: 'inconclusive: 2 of 3 attempts passed, 1 of them cut short by the provider, 3 needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended', runId: cut, at: 140, data: { mode: 'fork', attempts: { total: 3, passed: 2, required: 3, runs: [cut], cutShort: 1 }, verdict: 'inconclusive' } });
+    const items = activity(store).items;
+    const line = (runId: string) => {
+      const i = byId(items, `r:${runId}:end`);
+      return [i?.kind, i?.text];
+    };
+    expect(line(gaveUp)).toEqual(['warn', 'Test inconclusive · gave-up · the provider was unavailable']);
+    expect(line(cut)).toEqual(['warn', 'Test inconclusive · cut · 1 attempt cut short by the provider']);
     store.close();
   });
 

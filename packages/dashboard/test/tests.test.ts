@@ -1020,7 +1020,8 @@ describe('goldens with a gate', () => {
     const store = gatedStore();
     const view = testsView(store, gated);
     const [escalates, flaky, drops] = view.rows;
-    expect(escalates.gate).toEqual({ gate: sprt, description: 'tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', toPass: 12, toFail: 3 });
+    // What each extreme takes is Settings → Gates' (its rule under the table opens it): the row carries the gate and its rule.
+    expect(escalates.gate).toEqual({ gate: sprt, description: 'tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
     expect(escalates.modeLabel).toBe('fork · gate');
     expect(drops.modeLabel).toBe('fork · history');
     // Decision 9: the tally and the bound under the verdict word, and against history the

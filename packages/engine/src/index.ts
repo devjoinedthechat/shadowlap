@@ -82,7 +82,7 @@ export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Whether a run still `running` has a process recording it (gc, Settings).
 export { SILENT_OWNED_MS, SILENT_UNKNOWN_MS, processAlive, recorderGone, type RunOwner } from './liveness.js';
 // shadowlap.config.json as a file the CLI and the dashboard both edit.
-export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editRelaysConfig, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
+export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configBuild, configClock, configFilePath, describeRule, editConfigFile, editRelaysConfig, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setBuild, setClock, validateRule } from './config-file.js';
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 // The lock file those edits take, for any small file several Shadowlap processes change.
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
@@ -154,6 +154,7 @@ export { rollBack } from './sqlite.js';
 export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, expectFlag, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, presetsTarget, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
+export { IMPORT_LIMIT_MAX, IMPORT_WINDOW_FLAGS, importMoment, importWindowArgs, importWindowFieldProblem, importWindowProblem, type ImportWindow } from './import-window.js';
 export { withoutPrompt } from './prompt.js';
 export { GATEWAY_UNCHANGED, SHAPE_NAMES, applyInjection, isGatewayRequest, fieldValue, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
 export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';

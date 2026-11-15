@@ -192,6 +192,35 @@ describe('GET /api/tests/gate', () => {
   });
 });
 
+describe('a gate against history, figured against a golden’s own', () => {
+  it('pools the golden’s last sessions as its next test would, says how many, and says when it has none', async () => {
+    const own = Store.open(':memory:');
+    const fork = goldens[3];
+    // Three sessions that passed on the baseline branch for no pull request, under its checks (gate-history.ts notBaseline).
+    for (const [i, passed] of [9, 10, 10].entries()) {
+      const s = own.startTestSession({ command: ['shadowlap', 'test', fork.path], revision: `aaa000${i}`, startedAt: T0 + i * 100 });
+      own.addTestResult({ sessionId: s.sessionId, golden: fork.path, ok: true, runId: null, goldenRunId: fork.runId, revision: `aaa000${i}`, at: T0 + i * 100 + 1, data: { mode: 'fork', verdict: 'passed', attempts: { total: 10, passed, required: null, runs: [] }, checks: [{ ok: true, status: 'passed', label: 'send_email called 0 times', detail: null }], branch: 'main', pullRequest: false, baselineBranch: 'main' } });
+      own.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: T0 + i * 100 + 10 });
+    }
+    const d = await startDashboard({ store: own, spawnCli, readOnly: false, goldens: () => goldens });
+    try {
+      expect(await getJson(d, `tests/gate?baseline=history&golden=${fork.path}`)).toMatchObject({ history: { passes: 29, attempts: 30 }, from: { golden: fork.path, sessions: 3 } });
+      // A window of two pools the newest two.
+      expect(await getJson(d, `tests/gate?baseline=history&window=2&golden=${fork.path}`)).toMatchObject({ history: { passes: 20, attempts: 20 }, from: { sessions: 2 } });
+      // One with none yet is figured against the example, saying so.
+      expect(await getJson(d, 'tests/gate?baseline=history&golden=goldens/refund-flow')).toMatchObject({ history: { passes: 47, attempts: 50 }, from: { golden: 'goldens/refund-flow', sessions: 0 } });
+      // A gate of figures takes no history, and a golden not on disk is refused.
+      expect(await getJson(d, `tests/gate?golden=${fork.path}`)).toMatchObject({ history: null, from: null });
+      expect((await api(d, 'tests/gate?baseline=history&golden=goldens/nope')).status).toBe(400);
+      // Settings → Gates offers the goldens marked fork, each by the name Tests gives it.
+      expect((await getJson<CiWorkflowsView>(d, 'ci/workflows')).gates.forks).toEqual([{ path: fork.path, name: fork.path }]);
+    } finally {
+      await d.close();
+      own.close();
+    }
+  });
+});
+
 describe('GET /api/tests/runs/:id', () => {
   it('gives a run\'s page Find the commit\'s choices, and the banner of a test replay that diverged', async () => {
     // R2_LIMIT is a replay `shadowlap test` made of refund-in-limit in the failing session.
@@ -242,6 +271,7 @@ describe('one job at a time on the goldens', () => {
       await refused([
         [{ kind: 'test' }, 'A test session is running: run the tests once it is done'],
         [{ kind: 'test', golden: 'goldens/refund-flow' }, 'A test session is running: run it again once it is done'],
+        [{ kind: 'test', goldens: ['goldens/refund-flow', 'goldens/refund-in-limit'] }, 'A test session is running: run them once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'A test session is running: update it once it is done'],
         [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'A test session is running: add the normalizer once it is done'],
         // A pass during the search would leave its answer about a failure that is over.
@@ -462,6 +492,19 @@ describe('the Tests jobs', () => {
       const res = await post({ kind: 'test', golden });
       expect(res.status, String(golden)).toBe(400);
     }
+  });
+
+  it('runs the goldens picked, each once, asking first only for those that run live, and only goldens on disk', async () => {
+    spawned.length = 0;
+    const view = await job({ kind: 'test', goldens: ['goldens/refund-in-limit', 'goldens/broken-flow', 'goldens/refund-in-limit'] });
+    expect(view).toMatchObject({ title: 'Running tests', args: ['test', 'goldens/refund-in-limit', 'goldens/broken-flow'], code: 1 });
+    expect(spawned).toEqual([['test', 'goldens/refund-in-limit', 'goldens/broken-flow']]);
+    // evals/kept-elsewhere is marked fork: the question names it alone, and nothing runs until it is answered.
+    const asked = await post({ kind: 'test', goldens: ['goldens/refund-flow', 'evals/kept-elsewhere'] });
+    expect(asked.status).toBe(409);
+    expect(((await asked.json()) as { live: unknown }).live).toEqual([{ path: 'evals/kept-elsewhere', why: [{ kind: 'fork' }] }]);
+    expect(spawned).toHaveLength(1);
+    for (const goldens of [['goldens/refund-flow', '--online'], [], ['goldens/nope'], 'goldens/refund-flow']) expect((await post({ kind: 'test', goldens })).status, JSON.stringify(goldens)).toBe(400);
   });
 
   it('updates the goldens named, each once, and only goldens on disk', async () => {

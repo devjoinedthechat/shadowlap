@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { posix, relative, resolve, sep } from 'node:path';
 import { andList, migrateApplyProblem, patchFiles, quoteArgv, recordEvent, resolveAuthor, shortSessionId, staysWords, type MigrateApplyInput, type MigratePassRun, type MigrationApplied, type Store } from '@shadowlap/engine';
@@ -6,7 +5,7 @@ import { DecisionsError } from './decisions.js';
 import { findSession } from './decisions-verify.js';
 import { EXIT } from './exit-codes.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
-import { ApplyError, APPLY, applyToBytes, checkTreeFile, git, putIn, shown } from './patch-apply.js';
+import { ApplyError, APPLY, applyToBytes, checkTreeFile, git, putIn, rebuild, shown } from './patch-apply.js';
 import type { ConfigChange } from './migrate-mentions.js';
 
 /**
@@ -26,6 +25,8 @@ export interface MigrateApplyOptions {
   goldens: string;
   /** A command that rebuilds the agent before the replay, as fix apply's `--build`. */
   build: string | null;
+  /** Said as it runs when the config named it, nobody having typed --build (buildCommand). */
+  buildNote?: string | null;
   log: (line: string) => void;
   /** Said once the migration is found and clear, before anything is checked in the tree; not when it was applied before. */
   start?: (from: readonly string[], to: string, sessionId: string) => void;
@@ -147,11 +148,7 @@ export async function applyMigration(store: Store, id: string, o: MigrateApplyOp
   const at = o.now ?? Date.now();
   // Marked applied before the replay, so a stop meanwhile loses nothing but the list.
   store.setMigrationApplied(sessionId, { at, by, outdated: [] });
-  if (o.build) {
-    const b = spawnSync(o.build, { cwd: o.cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    if (b.status !== 0) o.log(`  ! ${o.build} failed: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' ')}`);
-    else o.log(`  rebuilt: ${o.build}`);
-  }
+  rebuild(o);
   const left = await replayGoldens(store, r, patch.text, o);
   result.outdated = left.outdated;
   result.update = left.update;

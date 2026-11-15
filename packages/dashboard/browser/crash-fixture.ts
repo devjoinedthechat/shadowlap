@@ -50,11 +50,11 @@ async function routeMeta(page: Page): Promise<void> {
   await page.route(/\/api\/meta(\?.*)?$/, (route) => patched<{ jobKinds: string[] }>(route, (meta) => ({ ...meta, editor: 'code --goto <file>:<line>', jobKinds: [...new Set([...meta.jobKinds, 'revert'])] })));
 }
 
-/** A demo run as a crashed test replay whose golden's first bad commit stands: its step and its offers. */
-export async function routeCrash(page: Page): Promise<string> {
+/** A demo run as a crashed test replay whose golden's first bad commit stands (`found`, FOUND unless given): its step and its offers. */
+export async function routeCrash(page: Page, found: FoundCommit = FOUND): Promise<string> {
   const run = demoId('ticket');
   await routeMeta(page);
-  await page.route(new RegExp(`/api/runs/${run}/offers(\\?.*)?$`), (route) => patched<object>(route, (offers) => ({ ...offers, commit: FOUND })));
+  await page.route(new RegExp(`/api/runs/${run}/offers(\\?.*)?$`), (route) => patched<object>(route, (offers) => ({ ...offers, commit: found })));
   await page.route(new RegExp(`/api/runs/${run}(\\?.*)?$`), (route) => patched<object>(route, (detail) => ({ ...detail, next: step(run) })));
   return run;
 }

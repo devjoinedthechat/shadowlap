@@ -10,7 +10,7 @@ import { EXIT } from '../exit-codes.js';
 import { type GuardMode } from '../run-agent.js';
 import { collect, missingStoreNote, parseChoice, parseIntArg, parseUsd, readStore, type GlobalOpts } from '../shared.js';
 import { ago, clauses, folder, palette as p, quoteArgv, safe } from '../ui.js';
-import { loadConfig } from '../config.js';
+import { buildCommand, loadConfig } from '../config.js';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP } from '../unrecorded.js';
 import { blameRun, type BlameFlags } from './fix-blame.js';
 import { parseCount, parseMargin, parsePercent } from './fix-flags.js';
@@ -75,7 +75,7 @@ export function register(program: Command): void {
     .option('--kept-max <n>', `the most pairs a good run that forks takes against its baseline, or attempts against its history (default: verify.max in shadowlap.config.json, else ${KEPT_DEFAULTS.max}, or a --gate max off its default)`, parseIntArg)
     .option('--baseline <source>', 'what a good run is compared with: paired, the same run under the code before the change, attempt for attempt; or history, its golden\'s test history (default: verify.baseline, else paired)', parseChoice(['paired', 'history'] as const))
     .option('--base <rev>', 'with a paired baseline: the commit before the change (default: HEAD, when the working tree has a change)')
-    .option('--build <command>', 'with a paired baseline at a commit: build its checkout before its attempts, e.g. "npm run build"')
+    .option('--build <command>', 'with a paired baseline at a commit: build its checkout before its attempts, e.g. "npm run build" (default: build in shadowlap.config.json; "" for none)')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
@@ -104,7 +104,7 @@ export function register(program: Command): void {
     .option('--passes <n>', 'with a fixed count: attempts that must pass (default: 80%, rounded up)', parseIntArg)
     // Read in percent, kept as a share: the help shows the default as it is typed.
     .addOption(new Option('--max-growth <percent>', 'reject a fix that grows the input tokens per run by more than this').argParser(parsePercent).default(0.25, '25'))
-    .option('--build <command>', 'rebuild the agent after its source changes, e.g. "npm run build"')
+    .option('--build <command>', 'rebuild the agent after its source changes, e.g. "npm run build" (default: build in shadowlap.config.json; "" for none)')
     .option('--apply', 'leave the accepted fix in the working tree')
     .option('--branch <name>', 'commit the accepted fix to a new branch, without checking it out')
     .option('--pr', 'with --branch: push it and open a pull request with gh')
@@ -277,7 +277,7 @@ function registerFixes(program: Command): void {
     .option('--goldens <dir>', "the project's goldens folder, where the repair's recordings go", 'goldens')
     .option('--name <run=name>', `the name of the golden copied from a fixed run, its id or the start of it: lower-case letters, digits and hyphens, at most ${NAME_MAX} of them, not a name Windows keeps such as con or nul, one golden each, not one the folder holds (repeatable; default: the fix's label, numbered for several)`, collect)
     .option('--no-test', 'copy the recordings without running shadowlap test on them')
-    .option('--build <command>', 'rebuild the agent after the patch is applied, before the test')
+    .option('--build <command>', 'rebuild the agent after the patch is applied, before the test (default: build in shadowlap.config.json; "" for none)')
     .option('--json', 'print what was done as JSON (progress still goes to stderr)')
     .action(async (arg: string, flags: { goldens: string; name?: string[]; test: boolean; build?: string; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
@@ -288,7 +288,8 @@ function registerFixes(program: Command): void {
         const found = requireFix(store, arg);
         if (found.status === 'open') throw openFixError(store, found);
         if (found.status !== 'applied') log(`${p.yellow('⑂')} Applying ${shortFixId(found.fixId)} · ${safe(found.title)}`);
-        const result = await applyFix(store, found, { cwd: process.cwd(), goldens: flags.goldens, names, test: flags.test, build: flags.build ?? null, db: opts.db, log });
+        const build = buildCommand(flags.build, () => loadConfig(process.cwd()));
+        const result = await applyFix(store, found, { cwd: process.cwd(), goldens: flags.goldens, names, test: flags.test, build: build.command, buildNote: build.note, db: opts.db, log });
         reportApplied(store, found, result, flags);
       } catch (err) {
         if (err instanceof FixIdError) return fixIdFailed(err, arg, flags.json);

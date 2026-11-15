@@ -202,6 +202,8 @@ export interface Client extends ChangesApi, TestsApi {
   action(id: string, key: string, callNo: number | null, value?: string, yes?: string, sent?: Record<string, unknown>): Promise<JobView>;
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
+  /** Run again, allowing: a job that ended, built again with tools its run never recorded allowed (`POST /api/jobs/:id/again`). Absent where nothing runs jobs. */
+  jobAgain?(jobId: string, fields: { allowUnrecorded: readonly string[]; yes?: string }): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
   /** Asks a running job to stop (`POST /api/jobs/:id/stop`): false when it had ended already. */
   stopJob(jobId: string): Promise<{ stopped: boolean }>;
@@ -560,8 +562,9 @@ export function createClient(token: string): Client {
 }
 
 /** The parts of the client that are APIs of their own, each written beside its routes. */
-function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates' | 'editor' | 'dismissals'> {
+function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates' | 'editor' | 'dismissals' | 'jobAgain'> {
   return {
+    jobAgain: (jobId, fields) => request<JobView>(`jobs/${encodeURIComponent(jobId)}/again`, { method: 'POST', body: JSON.stringify(fields) }),
     settings: settingsApi(request),
     checks: checksApi(request),
     storeSetup: storeSetupApi(request),

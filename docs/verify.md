@@ -132,7 +132,7 @@ A commit is checked out on its own, in a temporary git worktree under `.shadowla
 
 - the recorded command points into it;
 - the working tree's installed packages serve it, this repository's own as they were at that commit;
-- `--build "npm run build"` builds it instead.
+- `--build "npm run build"` builds it instead, as `build` in the [config](./cli.md#the-configuration-file) does when no `--build` is given.
 
 It is removed when verify ends. The environment is today's for both, so a change made through an environment variable reaches the baseline too.
 
@@ -328,7 +328,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#verify) lists
 | `--kept-max <n>` | The most pairs a good run takes against its baseline, or attempts against its history | `verify.max`, else 200, or a `--gate` max off its default |
 | `--baseline paired\|history` | What a good run is compared with ([against history](#against-history)) | `verify.baseline`, else `paired` |
 | `--base <rev>` | The commit before a committed change ([the baseline](#the-baseline)) | HEAD |
-| `--build <command>` | Build the baseline's checkout before its attempts | — |
+| `--build <command>` | Build the baseline's checkout before its attempts | `build` in the [config](./cli.md#the-configuration-file) |
 | `--model <model>`, `--set <key=value>` | The change is a request field, set from each run's first model call | — |
 | `--from <model>` | With `--model` or `--set`: change only the calls made with this model | Every call |
 | `--live-tool <name>` | The change is in this tool: run it live ([a fix inside a tool](#a-fix-inside-a-tool)) | — |

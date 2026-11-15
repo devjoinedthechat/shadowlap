@@ -433,6 +433,8 @@ The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), 
 
 **Use sample: otel-traces.json** picks the trace the dashboard ships, dated to end as you pick it: one agent run as an OpenTelemetry collector exports it, with two model calls and the tool call between them. **Import capture** then brings it in as any file you pick.
 
+**Several files** go in together as LiteLLM captures, a proxy's file per worker, or OpenTelemetry exports, traces apart from their logs: one import puts each run together from all of them, up to 20 files. Each goes up on its own, and the command names them all. Files of another format, or of two formats, go in one at a time, and the dialog says so.
+
 You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. The CLI reads the trace with the keys already in the environment the dashboard runs in, and they never pass through the browser.
 
 | Trace store | Trace id | Keys it reads |
@@ -442,7 +444,17 @@ You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. T
 | Phoenix | 32 hex characters, and the project | `PHOENIX_API_KEY`, when your Phoenix asks for one |
 | Logfire | 32 hex characters | `LOGFIRE_READ_TOKEN` |
 
-Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire is searched back 30 days; an older trace takes [`--since`](./cli.md#traces) in a terminal.
+Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire looks a trace up as far back as **Looks back** says, the CLI's [`--since`](./cli.md#traces): 30 days unless you type another, such as `90d`.
+
+**Traces in a window**, beside **One trace** for Langfuse, Phoenix and Logfire, imports the traces that started in it, newest first, each a run of its own, as [`shadowlap import`](./cli.md#traces) does without a trace id:
+
+| Field | What it takes | Empty |
+| --- | --- | --- |
+| **Since**, **Until** | A date (`2026-09-30`), a time (`2026-09-30T14:00Z`), or how long ago (`30d`, `12h`) | The last 30 days, until now |
+| **At most** | The most traces, from 1 to 10,000 | 100 |
+| **Trace name** | Only the traces of that name | Any |
+
+Each field is checked as you type it, in the CLI's words. A trace an earlier import brought in is skipped.
 
 A run imported from Langfuse links back to the trace: **Open in Langfuse ↗** in [its header](#the-header).
 
@@ -617,7 +629,9 @@ The results are a matrix: a row for each untrusted read planted in, a column for
 
 **Error-path presets.** The recording [error-path presets](./error-paths.md) ran on shows their newest session as a finding: *error-path presets*, then the verdict in its colour, *failed*, *inconclusive* or *passed*. Then come the presets that failed or couldn't say (*malformed JSON and oversized result failed · tool timeout inconclusive*), or *every preset passed*. **Show results** opens their results in the inspector's place.
 
-The results are the same matrix: the run's row, against a column for each preset with the call it hit under its name. A cell says its verdict, how many attempts passed and the gate's bound, with each attempt on hover, and opens the attempt that didn't pass. Above it come how many presets ran, where they hit and when, with their command. Under it come the gate's rule and the checks that judged them, or that the agent's exit alone did, then what they spent and their upstream requests.
+The results are the same matrix: the run's row, against a column for each preset with the call it hit under its name. A cell says its verdict, how many attempts passed and the gate's bound, and opens the attempt that didn't pass. Its hover lists each attempt, then what the preset spent and its upstream requests. A preset that couldn't apply says why there, as *get_ticket (#4): it already answered with nothing*.
+
+Above the matrix come how many presets ran, where they hit and when, with their command. Under it come the gate's rule and the checks that judged them, or that the agent's exit alone did, then what they spent and their upstream requests.
 
 **A cause's answers.** A run that [Find cause…](#find-what-caused-a-write) asked of shows its answers as a finding, causes first. It leads with *caused by*, *not caused by* or *inconclusive*, then the read and the answer: *#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)*. It takes its lead's colour: red for a cause, muted for not caused, amber for inconclusive.
 
@@ -727,9 +741,12 @@ What Shadowlap did not record is a finding in the bar, under **N findings** when
 **Unrecorded tools.** Each line gives the tool, how often it was called, from which model call (a click opens it), and what it does, as `tools.unrecorded` in `shadowlap.config.json` declares it or a built-in's or its name says. These tools ran in the agent unseen, and a replay runs them for real. So every command that replays the run refuses one that writes, or may (one whose effect nothing tells, *may write*), until it is recorded, declared a read, or allowed with `--allow-unrecorded`.
 
 - **How to record them**: the line says how to have them recorded (a Claude Code built-in through the Claude Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped). It gives the config's lines that declare them, with **Copy**.
-- **A refused replay**: a replay the CLI refuses for one, a fix's rerun among them (it passes no `--allow-unrecorded`), ends its drawer on why, *refused · an unrecorded tool may write · exit 2*, above the CLI's words on what to do.
+- **A refused replay**: a replay the CLI refuses for one, a fix's rerun among them (it passes no `--allow-unrecorded`), ends its drawer on why, *refused · an unrecorded tool may write · exit 2*, above the CLI's words on what to do. Where the CLI suggests `--allow-unrecorded`, the drawer and its toast offer **Run again, allowing Bash**, below.
+- **Declaring one**: [Settings → Tools](#tools) declares an unrecorded tool a read or a write under `tools.unrecorded`.
 - **A run that holds its model calls alone** (a capture, a trace): the line names the tools its replay runs live, refusing nothing.
 - **An exported copy**, which replays nothing, leaves the unrecorded tools out.
+
+**Run again, allowing.** It asks first, titled *Run again, allowing Bash?*, with the command it runs. A warning in red says a tool that writes acts on your systems for real, and nothing undoes it. **Run again** starts the same job again, its fields checked as before, with `--allow-unrecorded` naming the tools the CLI named on each command that replays a recording. A yes the job asks, as for a command someone else recorded, is asked in its place before it runs.
 
 **No preload** shows in red under `--guard block`, which failed the run for it, with what the command shows of why.
 
@@ -1512,6 +1529,8 @@ With no golden yet, it offers to pack the newest run whose step is **Pack as gol
 
 A verdict leads, in one line: its word in its colour, *passed*, *failed* or *inconclusive*, then the tally of goldens that passed and the first failure named, as *2 of 3 goldens passed · refund-in-limit diverged at call 1*. With none failing, it is *inconclusive*, in amber, when a [gate](./gating.md) ran out of attempts between its bounds or a check couldn't decide.
 
+A golden the provider left undecided says so, never that a check couldn't be judged. It reads *inconclusive: the provider was unavailable* when the provider stayed unavailable too many attempts in a row, before or while it ran. Where attempts the provider cut short decide a count either way, it reads *inconclusive: 1 attempt cut short by the provider*. The [activity feed](#activity) says the same.
+
 - **Every golden passing** reads *All 4 goldens pass*, or *The golden passes*.
 - **The tally** can end on what wasn't tested: *· 1 golden not tested yet*, or *· 2 goldens tested only by their error-path presets*.
 - **Before any golden has replayed**, it reads *not run yet*, in grey: *3 goldens, none tested yet*, or *One golden, not tested yet*, then *Run tests replays each one offline* and the command. Where only their error-path presets ran, it reads *not replayed yet* (*3 goldens, none replayed yet*), and says which the presets ran on.
@@ -1579,7 +1598,9 @@ The gate's hover says what it plants where, with its tests entry as the config h
 
 Each revision's header gives its commit's subject on hover, and its author where names show. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
 
-**No result.** A golden nothing has tested reads *not run yet* in Last result. A golden whose pack can't be read, such as one whose path starts with `-`, reads *can’t be read* in red, with *can't be read:* and why under it.
+**No result.** A golden nothing has tested reads *not run yet* in Last result.
+
+**A pack that can't be read.** A golden whose pack can't be read, such as one whose path starts with `-`, reads *can’t be read* in red, with *can't be read:* and why under it, over any result it had before. Search or jump to says *can’t be read* for it too.
 
 **Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided. A rule opens [Settings → Gates](#gates) at its gate's kind.
 
@@ -1587,7 +1608,7 @@ Each revision's header gives its commit's subject on hover, and its author where
 
 A gated golden with a report draws its bar alone: its evidence opens with the report, above it, and shows only why the gate stopped and the score line. A gate that ran out of attempts offers **Run more attempts** among the report's steps, or **Run tests** where its checks changed since.
 
-**A golden's [error-path presets](./error-paths.md)** draw under its checks as one picture: *error-path presets*, which opens its recording with their results, then a cell a preset in its verdict's colour, its tally and call on hover. Their counts after it (*1 failed · 1 inconclusive · 4 passed*) open the attempt that proves the verdict. A golden whose tests entry sets presets that never ran says *not run yet*, with **Run error-path presets…**.
+**A golden's [error-path presets](./error-paths.md)** draw under its checks as one picture: *error-path presets*, which opens its recording with their results, then a cell a preset in its verdict's colour, its tally and call on hover, with why it failed, couldn't say or couldn't apply. Their counts after it (*1 failed · 1 inconclusive · 4 passed*) open the attempt that proves the verdict. A golden whose tests entry sets presets that never ran says *not run yet*, with **Run error-path presets…**.
 
 A golden whose presets ran but whose replay didn't has their line as its last result: *1 of 2 presets failed: tool timeout #2 · replay not tested yet*. It never says *not run yet*.
 
@@ -1655,7 +1676,7 @@ Find breaking commit's answer is the first bad commit, or why there is none betw
 - **An answer given while the golden passed**, or about an earlier failure, never shows over a later one.
 - **A golden passing at the commit it fails at**: when the search found that, the failure is in changes not committed there, or doesn't happen every time. It says so, and offers no other commit until it fails at another one.
 
-A failed check, a non-zero exit or a replay with no calls shows its checks, and an exit its **Error** too. It offers **Find breaking commit…** unless the pack can't be read. A crash offers **Run blame** beside its step, unless a fix holds its run. A test replay that failed a check an open fix is for leads with **Open fix**, as its run's page does.
+A failed check, a non-zero exit or a replay with no calls shows its checks, and an exit its **Error** too. It offers **Find breaking commit…**. Where the pack can't be read, the button stays in its place, off, and says why on hover and press. A crash offers **Run blame** beside its step, unless a fix holds its run. A test replay that failed a check an open fix is for leads with **Open fix**, as its run's page does.
 
 **A named commit's change** shows in the **First bad commit** part wherever the answer kept it, in the box **Show change** opens on a run's page. A crash whose first bad commit stands offers **Revert** first, and its hint says what to do with the commit: *The agent stopped part way at the commit above: revert it or fix the code, then run the tests.*
 
@@ -1693,13 +1714,15 @@ For a verdict given on other material, it says first that a value that changes e
 
 Each behaviour is a row of two lines, which a screen reader hears as one sentence:
 
-1. What production did from where it parts from its nearest golden: the tools it called, a write in teal and reads in a row folded into one, then how it ended, in red where it failed.
+1. What production did from where it parts from its nearest golden: the tools it called, a write in teal and reads in a row folded into one, then how it ended, in red where it failed. A tool whose effect nothing names counts as a write, its hover saying *effect unknown: counted as a write*.
 2. Where the two part: *after `lookup_order`*, then what the golden does there, such as *`refund-in-limit` calls `send_email` here* or *has stopped here*. A behaviour may also part at the golden's first step, take its steps and end another way, or start as no golden does.
 
 At the row's end come how many runs took it, which opens its details, when the newest was seen, and **Pack as golden**.
 
 - **The agent no longer does this**, in amber on the second line, marks a behaviour the last pack couldn't reproduce. Its hover says when that pack ran, who ran it where names show, and why. Its button is **Pack with checks…**.
 - **Its details** hold the whole path, the runs that took it, its nearest golden, what the last pack made of it, and the behaviour's key. For a behaviour the agent no longer does, *Last tried* there shows the last pack's command, with a plain **Pack as golden** beside the row's **Pack with checks…**.
+- **A tool of unknown effect** is named after the writes under its path, as `shadowlap coverage` names it: *writes lookup_kb and issue_refund (effect unknown: lookup_kb)*. A screen reader hears the same.
+- **Goldens the scan couldn't read** cover nothing, so what they would cover reads as not covered. A line in amber above the foot names each and why: *1 golden can’t be read, so it covers nothing here: refund-legacy (no run.json: not a pack)*.
 - **The foot** says when the scan ran, how many imported runs and behaviours it read, and how many have a golden, which on hover. Then it counts the runs imported since.
 
 What it shows before a scan, and after one:
@@ -1896,6 +1919,8 @@ Its preview says what the gate tells apart, what it takes for a golden on its ow
 
 Until you change a figure, a line says these are the defaults, what `"gate": {}` stands for, and names the goldens that use them; once you do, **Reset** puts them back. While the server is offline, the preview pauses on the last it worked out.
 
+**Against** picks what a gate against history is figured against: an example baseline, 47 of 50, or the own last sessions of a golden marked fork, pooled as its next test pools them. The preview then says *refund-over-limit’s own history: its last 10 sessions*. A golden with no session that passed on its baseline branch says so, and the example stands in.
+
 Under **In CI**, it says what an inconclusive golden does to the step as your workflow has it, with what you changed on the CI tab and haven't written. It has no switch of its own: **Settings → CI** leads to [CI](#ci), where Your workflow sets it.
 
 ### Coding agents
@@ -1927,7 +1952,13 @@ Reads come first, the untrusted ones first among them. A row you mark keeps its 
 
 **Trust.** An [untrusted read](./injection.md#mark-the-reads-that-bring-outside-text-in) brings outside text in, and `shadowlap injection` plants its payloads there. The cell names where its mark comes from: `shadowlap.config.json`, `SDK`, `MCP openWorldHint · <server>`, or *recorded with its config’s mark* for a mark the calls were recorded with. A read whose MCP server sets `openWorldHint` starts untrusted.
 
-Only a read takes a mark. A pure tool, a write, a tool that declares no effect and what the user types read `—`, with why on hover: a write's result is only its receipt, and what the user types is the user's own words.
+Only a read takes a mark. A pure tool, a write, a tool that declares no effect and what the user types read `—`, with why on hover: a write's result is only its receipt, and what the user types is the user's own words. A pure tool or what the user types marked untrusted all the same reads *untrusted*, with **Mark trusted**: `shadowlap injection` plants in every untrusted call but a write and one of no effect.
+
+**Tools shadowlap doesn't record.** Under the table, each tool `tools.unrecorded` declares, with what it does and **Declare read** or **Declare write** for the other. A field takes another tool's name, as a run's page names it, and **Declare read** declares it a read. A replay runs a tool declared a read again for real, and refuses one that writes or of no declared effect. Each writes its line against the version the page read, with **Undo**:
+
+```json
+"tools": { "unrecorded": { "Bash": "read" } }
+```
 
 **Mark untrusted** and **Mark trusted** show on a read's row as the pointer or the focus reaches it, and write the read's line under `tools` in `shadowlap.config.json`:
 
@@ -1962,6 +1993,11 @@ Credentials in a copied config:
 - **Each change is kept at once**, with **Undo** in its toast (`Asks above $2 · on this machine`).
 - **Its words follow the setting**: *Ask before spending more than $0.50.* and *A job with no estimate always asks.*
 - **Change**, in a dialog's footer, opens this row with the field focused.
+
+**Build** is the command that builds the agent, `build` in `shadowlap.config.json`. Repair, fix apply, verify's checkout of the code before a change, migrate apply and bisect run it where no `--build` is given, from a terminal and from here alike, so a compiled agent never replays an old build ([where each runs it](./cli.md#the-configuration-file)).
+
+- **Save** writes what the field holds against the version the row read, with **Undo**: *Wrote "build": "npm run build" to shadowlap.config.json*. An empty field takes the key out.
+- **A `build` the file holds that can't run**, such as one on two lines, is said in the CLI's words above the field.
 
 ### Store
 
@@ -2385,7 +2421,7 @@ Its dialog, *Run error-path presets on 01K5CQ4R1T*, holds the server's plan for 
 | Decided by | The golden's `chaos.gate`, the count its golden repeats, or one attempt each     |
 
 - **Runs here** names who recorded the command only where names show.
-- **At** offers each tool the recording answered, at its first call. A recording with no model call to hit says the provider presets are not applicable.
+- **At** offers each tool the recording answered, at its first call. A recording with no tool the tool presets can hit says why, in the engine's words, and that the tool presets are not applicable: *the recording makes no tool call: the tool presets are not applicable*. A recording with no model call to hit says the provider presets are not applicable.
 - **Judged by** on a run starts from the first write limit of the run's own `--expect` that its calls exceed. Left empty, each attempt is judged as the command judges it: by the checks of a golden the recording belongs to, else by the exit alone.
 - **A golden's presets** are judged by its `chaos.expect`, else the write limits of its `expect`, else the agent exiting 0 alone.
 - **The command** follows your picks: `--presets` and `--chaos-tool` where they differ from the command's own, `--expect`, and `--yes` for a command from elsewhere.
@@ -2507,6 +2543,7 @@ Tests runs its goldens as jobs too:
 | Button                        | Runs                                                                                |
 | ----------------------------- | ----------------------------------------------------------------------------------- |
 | **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere               |
+| **Run tests on…**             | `shadowlap test <goldens>`, the goldens you pick                                    |
 | **Run more attempts**         | `shadowlap test <golden> --max-attempts <n> --continue`                             |
 | **Re-run test**               | `shadowlap test <golden>`                                                           |
 | **Update golden**             | `shadowlap test <golden> --update`, once you confirm                                |
@@ -2520,7 +2557,7 @@ Tests runs its goldens as jobs too:
 | **Pack as golden**            | `shadowlap coverage --pack <key>`, from a Not covered row                           |
 | **Pack with checks…**         | `shadowlap coverage --pack <key> --fork --expect <json>`, from a Not covered row    |
 
-These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Run more attempts**, **Re-run test**, **Update golden**, **Add normalizer and re-run**, **Find breaking commit** and **Revert** wait, saying what is running:
+These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Run tests on…**, **Run more attempts**, **Re-run test**, **Update golden**, **Add normalizer and re-run**, **Find breaking commit** and **Revert** wait, saying what is running:
 
 - another of these jobs, **Find breaking commit** on a golden among them, which reads its pack and answers the failure it started from;
 - a setup packing and testing its golden;
@@ -2529,6 +2566,8 @@ These jobs run one at a time in a project. While any of the following runs, **Ru
 A run page's **Pack with injection gate…** waits the same way, since it tests the golden it packs. So do Not covered's **Pack as golden** and **Pack with checks…**, and a golden's **Run error-path presets…**.
 
 The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
+
+**Run tests on…** sits beside **Run tests** wherever there are goldens to pick between. Its dialog offers each golden whose pack can be read as a chip, none picked at first. Under them come the goldens picked that run live, the command, and what the session bills, asked again a moment after each pick. It runs `shadowlap test` with the goldens picked, in the table's order, and asks first where one runs live, as **Run tests** does.
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, with the first three goldens that failed linked by name beside it, each opening its replay. Over Tests itself, it ends on the step the page leads with once the page has read what the job did. A run of one golden ends on its replay.
 
@@ -2577,8 +2616,10 @@ While the dashboard server can't be reached, Remove waits. A [read-only](#read-o
 
 - **The commit**: its subject, then who made it where names show, and when.
 - **Untested**, in amber, for the commits just before it that couldn't be tested: the first bad commit may be among them.
+- **Files**: every file the commit changed, which git reverts, and under them, among several, whose change the box shows. Bisect keeps a commit's first 50 files, and with 50 the row says they are the first.
 - **Then**: *`refund-flow` is tested*, by the golden's name. A golden that runs live adds the rows **Run tests** asks with: **Runs live** for one marked `fork`, **Asks** for its judges and their model, and **Plants** for an injection gate.
 - **The change reversed**, where the answer kept it, and the command it runs. A warning says how many of the commit's files are outside the project, as git reverts those too.
+- **A change cut short**: where bisect kept only its first lines, a line under the box says so and gives the command that shows it whole, `git diff 9a3c5e0^1 9a3c5e0 -- agent/refund.py`.
 - **Its Cost line**: *Free · replays offline*, or what the test bills where the golden runs live, as Re-run test is priced.
 
 git runs first, with no shell, on the commit the store holds for the golden's answer, never one the request names. A merge is reverted against its first parent (`-m 1`). A test that runs live asks as **Run tests** does, and the dialog's **Revert** answers for it. The test is passed no `--yes`, so a golden from a pack your repository doesn't track isn't run, and fails saying why, as [A golden recorded elsewhere](#commands-from-someone-else) says.
@@ -2604,9 +2645,9 @@ Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, 
 - **No lost edits**: each change names the version of the file the page read, so one made in an editor or a terminal since is never overwritten. The page says so, and shows the file as it stands.
 - **The CLI's words**: a rule the CLI would refuse is refused with the same words.
 - **The activity feed**: every change lands in it.
-- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, marking a tool, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
+- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, marking a tool, declaring an unrecorded one, saving the build, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
 
-**Mark untrusted** and **Mark trusted**, on [Settings → Tools](#tools), write a read's line under `tools` the same way. The activity feed says *Tool marked untrusted · get_ticket*, or *Tool mark removed · get_ticket* for an Undo that takes the line out.
+**Mark untrusted** and **Mark trusted**, on [Settings → Tools](#tools), write a read's line under `tools` the same way. The activity feed says *Tool marked untrusted · get_ticket*, or *Tool mark removed · get_ticket* for an Undo that takes the line out. **Declare read** and **Declare write** write a line under `tools.unrecorded`, the feed saying *Unrecorded tool declared a read · Bash*, or *Unrecorded tool declaration removed · Bash*. **Build**'s **Save**, on [Settings → Project](#project), writes `build`, the feed saying *Build set · npm run build*, or *Build removed*.
 
 **Write file**, on Settings → CI, writes your repository's workflow the same way. It names the version of the file it read and the workflow the page showed, so a file changed since, or switches changed meanwhile, write nothing. It lands in the activity feed, as *Wrote .github/workflows/agent.yml · 8 lines added, 1 line taken out*. Its **Undo** puts the file back, or removes the file it made, and is refused once the file changed since. The dashboard keeps its last 20 Undos until it stops.
 
@@ -3223,6 +3264,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 | `POST /api/jobs { kind: "export-html" \| "export-har" \| "pack" \| "export-dataset" \| "export-otel", … }` | The Share menu's copies |
 | `POST /api/runs/:id/actions` | A run action the terminal UI shares, as the `action` job kind starts it |
 | `GET /api/jobs`, `GET /api/jobs/:id?after=n`, `POST /api/jobs/:id/stop` | Recent jobs (without output or result); one job's output from line `n`, its runs, links, files and result; stop it, with its agent |
+| `POST /api/jobs/:id/again { allowUnrecorded, yes? }` | Run again, allowing: a job that ended, built again with `--allow-unrecorded` naming the tools |
 
 **A job's estimate.** `estimate` is the price its page showed: `usd`, `ceiling`, and where they apply `per` and `stops`. The job keeps it, and both `GET` routes answer it, so its drawer says what its card and its ask said. One of another shape is dropped, and the job still starts. Nothing reads it to decide what runs, and it never reaches the command line.
 
@@ -3253,8 +3295,9 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 | --- | --- |
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=&suiteRisk=`, `?baseline=history&drop=&window=&min=&max=&history=47/50&risk=&suiteRisk=` | What a [gate](./gating.md)'s figures would do |
+| `GET /api/tests/gate?baseline=history&…&golden=` | The same against the golden's own last sessions |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
-| `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens for the goldens `update` names |
+| `GET /api/tests/estimates?update=&run=` | What Run tests and each golden's buttons bill, Update goldens for the goldens `update` names, and Run tests on… for those `run` names |
 | `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?comment=&decisions=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI and Gates: your workflow for those options |
@@ -3276,7 +3319,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 - each golden's checks as its last result came out on each (`checkResults`, below);
 - the checks a golden's last result failed or couldn't decide that the config no longer holds (`changed`: each a `label` and its `status`), null for none;
 - each golden's `gate`, and what it decided last (`last.gate`, below);
-- each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, the attempt to open, the `recording` they ran on, and `cells`, one per preset for the strip;
+- each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, the attempt to open, the `recording` they ran on, and `cells`, one per preset for the strip, each with `why` it failed, couldn't say or couldn't apply;
 - the divergences and other failures, each with Find breaking commit's range, and what it last said about this failure (`found`, or `missed` with why and its `outcome`). The lines each printed are in its report (`printed`);
 - a `found` commit's `change`, or null for an answer that kept none: the `file` it opens, every file changed (`files`), the `hunk` against the first parent and whether it was `cut`. It also has the `line` to open, `merge`, the file's `path` in the project folder (null outside it) and how many files are `outside` it;
 - the commits Find breaking commit's dialog offers (`revisions`), each with its subject and its tally there (`rate`: `passes` of `attempts`), and for a golden that never passed, the commits before its failure that no session tested (`untested`, each a `rev` and `subject`);
@@ -3343,11 +3386,13 @@ An attempt the provider cut short is `inconclusive`, never the agent's failure; 
 
 A gate against history is figured at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails at each of those pass rates is its power to catch a drop. Figures the config would refuse are a 400 with its message, as is a `suiteRisk` that isn't above 0 and below 0.5.
 
+With `golden`, a gate against history is figured against that golden's own last sessions, its `window` of them pooled under its recording and checks, its first `min` attempts of each, as its next test pools them. `from` names the golden and how many `sessions` it pooled, 0 when it has none yet and `history` stands in. A golden not on disk is a 400. Settings → Gates offers the goldens marked fork, which `/api/ci/workflows` lists in `gates.forks`.
+
 **A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start, with `onTests` where that reason sends you to Tests. `before` limits the good commits to runs before it.
 
 **Their estimates** are the engine's for each job as it runs, worked out beside the server:
 
-- `/api/tests/estimates` answers `run` for Run tests, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
+- `/api/tests/estimates` answers `run` for Run tests, `picked` for Run tests on… over the goldens `run` names, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
 - `update`, given once for each golden, adds `update` to the answer: what Update goldens bills for those goldens together. A path that isn't a golden on disk is left out.
 - `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
 
@@ -3377,6 +3422,8 @@ It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+di
 | `POST /api/settings/calibrate/write { jobId }` | Calibrate's **Add normalizer**: adds what that calibrate job proposed, checked against no version |
 | `POST /api/settings/rules/:list/:n/restore { rule, expect }` | A removed rule's Undo: the rule back at its number, as the file held it |
 | `PUT /api/settings/tools/trust { tool, trust, expect }` | Mark untrusted and Mark trusted: a tool's line under `tools`, `trust` being `trusted`, `untrusted` or `null` for no mark; it answers `was`, for Undo |
+| `PUT /api/settings/tools/unrecorded { tool, effect, expect }` | Declare read and Declare write: a tool's line under `tools.unrecorded`, `effect` being `read`, `write` or `null` for none; it answers `was`, for Undo |
+| `GET /api/settings/build`, `PUT /api/settings/build { command, expect }` | Build, on Project: `build`, why it can't run (`problem`) and the file's version; a write answers `was`, for Undo, `null` taking the key out |
 | `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.
@@ -3558,6 +3605,8 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or a trace by its id, `{ format: "langfuse", traceId, host? }`, from `langfuse`, `langsmith`, `phoenix` or `logfire`, with `project?` too for `phoenix` |
+| `import { format, uploadIds }` | Several uploads at once, for `litellm` and `otel`, up to 20 |
+| `import { format, window, host? }` | The traces in a window, from `langfuse`, `phoenix` or `logfire`: `window` holds `since`, `until`, `limit` and `traceName`, each optional; with a `logfire` `traceId`, `since` alone |
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
 | `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, budget?, clean?, writes?, liveReads?, again?, yes? }` | `injection <run\|golden> --json` |
 | `migrate { to, goldens?, runs?, from?, scope?, set?, yes? }` | A migration, every golden unless some are named |
@@ -3576,6 +3625,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `store-set { url, provider }` | `store set --check` |
 | `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
+| `test { goldens, yes? }` | Run tests on…: a test session of the goldens `goldens` names, each once |
 | `test-update { goldens, normalize?, reason? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
 | `verify { fixId, left: true, yes? }` | Verify this run: the failing runs no accepted verdict checked |

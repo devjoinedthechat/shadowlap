@@ -584,7 +584,7 @@ It applies a migration only when the report is all clear and the patch is the wh
 ✓ mg-01M58W9A7S applied · 1 golden to update
 ```
 
-A compiled agent replays its old build unless you rebuild it first: pass `--build <command>`, as for `fix apply`. The migration keeps its applied state, and Activity says *Config change applied*.
+A compiled agent replays its old build unless you rebuild it first: pass `--build <command>`, or set `build` in the [config](./cli.md#the-configuration-file), as for `fix apply`. The migration keeps its applied state, and Activity says *Config change applied*.
 
 ### Once the old model is gone
 

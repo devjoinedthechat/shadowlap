@@ -110,7 +110,8 @@ describe('a golden’s error-path presets under its checks', () => {
         store.startChaosSession({ sessionId: 'S', startedAt: 3, command: ['shadowlap', 'test', 'goldens/list-inbox', '--chaos'], presets: ['timeout', 'empty', '429'] });
         store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: 'timeout', verdict: 'failed', callNo: 2, passes: 0, attempts: 1, at: 5, data: { detail: 'list_inbox (#2) timed out: the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: attempt, verdict: 'failed', passed: false, exitCode: 1 }] } });
         store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: 'empty', verdict: 'passed', callNo: 2, passes: 3, attempts: 3, at: 6, data: { detail: 'list_inbox (#2) answered with nothing: the agent exited 0', runs: [] } });
-        store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: '429', verdict: 'not-applicable', callNo: null, passes: 0, attempts: 0, at: 6, data: { detail: 'provider 429: the recording makes no model call', runs: [] } });
+        // As the CLI's notApplicable keeps one with no call to hit (cli chaos.ts): its detail is why.
+        store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: '429', verdict: 'not-applicable', callNo: null, passes: 0, attempts: 0, at: 6, data: { detail: 'the recording makes no model call', runs: [] } });
         store.finishChaosSession('S', { passed: 1, failed: 1, inconclusive: 0, upstreamRequests: 0, endedAt: 7 });
       }
       const goldens: GoldenSource[] = [{ path: 'goldens/list-inbox', runId: rec, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
@@ -147,8 +148,9 @@ describe('a golden’s error-path presets under its checks', () => {
     expect(picture.getAttribute('aria-label')).toBe('2 presets: 1 failed, 1 passed');
     // A preset that couldn't apply is a muted cell, its card saying so, and left out of the counts.
     expect([...picture.querySelectorAll('i')].map((c) => c.className)).toEqual(['pc err', 'pc ok', 'pc n']);
-    expect(JSON.parse(picture.querySelectorAll('i')[2].getAttribute('data-tip')!)).toEqual({ t: 'provider 429', rows: [['not applicable', '', 'var(--cq-muted)']] });
-    expect(JSON.parse(picture.querySelector('i')!.getAttribute('data-tip')!)).toEqual({ t: 'tool timeout', rows: [['failed', '', 'var(--cq-red)'], ['at', '#2', '']] });
+    expect(JSON.parse(picture.querySelectorAll('i')[2].getAttribute('data-tip')!)).toEqual({ t: 'provider 429', s: 'the recording makes no model call', rows: [['not applicable', '', 'var(--cq-muted)']] });
+    // One that failed says why it failed, as its result kept it.
+    expect(JSON.parse(picture.querySelector('i')!.getAttribute('data-tip')!)).toEqual({ t: 'tool timeout', s: 'the agent exited with code 1', rows: [['failed', '', 'var(--cq-red)'], ['at', '#2', '']] });
     expect(JSON.parse(picture.querySelectorAll('i')[1].getAttribute('data-tip')!).rows[0]).toEqual(['passed', '3 of 3', 'var(--cq-lime)']);
     const counts = strip.querySelector('a.gpn')!;
     expect(counts.textContent).toBe('1 failed · 1 passed');

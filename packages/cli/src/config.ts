@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { CONFIG_FILE, configFilePath, editConfigFile, messageOf, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
+import { CONFIG_FILE, configBuild, configFilePath, editConfigFile, messageOf, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
 import { declareFormatHosts, formatHostProblem, validHttpHost, type FormatHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, parseTestSettings, type TestEntry, type TestSettings } from './checks.js';
 import { usageError } from './exit-codes.js';
@@ -37,6 +37,8 @@ export interface ShadowlapConfig {
   providers?: FormatHost[];
   /** `shadowlap repair`: the model that proposes fixes (`provider:model`), its base URL, and how long it may take to answer, in seconds. */
   repair?: { repairer?: string; baseUrl?: string; timeout?: number };
+  /** The command that builds the agent, such as `npm run build`: what `--build` runs where a command takes it and none is given (buildCommand). */
+  build?: string;
   /**
    * `shadowlap verify`: how a good run is kept. Not worse than its baseline by `margin` or more (0.1
    * is 10 points), the baseline the same run at the base revision (`paired`) or its golden's test
@@ -113,16 +115,10 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     });
     declareFormatHosts(config.providers);
   }
-  if (parsed.repair !== undefined) {
-    const r = parsed.repair as unknown;
-    if (typeof r !== 'object' || r === null || Array.isArray(r)) throw new Error(`${file}: repair must be an object, e.g. { "repairer": "anthropic:claude-opus-5-5" }`);
-    const { repairer, baseUrl, timeout } = r as Record<string, unknown>;
-    if (repairer !== undefined && typeof repairer !== 'string') throw new Error(`${file}: repair.repairer must be a string such as "anthropic:claude-opus-5-5"`);
-    if (baseUrl !== undefined && typeof baseUrl !== 'string') throw new Error(`${file}: repair.baseUrl must be a URL`);
-    // How long the repairer may take to answer (shadowlap repair --repairer-timeout).
-    if (timeout !== undefined && !(typeof timeout === 'number' && Number.isInteger(timeout) && timeout > 0)) throw new Error(`${file}: repair.timeout must be a whole number of seconds, such as 600`);
-    config.repair = { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}), ...(timeout !== undefined ? { timeout: timeout } : {}) };
-  }
+  if (parsed.repair !== undefined) config.repair = parseRepairConfig(parsed.repair, file);
+  // The agent's build: what --build runs where it isn't given.
+  const build = configBuild(parsed.build, file);
+  if (build) config.build = build;
   // verify: how a good run is kept against its baseline.
   if (parsed.verify !== undefined) config.verify = parseVerifyConfig(parsed.verify, file);
   // Team store: taken as written. A typo in the URL can't stop a recording: push, pull and the store
@@ -191,6 +187,31 @@ export function guardAccept(cwd: string = process.cwd(), env: NodeJS.ProcessEnv 
   const fromEnv = (env.SHADOWLAP_GUARD_ACCEPT ?? '').split(',').map((v) => v.trim()).filter(Boolean);
   return [...new Set([...fromConfig, ...acceptList(fromEnv, 'SHADOWLAP_GUARD_ACCEPT')])];
 }
+
+/** The `repair` section: the repairer as `provider:model`, its base URL, and how long it may take to answer. */
+function parseRepairConfig(raw: unknown, file: string): NonNullable<ShadowlapConfig['repair']> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error(`${file}: repair must be an object, e.g. { "repairer": "anthropic:claude-opus-5-5" }`);
+  const { repairer, baseUrl, timeout } = raw as Record<string, unknown>;
+  if (repairer !== undefined && typeof repairer !== 'string') throw new Error(`${file}: repair.repairer must be a string such as "anthropic:claude-opus-5-5"`);
+  if (baseUrl !== undefined && typeof baseUrl !== 'string') throw new Error(`${file}: repair.baseUrl must be a URL`);
+  // How long the repairer may take to answer (shadowlap repair --repairer-timeout).
+  if (timeout !== undefined && !(typeof timeout === 'number' && Number.isInteger(timeout) && timeout > 0)) throw new Error(`${file}: repair.timeout must be a whole number of seconds, such as 600`);
+  return { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}), ...(timeout !== undefined ? { timeout: timeout } : {}) };
+}
+
+/**
+ * The command that builds the agent where a command takes `--build`: the flag as given, `--build ""`
+ * for none, else `build` in shadowlap.config.json (`config`, read only then), else none. `note` is the
+ * line a command's progress says when the config gave it, so a build nobody typed is never a surprise.
+ */
+export function buildCommand(flag: string | undefined, config: () => Pick<ShadowlapConfig, 'build'>): { command: string | null; note: string | null } {
+  if (flag !== undefined) return { command: flag.trim() ? flag : null, note: null };
+  const command = config().build ?? null;
+  return { command, note: command ? configBuildNote(command) : null };
+}
+
+/** The line that says a build came from the config, and how to run none. */
+export const configBuildNote = (command: string): string => `build: ${command}, from ${CONFIG_FILE} (--build "" for none)`;
 
 /** The `verify` section: a margin between 0 and 1, `paired` or `history`, a whole number of pairs or attempts. */
 function parseVerifyConfig(raw: unknown, file: string): NonNullable<ShadowlapConfig['verify']> {

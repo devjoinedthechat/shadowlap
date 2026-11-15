@@ -566,7 +566,7 @@ describe('a `$` row', () => {
     expect(packRunCommand('01K5CQ4N7G0000000000000000', 'my packs/one')).toBe("shadowlap pack 01K5CQ4N7G 'my packs/one'");
     expect(packRunCommand('01K5CQ4N7G0000000000000000', '  ')).toBe('shadowlap pack 01K5CQ4N7G …');
     const words = (o: Partial<Parameters<typeof importWords>[0]>) => importWords({ source: 'file', picked: null, id: '', host: '', project: '', keys: null, defaults: null, uploads: true, ...o }).command;
-    expect(words({ picked: { file: { name: 'my trace.json' }, format: 'otel' } })).toBe("shadowlap import otel 'my trace.json'");
+    expect(words({ picked: { files: [{ name: 'my trace.json' }], format: 'otel' } })).toBe("shadowlap import otel 'my trace.json'");
     expect(words({ source: 'langfuse' })).toBe('shadowlap import langfuse <trace-id>');
     expect(words({ source: 'phoenix', id: 'abc', project: 'my project', defaults: { project: 'default' } })).toBe("shadowlap import phoenix abc '--project=my project'");
   });

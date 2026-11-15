@@ -164,6 +164,11 @@ table.runst tr.picked td { background: var(--sel); }
 
 .impdlg .seg { flex-wrap: wrap; max-width: 100%; margin-bottom: 14px; }
 .impdlg .capfile .pick { flex: none; }
+/* several files picked: their names wrap beside the format they go in as */
+.capfile .capnames { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.capfile .capnames code { flex: none; max-width: 100%; }
+/* the window of the traces to import, under the store's host */
+.impdlg .form.impwin { margin-top: 10px; }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 
 /* Find breaking commit on a dashboard that changes nothing: off, saying why on hover */

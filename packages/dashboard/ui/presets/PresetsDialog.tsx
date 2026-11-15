@@ -64,10 +64,16 @@ export function presetsCommand(first: Pick<PresetsPlan, 'golden' | 'target' | 'r
   ].join(' ');
 }
 
-/** Where the picks hit past the tool: the model call that reads its answer, or why the provider presets can't. */
+/**
+ * Where the picks hit past the tool: the model call that reads its answer, or why the provider
+ * presets can't. Where the tool presets can't hit a tool (the recording calls none they can, or not
+ * the one chaos.tool names), why first, in the engine's words, then where the provider presets hit.
+ */
 export function whereWords(at: PresetsPlan['at']): string {
-  if (!('callNo' in at.model)) return 'no model call: the provider presets are not applicable';
-  return `and model call #${at.model.callNo}${'callNo' in at.tool ? ', which reads its answer' : ''}`;
+  const model = 'callNo' in at.model ? at.model.callNo : null;
+  const noModel = 'no model call: the provider presets are not applicable';
+  if (!('callNo' in at.tool)) return `${at.tool.none}: the tool presets are not applicable; ${model === null ? noModel : `the provider presets hit model call #${model}`}`;
+  return model === null ? noModel : `and model call #${model}, which reads its answer`;
 }
 
 /** Judged by for a golden's presets: its checks, quiet where they come from; the exit alone where its expect bounds no write. */
@@ -176,7 +182,7 @@ function PresetsForm({ first, onClose }: { first: PresetsPlan; onClose: () => vo
   const facts: Array<DialogFact | null> = [
     here ? { label: 'Runs here', value: `\`${here.command}\``, quiet: here.by ? `recorded by ${personName(here.by)}, from ${here.from}` : `from ${here.from}`, tone: 'amber' } : null,
     { label: <span id={head}>Presets</span>, value: <ToggleChips chips={CHIPS} picked={picks.presets} labelledBy={head} onToggle={(id) => setPicks((p) => ({ ...p, presets: toggled(ORDER, p.presets, id) }))} /> },
-    first.choices.length ? { label: 'At', value: <ToolPick first={first} at={plan.at} tool={picks.tool} onTool={(tool) => setPicks((p) => ({ ...p, tool }))} /> } : null,
+    { label: 'At', value: first.choices.length ? <ToolPick first={first} at={plan.at} tool={picks.tool} onTool={(tool) => setPicks((p) => ({ ...p, tool }))} /> : whereWords(plan.at) },
     first.golden
       ? { label: 'Judged by', ...goldenJudged(plan, first.golden) }
       : {

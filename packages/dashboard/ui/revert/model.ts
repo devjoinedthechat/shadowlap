@@ -24,5 +24,26 @@ export function revertedLines(hunk: string): ChangeLines {
   return patchLines(hunk).map((l) => (l.op === '+' ? { ...l, op: '-' as const } : l.op === '-' ? { ...l, op: '+' as const } : l));
 }
 
+/** How many of a commit's files bisect keeps with its answer (cli bisect-change.ts MAX_FILES): with that many, there may be more. */
+const KEPT_FILES = 50;
+
+/** Names joined as a sentence lists them: `a`, `a and b`, `a, b and c`. */
+const andList = (names: readonly string[]): string => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}` : (names[0] ?? ''));
+
+/**
+ * Revert's Files row: every file it undoes, as bisect kept the commit's files, each a name in code;
+ * under them, whose change the box below shows where it shows one of several, and that these are the
+ * first 50 where bisect kept no more, as git reverts the whole commit.
+ */
+export function revertFiles(change: Pick<FoundChange, 'file' | 'files' | 'hunk'>): { value: string; quiet: string | null } {
+  const files = change.files.length ? change.files : [change.file];
+  const shown = change.hunk && files.length > 1 ? `the change below is \`${change.file}\`’s` : null;
+  const first = files.length >= KEPT_FILES ? `the first ${KEPT_FILES} git names: it reverts every file the commit changed` : null;
+  return { value: andList(files.map((f) => `\`${f}\``)), quiet: [shown, first].filter(Boolean).join(' · ') || null };
+}
+
+/** Under the change Revert shows, where bisect kept only its start (`cut`): the command that shows it whole, against the first parent as bisect diffed it. */
+export const cutWords = (rev: string, file: string): string => `Its first lines only: \`git diff ${rev}^1 ${rev} -- ${file}\` shows the whole change.`;
+
 /** Revert's warning where the commit changed files outside the project folder: git reverts the whole commit, those too. */
 export const outsideWords = (n: number): string => (n === 1 ? '1 of the commit’s files is outside this project, and git reverts it too' : `${n} of the commit’s files are outside this project, and git reverts them too`);

@@ -126,3 +126,39 @@ describe('Undo of the clock and Push from CI', () => {
     await send('PUT', 'settings/store/ci-push', { on: 'yes', expect: await version() }, 400);
   });
 });
+
+describe('Build, on Settings → Project', () => {
+  const feed = async () => ((await (await api('activity')).json()) as { items: Array<{ text: string; href?: string }> }).items;
+  const read = async () => (await (await api('settings/build')).json()) as { build: string | null; problem: string | null; config: { version: string } };
+
+  it('reads the command that builds the agent, writes it against the version read, and takes the key out again with null', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), `${JSON.stringify({ store: 's3://b/f' }, null, 2)}\n`);
+    const before = file();
+    const none = await read();
+    expect([none.build, none.problem]).toEqual([null, null]);
+    const set = await send<{ build: string | null; was: string | null; changed: boolean; version: string }>('PUT', 'settings/build', { command: ' npm run build ', expect: none.config.version });
+    expect([set.build, set.was, set.changed]).toEqual(['npm run build', null, true]);
+    expect(JSON.parse(file())).toEqual({ store: 's3://b/f', build: 'npm run build' });
+    expect((await read()).build).toBe('npm run build');
+    // A page that read the file before is refused, and nothing changes.
+    await send('PUT', 'settings/build', { command: 'make', expect: none.config.version }, 409);
+    // Its Undo: null against the version the write left, the file as it was.
+    const back = await send<{ build: string | null; was: string | null }>('PUT', 'settings/build', { command: set.was, expect: set.version });
+    expect([back.build, back.was]).toEqual([null, 'npm run build']);
+    expect(file()).toBe(before);
+    expect((await feed()).filter((i) => i.text.startsWith('Build')).map((i) => [i.text, i.href])).toEqual([
+      ['Build removed', '#/settings/project'],
+      ['Build set · npm run build', '#/settings/project'],
+    ]);
+  });
+
+  it('refuses what is no command on one line, in the CLI’s words, an empty one taking the key out, and says why a file’s build can’t run', async () => {
+    const words = 'build must be the command that builds the agent, on one line, such as "npm run build"';
+    for (const command of ['npm run build\nrm -rf ~', 'x'.repeat(1001)]) expect(await send<{ error: string }>('PUT', 'settings/build', { command, expect: (await read()).config.version }, 400)).toMatchObject({ error: words });
+    await send('PUT', 'settings/build', { command: ['npm', 'run', 'build'], expect: (await read()).config.version }, 400);
+    const set = await send<{ version: string }>('PUT', 'settings/build', { command: 'make', expect: (await read()).config.version });
+    expect(await send('PUT', 'settings/build', { command: '  ', expect: set.version })).toMatchObject({ build: null, was: 'make' });
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ build: 7 }));
+    expect(await read()).toMatchObject({ build: null, problem: `shadowlap.config.json: ${words}` });
+  });
+});

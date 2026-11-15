@@ -310,6 +310,16 @@ export function findCommitButton(f: Pick<DivergenceView, 'found' | 'missed' | 'b
   return { range: !!f.bisect && !f.missed, live: !!f.bisect?.live };
 }
 
+/**
+ * Why Find breaking commit can't search a golden whose pack can't be read, where it would be offered
+ * otherwise: its report keeps the button in its place, saying so, rather than dropping it unsaid.
+ * Null for a pack that reads, and wherever the button isn't offered at all.
+ */
+export function findCommitWait(f: Pick<DivergenceView, 'found' | 'missed' | 'bisect' | 'unreadable'>, has: (kind: string) => boolean): string | null {
+  if (!f.unreadable || !findCommitButton({ ...f, unreadable: null }, has)) return null;
+  return `The golden’s pack can’t be read: ${f.unreadable}`;
+}
+
 /** What Find breaking commit found, for the card above the buttons. */
 export function foundLine(f: FoundCommit): { rev: string; subject: string; meta: string } {
   return { rev: f.rev, subject: f.subject, meta: [f.author, f.date ? shortDate(f.date) : null, n(f.tokens, 'token')].filter(Boolean).join(' · ') };
@@ -345,14 +355,15 @@ export interface TestsPaletteEntry {
 }
 
 /**
- * A golden's hint in the palette, in the verdict words Tests uses (decision 9): passed, failed or
- * inconclusive, and for a gate's verdict its tally and Wilson bound ("passed · 12 of 12 · rate >=
- * 0.76 (95%)"); with no result, why its pack can't be read, how its error-path presets came out
- * when only they ran ("presets failed"), or not run yet.
+ * A golden's hint in the palette, in the verdict words Tests uses (decision 9): that its pack can't
+ * be read, over any result it had before; passed, failed or inconclusive, and for a gate's verdict
+ * its tally and Wilson bound ("passed · 12 of 12 · rate >= 0.76 (95%)"); with no result, how its
+ * error-path presets came out when only they ran ("presets failed"), or not run yet.
  */
 export function goldenHint(r: Pick<GoldenRow, 'last' | 'error' | 'presets'>): string {
+  if (r.error) return 'can’t be read';
   const verdict = r.last.verdict ?? (r.last.result === 'pass' ? 'passed' : r.last.result === 'fail' ? 'failed' : null);
-  if (!verdict) return r.error ? 'can’t be read' : r.presets ? `presets ${r.presets.verdict}` : 'not run yet';
+  if (!verdict) return r.presets ? `presets ${r.presets.verdict}` : 'not run yet';
   const g = r.last.gate;
   if (!g || g.attempts === 0) return verdict;
   if (g.clean) return `${verdict} · a clean replay`;

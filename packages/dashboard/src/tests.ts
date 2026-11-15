@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, GATE_TOO_LITTLE, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, judgedUnder as underChecks, goldensPassed, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -9,6 +9,8 @@ import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
 import { bisectAnswers, bisectBlock, committed, standingAnswer, type BisectMiss, type FoundCommit } from './tests-bisect.js';
+import { knownGolden, optionLike, testPatterns } from './tests-paths.js';
+import { shortReason } from './tests-why.js';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -48,17 +50,17 @@ export interface GoldenSource {
 /** How a golden came out: passed, failed, or inconclusive (its gate ran out of attempts between its bounds, or a check couldn't be judged). */
 export type GoldenVerdict = 'passed' | 'failed' | 'inconclusive';
 
+export { knownGolden, optionLike, shortReason, testPatterns };
+export { runTestsJob, updateGoldensJob } from './tests-run.js';
+
 /** A result's verdict: as kept, or for one kept before verdicts were, as its `ok` says (the engine's, which Training's tasks read too). */
 export const verdictOfResult: (r: Pick<TestResult, 'ok' | 'failure' | 'data'>) => GoldenVerdict = testResultVerdict;
 
-/** A golden's gate as the config gives it, in the words Settings previews it in. */
+/** A golden's gate as the config gives it, in the words Settings previews it in: what each extreme takes is Settings → Gates', where its rule under Tests' table leads. */
 export interface GateView {
   gate: Gate;
   /** The gate's rule: `tells 90%+ from 70%- at <= 5% risk, up to 40 attempts`. */
   description: string;
-  /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), and one that always fails (3). Null for history. */
-  toPass: number | null;
-  toFail: number | null;
 }
 
 /**
@@ -428,23 +430,7 @@ export interface TestsView {
 
 const RECORDINGS_NOTE = 'Recordings that pytest and Vitest keep in __recordings__/ run under their own test runner, not here.';
 
-/**
- * A golden whose path starts with `-` (a key under the config's `tests`) would reach the CLI as an
- * option, so no command is ever built with it: it is listed as one that can't be read.
- */
-export const optionLike = (path: string): boolean => path.startsWith('-');
 const OPTION_LIKE = 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json';
-
-/**
- * What `shadowlap test` is given to run every golden: the goldens folder's pattern, which the CLI
- * expands itself without a shell, and each golden kept elsewhere (a pack the config's `tests` names)
- * by its path. A path that would read as an option is left out.
- */
-export function testPatterns(goldens: readonly GoldenSource[], folder = 'goldens'): string[] {
-  const inFolder = (path: string) => path.startsWith(`${folder}/`) && !path.slice(folder.length + 1).includes('/');
-  const elsewhere = goldens.filter((g) => !inFolder(g.path) && !optionLike(g.path)).map((g) => g.path);
-  return [...(goldens.some((g) => inFolder(g.path)) || !elsewhere.length ? [`${folder}/*`] : []), ...elsewhere];
-}
 
 /** Why a golden can't be read: a path that would read as an option (whatever is there), or its pack. */
 export const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
@@ -503,27 +489,6 @@ export function liveTestSession(store: StoreOf<'tests'>): TestSession | null {
 function shownValue(values: VolatileValues): DivergenceView['volatile'] {
   const v = values.values[0];
   return v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null;
-}
-
-/** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`, `inconclusive after 40 attempts`. */
-/** The reason a replay failed under --guard block for a process the guard can't watch (the sidecar's unguardedLine). */
-const UNGUARDED = /^The network guard could not watch every process of the agent/;
-
-export function shortReason(r: TestResult): string {
-  if (r.ok) return 'passed';
-  // Its gate ran out of attempts; else a check could not be judged (which stops a gate before it decides), or its injection gate showed too little.
-  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? `inconclusive: ${GATE_TOO_LITTLE}` : 'inconclusive: a check could not be judged';
-  const reason = r.reason ?? 'failed';
-  if (r.failure === 'diverged') return r.data?.divergence ? `diverged at call ${r.data.divergence.callNo}` : reason.replace(/\s*\(.*\)$/, '');
-  if (r.failure === 'check') return reason.replace(/, but .*$/, '');
-  if (r.failure === 'exit') return /exited with code \d+/.exec(reason)?.[0] ?? reason.replace(/^the agent /, '');
-  if (r.failure === 'no-calls') return 'made no calls';
-  // Under --guard block, a replay no preload loaded in, so the guard never watched it; or one a
-  // process ran in that the guard can't watch, as the Claude Code CLI the Claude Agent SDK runs.
-  if (r.failure === 'guard') return UNGUARDED.test(reason) ? 'unguarded: a process the network guard can’t watch ran' : 'no preload loaded: the network guard never watched it';
-  // Its injection gate: what obeyed, without the limit and the proof the reason goes on with.
-  if (r.failure === 'injection') return reason.replace(/ \(at most[^)]*\).*$/, '');
-  return `couldn't run: ${reason}`;
 }
 
 /**
@@ -622,7 +587,7 @@ export const modeOf = (g: GoldenSource) =>
 /** A golden's gate in the words Settings previews it in, with what it costs at the extremes. */
 function gateView(gate: Gate | null | undefined): GateView | null {
   if (!gate) return null;
-  return { gate, description: describeGate(gate), toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null, toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null };
+  return { gate, description: describeGate(gate) };
 }
 
 export { gatePreview, PREVIEW_HISTORY, type GatePreview } from './tests-gate.js';
@@ -915,8 +880,9 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       changed: checksChanged(latest, checksNow(g)),
       injection: !!g.injection,
       history: historyCells(store, list, revisions, { columnOf, columns: sessionIds, note: (r) => cellNote(store, r, g.checks, rules), runId: (r) => runIfKept(store, r.runId) }),
+      // A pack that can't be read says so over the result it had before, which no test can repeat.
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
+        ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: error ? `can't be read: ${error}` : latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
         : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : presetsOf.get(g.path) ? `${presetsOf.get(g.path)!.line} · replay not tested yet` : 'not run yet', at: null, updated: false, gate: null },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,
@@ -1394,55 +1360,12 @@ export function bisectArgs(ref: string, good: string, bad: string | null, fork: 
  */
 export type TestsJob = { title: string; args: string[]; runId?: string } | { title: string; steps: string[][]; runId?: string } | { error: string };
 
-/** The golden a request names, as listed on disk, or null; never a path the CLI would read as an option. */
-export function knownGolden(goldens: readonly GoldenSource[], raw: unknown): string | null {
-  const path = typeof raw === 'string' ? (goldens.find((g) => g.path === raw)?.path ?? null) : null;
-  return path !== null && !optionLike(path) ? path : null;
-}
-
 /** A sha, a tag or a branch, possibly with `~n` or `^`; never an option or a range. A tested `+dirty` revision is its commit. */
 const REVISION = /^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/;
 export function checkedRevision(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const rev = raw.trim().replace(/\+dirty$/, '');
   return REVISION.test(rev) && !rev.includes('..') ? rev : null;
-}
-
-/**
- * Run tests: every golden (`test goldens/*` and any kept elsewhere), or the one `golden` names.
- * `maxAttempts` is Run more attempts: each gate's limit raised for this session only (`--max-attempts`).
- */
-export function runTestsJob(goldens: readonly GoldenSource[], req: Record<string, unknown>, options: TestsOptions = {}): TestsJob {
-  let more: string[] = [];
-  if (req.maxAttempts !== undefined) {
-    const n = req.maxAttempts;
-    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > GATE_MAX_ATTEMPTS) return { error: `maxAttempts is a whole number from 1 to ${GATE_MAX_ATTEMPTS}` };
-    more = ['--max-attempts', String(n)];
-  }
-  // Run more attempts carries an inconclusive gate's attempts over rather than starting again.
-  if (req.continue !== undefined) {
-    if (typeof req.continue !== 'boolean') return { error: 'continue is true or false' };
-    if (req.continue) more.push('--continue');
-  }
-  if (req.golden !== undefined) {
-    const golden = knownGolden(goldens, req.golden);
-    return golden ? { title: more.length ? ACTIONS.runMoreAttempts.doing : ACTIONS.runTests.doing, args: ['test', golden, ...more] } : { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
-  }
-  if (!goldens.length) return { error: `no goldens yet: pack a run you consider correct into ${options.folder ?? 'goldens'}/ first` };
-  return { title: ACTIONS.runTests.doing, args: ['test', ...testPatterns(goldens, options.folder), ...more] };
-}
-
-/** Update golden, or Update goldens for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */
-export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
-  const raw = Array.isArray(req.goldens) ? req.goldens : req.golden !== undefined ? [req.golden] : [];
-  if (!raw.length || raw.length > 500) return { error: 'name the goldens to update' };
-  const paths: string[] = [];
-  for (const r of raw) {
-    const golden = knownGolden(goldens, r);
-    if (!golden) return { error: `no such golden: ${typeof r === 'string' ? r : 'a name that is not text'}` };
-    if (!paths.includes(golden)) paths.push(golden);
-  }
-  return { title: paths.length === 1 ? ACTIONS.updateGolden.doing : ACTIONS.updateGoldens.doing, args: ['test', ...paths, '--update'] };
 }
 
 /**

@@ -29,13 +29,19 @@ type Cell = ChaosMatrix['cells'][number];
 /** The attempt a cell opens: the first that didn't pass, else the last. */
 const shownAttempt = (c: Cell): string | null => (c.runs.find((r) => !r.passed) ?? c.runs.at(-1))?.runId ?? null;
 
-/** A cell as the matrix draws it: the verdict, `5 of 6 passed`, the gate's bound, the attempt it opens and a card with a row per attempt. */
+/**
+ * A cell as the matrix draws it: the verdict, `5 of 6 passed`, the gate's bound, the attempt it opens
+ * and a card with a row per attempt and what they spent and sent upstream. A preset that couldn't
+ * apply says why under its title: its detail, as the CLI keeps it (the call it would hit, then why).
+ */
 function cellOf(c: Cell, col: MatrixCol): MatrixCell {
   const w = word(c.verdict);
   const tally = c.attempts ? `${c.passes} of ${c.attempts} passed` : null;
   const opens = shownAttempt(c);
   const rows = c.runs.map((r, i) => ({ label: `attempt ${i + 1} · ${shortId(r.runId)}`, value: r.passed ? 'passed' : `${r.verdict}${r.reason ? `: ${r.reason}` : ''}`, color: TONE_COLOUR[r.passed ? 'ok' : cellTone({ word: r.verdict })] }));
-  return { word: w, tally, bound: c.bound, href: opens ? href.run(opens, c.callNo) : null, tip: tipCard([c.label, w, tally, c.bound].filter(Boolean).join(' · '), rows, col.sub ?? c.reason) };
+  if (c.attempts) rows.push({ label: 'spent', value: `${approx(c.spent)} · ${plural(c.upstreamRequests, 'upstream request')}`, color: '' });
+  const note = c.verdict === 'not-applicable' ? c.detail || null : (col.sub ?? c.reason);
+  return { word: w, tally, bound: c.bound, href: opens ? href.run(opens, c.callNo) : null, tip: tipCard([c.label, w, tally, c.bound].filter(Boolean).join(' · '), rows, note) };
 }
 
 /**

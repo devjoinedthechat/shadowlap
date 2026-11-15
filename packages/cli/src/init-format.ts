@@ -122,9 +122,21 @@ function found(w: InitWriter, server: string | null): void {
   if (r.frameworks.length) out(`  Framework: ${r.frameworks.map((f) => `${f.name}${f.version ? ` ${f.version}` : ''}`).join(', ')}`);
   if (r.modelServer) out(`  Model server: ${server ?? r.modelServer.url} ${p.dim(`(${r.modelServer.from}${w.secret ? '; its credentials aren’t shown' : ''})`)}`);
   if (r.command) out(`  Agent command: ${quoteArgv(r.command.argv)} ${p.dim(`(${r.command.from})`)}`);
+  if (r.build) buildLine(w, r.build);
   const unwrapped = r.tools.filter((t) => !t.effect).length;
   out(`  Tools: ${r.tools.length ? `${r.tools.length} found, ${r.tools.length - unwrapped} with an effect` : 'none found'}`);
   out();
+}
+
+/**
+ * The build package.json runs, and what the config does with it: the build it names already, or how
+ * to name this one, for an agent that runs what it builds (a TypeScript agent's `dist/`).
+ */
+function buildLine({ p, out }: InitWriter, build: NonNullable<InitReport['build']>): void {
+  const command = quoteArgv(build.argv);
+  out(`  Build: ${command} ${p.dim(`(${build.from})`)}`);
+  if (build.configured) out(`    ${p.dim(`${CONFIG_FILE} builds with ${build.configured} before repair, fix apply, verify, migrate apply and bisect replay the agent`)}`);
+  else out(`    ${p.dim(`if the agent runs what it builds, add "build": ${JSON.stringify(command)} to ${CONFIG_FILE}: repair, fix apply, verify, migrate apply and bisect rebuild it then`)}`);
 }
 
 /** What would keep calls from being recorded, or the CLI from running: a host Shadowlap doesn't know, a model sent where it can't follow, no model SDK, a Node too old. */
@@ -258,6 +270,7 @@ export function formatInitJob(json: InitJson, p: Palette): string {
   if (json.modelServer) row('model server', `${json.modelServer.url}   from ${json.modelServer.from}`);
   row('framework', s.framework ?? 'none detected');
   row('command', s.command ? `${s.command}   from ${s.commandFrom ?? 'the project'}` : 'none found');
+  if (json.build) row('build', `${quoteArgv(json.build.argv)}   from ${json.build.from}${json.build.configured ? ` · ${CONFIG_FILE} builds with ${json.build.configured}` : ''}`);
   for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect!}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
   for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host Shadowlap doesn't know: calls through it aren't recorded`, true);
   for (const m of json.unrecordedModels) row('model', `${m.file}:${m.line} names ${m.model}: ${m.via === 'mastra' ? 'Mastra' : FRAMEWORK_NAMES[m.via]} sends it to a host Shadowlap doesn't know, so its calls aren't recorded`, true);

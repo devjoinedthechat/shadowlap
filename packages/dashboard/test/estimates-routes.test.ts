@@ -239,6 +239,11 @@ describe('Tests’ estimates', () => {
     expect(after.goldens['goldens/both'].rerun?.usd).toBeCloseTo(0.28, 10);
     // Run tests: what the last session spent live, with each live golden's gate at what it spent the last time.
     expect(after.run?.usd).toBeCloseTo(0.02 + 0.03 + 0.5 + 0.25, 10);
+    // Run tests on the goldens picked: what those of them that run live spent; one that only replays is Free, one not on disk left out.
+    const picked = await get<TestsEstimates>('tests/estimates?run=goldens/fork&run=goldens/gated&run=goldens/nosuch');
+    expect(picked.picked?.usd).toBeCloseTo(0.02 + 0.5, 10);
+    expect((await get<TestsEstimates>('tests/estimates?run=goldens/replay')).picked).toMatchObject({ kind: 'tests', usd: 0 });
+    expect(after.picked).toBeUndefined();
 
     // A session that re-ran one golden says nothing of the others: each is priced at its own newest test.
     const one = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/fork'], startedAt: T0 + 30 }).sessionId;

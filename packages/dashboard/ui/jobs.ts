@@ -172,6 +172,25 @@ export function unrecordedRefused(lines: readonly string[]): string | null {
   return null;
 }
 
+/** A word of a command line as the CLI quotes it (quoteArgv): a single-quoted one unquoted. */
+const unquoted = (w: string): string => (w.startsWith("'") && w.endsWith("'") && w.length > 1 ? w.slice(1, -1).replace(/'\\''/g, "'") : w);
+
+/**
+ * The tools a refused job may run again, as the CLI's refusal names them in the flag it suggests
+ * (`--allow-unrecorded Bash,Write`, at the end of `replay`'s refusal and of `test`'s): what Run
+ * again, allowing offers. Null where the refusal suggests no flag, as for a command that takes none.
+ */
+export function unrecordedAllow(lines: readonly string[]): string[] | null {
+  if (!unrecordedRefused(lines)) return null;
+  let named: string | null = null;
+  for (const l of lines) {
+    const m = /--allow-unrecorded ('(?:[^']|'\\'')*'|\S+)/.exec(l);
+    if (m) named = unquoted(m[1]!);
+  }
+  const tools = named?.split(',').filter(Boolean) ?? [];
+  return tools.length ? tools : null;
+}
+
 const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
 
 /**

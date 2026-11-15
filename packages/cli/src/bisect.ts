@@ -51,6 +51,8 @@ export interface BisectInput {
   fork?: boolean;
   /** A shell command run in each worktree before its replay. */
   build: string | null;
+  /** Where that command came from when nobody typed it (`build` in shadowlap.config.json): said once, under the search's first line. */
+  buildNote?: string | null;
   /** Where the recorded command runs: a directory inside the repository. */
   cwd: string;
   timeoutMs: number | null;
@@ -416,6 +418,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   if (range.fromBase) input.log(`  ${range.fromBase}, ${good.short}`);
   input.log(`▸ ${target.name} · good ${good.short} · bad ${bad.short} · ${commits.length} commit${commits.length === 1 ? '' : 's'} apart`);
   if (set.note) input.log(`  ${set.note}`);
+  if (input.buildNote) input.log(`  ${input.buildNote}`);
   if (input.bad === 'HEAD' && git(range.root, ['status', '--porcelain', '--untracked-files=no']).trim()) input.log('  uncommitted changes are not part of it: each replay runs a commit as committed');
 
   const base = scratchDir(projectDir, 'bisect');
@@ -528,7 +531,7 @@ async function search(report: BisectReport, range: Range, probe: (rev: string) =
   const atGood = await probe(range.goodRev);
   if (stopped()) return;
   if (atGood.skipped) return none('untestable', `${good.short} ${atGood.result}`);
-  if (!atGood.ok) return none('fails-at-good', `it already fails at ${good.short}: ${atGood.result}. Give an older --good, or, when the agent can't start in a fresh checkout, --build with what it needs`);
+  if (!atGood.ok) return none('fails-at-good', `it already fails at ${good.short}: ${atGood.result}. Give an older --good, or, when the agent can't start in a fresh checkout, --build with what it needs (or build in shadowlap.config.json)`);
   const found = await halve(commits, atBad.result, probe, stopped);
   if (!found) return;
   report.outcome = 'found';

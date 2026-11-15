@@ -11,7 +11,8 @@ import { openReport } from './tests-fixture.js';
  * crash's fix its Blame step shows the commit, its change, the exception the agent died of and where
  * to look, and Revert leads its head with Open in editor beside it and no Find breaking commit. Each
  * has no serious axe violation at 1440 and 390 with the change open, nor has Revert's dialog, whose
- * code box of the change undone keeps to its width. A revert's drawer reads Reverting, then Reverted
+ * code box of the change undone keeps to its width, with every file it undoes named and a change
+ * bisect kept only the start of said so. A revert's drawer reads Reverting, then Reverted
  * where git reverted, its status not saying
  * reverted again, or Tried reverting where git refused.
  */
@@ -101,6 +102,20 @@ for (const [width, height] of [
     expect(await seriousViolations(page)).toEqual([]);
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
+  });
+
+  test(`at ${width}×${height} Revert's dialog names every file it undoes, whose change it shows, and that bisect kept only its start, passing axe`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const files = ['agent/refund.py', 'agent/policy.py', 'docs/refunds.md'];
+    const run = await routeCrash(page, { ...FOUND, change: { ...FOUND.change!, files, cut: true } });
+    await openPage(page, `/run/${run}`, 'run');
+    await page.locator('.rhead .btn.lime[data-next="revert"]').click();
+    const dialog = page.locator(DIALOG);
+    const row = dialog.locator('.dfacts > div', { has: page.locator('dt', { hasText: /^Files$/ }) });
+    await expect(row.locator('dd')).toContainText('agent/refund.py, agent/policy.py and docs/refunds.md');
+    await expect(row.locator('dd')).toContainText('the change below is agent/refund.py’s');
+    await expect(dialog.locator('.fieldnote')).toHaveText(`Its first lines only: git diff ${REV}^1 ${REV} -- agent/refund.py shows the whole change.`);
+    expect(await seriousViolations(page)).toEqual([]);
   });
 
   test(`at ${width}×${height} Tests shows the commit's change under its card and leads with Revert, passing axe`, async ({ page }) => {
