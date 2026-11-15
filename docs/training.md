@@ -285,6 +285,7 @@ nor a score can run.
 | `model`, `provider` | string or null | The model and provider the recording asked at the takeover |
 | `callName` | string or null | The endpoint the recording asked there |
 | `tokensAfter` | object or null | The tokens it used from the takeover on |
+| `callsAfter` | number | The model calls it made from the takeover on |
 | `fork` | object | Only for a task whose test forked before the takeover: the call it forked at, and that test's run |
 
 `oneSided` is `null`, or:
@@ -609,7 +610,9 @@ How each is shown:
 - **Why, by its own provider.** The reason comes from a task recorded on its own provider when there
   is one: a Bedrock model's reason is Bedrock's, not that another task was recorded on Azure.
 - **Price.** An attempt's price is the model's price times the tokens the recordings used after their
-  takeovers, averaged over the tasks. A model on this machine costs $0.
+  takeovers, averaged over the tasks. They are priced as their average call, at the card that call's
+  prompt picks ([prices by the prompt's length](./tui.md#prices-by-the-prompts-length)), times the
+  calls. A model on this machine costs $0.
 - **Asking.** Each list is asked once, all at the same time. A provider that has no key, isn't running
   or doesn't answer within `--timeout` (1500 ms) becomes a note instead.
 - **Ollama behind `OPENAI_BASE_URL`.** An OpenAI-compatible endpoint that is Ollama's own server

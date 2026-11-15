@@ -45,6 +45,7 @@ const task = (golden: string, status: Task['status'], rewards: string | null, ex
   provider: 'anthropic',
   callName: 'POST /v1/messages',
   tokensAfter: { inputTokens: 10_000, outputTokens: 1_000 },
+  callsAfter: 1,
   ...extra,
 });
 

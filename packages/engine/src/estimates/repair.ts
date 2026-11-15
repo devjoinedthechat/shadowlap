@@ -1,7 +1,7 @@
 import type { BlameReport } from '../blame.js';
 import { REPAIR_VERIFIES, repairParts, repairRunsNothing } from '../cost-words.js';
 import { DEFAULT_REPAIRER } from '../fix-jobs.js';
-import { estimateCost } from '../prices.js';
+import { estimateCalls } from '../prices.js';
 import { SPRT_DEFAULTS } from '../stats.js';
 import type { RunRecord } from '../types.js';
 import { blameBound, probedCalls } from './blame.js';
@@ -63,7 +63,9 @@ export function repairerBound(repairer: string, promptChars: number, prices?: Pr
   const turns = provider === 'claude-code' ? REPAIRER_LIMITS.claudeCodeTurns : 1;
   const prompt = Math.ceil(promptChars / REPAIRER_LIMITS.charsPerToken);
   const answer = REPAIRER_LIMITS.answerTokens;
-  return { usd: estimateCost(model, { inputTokens: turns * prompt + (turns - 1) * answer, outputTokens: turns * answer }, prices), model };
+  // Each turn priced as the call it is: the prompt, from the second on with the answer before it.
+  const calls = Array.from({ length: turns }, (_, k) => ({ inputTokens: prompt + (k ? answer : 0), outputTokens: answer }));
+  return { usd: estimateCalls(model, calls, prices), model };
 }
 
 /** A failing run a repair takes: its priced calls, and the blame it would reuse. */

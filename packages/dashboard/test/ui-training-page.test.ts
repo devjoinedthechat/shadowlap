@@ -33,6 +33,7 @@ const task = (golden: string, status: Task['status'], note: string | null, extra
   provider: status === 'not-a-task' ? null : 'anthropic',
   callName: status === 'not-a-task' ? null : 'POST /v1/messages',
   tokensAfter: null,
+  callsAfter: 0,
   ...extra,
 });
 
