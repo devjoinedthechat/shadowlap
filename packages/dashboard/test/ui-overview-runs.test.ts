@@ -4,6 +4,7 @@ import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { factTip } from '../ui/components/Facts.js';
 import { activityGlyph, activityLine, attemptsPart, chartScale, dayText, funnelParts, keepParts, keepPieces, kindGlyph, lastWeekWords, originCounts, originRows, overviewFacts, personName, reproducedNote, share, shortPaths, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
+import { dotInside } from '../ui/overview/words.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -89,6 +90,12 @@ describe('the Overview’s words', () => {
       { text: 'Packed · ', kind: 'text' },
       { text: 'list-inbox-label-thread-d2a5a7', kind: 'nw' },
     ]);
+    // A long part's dot goes inside the name kept whole before it, so the two move to a line together; after words, it stays.
+    expect(dotInside(keepPieces('Imported digest-cassette.json\u00a0·'))).toEqual([
+      { text: 'Imported ', kind: 'text' },
+      { text: 'digest-cassette.json\u00a0·', kind: 'nw' },
+    ]);
+    expect(dotInside(keepPieces('Recorded 30\u00a0calls\u00a0·'))).toEqual([{ text: 'Recorded 30\u00a0calls\u00a0·', kind: 'text' }]);
   });
 
   it('lists the origins present in the design’s order, with their shares', () => {

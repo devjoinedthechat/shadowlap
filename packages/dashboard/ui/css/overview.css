@@ -89,7 +89,9 @@
    folders, so it is none) */
 .feed .w code { display: inline-block; max-width: 100%; font-size: 11px; color: var(--faint); vertical-align: baseline; }
 .feed .w code.ts-cb:not(.whole) ts-p { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; vertical-align: baseline; }
-@media (max-width: 340px) { .feed .w .nw { white-space: normal; } }
+/* At 340px and under a piece kept whole may wrap inside, past a line's width, but moves to the next line whole first: a
+   hyphenated name never breaks at its hyphen, nor a short part before its dot, where the line has room for it */
+@media (max-width: 340px) { .feed .w .nw { display: inline-block; max-width: 100%; white-space: normal; } }
 
 @media (max-width: 640px) {
   .kpi b { font-size: 22px; }
