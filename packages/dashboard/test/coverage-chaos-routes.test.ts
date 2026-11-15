@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { keptPresetBound, messageOf, PACK_FORMAT, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import { lineage } from '../src/api.js';
-import { chaosMatrices, chaosOfGolden, chaosOfRun, type ChaosMatrix } from '../src/chaos.js';
+import { chaosMatrices, chaosOfRun, type ChaosMatrix } from '../src/chaos.js';
 import { coverageLook, coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
 import { MAX_EXPECT } from '../src/expect-field.js';
 import { treeUse } from '../src/worktree.js';
@@ -306,8 +306,8 @@ describe('error-path presets', () => {
     expect((await getJson<{ matrix: ChaosMatrix | null }>(`chaos/runs/${attempt}`)).matrix?.runId).toBe(golden);
     expect((await getJson<{ matrix: ChaosMatrix | null }>(`chaos/runs/${capture}`)).matrix).toBeNull();
     expect((await api('chaos/runs/NOPE')).status).toBe(404);
-    expect(chaosOfRun(store, golden)).toEqual(chaosOfGolden(store, 'goldens/forecast'));
-    expect(chaosOfGolden(store, 'goldens/other')).toBeNull();
+    expect(chaosOfRun(store, golden)).toEqual(chaosMatrices(store).find((m) => m.golden === 'goldens/forecast'));
+    expect(chaosMatrices(store).some((m) => m.golden === 'goldens/other')).toBe(false);
   });
 
   it("serves Run error-path presets…'s plan, a pooled read, for the picks it is asked with", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type ChaosResultData } from '@shadowlap/engine';
-import { chaosMatrices, chaosOfGolden } from '../src/chaos.js';
+import { chaosMatrices } from '../src/chaos.js';
 
 /**
  * Each attempt of an error-path preset, as the dashboard's presets matrix gives it, carries its own
@@ -31,7 +31,7 @@ describe("an error-path preset's attempts on the dashboard", () => {
       add('429', 'failed', 0, { reason: 'the agent exited with code 1', runs: [{ runId: 'A7', passed: false, exitCode: 1, reason: 'the agent exited with code 1' }] });
       add('500', 'passed', 1, { runs: [{ runId: 'A8', verdict: 'passed', passed: true, exitCode: 0 }] });
 
-      const m = chaosOfGolden(store, 'goldens/a')!;
+      const m = chaosMatrices(store).find((x) => x.golden === 'goldens/a')!;
       expect(m.cells.map((c) => [c.preset, c.verdict, c.runs.map((r) => `${r.runId} ${r.verdict}`)])).toEqual([
         ['timeout', 'inconclusive', ['A1 inconclusive']],
         ['empty', 'inconclusive', ['A2 passed', 'A3 inconclusive']],

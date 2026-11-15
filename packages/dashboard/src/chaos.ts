@@ -347,11 +347,6 @@ export function chaosMatrices(store: StoreOf<'chaos'>): ChaosMatrix[] {
   return matrices(store.latestChaosResults(), commandsOf(store));
 }
 
-/** A Tests row's presets: the newest matrix of a golden, by its name. */
-export function chaosOfGolden(store: StoreOf<'chaos'>, golden: string): ChaosMatrix | null {
-  return matrices(store.latestChaosResults().filter((r) => r.golden === golden), commandsOf(store))[0] ?? null;
-}
-
 /** The `chaos` job's presets and tool, checked: `--presets` and `--chaos-tool` for the command. */
 export function chaosFlags(req: Record<string, unknown>): string[] | { error: string } {
   const out: string[] = [];

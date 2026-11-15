@@ -508,15 +508,6 @@ export function workflowFile(s: WorkflowFileSettings): string {
 }
 
 /**
- * Every comment line the steps can carry, trimmed, so a patch of a workflow takes out those the
- * switches no longer write: under the env, or under its commented-out `# env:`, and Push from CI's.
- */
-export function generatedComments(): Set<string> {
-  const notes = [AGENT_KEYS_COMMENT, FIX_UNREADABLE_COMMENT, ALERTS_UNREADABLE_COMMENT, liveKeysComment(true), liveKeysComment(false)];
-  return new Set([...notes, '# env:', ...notes.map((n) => `#   ${n.replace(/^# /, '')}`), BUCKET_COMMENT.oidc, BUCKET_COMMENT.keys]);
-}
-
-/**
  * The goldens that run live in CI and the keys they need, as a needs row says them: "2 goldens run
  * live (fork) · ANTHROPIC_API_KEY". `count` goldens, for `why` (a fork, an injection gate).
  */
