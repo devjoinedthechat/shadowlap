@@ -3679,7 +3679,6 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
 | `chaos { golden, presets?, tool?, confirmed? }` | `test <golden> --chaos` |
 | `chaos { runId, presets?, tool?, expect?, confirmed? }` | `replay <run> --chaos`, with `--expect` |
-| `check { expect?, recordings? }` | [`shadowlap check`](./cli.md#check): a check tried on run ids, `label:<name>` or the project's goldens, nothing replayed |
 | `coverage {}` | Scan again |
 | `coverage-pack { key?, command?, confirmed?, fork?, expect? }` | `coverage --pack` |
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }` | A decision diff |
@@ -3733,7 +3732,6 @@ What some of them do:
 - **`chaos`'s `expect`** is Run error-path presets…'s Judged by on a run, the text of its `--expect`, checked as the CLI checks it: a 400 in its words, or *those checks are too long*. A golden takes none, refused as *expect goes with a run*.
 - **`chaos` on a golden** from a pack your repository doesn't track runs only `confirmed`, the `confirm` of the 409 that named the command each preset runs.
 - **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.
-- **`check`** without run ids, a label or the goldens tries every recording; its result is the report.
 - **`pack-test`** without `runId` packs the setup's recording. It is refused with a 409 while packing waits: a write tool isn't wrapped, or the recording was made before it was.
 - **`coverage-pack`** packs a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed. With `fork` and `expect`, it packs a golden that forks. It is refused with a 409 while a test session, an update or another pack runs.
 - **`coverage-pack`'s `expect`** is checked as the CLI checks `--expect`: a check it would refuse is a 400 in its words.

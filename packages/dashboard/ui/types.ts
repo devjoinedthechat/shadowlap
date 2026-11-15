@@ -174,27 +174,6 @@ export interface CheckView {
 /** How a check came out: passed, failed, inconclusive (it could not be decided) or not applicable (a `when` whose condition never held). */
 export type CheckStatusView = 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
 
-/** One check's result as the CLI reports it (`shadowlap check --json`, a test's checks). `ok` is true for passed and not applicable. */
-export interface CheckResultView {
-  status: CheckStatusView;
-  ok: boolean;
-  label: string;
-  detail: string | null;
-  /** A judge's reason, and where its verdict came from. */
-  reason?: string;
-  source?: 'recording' | 'live';
-}
-
-/** The result of a `check` job: `shadowlap check --json`, recordings judged by a check with nothing replayed. */
-export interface CheckReportView {
-  expect: unknown;
-  recordings: Array<{ runId: string; pack: string | null; labels: string[]; source: string; outcome: 'passed' | 'failed' | 'inconclusive'; why: string[]; checks: CheckResultView[] }>;
-  counts: { passed: number; failed: number; inconclusive: number };
-  unchecked: string[];
-  /** Recordings labelled good that fail, labelled bug that pass. */
-  notes: string[];
-}
-
 /** Where the prompt cache stopped hitting: the call, and the tokens it sent again. */
 export interface CacheMissView {
   callNo: number;

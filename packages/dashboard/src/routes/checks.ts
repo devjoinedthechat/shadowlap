@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { ConfigBusyError, ConfigConflictError, SUGGESTED_MAX, agentOfArgv, agentOfRun, cleanLabel, editWhenFree, isObject, readConfigFile, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { ConfigBusyError, ConfigConflictError, SUGGESTED_MAX, agentOfArgv, agentOfRun, editWhenFree, isObject, readConfigFile, type RunRecord } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { CheckPreviewJob } from '../check-preview.js';
 import { ENTRY_KEYS, agentGoldens, changedWords, checksConfig, goldenAgent, printsOf, restoreTestsEntry, writeTestsEntry, type EntryEdit, type TestsWritten } from '../config-tests.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { goldensOf } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -32,23 +31,12 @@ import { VERSION, editError, editFolder, failed, log } from './settings-edits.js
  *   PUT  /api/checks/tests { golden, version, read, entry }   the golden's entry, its `expect` set or taken
  *                                                     out (null), refused when the file changed since
  *                                                     `version`, naming what changed from `read`
- *
- * The job kind runs `shadowlap check`, which judges recordings from what they recorded, replaying
- * nothing; the job's result is its report (`--json`'s, which the CLI reports over the events pipe):
- *
- *   check   { expect?, recordings? }   `expect`: the expect object to try (an object, or its JSON);
- *                                      without it, each recording's own checks under `tests`.
- *                                      `recordings`: run ids or unique prefixes, `label:<name>`, or
- *                                      goldens the project lists; none, every recording in the store
  */
-
-export const CHECK_JOB_KIND = 'check';
 
 /** As long as a check a person writes gets, with room to spare. */
 const MAX_EXPECT = 64 * 1024;
-const MAX_RECORDINGS = 200;
-/** The agent's recordings a draft is judged on, newest first: as many as the check job names at most. */
-export const PREVIEW_RECORDINGS = MAX_RECORDINGS;
+/** The agent's recordings a draft is judged on, newest first. */
+export const PREVIEW_RECORDINGS = 200;
 /** The labels of the builder's checks a request for suggestions may name, more than any golden holds. */
 const MAX_HAVE = 200;
 
@@ -67,38 +55,6 @@ function expectOf(raw: unknown): { expect: Record<string, unknown> | null } | { 
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return { error: 'the check is an expect object, such as {"tools":{"send_email":0}}' };
   if (JSON.stringify(value).length > MAX_EXPECT) return { error: 'that check is too long' };
   return { expect: value as Record<string, unknown> };
-}
-
-/** One recording a request names, as the CLI takes it: a run's full id, `label:<name>`, or a golden's path. */
-function recordingArg(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], raw: unknown): string | { error: string; status: number } {
-  if (typeof raw !== 'string' || !raw) return { error: 'name each recording as text: a run id, label:<name> or a golden', status: 400 };
-  if (raw.startsWith('label:')) {
-    const label = cleanLabel(raw.slice('label:'.length));
-    return 'error' in label ? { error: label.error, status: 400 } : `label:${label.label}`;
-  }
-  const golden = goldens.find((g) => g.path === raw && !g.path.startsWith('-'));
-  if (golden) return golden.path;
-  const run = lookupRun(store, raw);
-  return run ? run.runId : { error: `no run or golden ${raw.slice(0, 40)}`, status: 404 };
-}
-
-/** `check`: the arguments `shadowlap check` runs with, built from checked fields, or why it can't run. */
-export function checkJob(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], req: JobRequest): JobBuildResult {
-  const asked = expectOf(req.expect);
-  if ('error' in asked) return { error: asked.error };
-  const raw = req.recordings ?? [];
-  if (!Array.isArray(raw)) return { error: 'recordings is a list: run ids, label:<name> or goldens' };
-  if (raw.length > MAX_RECORDINGS) return { error: `name at most ${MAX_RECORDINGS} recordings, or none for every recording in the store` };
-  const recordings: string[] = [];
-  for (const r of raw) {
-    const arg = recordingArg(store, goldens, r);
-    if (typeof arg !== 'string') return arg;
-    if (!recordings.includes(arg)) recordings.push(arg);
-  }
-  return {
-    args: ['check', ...recordings, ...(asked.expect ? ['--expect', JSON.stringify(asked.expect)] : [])],
-    title: recordings.length === 1 ? 'Checking a recording' : 'Checking recordings',
-  };
 }
 
 /** The project folder the builder reads and writes the config in; a dashboard without one makes no checks. */
@@ -194,8 +150,6 @@ function conflict(dir: string, read: ReturnType<typeof printsOf>, err: unknown):
 }
 
 export function register(router: Router, ctx: RouteContext): void {
-  ctx.jobs.registerJobKind(CHECK_JOB_KIND, { title: () => 'Checking recordings', build: (req, { store }) => checkJob(store, goldensOf(ctx), req) });
-
   router.get('/checks/goldens', (r) => {
     const dir = checksFolder(ctx);
     const { agent, golden } = whose(ctx, dir, r.query.get('run'), r.query.get('golden'));

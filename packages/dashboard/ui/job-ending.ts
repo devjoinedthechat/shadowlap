@@ -173,23 +173,6 @@ function repeatStatus(job: EndedJob, code: number): JobWords | null {
   return { text: paths.length === 1 && !forked ? 'identical · exit 0' : `${Math.max(...runs)} of ${total} same path · exit 0`, tone: 'ok' };
 }
 
-/** A check tried on the recordings, by the counts it reported. */
-function checkStatus(job: EndedJob, code: number): JobWords | null {
-  if (job.kind !== 'check') return null;
-  const r = asRecord(job.result);
-  const counts = asRecord(r?.counts);
-  if (!r || !counts || !Array.isArray(r.recordings)) return null;
-  const exit = `exit ${code}`;
-  const n = r.recordings.length;
-  if (!n) return { text: `nothing to check · ${exit}`, tone: 'warn' };
-  // As `shadowlap check` counts them: a recording no check applied to is not applicable, never passed.
-  const na = Number(counts.notApplicable ?? 0);
-  const tally = `${Number(counts.passed ?? 0)} of ${n} recording${n === 1 ? '' : 's'} passed${na ? `, ${na} not applicable` : ''}`;
-  if (counts.failed) return { text: `failed · ${tally} · ${exit}`, tone: 'err' };
-  if (counts.inconclusive) return { text: `inconclusive · ${tally} · ${exit}`, tone: 'warn' };
-  return na === n ? { text: `not applicable · ${tally} · ${exit}`, tone: '' } : { text: `passed · ${tally} · ${exit}`, tone: 'ok' };
-}
-
 const INJECTION_TONES: Readonly<Record<string, JobWords['tone']>> = { failed: 'err', inconclusive: 'warn', passed: 'ok', caused: 'err', 'not caused': '' };
 
 /**
@@ -262,5 +245,5 @@ function doctorStatus(job: EndedJob, code: number): JobWords | null {
 
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return doctorStatus(job, code) ?? fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return doctorStatus(job, code) ?? fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
 }

@@ -94,9 +94,6 @@ export const JOB_KINDS = {
   pairs: 'pairs',
   score: 'score',
   taskUpdate: 'task-update',
-  // Checks: `shadowlap check`, a check tried on the recordings, nothing replayed; its result is a CheckReportView.
-  // The check builder judges its draft with a pooled read instead (POST /api/checks/preview).
-  check: 'check',
   // The decision diff (Changes): ask the recorded model calls again under a change, migrate to a
   // model, and verify the runs a session flagged.
   decisions: 'decisions',
