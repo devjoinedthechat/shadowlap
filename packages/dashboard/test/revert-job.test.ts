@@ -55,15 +55,28 @@ function named(golden: string, rev: string): void {
 
 const api = (path: string, init: RequestInit = {}, d: Dashboard = dash) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
 const start = (body: unknown, d: Dashboard = dash) => api('jobs', { method: 'POST', body: JSON.stringify(body) }, d);
+/** The job once it has ended, however long a loaded machine makes it take: the test's own timeout bounds it, never a count of polls. */
 async function ended(res: Response): Promise<JobView> {
   expect(res.status, await res.clone().text()).toBe(202);
   const { id } = (await res.json()) as JobView;
-  for (let i = 0; i < 400; i++) {
+  for (;;) {
     const view = (await (await api(`jobs/${id}`)).json()) as JobView;
     if (view.done) return view;
     await new Promise((r) => setTimeout(r, 25));
   }
-  throw new Error(`job ${id} did not finish`);
+}
+
+/**
+ * Every job the dashboard started has ended and let go of the tree. A test that stopped waiting for
+ * its job (it failed) would otherwise have the next one's git run beside that job's revert, which
+ * holds .git/index.lock, and the next revert refused with a 409 while the job holds the tree.
+ */
+async function letGo(): Promise<void> {
+  for (;;) {
+    const { jobs } = (await (await api('jobs')).json()) as { jobs: JobView[] };
+    if (jobs.every((j) => j.done)) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
 }
 
 beforeAll(async () => {
@@ -76,8 +89,9 @@ beforeAll(async () => {
   store = Store.open(':memory:');
   dash = await startDashboard({ store, spawnCli, readOnly: false, project: { path: repo }, goldens: () => goldens });
 });
-afterEach(() => {
+afterEach(async () => {
   rmSync(hold, { force: true });
+  await letGo();
   git('reset', '-q', '--hard');
 });
 afterAll(async () => {

@@ -47,12 +47,17 @@ export function forgetPatchAnswers(): void {
   roots.clear();
 }
 
-/** Runs git in `cwd` and resolves with its exit code and output, never throwing: a code of null when it could not run or was stopped. */
+/**
+ * Runs git in `cwd` and resolves with its exit code and output, never throwing: a code of null when it
+ * could not run or was stopped. Every one of these only reads, so none takes a lock it may skip
+ * (GIT_OPTIONAL_LOCKS=0): `git status` would otherwise write the index as it refreshes it, holding
+ * .git/index.lock, and a revert or a commit in the same tree meanwhile would fail on it.
+ */
 export function gitAsync(cwd: string, args: readonly string[], o: { input?: string; timeoutMs?: number; maxBuffer?: number } = {}): Promise<{ code: number | null; stdout: string }> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof execFile>;
     try {
-      child = execFile('git', [...args], { cwd, encoding: 'utf8', timeout: o.timeoutMs ?? GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: o.maxBuffer ?? 4 * 1024 * 1024 }, (err, stdout) => {
+      child = execFile('git', [...args], { cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, encoding: 'utf8', timeout: o.timeoutMs ?? GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: o.maxBuffer ?? 4 * 1024 * 1024 }, (err, stdout) => {
         if (!err) return resolve({ code: 0, stdout });
         const code = (err as { code?: unknown }).code;
         // A number is git's own exit code; anything else (ENOENT, a timeout's signal) means it did not answer.

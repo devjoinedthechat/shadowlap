@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
+import { leftConflicts } from '../src/job-git.js';
 import { historyCells, olderThanTree, sessionProgress, treeNow, withRevisionFacts } from '../src/tests-history.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 
@@ -175,6 +176,32 @@ describe('the revisions as git has them', () => {
       expect(await treeNow(repo, git('rev-parse', '--short', 'HEAD'), 19_000)).toEqual({ dirty: false, later: false });
       expect(await treeNow(repo, 'deadbeef', 25_000)).toBeNull();
       expect(await treeNow(repo, 'HEAD~1', 31_000)).toBeNull();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('reads the tree without writing git\'s index, whose lock a revert in the same tree takes meanwhile', async () => {
+    const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-tests-tree-lock-')));
+    try {
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=dana@northwind.example', '-c', 'user.name=Dana', '-c', 'commit.gpgsign=false', ...args], { cwd: repo }).toString().trim();
+      git('init', '-q', '.');
+      writeFileSync(join(repo, 'agent.py'), 'limit = 100\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Start');
+      const first = git('rev-parse', '--short', 'HEAD');
+      // The file touched since git last looked: a git that may refresh the index writes it, taking .git/index.lock.
+      const later = new Date(Date.now() + 60_000);
+      utimesSync(join(repo, 'agent.py'), later, later);
+      const index = readFileSync(join(repo, '.git', 'index'));
+      // Tests' read of the tree, and a job's look for what its git step left, as either runs beside a revert.
+      expect(await treeNow(repo, first, 40_000)).toEqual({ dirty: false, later: false });
+      expect(await leftConflicts(repo)).toBe(false);
+      expect(readFileSync(join(repo, '.git', 'index')).equals(index), 'the index as it was: no lock taken').toBe(true);
+      // And they answer while another git holds the lock.
+      writeFileSync(join(repo, '.git', 'index.lock'), '');
+      expect(await treeNow(repo, first, 50_000)).toEqual({ dirty: false, later: false });
+      expect(await leftConflicts(repo)).toBe(false);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

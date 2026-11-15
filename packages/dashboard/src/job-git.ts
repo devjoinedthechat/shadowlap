@@ -34,10 +34,14 @@ export function spawnGit(args: readonly string[], cwd: string | null, env: Recor
   return spawn('git', [...args], { ...(cwd ? { cwd } : {}), env: { ...process.env, ...env }, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
 }
 
-/** Whether git left unmerged files in the tree at `cwd`: what a failed revert's conflicts leave, and a refused one never does. */
+/**
+ * Whether git left unmerged files in the tree at `cwd`: what a failed revert's conflicts leave, and a
+ * refused one never does. Asked of `diff-files`, which never writes the index: `git diff` refreshes
+ * it, taking its lock, whatever GIT_OPTIONAL_LOCKS says.
+ */
 export async function leftConflicts(cwd: string | null): Promise<boolean> {
   if (!cwd) return false;
-  const out = await gitAsync(cwd, ['diff', '--name-only', '--diff-filter=U']);
+  const out = await gitAsync(cwd, ['diff-files', '--name-only', '--diff-filter=U']);
   return out.code === 0 && out.stdout.trim() !== '';
 }
 
