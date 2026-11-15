@@ -1,4 +1,4 @@
-import { ACTIONS } from './labels.js';
+import { ACTIONS, IMPORTING_PACK } from './labels.js';
 
 /**
  * What the first look needs of a job: what to call it, what it runs and how to go on following it.
@@ -67,6 +67,7 @@ const DOING: Readonly<Record<string, string>> = {
   verify: ACTIONS.runVerify.doing,
   test: ACTIONS.runTests.doing,
   import: ACTIONS.importCapture.doing,
+  unpack: IMPORTING_PACK,
   calibrate: ACTIONS.calibrate.doing,
   bisect: ACTIONS.findBreakingCommit.doing,
   gc: 'Cleaning up',

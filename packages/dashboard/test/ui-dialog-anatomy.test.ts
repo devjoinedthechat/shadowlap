@@ -327,12 +327,13 @@ describe('a run’s dialogs', () => {
     resetSpending();
   });
   it('Import capture', async () => {
-    const client = { importSources: () => new Promise(() => undefined) };
-    const page = await open(createElement(ImportDialog, closes), appWith({ client }));
+    const page = await open(createElement(ImportDialog, closes), appWith({ client: { importSources: () => new Promise(() => undefined) } }));
     holds(page, { title: 'Import capture', doc: 'imports', first: '.drop', ok: 'Import capture' });
     // The drop zone, what it does on replay, the sample, then the command, as the mock draws them.
-    expect(page.one('[role="dialog"] .impbody').children.map((c) => c.className)).toEqual(['drop', 'dfacts', 'impsamples']);
-    expect(page.all('[role="dialog"] .dfacts dt').map((d) => d.textContent)).toEqual(['On replay']);
+    expect([page.one('[role="dialog"] .impbody').children.map((c) => c.className), page.all('[role="dialog"] .dfacts dt').map((d) => d.textContent)]).toEqual([['drop', 'dfacts', 'impsamples'], ['On replay']]);
+    // A pack's folder: the drop zone, whose picker takes a folder, then what a replay of it asks (ui-import-dialog.test.ts reads the rest).
+    await page.click(page.byText('[role="dialog"] .impsrc button', 'Pack'));
+    expect([page.one('[role="dialog"] .impbody').children.map((c) => c.className), page.all('[role="dialog"] .dfacts dt').map((d) => d.textContent), page.one('[role="dialog"] .drop input').props.webkitdirectory]).toEqual([['drop', 'dfacts'], ['On replay'], '']);
   });
 });
 

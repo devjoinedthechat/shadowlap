@@ -467,6 +467,9 @@ describe('the switcher', () => {
       status: 409,
       body: { error: 'capture.har was sent to support-agent, and the dashboard has switched to triage-bot since. Send it again.' },
     });
+    // So does Import capture…'s pack, before anything is unpacked anywhere.
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'import', format: 'pack', uploadId } })).toMatchObject({ status: 409, body: { error: 'capture.har was sent to support-agent, and the dashboard has switched to triage-bot since. Send it again.' } });
+    expect([existsSync(join(w.triage, '.shadowlap', 'uploads')), existsSync(join(w.support, '.shadowlap', 'uploads', uploadId))]).toEqual([false, false]);
     // In its own project the job takes it.
     await w.api('projects/support-agent/select', { method: 'POST' });
     const job = await w.api<{ id: string; project: { id: string; name: string } }>('jobs', { method: 'POST', body: { kind: 'take-upload', uploadId } });

@@ -122,6 +122,7 @@ export { DEFAULT_PRICES, aboutUsd, bandOf, canonicalModel, estimateCalls, estima
 export type { Price, Rates } from './prices.js';
 export { EXTERNAL_COMMAND, NO_COMMAND, PACK_ENTRIES, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, lexists, movePath, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
+export { BLOB_NAME, manifestProblem, PACK_REFUSALS, packFileLimit } from './pack-manifest.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { decodedSegment, encodeRfc3986, escapedInLine, fitLine, jsString, outputTail, quoteArgv, safe, safeLine, safeLines, safeText, whole } from './text.js';
 // Text safe in the Markdown GitHub renders, for pull request bodies, comments and job summaries.
@@ -264,7 +265,7 @@ export { besidesLine, besidesWords, byHandNote, givenField, migrateCostLines, no
 export { COMMENT_FOOT, commentDecisions, commentHead, commentInjection, commentMarkdown, commentRows, commentVerdict, costPerRunLine, injectionGateLine, JUDGED_IN_RECORDED_STATE_SHORT, PR_DECISIONS_SUFFIX, commentVerdictLine, worstFirst } from './pr-comment.js';
 export type { CommentBase, CommentDecision, CommentDecisionsSource, CommentFix, CommentParts, CommentResult } from './pr-comment.js';
 export { CLEARED, changePct, endToEndWords, tallyCount, tallyParts, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, verifyTallyLine, type VerifiedTally, type VerifyTally } from './verified-words.js';
-export { ACTIONS, confirmWords, forceLiveLabel, packingBehaviour, STRONGER_MODEL, type ActionWords } from './action-words.js';
+export { ACTIONS, confirmWords, forceLiveLabel, IMPORTING_PACK, packingBehaviour, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
 export { UNTESTED_WORDS } from './bisect-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,

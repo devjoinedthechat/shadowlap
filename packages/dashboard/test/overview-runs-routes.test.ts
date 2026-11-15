@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -16,6 +16,8 @@ import type { RecordedHit } from '../src/search-hits.js';
 import { teamStoreStatus } from '../src/team-store.js';
 import type { GoldenSource } from '../src/tests.js';
 import { addRun, DAY, HOUR, type CallSpec } from './read-model-store.js';
+import { packArchive, pickedPack } from '../ui/runspage/pack-folder.js';
+import { folderFiles, writePack } from './pack-fixture.js';
 
 /**
  * The Overview's and the Runs page's routes over HTTP, with the team store's and the imports' job
@@ -434,7 +436,7 @@ describe('imports', () => {
     const again = await post(dash, 'jobs', { kind: 'import', format: 'har', uploadId });
     expect(again.status).toBe(400);
     const yaml = await post(dash, 'jobs', { kind: 'import', format: 'yaml', uploadId });
-    expect(await errorOf(yaml)).toMatch(/format: one of har, nock, vcr, litellm, otel, langfuse, langsmith, phoenix, logfire/);
+    expect(await errorOf(yaml)).toBe('format: one of har, nock, vcr, litellm, otel, pack, langfuse, langsmith, phoenix, logfire');
   });
 
   it('fetches a trace with the keys already on this machine, which the browser never sends', async () => {
@@ -579,6 +581,55 @@ describe('imports', () => {
     }
     // One HAR goes in alone, as before.
     expect((await built({ kind: 'import', format: 'har', uploadIds: [hars[1]] })).slice(0, 2)).toEqual(['import', 'har']);
+  });
+});
+
+describe('importing a pack', () => {
+  const uploads = () => join(project, '.shadowlap', 'uploads');
+  const send = async (d: Dashboard, body: Uint8Array, name: string) => api(d, 'uploads', { method: 'POST', body, headers: { 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
+  const sent = async (body: Uint8Array, name = 'support-refund.tar') => {
+    const up = await send(dash, body, name);
+    expect(up.status).toBe(201);
+    return ((await up.json()) as { uploadId: string }).uploadId;
+  };
+  let archive: Uint8Array;
+  beforeAll(async () => {
+    const { dir } = writePack('support refund');
+    archive = new Uint8Array(await packArchive(pickedPack(folderFiles(dir), null).files).arrayBuffer());
+    rmSync(join(dir, '..'), { recursive: true, force: true });
+  });
+
+  it('unpacks the archive into the upload’s own folder, under the folder’s name, and runs shadowlap unpack on it', async () => {
+    const uploadId = await sent(archive, 'support refund.tar');
+    const res = await post(dash, 'jobs', { kind: 'import', format: 'pack', uploadId });
+    expect(res.status, await res.clone().text()).toBe(202);
+    const job = (await res.json()) as JobView;
+    expect(job).toMatchObject({ title: 'Importing pack', args: ['unpack', `.shadowlap/uploads/${uploadId}/support_refund`], opensRun: true });
+    // Until the job ends, the pack is there for unpack to read; then it goes with the upload.
+    for (let i = 0; i < 200 && existsSync(join(uploads(), uploadId)); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(existsSync(join(uploads(), uploadId))).toBe(false);
+  });
+
+  it('refuses an archive that is no pack, in words the dialog shows, and leaves nothing unpacked', async () => {
+    const tail = await sent(new Uint8Array([...archive, ...new TextEncoder().encode('more')]));
+    const refused = await post(dash, 'jobs', { kind: 'import', format: 'pack', uploadId: tail });
+    expect([refused.status, await errorOf(refused)]).toEqual([400, 'support-refund.tar has data after its end']);
+    // The upload waits for another job, as any refused one does; nothing of it was unpacked.
+    expect(readdirSync(join(uploads(), tail))).toEqual(['support-refund.tar']);
+    for (const [body, error] of [
+      [{ kind: 'import', format: 'pack', uploadId: await sent(archive, 'support-refund.zip') }, 'uploadId: a pack goes up as one archive, named for its folder (<folder>.tar)'],
+      [{ kind: 'import', format: 'pack', uploadIds: [tail] }, 'uploadIds: a pack goes up as one archive, its uploadId'],
+      [{ kind: 'import', format: 'pack', uploadId: '01K0UPLOAD0000000000000009' }, 'uploadId: upload the pack first (POST /api/uploads), and use it for one import'],
+    ] as const) {
+      const res = await post(dash, 'jobs', body);
+      expect([res.status, await errorOf(res)], JSON.stringify(body)).toEqual([400, error]);
+    }
+  });
+
+  it('takes no pack on a read-only dashboard', async () => {
+    const up = await send(ro, archive, 'support-refund.tar');
+    expect([up.status, await errorOf(up)]).toEqual([403, 'this dashboard is read-only (started with --read-only): it shows runs and changes nothing']);
+    expect((await post(ro, 'jobs', { kind: 'import', format: 'pack', uploadId: '01K0UPLOAD0000000000000009' })).status).toBe(403);
   });
 });
 

@@ -1,6 +1,9 @@
-import { isAbsolute, relative, sep } from 'node:path';
-import { ACTIONS, IMPORT_FILE_FORMATS, IMPORT_WINDOW_FLAGS, importWindowArgs, importWindowProblem, type ImportFileFormat, type ImportWindow } from '@shadowlap/engine';
+import { rm } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { ACTIONS, IMPORT_FILE_FORMATS, IMPORT_WINDOW_FLAGS, IMPORTING_PACK, importWindowArgs, importWindowProblem, type ImportFileFormat, type ImportWindow } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
+import { safeFileName } from '../http.js';
+import { extractPack, PackArchiveError } from '../pack-archive.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from '../jobs.js';
 import type { Router } from '../router.js';
 
@@ -8,7 +11,8 @@ import type { Router } from '../router.js';
  * Import a capture or a trace (Runs → Import a capture): a file the browser uploaded first
  * (`POST /api/uploads`), several for LiteLLM and OpenTelemetry, which put a run together from them,
  * or a trace by its id from Langfuse, LangSmith, Phoenix or Logfire, or the traces that started in a
- * window (`window`: since, until, limit, a trace's name) from Langfuse, Phoenix or Logfire. The
+ * window (`window`: since, until, limit, a trace's name) from Langfuse, Phoenix or Logfire; or a
+ * pack's folder, uploaded as one archive (`format: 'pack'`), which `shadowlap unpack` imports. The
  * `import` job kind runs `shadowlap import <format> <file>… --name=<name picked>`. It leaves out `--json`, which a job
  * needed only for the full run ids: the CLI reports each run it made by its full id on the job's
  * events pipe (and what `--json` prints, as the job's result), with a link to each, so the drawer
@@ -206,9 +210,19 @@ export function filesSource(names: readonly string[]): string {
   return named.length <= 200 ? named : `${unique[0]!.slice(0, 150)} and ${unique.length - 1} more`;
 }
 
+/**
+ * A file the job reads, named from the project folder it runs in (`.shadowlap/uploads/…`, which reads
+ * as no option either), with forward slashes on every system, as other relative paths shadowlap
+ * shows are; one outside it, as it is.
+ */
+function inProject(path: string, ctx: RouteContext): string {
+  const rel = ctx.project ? relative(ctx.project.path, path) : '';
+  return rel && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel) ? rel.split(sep).join('/') : path;
+}
+
 /** The job that imports the files uploaded first: `uploadIds`, several for LiteLLM and OpenTelemetry, or `uploadId`. */
 function fileJob(format: unknown, req: JobRequest, upload: JobBuildContext['upload'], ctx: RouteContext): JobBuildResult {
-  if (!(FILE_FORMATS as readonly unknown[]).includes(format)) return { error: `format: one of ${[...FILE_FORMATS, ...TRACE_SOURCES].join(', ')}` };
+  if (!(FILE_FORMATS as readonly unknown[]).includes(format)) return { error: `format: one of ${[...FILE_FORMATS, 'pack', ...TRACE_SOURCES].join(', ')}` };
   const several = req.uploadIds !== undefined;
   const ids = several ? req.uploadIds : [req.uploadId];
   if (!Array.isArray(ids) || !ids.length || ids.length > MAX_IMPORT_FILES || new Set(ids).size !== ids.length) return { error: `uploadIds: from 1 to ${MAX_IMPORT_FILES} uploads, each once` };
@@ -218,22 +232,57 @@ function fileJob(format: unknown, req: JobRequest, upload: JobBuildContext['uplo
   // The run's source is the name of the file you picked ("my capture (2).har"), not the name it
   // was kept under; a name no run's source can carry falls back to that safe one. It goes as one
   // argument, `--name=<name>`, so a file named like a flag ("--json", "-x.har") stays a name
-  // whatever the parser. The job runs in the project folder: each upload is named from there
-  // (`.shadowlap/uploads/…`, which reads as no option either), with forward slashes on every
-  // system, as other relative paths shadowlap shows are.
-  const paths = files.map((file) => {
-    const rel = ctx.project ? relative(ctx.project.path, file!.path) : '';
-    return rel && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel) ? rel.split(sep).join('/') : file!.path;
-  });
+  // whatever the parser. The job runs in the project folder: each upload is named from there.
+  const paths = files.map((file) => inProject(file!.path, ctx));
   return { args: ['import', format as FileFormat, ...paths, `--name=${filesSource(files.map((f) => f!.original ?? f!.name))}`], opensRun: true };
+}
+
+/** A pack's folder goes up as one archive named for it: `<folder>.tar`. */
+const PACK_ARCHIVE = /\.tar$/i;
+
+/**
+ * The name a pack's folder takes here: the folder picked (its archive's name less `.tar`) as a file
+ * name can carry it (`safeFileName`: never `.` or `..`), else `pack`. `unpack` records the folder's
+ * name as where its runs came from, so it reads as the folder picked, as a terminal's unpack of it would.
+ */
+export function packName(archive: string): string {
+  return safeFileName(archive.replace(PACK_ARCHIVE, ''), 'pack');
+}
+
+/**
+ * The job that imports a pack's folder, uploaded as one archive (`uploadId`): the archive is unpacked
+ * into the upload's own folder, `.shadowlap/uploads/<id>/<folder>/`, which goes when the upload does
+ * (the job's end, the idle sweep, the dashboard's close), and `shadowlap unpack` imports it from
+ * there, checking all it holds as it checks any pack.
+ */
+async function packJob(req: JobRequest, upload: JobBuildContext['upload'], ctx: RouteContext): Promise<JobBuildResult> {
+  if (req.uploadIds !== undefined) return { error: 'uploadIds: a pack goes up as one archive, its uploadId' };
+  const file = upload(req.uploadId, { named: true });
+  if (!file) return { error: 'uploadId: upload the pack first (POST /api/uploads), and use it for one import' };
+  const sent = file.original ?? file.name;
+  const name = packName(sent);
+  if (!PACK_ARCHIVE.test(sent) || name === basename(file.path)) return { error: 'uploadId: a pack goes up as one archive, named for its folder (<folder>.tar)' };
+  const into = join(dirname(file.path), name);
+  // What an earlier try left there, its job never started: the folder is the upload's own.
+  await rm(into, { recursive: true, force: true });
+  try {
+    await extractPack(file.path, into, name);
+  } catch (err) {
+    if (err instanceof PackArchiveError) return { error: err.message };
+    throw err;
+  }
+  return { args: ['unpack', inProject(into, ctx)], opensRun: true };
 }
 
 export function register(router: Router, ctx: RouteContext): void {
   router.get('/imports', (r) => r.json({ formats: FILE_FORMATS, traces: traceSources(process.env), uploadLimit: ctx.project && !ctx.readOnly ? ctx.uploads.maxBytes : null }));
 
   ctx.jobs.registerJobKind('import', {
-    // A trace from a store is imported as a capture is: Activity says which it was.
-    title: () => ACTIONS.importCapture.doing,
-    build: (req, { upload }) => ((TRACE_SOURCES as readonly unknown[]).includes(req.format) ? traceJob(req.format as TraceSource, req) : fileJob(req.format, req, upload, ctx)),
+    // A trace from a store is imported as a capture is: Activity says which it was. A pack is unpacked.
+    title: (req) => (req.format === 'pack' ? IMPORTING_PACK : ACTIONS.importCapture.doing),
+    build: (req, { upload }) => {
+      if (req.format === 'pack') return packJob(req, upload, ctx);
+      return (TRACE_SOURCES as readonly unknown[]).includes(req.format) ? traceJob(req.format as TraceSource, req) : fileJob(req.format, req, upload, ctx);
+    },
   });
 }

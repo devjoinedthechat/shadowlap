@@ -160,6 +160,9 @@ export const ACTIONS = {
 /** Not covered's pack, by the behaviour's short key, as its job's title: `Packing 3f9a2c1d as golden`, `Packing 3f9a2c1d with checks`. */
 export const packingBehaviour = (key: string, fork: boolean): string => `Packing ${key} ${fork ? 'with checks' : 'as golden'}`;
 
+/** Import capture…'s job for a pack's folder (its Pack source), which runs `shadowlap unpack`. */
+export const IMPORTING_PACK = 'Importing pack';
+
 /** Force <tool> live, at a tool call of the fork menu. */
 export const forceLiveLabel = (tool: string): string => `Force ${tool} live`;
 

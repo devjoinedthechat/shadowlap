@@ -13,19 +13,22 @@ type TraceSourceView = ImportSources['traces'][TraceSource];
 import { FILE_FORMATS, fileHead, importWindowFieldProblem, importWords, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, NO_WINDOW, OTEL_SAMPLE_NAME, phoenixProjectNote, phoenixProjectOk, pickedFormats, sampleTrace, SEVERAL_FILES, severalNote, TRACE_COPY, traceIdOk, windowGiven, WINDOWED, windowNote, type ImportFileFormat, type TraceSource, type WindowFields } from './imports.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { Copy } from '../components/Copy.js';
+import { packArchive } from './pack-folder.js';
+import { PackPane, usePickedPack, type PackPicked } from './PackPane.js';
 
 /**
  * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and its
  * first bytes, and changeable; YAML refused with the reason; or the sample trace the dashboard
  * ships), several files where the CLI puts a run together from them (a LiteLLM proxy's file per
- * worker, OpenTelemetry traces and their logs), or a trace by its host and id from Langfuse,
- * LangSmith, Phoenix (in a project) or Logfire, read with the keys already on this machine, or from
- * Langfuse, Phoenix and Logfire the traces that started in a window, each a run of its own. The files
- * go up first (`POST /api/uploads`), then the import job runs the CLI; the drawer ends with a link to
- * each run it made.
+ * worker, OpenTelemetry traces and their logs), a pack's folder (PackPane, which goes up as one
+ * archive for `shadowlap unpack`), or a trace by its host and id from Langfuse, LangSmith, Phoenix (in
+ * a project) or Logfire, read with the keys already on this machine, or from Langfuse, Phoenix and
+ * Logfire the traces that started in a window, each a run of its own. The files go up first
+ * (`POST /api/uploads`), then the import job runs the CLI; the drawer ends with a link to each run it
+ * made.
  */
 
-type Source = 'file' | TraceSource;
+type Source = 'file' | 'pack' | TraceSource;
 
 interface Picked {
   files: File[];
@@ -75,10 +78,17 @@ async function uploadAll(client: ReturnType<typeof useApp>['client'], files: rea
 /** The import of the files sent up: `uploadId` for one, `uploadIds` for several. */
 const fileRequest = (picked: Picked, ids: string[]) => ({ format: picked.format, ...(ids.length === 1 ? { uploadId: ids[0] } : { uploadIds: ids }) });
 
-/** Whether the import can start: the files picked read as one format, or the store's fields check out and its keys are set here. */
-function canImport(source: Source, picked: Picked | null, trace: TraceFields, project: string, at: TraceSourceView | null | undefined): boolean {
-  if (source === 'file') return !!picked && !picked.error && !!picked.format;
+/** Whether the import can start: the files picked read as one format, the pack's run.json reads as one, or the store's fields check out and its keys are set here. */
+function canImport(source: Source, picked: { file: Picked | null; pack: PackPicked | null }, trace: TraceFields, project: string, at: TraceSourceView | null | undefined): boolean {
+  if (source === 'file') return !!picked.file && !picked.file.error && !!picked.file.format;
+  if (source === 'pack') return !!picked.pack?.preview && !picked.pack.error;
   return traceProblem(source, trace) === null && (source !== 'phoenix' || phoenixProjectOk(project.trim())) && !!at?.keys;
+}
+
+/** The pack picked goes up as one archive named for its folder, all of it or nothing, then is imported from it. */
+async function packRequest(client: ReturnType<typeof useApp>['client'], pack: PackPicked): Promise<Record<string, unknown>> {
+  const { uploadId } = await client.upload(packArchive(pack.files), `${pack.name!}.tar`);
+  return { format: 'pack', uploadId };
 }
 
 /** Where a trace store is, when not where the CLI would look: a host typed, and Phoenix's project. */
@@ -87,8 +97,8 @@ function placeRequest(source: TraceSource, typed: { host: string; project: strin
   return { ...(typed.host && typed.host !== at?.host ? { host: typed.host } : {}), ...(source === 'phoenix' && project !== at?.project ? { project } : {}) };
 }
 
-/** A file that closing would lose: dropped, or the sample, it fired no field's change. A refused one holds nothing to keep. */
-const holdsFile = (picked: Picked | null): boolean => !!picked && !picked.error;
+/** A file or a folder that closing would lose: dropped, or the sample, it fired no field's change. A refused one holds nothing to keep. */
+const holdsFile = (picked: { error: string | null } | null): boolean => !!picked && !picked.error;
 
 export function ImportDialog({ onClose }: { onClose: () => void }) {
   const { client, watchJob, toast, meta } = useApp();
@@ -100,6 +110,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const sources = useLoad(() => client.importSources(), 'import-sources');
   const limit = sources.data?.uploadLimit ?? meta?.uploadLimit ?? null;
+  const [pack, pickPack] = usePickedPack(limit);
 
   // The newest files picked: reading others' first bytes may end after them, and must not replace them.
   const picking = useRef(0);
@@ -122,19 +133,19 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     pick(e.dataTransfer.files);
   };
 
-  const t = source === 'file' ? null : sources.data?.traces[source];
-  const host = source === 'file' ? '' : (trace.host ?? t?.host ?? '');
+  const t = source === 'file' || source === 'pack' ? null : sources.data?.traces[source];
+  const host = source === 'file' || source === 'pack' ? '' : (trace.host ?? t?.host ?? '');
   // Phoenix looks in a project: the one the CLI would pick unless another is typed.
   const project = source === 'phoenix' ? (trace.project ?? t?.project ?? 'default') : '';
-  const idOk = source !== 'file' && traceIdOk(source, trace.id.trim());
-  const ready = !busy && canImport(source, picked, trace, project, t);
+  const ready = !busy && canImport(source, { file: picked, pack }, trace, project, t);
 
   // Stays open on a refusal, with what was picked.
   const run = async (): Promise<boolean> => {
     if (!ready) return false;
     setBusy(true);
     try {
-      const fields = source === 'file' ? fileRequest(picked!, await uploadAll(client, picked!.files)) : { format: source, ...traceRequest(source, trace), ...placeRequest(source, { host, project }, t) };
+      const fields =
+        source === 'file' ? fileRequest(picked!, await uploadAll(client, picked!.files)) : source === 'pack' ? await packRequest(client, pack!) : { format: source, ...traceRequest(source, trace), ...placeRequest(source, { host, project }, t) };
       watchJob(client.startJob(JOB_KINDS.importCapture, fields));
       return true;
     } catch (err) {
@@ -143,7 +154,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       return false;
     }
   };
-  const words = importWords({ source, picked, id: trace.id, host, project, window: { many: trace.many, fields: trace.window }, keys: t ?? null, defaults: t ?? null, uploads: limit !== null });
+  const words = importWords({ source, picked, pack, id: trace.id, host, project, window: { many: trace.many, fields: trace.window }, keys: t ?? null, defaults: t ?? null, uploads: limit !== null });
 
   return (
     <Dialog
@@ -151,14 +162,14 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       lead="Turns a capture, or a trace you store, into a recording you can replay your code against."
       doc="imports"
       warn={words.line ? { text: words.line } : null}
-      // A file's row sits in its pane, above the sample, as the mock draws it.
-      factsUnder={source === 'file' ? undefined : words.rows}
+      // A file's row sits in its pane, above the sample, as the mock draws it; a pack's rows in its pane too.
+      factsUnder={source === 'file' || source === 'pack' ? undefined : words.rows}
       command={words.command}
       ok={busy ? 'Uploading…' : confirmWords(ACTIONS.importCapture.label)}
       okDisabled={!ready}
       onOk={run}
       onClose={onClose}
-      dirty={holdsFile(picked)}
+      dirty={holdsFile(picked) || holdsFile(pack)}
       className="impdlg"
     >
       <Seg
@@ -166,6 +177,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         label="Source"
         items={[
           { key: 'file', label: 'File' },
+          { key: 'pack', label: 'Pack' },
           { key: 'langfuse', label: 'Langfuse' },
           { key: 'langsmith', label: 'LangSmith' },
           { key: 'phoenix', label: 'Phoenix' },
@@ -180,8 +192,10 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       />
       {source === 'file' ? (
         <FilePane picked={picked} over={over} setOver={setOver} drop={drop} input={input} pick={pick} setPicked={setPicked} pickSample={pickSample} uploads={limit !== null} rows={words.rows} />
+      ) : source === 'pack' ? (
+        <PackPane pack={pack} pick={pickPack} rows={words.rows} />
       ) : (
-        <TracePane source={source} host={host} project={project} trace={trace} setTrace={setTrace} idOk={idOk} />
+        <TracePane source={source} host={host} project={project} trace={trace} setTrace={setTrace} idOk={traceIdOk(source, trace.id.trim())} />
       )}
     </Dialog>
   );
