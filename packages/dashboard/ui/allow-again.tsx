@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { consentAsked } from './actions.js';
+import { allowAgainLabel, andList } from './allow-words.js';
 import { ActionButton } from './components/ActionButton.js';
 import { ConsentDialog, Dialog } from './components/Dialog.js';
 import { jobCommand, unrecordedAllow } from './jobs.js';
@@ -17,11 +18,7 @@ import type { JobView } from './types.js';
  * nothing runs jobs here.
  */
 
-/** Names joined as a sentence lists them: `a`, `a and b`, `a, b and c`. */
-const andList = (names: readonly string[]): string => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}` : (names[0] ?? ''));
-
-/** Its label, by the tools it allows. */
-export const allowAgainLabel = (tools: readonly string[]): string => `Run again, allowing ${andList(tools)}`;
+export { allowAgainLabel };
 
 /** The CLI's commands that take `--allow-unrecorded`, each replaying a recording (src/jobs.ts ALLOWS_UNRECORDED). */
 const REPLAYS: ReadonlySet<string> = new Set(['replay', 'calibrate', 'blame', 'verify', 'repair', 'test', 'bisect', 'injection', 'serve']);
