@@ -5082,7 +5082,7 @@ Its keys are these:
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
 | `tools` | `trust` by tool name, and `unrecorded` (below) |
-| `prices` | USD per million tokens by model prefix, for cost estimates |
+| `prices` | USD per million tokens by model prefix, for cost estimates, with a second card for a long prompt ([details](./tui.md#prices)) |
 | `tests` | Outcome checks for `shadowlap test`, by recording directory, and each golden's gates, task and presets (below) |
 | `repair` | `repairer` (`provider:model`), `baseUrl` and `timeout` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes (below) |
 | `build` | The command that builds the agent, such as `npm run build`, run where a command takes `--build` and none is given (below) |

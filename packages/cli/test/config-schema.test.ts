@@ -55,6 +55,18 @@ describe('shadowlap.config.json schema', () => {
     expect(history.properties.min.description).toContain(`Default ${BASELINE_DEFAULTS.min}`);
   });
 
+  it('describes a price as the parser reads one: its rates, and a second card above a whole number of tokens', () => {
+    const price = (schema.properties.prices as { additionalProperties: { required: string[]; properties: Record<string, { required?: string[]; properties?: Record<string, { type: string; minimum?: number }> }> } }).additionalProperties;
+    expect(Object.keys(price.properties).sort()).toEqual(['above', 'cacheRead', 'cacheWrite', 'input', 'output']);
+    expect(price.required).toEqual(['input', 'output']);
+    const above = price.properties.above;
+    expect(Object.keys(above.properties!).sort()).toEqual(['cacheRead', 'cacheWrite', 'input', 'output', 'tokens']);
+    expect(above.required!.sort()).toEqual(['input', 'output', 'tokens']);
+    expect(above.properties!.tokens).toEqual({ type: 'integer', minimum: 1 });
+    // Every key it lists, the parser reads.
+    for (const key of ['above', 'tokens', 'cacheRead', 'cacheWrite']) expect(configSource).toContain(key);
+  });
+
   it('rejects unknown keys rather than ignoring them', () => {
     expect((schema as unknown as { additionalProperties: boolean }).additionalProperties).toBe(false);
   });

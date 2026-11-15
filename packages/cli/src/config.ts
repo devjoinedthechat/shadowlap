@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { CONFIG_FILE, configBuild, configFilePath, editConfigFile, messageOf, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
+import { CONFIG_FILE, configBuild, configFilePath, editConfigFile, messageOf, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type Rates, type ToolTrust } from '@shadowlap/engine';
 import { declareFormatHosts, formatHostProblem, validHttpHost, type FormatHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, parseTestSettings, type TestEntry, type TestSettings } from './checks.js';
 import { usageError } from './exit-codes.js';
@@ -261,11 +261,26 @@ function parsePrices(raw: unknown, file = CONFIG_FILE): Record<string, Price> | 
   const out: Record<string, Price> = {};
   for (const [model, p] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof p !== 'object' || p === null) continue;
-    const { input, output, cacheRead, cacheWrite } = p as Record<string, unknown>;
-    if (typeof input !== 'number' || typeof output !== 'number') throw new Error(`${file}: prices["${model}"] needs numeric "input" and "output" (USD per million tokens)`);
-    out[model] = { input, output, ...(typeof cacheRead === 'number' ? { cacheRead } : {}), ...(typeof cacheWrite === 'number' ? { cacheWrite } : {}) };
+    const rates = parseRates(p as Record<string, unknown>);
+    if (!rates) throw new Error(`${file}: prices["${model}"] needs numeric "input" and "output" (USD per million tokens)`);
+    const above = (p as Record<string, unknown>).above;
+    if (above === undefined) {
+      out[model] = rates;
+      continue;
+    }
+    const long = typeof above === 'object' && above !== null && !Array.isArray(above) ? parseRates(above as Record<string, unknown>) : null;
+    const tokens = long ? (above as Record<string, unknown>).tokens : undefined;
+    if (!long || typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens < 1) throw new Error(`${file}: prices["${model}"].above needs a whole number of "tokens" (1 or more) and numeric "input" and "output": the rates of a call whose prompt is longer`);
+    out[model] = { ...rates, above: { tokens, ...long } };
   }
   return out;
+}
+
+/** One rate card of a price: `input` and `output`, and the cache's rates when given; null without the first two. */
+function parseRates(p: Record<string, unknown>): Rates | null {
+  const { input, output, cacheRead, cacheWrite } = p;
+  if (typeof input !== 'number' || typeof output !== 'number') return null;
+  return { input, output, ...(typeof cacheRead === 'number' ? { cacheRead } : {}), ...(typeof cacheWrite === 'number' ? { cacheWrite } : {}) };
 }
 
 /**

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { estimateCost } from '@shadowlap/engine';
 import { buildCommand, guardAccept, loadConfig, upstreamOverrides } from '../src/config.js';
 
 /** loadConfig's lists of rules: checked when a command first reads them, and otherwise plain properties. */
@@ -57,6 +58,19 @@ describe('loadConfig', () => {
     expect(() => loadConfig(cwd)).toThrow('shadowlap.config.json: guard.accept must be a list, e.g. ["claude-code"]');
     write({});
     expect(() => guardAccept(cwd, { SHADOWLAP_GUARD_ACCEPT: 'python' })).toThrow('SHADOWLAP_GUARD_ACCEPT takes "claude-code" alone, not "python"');
+  });
+
+  it('reads a price\'s second card for a long prompt, and refuses one without a whole number of tokens', () => {
+    write({ prices: { 'my-model': { input: 1, output: 2, cacheRead: 0.1, above: { tokens: 200000, input: 3, output: 4, cacheWrite: 3.75 } }, 'claude-haiku-5-5': { input: 0.2, output: 1 } } });
+    const { prices } = loadConfig(cwd);
+    expect(prices).toEqual({ 'my-model': { input: 1, output: 2, cacheRead: 0.1, above: { tokens: 200000, input: 3, output: 4, cacheWrite: 3.75 } }, 'claude-haiku-5-5': { input: 0.2, output: 1 } });
+    // Priced as the engine prices any call: by the card its whole prompt picks.
+    expect(estimateCost('my-model', { inputTokens: 200001, outputTokens: 1 }, prices)).toBeCloseTo((200001 * 3 + 4) / 1e6, 12);
+    expect(estimateCost('claude-haiku-5-5', { inputTokens: 200001, outputTokens: 1 }, prices)).toBeCloseTo((200001 * 0.2 + 1) / 1e6, 12);
+    for (const above of [{ input: 3, output: 4 }, { tokens: 0, input: 3, output: 4 }, { tokens: 1.5, input: 3, output: 4 }, { tokens: 100, input: 3 }, 'long']) {
+      write({ prices: { 'my-model': { input: 1, output: 2, above } } });
+      expect(() => loadConfig(cwd), JSON.stringify(above)).toThrow('shadowlap.config.json: prices["my-model"].above needs a whole number of "tokens" (1 or more) and numeric "input" and "output"');
+    }
   });
 
   it('reads a missing file as no rules', () => {

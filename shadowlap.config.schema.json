@@ -56,6 +56,38 @@
           "cacheWrite": {
             "type": "number",
             "minimum": 0
+          },
+          "above": {
+            "description": "A second rate card for a long prompt: a call whose whole prompt (uncached input, cache reads and cache writes) is over tokens pays these rates for all of its tokens.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tokens",
+              "input",
+              "output"
+            ],
+            "properties": {
+              "tokens": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "input": {
+                "type": "number",
+                "minimum": 0
+              },
+              "output": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheRead": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheWrite": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
           }
         }
       }
