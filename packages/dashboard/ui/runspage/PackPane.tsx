@@ -60,12 +60,23 @@ function dropEntries(data: DataTransfer): DroppedEntry[] | null {
 export function PackPane({ pack, pick, rows }: { pack: PackPicked | null; pick: (files: PackFile[] | null) => void; rows: DialogFactRows }) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // The newest folder picked or dropped: a large drop's walk may end after a pick made since, and must not replace it.
+  const latest = useRef(0);
+  const choose = (files: PackFile[] | null) => {
+    ++latest.current;
+    pick(files);
+  };
   const drop = (e: DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     setOver(false);
     const entries = dropEntries(e.dataTransfer);
-    if (!entries) return pick(Array.from(e.dataTransfer.files ?? []).map(chosen));
-    void walkDropped(entries, MAX_FOLDER_FILES).then((files) => pick(files && files.map((f) => ({ path: f.path, bytes: f.file.size, data: f.file }))));
+    if (!entries) return choose(Array.from(e.dataTransfer.files ?? []).map(chosen));
+    const n = ++latest.current;
+    // A file the browser can no longer read (moved since the drop) leaves the pick as it was.
+    walkDropped(entries, MAX_FOLDER_FILES).then(
+      (files) => void (n === latest.current && pick(files && files.map((f) => ({ path: f.path, bytes: f.file.size, data: f.file })))),
+      () => undefined,
+    );
   };
   return (
     <div className="impbody">
@@ -85,7 +96,7 @@ export function PackPane({ pack, pick, rows }: { pack: PackPicked | null; pick: 
           }
         }}
       >
-        <input ref={input} type="file" webkitdirectory="" hidden onChange={(e) => (e.target.files?.length ? pick(Array.from(e.target.files).map(chosen)) : undefined)} />
+        <input ref={input} type="file" webkitdirectory="" hidden onChange={(e) => (e.target.files?.length ? choose(Array.from(e.target.files).map(chosen)) : undefined)} />
         <Icon name="import" />
         <b>Drop a pack folder here</b>
         <span>or click to choose · the folder shadowlap pack wrote</span>

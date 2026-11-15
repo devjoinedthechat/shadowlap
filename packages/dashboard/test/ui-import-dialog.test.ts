@@ -197,6 +197,20 @@ describe('Import capture from a pack’s folder', () => {
     expect(ok().disabled).toBe(true);
   });
 
+  it('keeps the newest folder: a large drop’s walk that ends after it never replaces it', async () => {
+    const { dir } = writePack();
+    dirs.push(join(dir, '..'));
+    // A folder whose reader answers late, as a large one's does, and holds no pack.
+    const slow = { isFile: false, isDirectory: true, fullPath: '/notes', createReader: () => ({ readEntries: (ok: (b: DroppedEntry[]) => void) => void setTimeout(() => ok([]), 60) }) } as DroppedEntry;
+    r = await open();
+    await r.click(r.byText('.dialog .impsrc button', 'Pack'));
+    await drop(slow);
+    await drop(dropped(folderFiles(dir)));
+    await r.until('what it holds', () => r!.all('.dialog dt').length === 3);
+    await r.wait(120);
+    expect([r.all('.dialog .fieldnote.err').length, text(r.one('.dialog .capfile code'))]).toEqual([0, 'support-refund']);
+  });
+
   it('says to pick one of the packs in a folder of them', async () => {
     const parent = mkdtempSync(join(tmpdir(), 'sl-import-goldens-'));
     dirs.push(parent);
