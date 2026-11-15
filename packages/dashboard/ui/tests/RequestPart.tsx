@@ -50,7 +50,7 @@ function Asked({ runId, callNo }: { runId: string; callNo: number }) {
 }
 
 /** A diff's lines while it is asked, as long as such lines run. */
-const ASKING = ['model: "claude-sonnet-4"', 'max_tokens: 1024', 'metadata: {', '  user_id: "6f1c2a9e-0b4d-4e8a"', '}', 'messages: [ … ]'];
+const ASKING = ['model: "claude-sonnet-5-5"', 'max_tokens: 1024', 'metadata: {', '  user_id: "6f1c2a9e-0b4d-4e8a"', '}', 'messages: [ … ]'];
 
 /**
  * The diff while it is asked, in its shape as quiet bars: both heads, then its lines in their box.
