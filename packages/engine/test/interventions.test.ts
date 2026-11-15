@@ -5,6 +5,7 @@ import {
   literalValue,
   modelInRequest,
   parseToolFailure,
+  noLateSystemMessage,
   placeInjection,
   plantInResult,
   plantInToolResult,
@@ -264,6 +265,12 @@ describe('an injected instruction', () => {
     expect(placeInjection('anthropic', body, 'system', 'claude-sonnet-5')).toEqual({ refused: expect.stringContaining('Claude Sonnet 5 (claude-sonnet-5) takes no system message') });
     expect(placeInjection('anthropic', body, 'system', 'anthropic.claude-sonnet-5-20260115-v1:0')).toMatchObject({ refused: expect.stringContaining('--inject-as user') });
     expect(placeInjection('anthropic', body, 'system', 'claude-opus-5')).toMatchObject({ mode: 'insert' });
+    // Claude Sonnet 5 however its platform names it; Claude Sonnet 5.5, which takes one, never.
+    for (const sonnet5 of ['claude-sonnet-5', 'claude-sonnet-5-20260115', 'us.anthropic.claude-sonnet-5-20260115-v1:0', 'claude-sonnet-5@20260115', 'anthropic/claude-sonnet-5', 'Claude-Sonnet-5']) expect(noLateSystemMessage(sonnet5), sonnet5).toBe('Claude Sonnet 5');
+    for (const sonnet55 of ['claude-sonnet-5-5', 'claude-sonnet-5-5-20261101', 'anthropic/claude-sonnet-5.5', 'us.anthropic.claude-sonnet-5-5-20261101-v1:0', 'anthropic.claude-sonnet-5-5-v1:0', 'claude-sonnet-5-5@20261101', 'claude-sonnet-5-5@latest', 'claude-sonnet-50']) {
+      expect(noLateSystemMessage(sonnet55), sonnet55).toBeNull();
+      expect(placeInjection('anthropic', { ...body, model: sonnet55 }, 'system', sonnet55), sonnet55).toMatchObject({ mode: 'insert' });
+    }
     // As the user it goes in on every model.
     expect(placeInjection('anthropic', body, 'user', 'claude-sonnet-5')).toMatchObject({ mode: 'extend' });
   });
