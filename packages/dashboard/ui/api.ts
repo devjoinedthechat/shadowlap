@@ -178,9 +178,9 @@ export interface Client extends ChangesApi, TestsApi {
   /** A call's details; `whole` as a page of calls takes it. */
   call(id: string, n: number, o?: { whole?: boolean }): Promise<CallDetail>;
   lineage(id: string): Promise<LineageNode[]>;
-  /** The run's record for Provenance, or null when the server does not work it out. */
+  /** The run's record for Provenance, or null in an exported copy that holds none. */
   provenance(id: string): Promise<ProvenanceView | null>;
-  /** What the run page offers for a run (Share's counts, Push, Run blame, Find breaking commit), or null when the server does not say. */
+  /** What the run page offers for a run (Share's counts, Push, Run blame, Find breaking commit), or null in an exported copy, which offers none. */
   offers(id: string): Promise<RunOffers | null>;
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
@@ -240,7 +240,7 @@ export interface Client extends ChangesApi, TestsApi {
   injectionSecurity(): Promise<SecurityRead>;
   /** Saves a file a job wrote. */
   downloadFile(file: JobFile): Promise<void>;
-  /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
+  /** What changed since `since`, or null in an exported copy, which never changes. */
   changes(since: string | null): Promise<Changes | null>;
 
   // ---- overview-runs: the Overview, the Runs page, imports and the team store
@@ -262,9 +262,9 @@ export interface Client extends ChangesApi, TestsApi {
   deleteRuns(ids: readonly string[], o?: { keepalive?: boolean }): Promise<DeleteResult>;
   /** Which of these runs are still in the store, for a selection to let go of runs deleted elsewhere. */
   knownRuns(ids: readonly string[]): Promise<string[]>;
-  /** The team store the project's config names and who this machine records as, or null without one (or on a server without the route). */
+  /** The team store the project's config names and who this machine records as, or null without one (or in an exported copy). */
   teamStore(): Promise<TeamStoreView | null>;
-  /** Whether the trace stores' keys are set on this machine, and where each is reached; null on a server without the route. */
+  /** Whether the trace stores' keys are set on this machine, and where each is reached; null in an exported copy. */
   importSources(): Promise<ImportSources | null>;
   /** Sends a file for a job to use (`POST /api/uploads`). */
   upload(file: Blob, name: string): Promise<UploadView>;
@@ -382,28 +382,14 @@ async function fileOf(token: string, path: string, fallbackName: string): Promis
 }
 
 export function createClient(token: string): Client {
-  let hasChanges: boolean | null = null;
-  let hasProvenance: boolean | null = null;
-  let hasStore: boolean | null = null;
   // The store's answer as the screens take it, kept while the server's answer is the same one (a 304).
   let storeView: { from: unknown; view: TeamStoreView | null } | null = null;
   let storeLoading: Promise<TeamStoreView | null> | null = null;
   async function loadStore(): Promise<TeamStoreView | null> {
-    if (hasStore === false) return null;
-    try {
-      const out = await request<{ store: TeamStoreStatus | null; you?: string | null }>('store');
-      hasStore = true;
-      if (storeView?.from !== out) storeView = { from: out, view: out.store ? { ...out.store, you: out.you ?? null } : null };
-      return storeView.view;
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasStore === null) {
-        hasStore = false;
-        return null;
-      }
-      throw err;
-    }
+    const out = await request<{ store: TeamStoreStatus | null; you?: string | null }>('store');
+    if (storeView?.from !== out) storeView = { from: out, view: out.store ? { ...out.store, you: out.you ?? null } : null };
+    return storeView.view;
   }
-  let hasOffers: boolean | null = null;
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -456,36 +442,8 @@ export function createClient(token: string): Client {
     calls: (runId, from, limit, o) => request<CallsPage>(`runs/${id(runId)}/calls?from=${from}${limit === undefined ? '' : `&limit=${limit}`}${o?.whole ? '&whole=1' : ''}`),
     call: (runId, n, o) => request<CallDetail>(`runs/${id(runId)}/calls/${n}${o?.whole ? '?whole=1' : ''}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => request<{ nodes: LineageNode[] }>(`runs/${id(runId)}/lineage`).then((r) => r.nodes),
-    provenance: async (runId) => {
-      if (hasProvenance === false) return null;
-      try {
-        const out = await request<ProvenanceView>(`runs/${id(runId)}/provenance`);
-        hasProvenance = true;
-        return out;
-      } catch (err) {
-        // A server without the endpoint: Provenance shows what the run itself says.
-        if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasProvenance === null) {
-          hasProvenance = false;
-          return null;
-        }
-        throw err;
-      }
-    },
-    offers: async (runId) => {
-      if (hasOffers === false) return null;
-      try {
-        const out = await request<RunOffers>(`runs/${id(runId)}/offers`);
-        hasOffers = true;
-        return out;
-      } catch (err) {
-        // A server without the endpoint (not a run it doesn't have): the page offers what the run itself says.
-        if (err instanceof ApiError && (err.status === 405 || (err.status === 404 && /^no endpoint/.test(err.message))) && hasOffers === null) {
-          hasOffers = false;
-          return null;
-        }
-        throw err;
-      }
-    },
+    provenance: (runId) => request<ProvenanceView>(`runs/${id(runId)}/provenance`),
+    offers: (runId) => request<RunOffers>(`runs/${id(runId)}/offers`),
     showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
     compare: (a, b) => request<CompareView>(`compare?a=${id(a)}&b=${id(b)}`),
     compareHead: (a, b) => request<CompareHead | null>(`compare?a=${id(a)}&b=${id(b)}&part=head`),
@@ -513,7 +471,7 @@ export function createClient(token: string): Client {
     knownRuns: (ids) => request<{ known: string[] }>('runs/known', { method: 'POST', body: JSON.stringify({ ids }) }).then((r) => r.known),
     // The status bar, Runs and the Overview ask at once when runs change: one request answers them all.
     teamStore: () => (storeLoading ??= loadStore().finally(() => (storeLoading = null))),
-    importSources: () => request<ImportSources>('imports').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    importSources: () => request<ImportSources>('imports'),
     upload: async (file, name) => {
       const res = await fetch('/api/uploads', { method: 'POST', body: file, headers: { 'x-shadowlap-token': token, ...projectHeader(), 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
       const text = await res.text();
@@ -527,32 +485,17 @@ export function createClient(token: string): Client {
       return body as UploadView;
     },
     activity: (limit, before) => request<ActivityPage>(`activity?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`),
-    changes: async (since) => {
-      if (hasChanges === false) return null;
-      try {
-        const out = await request<Changes>(`changes${since ? `?since=${id(since)}` : ''}`);
-        hasChanges = true;
-        return out;
-      } catch (err) {
-        // A server without the endpoint: the UI polls the run list instead.
-        if (err instanceof ApiError && (err.status === 404 || err.status === 405)) {
-          hasChanges = false;
-          return null;
-        }
-        throw err;
-      }
-    },
+    changes: (since) => request<Changes>(`changes${since ? `?since=${id(since)}` : ''}`),
     fixes: () => request<FixesView>('fixes'),
     fix: (fixId) => request<FixDetail>(`fixes/${id(fixId)}`),
     renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
-    // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.
+    // A run the server never heard of: the Forks view lists the attempts as runs.
     fixBundles: bundleSource((runId) => request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`).then((out) => out.bundles)),
     ...testsApi(request),
     ...ownApis(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
     ...changesApi(request),
-    // A server without the routes answers 404: nothing to show, rather than an error.
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
     unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),

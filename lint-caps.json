@@ -365,9 +365,6 @@
     "packages/dashboard/src/training.ts": {
       "trainingView": 163
     },
-    "packages/dashboard/ui/api.ts": {
-      "createClient": 162
-    },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 158
     },
@@ -381,7 +378,7 @@
       "PaletteDialog": 167
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 300
+      "AppProvider": 297
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217

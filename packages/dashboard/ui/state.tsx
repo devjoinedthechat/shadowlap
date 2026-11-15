@@ -400,27 +400,25 @@ export function AppProvider({ client, jobWords, children }: { client: Client; jo
       busy = true;
       try {
         const ch = await client.changes(cursor.current);
-        if (!alive) return;
-        if (ch === null) await loadRuns();
-        else {
-          const first = cursor.current === null;
-          cursor.current = feedCursor(ch);
-          if (ch.live) setLive(ch.live);
-          // Runs moved: the list loads again. Only calls: the recordings growing, whose counts the
-          // feed carries, so the list takes them as they are and pages of counts reload (`tick`); a
-          // run's page reloads on its own calls alone.
-          const moves = feedMoves(ch, first);
-          if (moves === 'runs') await loadRuns();
-          else if (moves === 'calls') {
-            const live = ch.live;
-            if (live) setRuns((list) => withLiveCalls(list, live) as RunListItem[] | null);
-            setTick((n) => n + 1);
-          }
-          const moved = feedsMoved(ch, first);
-          if (moved.length) setFeeds((f) => Object.fromEntries([...Object.entries(f), ...moved.map((k) => [k, (f[k] ?? 0) + 1] as const)]));
-          // The counts in the status bar and the nav are the server's: they move with the runs.
-          if (!first && ch.runs) void client.meta().then((m) => alive && setMeta(m), () => undefined);
+        // None from an exported copy, which never polls: it never changes.
+        if (!alive || ch === null) return;
+        const first = cursor.current === null;
+        cursor.current = feedCursor(ch);
+        if (ch.live) setLive(ch.live);
+        // Runs moved: the list loads again. Only calls: the recordings growing, whose counts the
+        // feed carries, so the list takes them as they are and pages of counts reload (`tick`); a
+        // run's page reloads on its own calls alone.
+        const moves = feedMoves(ch, first);
+        if (moves === 'runs') await loadRuns();
+        else if (moves === 'calls') {
+          const live = ch.live;
+          if (live) setRuns((list) => withLiveCalls(list, live) as RunListItem[] | null);
+          setTick((n) => n + 1);
         }
+        const moved = feedsMoved(ch, first);
+        if (moved.length) setFeeds((f) => Object.fromEntries([...Object.entries(f), ...moved.map((k) => [k, (f[k] ?? 0) + 1] as const)]));
+        // The counts in the status bar and the nav are the server's: they move with the runs.
+        if (!first && ch.runs) void client.meta().then((m) => alive && setMeta(m), () => undefined);
       } catch (err) {
         if (alive) fail(err);
         return;
