@@ -7,7 +7,7 @@ import { Store } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView, type RouteModule } from '../src/index.js';
 
 /**
- * A job the CLI refused because the run's model called a tool Shadowlap never recorded that writes
+ * A job the CLI refused because the run's model called a tool shadowlap never recorded that writes
  * runs again from its drawer, allowing those tools: `POST /api/jobs/:id/again { allowUnrecorded }`
  * builds the same request again through its kind's builder, which checks every field as before, and
  * adds `--allow-unrecorded` to each command of it that replays a recording, before its `--`.

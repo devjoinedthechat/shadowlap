@@ -688,7 +688,7 @@ describe('job drawer', () => {
   it('says a replay the CLI refused for a tool the run never recorded is refused, and what the tool does, not a bare exit', () => {
     // A fix's rerun (blame again, verify more) carries no --allow-unrecorded: the CLI refuses it, and says how to run it.
     const refusal = [
-      "shadowlap: 01K0UNKNOW holds model calls of a tool Shadowlap never recorded, which may write: a replay serves the model's answers again, so it would run it again for real.",
+      "shadowlap: 01K0UNKNOW holds model calls of a tool shadowlap never recorded, which may write: a replay serves the model's answers again, so it would run it again for real.",
       '  frobnicate (2 calls from #3, may write)',
       "  So Shadowlap records it and a replay serves it: wrap it where your agent runs it: tool('frobnicate', { effect: 'write' }, fn) with @shadowlap/sdk.",
       '  If running it again is safe, declare it a read in shadowlap.config.json, "tools": { "unrecorded": { "frobnicate": "read" } }',
@@ -696,9 +696,9 @@ describe('job drawer', () => {
     const blame = { kind: 'blame', args: ['blame', '01K0UNKNOW0000000000000000', '--expect', '{"tools":{"send_email":1}}'], done: true, code: 2 };
     expect(jobStatus(blame, refusal)).toEqual({ text: 'refused · an unrecorded tool may write · exit 2', tone: 'err' });
     expect(endToast(blame, refusal)).toBe('Tried blaming · refused · an unrecorded tool may write · exit 2');
-    const several = ["shadowlap: 01K0UNKNOW holds model calls of tools Shadowlap never recorded, which write, or may: a replay serves the model's answers again, so it would run them again for real."];
+    const several = ["shadowlap: 01K0UNKNOW holds model calls of tools shadowlap never recorded, which write, or may: a replay serves the model's answers again, so it would run them again for real."];
     expect(jobStatus({ args: ['replay', 'X'], done: true, code: 2 }, several)).toEqual({ text: 'refused · unrecorded tools write, or may · exit 2', tone: 'err' });
-    expect(jobStatus({ args: ['replay', 'X'], done: true, code: 2 }, ['shadowlap: 01K0UNKNOW holds model calls of a tool Shadowlap never recorded, which writes: a replay serves …']).text).toBe('refused · an unrecorded tool writes · exit 2');
+    expect(jobStatus({ args: ['replay', 'X'], done: true, code: 2 }, ['shadowlap: 01K0UNKNOW holds model calls of a tool shadowlap never recorded, which writes: a replay serves …']).text).toBe('refused · an unrecorded tool writes · exit 2');
   });
 
   it('says a job someone stopped was stopped, whatever its exit code, and stopping until it has', () => {

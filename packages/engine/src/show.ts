@@ -31,7 +31,7 @@ export interface ShowJson {
 /**
  * `tools`: the project's `tools` from its config, which mark a tool the other way over what its
  * calls were recorded with; `unrecorded`: its `tools.unrecorded`, the effects it declares for tools
- * Shadowlap doesn't record.
+ * shadowlap doesn't record.
  */
 export function showJson(store: StoreOf<'recording'>, run: RunRecord, options: SummaryOptions & { calls?: CallRecord[]; tools?: ToolTrust; unrecorded?: Readonly<Record<string, 'read' | 'write'>> } = {}): ShowJson {
   const calls = options.calls ?? store.getCalls(run.runId);

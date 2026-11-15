@@ -124,7 +124,7 @@ describe('the findings bar', () => {
     expect(more.getAttribute('data-tip')).toBe(null);
     await page.until('the note’s words', () => page!.all('.rnote .fbody .rntools code').length > 0);
     expect(page.one('.rnote .fbody .rntools code').textContent).toBe('Bash');
-    expect(page.one('.rnote .rnw .why').textContent.replace(/\u00a0/g, ' ')).toContain('The model called a tool Shadowlap did not record');
+    expect(page.one('.rnote .rnw .why').textContent.replace(/\u00a0/g, ' ')).toContain('The model called a tool shadowlap did not record');
     await page.unmount();
     page = await render(createElement(AppContext.Provider, { value: app }, createElement(FindingsBar, { ...props(detail()), notes: [] })));
     expect(page.all('#findings')).toEqual([]);

@@ -118,7 +118,7 @@ export function setToolTrust(dir: string, tool: string, trust: Trust | null, o: 
   };
 }
 
-/** The effect `tools.unrecorded` declares for a tool Shadowlap doesn't record: a read runs again on replay, a write is refused. */
+/** The effect `tools.unrecorded` declares for a tool shadowlap doesn't record: a read runs again on replay, a write is refused. */
 export type UnrecordedEffect = 'read' | 'write';
 
 /** The `tools` entry's one line that declares an unrecorded tool, as Settings → Tools shows it and its toasts quote it. */

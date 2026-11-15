@@ -128,7 +128,7 @@ describe("Vercel AI SDK with a model named by a string, through Vercel's AI Gate
   it("finds a tool the agent didn't wrap from the model's answers, and refuses to replay it while it writes", async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT], { ...live(), UNWRAPPED: '1' });
     assert.equal(recorded.code, 0, recorded.out);
-    assert.match(recorded.out, /The model called a tool Shadowlap did not record/);
+    assert.match(recorded.out, /The model called a tool shadowlap did not record/);
     assert.match(recorded.out, /refund_order\s+1 call from model call #3/);
     const replay = await shadowlap(['replay', runIdOf(recorded.out, 'recording'), '--strict'], { UNWRAPPED: '1' });
     assert.equal(replay.code, 2, replay.out);

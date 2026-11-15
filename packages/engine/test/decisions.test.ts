@@ -308,9 +308,9 @@ describe('formatDecisions', () => {
     const mixed = formatDecisions({ ...report, runs: [sameRun, refusedRun], counts: { ...none, same: 2 }, flagged: [] });
     expect(mixed.split('\n')[0]).toBe('! The same decisions at every step asked, under the prompt and tools in the working tree; 1 of 2 runs could not be asked (why below)');
     // A refusal of several lines, as an unrecorded write's is, prints them as lines, never as \n.
-    const unrecorded = '01K1AAAAAA holds model calls of a tool Shadowlap never recorded, which writes: a replay would run it again for real.\n    Bash  1 call from model call #1 · a built-in that writes\n  If running it again is safe, declare it a read.';
+    const unrecorded = '01K1AAAAAA holds model calls of a tool shadowlap never recorded, which writes: a replay would run it again for real.\n    Bash  1 call from model call #1 · a built-in that writes\n  If running it again is safe, declare it a read.';
     const lines = formatDecisions({ ...report, runs: [{ ...refusedRun, refused: unrecorded }], counts: { ...none }, flagged: [] }).split('\n');
-    expect(lines).toContain('01K1AAAAAA  not asked: 01K1AAAAAA holds model calls of a tool Shadowlap never recorded, which writes: a replay would run it again for real.');
+    expect(lines).toContain('01K1AAAAAA  not asked: 01K1AAAAAA holds model calls of a tool shadowlap never recorded, which writes: a replay would run it again for real.');
     expect(lines).toContain('      Bash  1 call from model call #1 · a built-in that writes');
     expect(lines).toContain('    If running it again is safe, declare it a read.');
     expect(lines.join('\n')).not.toContain('\\n');

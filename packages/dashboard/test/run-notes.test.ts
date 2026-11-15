@@ -12,7 +12,7 @@ import { runNotes, viaWords } from '../ui/run/notes.js';
 import { preloadsOf, preloadWords } from '../ui/run/preloads.js';
 
 /**
- * What a run's page says of what the run did that Shadowlap did not record, or answered as it went:
+ * What a run's page says of what the run did that shadowlap did not record, or answered as it went:
  * the tools the model called that it never recorded (contract 10), a run no preload loaded in, the
  * WebSockets that went live, a replay's extra reads, and the host a model call went through.
  */
@@ -25,7 +25,7 @@ describe('the notes under a run’s banner', () => {
     const [n] = notesSaid({ unrecorded: { tools: [BASH, SEARCH], partial: false }, mode: 'record' });
     expect(n).toMatchObject({ kind: 'unrecorded', tone: 'err', label: 'not recorded', tools: [BASH, SEARCH] });
     expect(noteText(n.parts)).toBe(
-      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. Bash writes, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
+      'The model called 2 tools shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. Bash writes, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
     );
     // A Claude Code built-in is recorded through the Claude Agent SDK's fence, not wrapped.
     expect(noteText(n.hint!.parts)).toBe('To have it recorded and replayed, run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in Python), which records Bash and fences it on replay. Or declare what each does in shadowlap.config.json: ');
@@ -33,7 +33,7 @@ describe('the notes under a run’s banner', () => {
     // Reads alone: amber, nothing refused; a replay says it ran them itself.
     const [reads] = notesSaid({ unrecorded: { tools: [SEARCH], partial: false }, mode: 'replay' });
     expect(reads.tone).toBe('warn');
-    expect(noteText(reads.parts)).toBe('The model called a tool Shadowlap did not record: this replay ran it for real.');
+    expect(noteText(reads.parts)).toBe('The model called a tool shadowlap did not record: this replay ran it for real.');
     // A built-in that keeps to Claude Code's session needs nothing: no hint; an MCP server's tool goes through shadowlap mcp.
     const AGENT = { name: 'Agent', count: 1, firstCallNo: 2, effect: 'read' as const, why: 'a Claude Code built-in that starts a subagent, whose own tool calls are named apart', fix: 'none' as const };
     expect(notesSaid({ unrecorded: { tools: [AGENT], partial: false }, mode: 'record' })[0].hint).toBeUndefined();
@@ -48,7 +48,7 @@ describe('the notes under a run’s banner', () => {
     const [one] = notesSaid({ unrecorded: { tools: [FROB, SEARCH], partial: false }, mode: 'record' });
     expect(one.tone).toBe('err');
     expect(noteText(one.parts)).toBe(
-      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. frobnicate may write, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
+      'The model called 2 tools shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. frobnicate may write, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
     );
     // The one to wrap is the one refused.
     expect(noteText(one.hint!.parts)).toContain("tool('frobnicate', { effect: 'write' }, fn)");

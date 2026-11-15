@@ -217,7 +217,7 @@ const result = await generateText({ model: process.env.MODEL ?? 'openai/gpt-5', 
       expect(text).not.toContain('No model SDK found');
     });
 
-    it('Agno: a model class, a model string Shadowlap does not record, and plain functions as tools', () => {
+    it('Agno: a model class, a model string shadowlap does not record, and plain functions as tools', () => {
       const { r, tools, text } = found({
         'requirements.txt': 'agno\n',
         'agent.py': 'from agno.agent import Agent\nfrom agno.models.anthropic import Claude\n\ndef search_web(query: str) -> str:\n    ...\n\nagent = Agent(model=Claude(id="claude-sonnet-4-5"), tools=[search_web])\nfast = Agent(model="groq:llama-3.3-70b-versatile", tools=[search_web])\n',

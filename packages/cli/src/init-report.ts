@@ -61,7 +61,7 @@ export interface BaseUrlWarning {
 }
 
 /**
- * A model a framework names and sends to a host Shadowlap doesn't record: `groq/llama-3.3-70b` through
+ * A model a framework names and sends to a host shadowlap doesn't record: `groq/llama-3.3-70b` through
  * Mastra's router, `openrouter/…` through LiteLLM, smolagents' InferenceClientModel (Hugging Face).
  */
 export interface UnrecordedModel {

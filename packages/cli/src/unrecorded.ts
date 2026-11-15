@@ -99,7 +99,7 @@ function acts(tools: readonly UnrecordedTool[]): string {
 export function formatUnrecorded(tools: readonly UnrecordedTool[], what: 'recording' | 'replay'): string {
   if (!tools.length) return '';
   const writes = tools.filter(refusedEffect);
-  const head = `${p.yellow('!')} The model called ${tools.length === 1 ? 'a tool' : `${tools.length} tools`} Shadowlap did not record: ${what === 'replay' ? 'this replay ran' : 'they ran in your agent unseen, and a replay runs'} ${tools.length === 1 ? 'it' : 'them'} for real`;
+  const head = `${p.yellow('!')} The model called ${tools.length === 1 ? 'a tool' : `${tools.length} tools`} shadowlap did not record: ${what === 'replay' ? 'this replay ran' : 'they ran in your agent unseen, and a replay runs'} ${tools.length === 1 ? 'it' : 'them'} for real`;
   const refuse = writes.length ? `  ${writes.length === 1 ? `${safe(writes[0]!.name)} ${acts(writes)}, so every command that replays the run refuses` : `Some ${acts(writes)}, so every command that replays the run refuses`} to run ${writes.length === 1 ? 'it' : 'them'} again until it is recorded, declared a read, or allowed with --allow-unrecorded.` : '';
   // The tool to show how to record and declare: the first that writes, else the first that leaves Claude Code's session.
   const shown = writes[0] ?? tools.find((t) => t.fix !== 'none');
@@ -109,7 +109,7 @@ export function formatUnrecorded(tools: readonly UnrecordedTool[], what: 'record
 }
 
 /**
- * Why a replay of `run` must not start, or null: its model called tools Shadowlap never recorded
+ * Why a replay of `run` must not start, or null: its model called tools shadowlap never recorded
  * that write, so a replay would run them again for real. A tool `allowed` names may run; a partial
  * recording (an import, which holds only the model calls of a trace or capture) runs every other
  * tool live by design, so it is never refused. `command` is the command to suggest
@@ -122,7 +122,7 @@ export function unrecordedRefusal(run: RunRecord, tools: readonly UnrecordedTool
   const names = writes.map((t) => t.name);
   const it = writes.length === 1 ? 'it' : 'them';
   return [
-    `${shortId(run.runId)} holds model calls of ${writes.length === 1 ? 'a tool' : 'tools'} Shadowlap never recorded, which ${acts(writes)}: a replay serves the model's answers again, so it would run ${it} again for real.`,
+    `${shortId(run.runId)} holds model calls of ${writes.length === 1 ? 'a tool' : 'tools'} shadowlap never recorded, which ${acts(writes)}: a replay serves the model's answers again, so it would run ${it} again for real.`,
     ...unrecordedLines(writes),
     `  So Shadowlap records ${it} and a replay serves ${writes.length === 1 ? 'it' : 'each'}: ${howToRecord(writes[0]!) ?? 'record it'}.`,
     `  If running ${it} again is safe, declare ${it} a read in shadowlap.config.json, "tools": { "unrecorded": { ${JSON.stringify(writes[0]!.name)}: "read" } }${command ? `, or let this replay run ${it}: ${safe(quoteArgv(withFlag(command, ['--allow-unrecorded', names.join(',')])))}` : ''}`,
@@ -130,7 +130,7 @@ export function unrecordedRefusal(run: RunRecord, tools: readonly UnrecordedTool
 }
 
 /**
- * Throws the refusal of a replay of `run` whose model called a tool Shadowlap never recorded that
+ * Throws the refusal of a replay of `run` whose model called a tool shadowlap never recorded that
  * writes (unrecordedRefusal), or returns quietly. Every command that replays a recording calls it
  * before its agent starts, and so do the runners they share (`testAttempt`, `repeatUnderSidecar`,
  * the AttemptRunner of blame, verify and repair), so no path runs such a tool again unasked.

@@ -10,7 +10,7 @@ import { render, type Rendered } from './ui-render.js';
  * Settings → Tools tells the truth about where `shadowlap injection` plants and what a replay may run
  * again: a pure tool or what the user types, once marked untrusted, is planted in as the engine
  * plants (it skips only writes and tools of no effect), so its row says so and offers Mark trusted;
- * and a tool Shadowlap doesn't record is declared a read or a write under `tools.unrecorded`, against
+ * and a tool shadowlap doesn't record is declared a read or a write under `tools.unrecorded`, against
  * the version the tab read, with an Undo.
  */
 

@@ -160,13 +160,13 @@ export function calibrationTarget(runId: string | null | undefined, runs: readon
 
 /**
  * A replay the CLI refused before anything ran, as every command that replays a run does when its
- * model called a tool Shadowlap never recorded that writes, or may (its effect unknown): what the
+ * model called a tool shadowlap never recorded that writes, or may (its effect unknown): what the
  * tool does, in the CLI's words (`an unrecorded tool may write`). A fix's rerun carries no
  * --allow-unrecorded, so its job ends here, the CLI's lines after it saying how to run it.
  */
 export function unrecordedRefused(lines: readonly string[]): string | null {
   for (const l of lines) {
-    const m = /holds model calls of (a tool|tools) Shadowlap never recorded, which (writes|write, or may|may write|write):/.exec(l);
+    const m = /holds model calls of (a tool|tools) shadowlap never recorded, which (writes|write, or may|may write|write):/.exec(l);
     if (m) return `${m[1] === 'a tool' ? 'an unrecorded tool' : 'unrecorded tools'} ${m[2]!}`;
   }
   return null;

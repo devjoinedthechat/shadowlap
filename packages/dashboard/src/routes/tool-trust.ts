@@ -7,7 +7,7 @@ import { editWhenFree } from '@shadowlap/engine';
 
 /**
  * Settings → Tools' marks: one tool's trust in shadowlap.config.json, and its Undo; and what a tool
- * Shadowlap doesn't record does, under `tools.unrecorded`, and its Undo.
+ * shadowlap doesn't record does, under `tools.unrecorded`, and its Undo.
  *
  *   PUT /api/settings/tools/trust        { tool, trust: 'trusted' | 'untrusted' | null, expect }; answers
  *                                        { tool, trust, was, changed, version, line }
@@ -16,7 +16,7 @@ import { editWhenFree } from '@shadowlap/engine';
  *
  * Against the version the page read (`expect`), as Settings' other edits: a file changed since is a
  * 409. An Undo names the version the mark wrote and puts `was` back, null taking the key out. A tool
- * named `unrecorded` is refused, since `tools.unrecorded` declares the tools Shadowlap doesn't record.
+ * named `unrecorded` is refused, since `tools.unrecorded` declares the tools shadowlap doesn't record.
  * The mark lands in the activity feed (`tool.trust`), and a declaration too (`tool.unrecorded`).
  */
 

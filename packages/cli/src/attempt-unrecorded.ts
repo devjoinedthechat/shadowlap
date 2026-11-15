@@ -43,7 +43,7 @@ export function formatAttemptsUnrecorded(lists: ReadonlyArray<readonly Unrecorde
   const n = rows.length;
   const writes = rows.filter((r) => refusedEffect(r.tool));
   const them = n === 1 ? 'it' : 'them';
-  const head = `${p.yellow('!')} The model called ${n === 1 ? 'a tool' : `${n} tools`} Shadowlap did not record: the attempts ran ${them} for real${writes.length ? `, and nothing stubbed ${writes.length === n ? them : 'the writes among them'}` : ''}`;
+  const head = `${p.yellow('!')} The model called ${n === 1 ? 'a tool' : `${n} tools`} shadowlap did not record: the attempts ran ${them} for real${writes.length ? `, and nothing stubbed ${writes.length === n ? them : 'the writes among them'}` : ''}`;
   const width = Math.max(...rows.map((r) => safe(r.tool.name).length));
   const lines = rows.map((r) => p.dim(`    ${safe(r.tool.name).padEnd(width)}  ${r.calls} call${r.calls === 1 ? '' : 's'} in ${r.attempts} of ${lists.length} attempt${lists.length === 1 ? '' : 's'} · ${safe(r.tool.why)}`));
   const shown = writes[0]?.tool ?? rows.find((r) => r.tool.fix !== 'none')?.tool;

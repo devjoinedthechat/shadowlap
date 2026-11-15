@@ -79,7 +79,7 @@ const frameworkName = (id: Framework['id']) => FRAMEWORK_NAMES[id].replace(/^the
 
 /**
  * A model the code names through a framework, and the provider whose API it calls: null for a host
- * Shadowlap doesn't record. `source` says where it came from, as the provider's `via`.
+ * shadowlap doesn't record. `source` says where it came from, as the provider's `via`.
  */
 interface NamedModel {
   file: string;
@@ -109,7 +109,7 @@ const PYDANTIC_RECORDED: Readonly<Record<string, Provider['id']>> = { openai: 'o
 
 /**
  * The provider a model string names, as a framework reads it: a provider id, null for a host
- * Shadowlap doesn't record, undefined when the string doesn't say.
+ * shadowlap doesn't record, undefined when the string doesn't say.
  */
 function stringProvider(model: string, how: 'litellm' | 'crewai' | 'adk' | 'langchain'): Provider['id'] | null | undefined {
   const lower = model.toLowerCase();
@@ -142,7 +142,7 @@ function stringProvider(model: string, how: 'litellm' | 'crewai' | 'adk' | 'lang
 /**
  * The model classes Python frameworks build their clients with, by the module they come from: the
  * provider whose API each calls, `litellm` or `crewai` for one whose model string names the provider,
- * or null for a module whose model classes all call a host Shadowlap doesn't record.
+ * or null for a module whose model classes all call a host shadowlap doesn't record.
  */
 type ModelKind = Provider['id'] | 'litellm' | 'crewai' | null;
 

@@ -42,7 +42,7 @@ async function refused(run: () => Promise<unknown>): Promise<CliError> {
   );
   expect(err).toBeInstanceOf(CliError);
   expect((err as CliError).exitCode).toBe(EXIT.usage);
-  expect((err as CliError).message).toContain('holds model calls of a tool Shadowlap never recorded, which writes');
+  expect((err as CliError).message).toContain('holds model calls of a tool shadowlap never recorded, which writes');
   expect((err as CliError).message).toContain('    Bash  1 call from model call #1 · a Claude Code built-in that runs a command');
   expect(existsSync(marker), 'the agent never started').toBe(false);
   return err as CliError;
@@ -119,7 +119,7 @@ describe("a plain agent's tools of Claude Code's built-in names", () => {
         ['Skill', 'unknown', 'wrap'],
       ]);
       const refusal = unrecordedRefusal(plain, tools, new Set(), null)!;
-      expect(refusal).toContain('holds model calls of tools Shadowlap never recorded, which write, or may');
+      expect(refusal).toContain('holds model calls of tools shadowlap never recorded, which write, or may');
       expect(refusal).toContain("wrap it where your agent runs it: tool('TaskCreate', { effect: 'write' }, fn) with @shadowlap/sdk");
       expect(refusal).not.toMatch(/withFence|with_fence|Claude Code/);
       // And so the runners never start it.
@@ -141,7 +141,7 @@ describe('a tool of unknown effect', () => {
 
   it('is refused as a write is, as the MCP proxy takes a tool its server leaves unannotated', () => {
     const refusal = unrecordedRefusal(run, [tool('frobnicate', 'unknown', 'its name says nothing of what it does')], new Set(), ['shadowlap', 'replay', run.runId]);
-    expect(refusal).toContain("01K0UNKNOW holds model calls of a tool Shadowlap never recorded, which may write: a replay serves the model's answers again, so it would run it again for real.");
+    expect(refusal).toContain("01K0UNKNOW holds model calls of a tool shadowlap never recorded, which may write: a replay serves the model's answers again, so it would run it again for real.");
     expect(refusal).toContain('    frobnicate  1 call from model call #2 · its name says nothing of what it does');
     expect(refusal).toContain(`shadowlap replay ${run.runId} --allow-unrecorded frobnicate`);
     expect(unrecordedRefusal(run, [tool('frobnicate', 'unknown', '…')], new Set(['frobnicate']), null)).toBeNull();

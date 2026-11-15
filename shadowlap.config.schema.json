@@ -124,7 +124,7 @@
       "properties": {
         "unrecorded": {
           "$comment": "Unrecorded tools: the effect of tools the agent runs without Shadowlap recording them (replay and test refuse to run an unrecorded write again).",
-          "description": "The effect of each tool the model calls that Shadowlap does not record (a built-in such as Bash, a framework's tool, an MCP server reached without shadowlap mcp). A replay runs such a tool again for real, so `replay` and `test` refuse while one of them writes: a declared `write` is refused, a declared `read` only warned about. `--allow-unrecorded <names>` lets a replay run them anyway.",
+          "description": "The effect of each tool the model calls that shadowlap does not record (a built-in such as Bash, a framework's tool, an MCP server reached without shadowlap mcp). A replay runs such a tool again for real, so `replay` and `test` refuse while one of them writes: a declared `write` is refused, a declared `read` only warned about. `--allow-unrecorded <names>` lets a replay run them anyway.",
           "type": "object",
           "additionalProperties": {
             "enum": [

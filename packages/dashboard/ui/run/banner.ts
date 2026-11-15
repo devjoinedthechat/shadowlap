@@ -780,7 +780,7 @@ export function ownBanner(i: BannerInput): Banner | null {
   return lostBanner(i.blame) ?? checksBanner(i) ?? (i.interrupted ? { kind: 'interrupted', why: interruptedWhy(i) } : null) ?? failedBanner(i) ?? keptBanner(i);
 }
 
-/** What the run did that Shadowlap did not record: a finding of its own, so it never hides the failure after it. */
+/** What the run did that shadowlap did not record: a finding of its own, so it never hides the failure after it. */
 export function notRecordedBanner(i: Pick<BannerInput, 'notRecorded'>): Banner | null {
   const nr = i.notRecorded;
   return nr && (nr.tools.length || nr.hosts.length) ? { kind: 'not-recorded', why: notRecordedWhy(nr) } : null;

@@ -21,7 +21,7 @@ describe('the toast a job ends with', () => {
   it('says what ran when it came out with nothing, or was refused before it ran', () => {
     expect(endToast(done({ kind: 'pairs', title: 'Exporting pairs', args: ['export', 'pairs'], code: 0, result: { pairs: 0 } }), [])).toBe('Tried exporting pairs · nothing exported · exit 0');
     expect(endToast(done({ kind: 'score', title: 'Scoring model', args: ['tasks', 'score'], code: 1, result: { tasks: [], skipped: [{ task: 'refund' }] } }), [])).toBe('Tried scoring model · nothing scored · exit 1');
-    const refused = ["shadowlap: 01K0UNKNOW holds model calls of tools Shadowlap never recorded, which write, or may: a replay serves the model's answers again, so it would run them again for real."];
+    const refused = ["shadowlap: 01K0UNKNOW holds model calls of tools shadowlap never recorded, which write, or may: a replay serves the model's answers again, so it would run them again for real."];
     expect(endToast(done({ args: ['replay', 'X'], code: 2 }), refused)).toBe('Tried replaying · refused · unrecorded tools write, or may · exit 2');
     expect(endToast(done({ kind: 'blame', args: ['blame', 'X'], code: 3, result: { outcome: 'stopped' } }), [])).toBe('Tried blaming · stopped · exit 3');
   });

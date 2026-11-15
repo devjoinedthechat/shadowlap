@@ -353,7 +353,7 @@ export interface RunMeta {
    * are found again from the recording), so making the fork again judges it the same way.
    */
   expect?: Record<string, unknown>;
-  /** What the run did that Shadowlap did not record, so a replay runs it for real (run-facts.ts). */
+  /** What the run did that shadowlap did not record, so a replay runs it for real (run-facts.ts). */
   notRecorded?: NotRecorded;
   // ---- the preloads in the agent's processes (the network guard and in-process capture) ----
   /**

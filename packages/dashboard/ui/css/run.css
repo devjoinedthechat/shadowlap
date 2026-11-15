@@ -697,7 +697,7 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 
 .attempts span i.n { background: var(--faint); }
 .banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
-/* under the banner: what the run did that Shadowlap did not record, a line each, wrapping, never cut */
+/* under the banner: what the run did that shadowlap did not record, a line each, wrapping, never cut */
 .rnotes { border-top: 1px solid var(--line); }
 .rnote { display: flex; align-items: baseline; gap: 12px; padding: 8px 24px; font-size: 13px; }
 .rnote + .rnote { border-top: 1px solid var(--line); }

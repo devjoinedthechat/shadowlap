@@ -77,7 +77,7 @@ export interface SettingsApi {
    * (the Undo of a file that had none). `line` is the line written, the box's marked one.
    */
   setToolTrust(tool: string, trust: 'trusted' | 'untrusted' | null, expect: string): Promise<{ tool: string; trust: 'trusted' | 'untrusted' | null; was: 'trusted' | 'untrusted' | null; changed: boolean; version: string; line: string | null }>;
-  /** What a tool Shadowlap doesn't record does, under `tools.unrecorded`, against the version read (`expect`); null takes its line out (the Undo of a file that declared none). */
+  /** What a tool shadowlap doesn't record does, under `tools.unrecorded`, against the version read (`expect`); null takes its line out (the Undo of a file that declared none). */
   setUnrecorded(tool: string, effect: 'read' | 'write' | null, expect: string): Promise<{ tool: string; effect: 'read' | 'write' | null; was: 'read' | 'write' | null; changed: boolean; version: string; line: string | null }>;
   /** "Add normalizer": the normalizers a finished calibrate job proposed, read from its result on the server. */
   writeCalibration(jobId: string): Promise<{ added: number[]; already: number[]; version: string }>;

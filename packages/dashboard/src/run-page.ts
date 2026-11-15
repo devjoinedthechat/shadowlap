@@ -593,7 +593,7 @@ export interface RunPageFacts {
   cache: { readShare: number | null; readShareAll: number | null; misses: CacheMiss[]; sentAgain: number };
   /** What replaying did not wait for: the recorded durations of the replayed calls, summed (ms). */
   notWaitedMs: number;
-  /** What the run did that Shadowlap did not record, so a replay runs it for real; null when nothing. */
+  /** What the run did that shadowlap did not record, so a replay runs it for real; null when nothing. */
   notRecorded: NotRecorded | null;
   /**
    * The call a replay forked at; none for one that stopped before its recording did (`ended_early`),

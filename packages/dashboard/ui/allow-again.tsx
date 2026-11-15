@@ -9,7 +9,7 @@ import type { JobView } from './types.js';
 
 /**
  * Run again, allowing <tools>: the way on of a job the CLI refused because its run's model called a
- * tool Shadowlap never recorded that writes, or may, which a replay would run again for real. It
+ * tool shadowlap never recorded that writes, or may, which a replay would run again for real. It
  * asks first, saying the tool acts on your systems, then starts the same job again with
  * `--allow-unrecorded` naming the tools the CLI named (`POST /api/jobs/:id/again`, which builds the
  * request again, checked as before). A yes its kind asks (a command someone else recorded, a golden

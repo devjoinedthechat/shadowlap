@@ -1,5 +1,5 @@
 /**
- * What a run's page says, under its banner, of what the run did that Shadowlap did not record or
+ * What a run's page says, under its banner, of what the run did that shadowlap did not record or
  * answered as it went, from what wave one's runs keep: the tools the model called that the run never
  * recorded (contract 10), which a replay runs for real and every command that replays the run
  * refuses when one writes, or may, with how to have them recorded or declare them; a run whose agent loaded no preload, so the network guard

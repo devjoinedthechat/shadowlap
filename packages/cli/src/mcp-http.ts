@@ -135,7 +135,7 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
   };
 
   // `shadowlap run`'s network guard would report this proxy's own connection to its server as
-  // traffic Shadowlap doesn't record; the calls it carries are recorded here.
+  // traffic shadowlap doesn't record; the calls it carries are recorded here.
   const allowGuard = (globalThis as Record<symbol, ((target: string) => void) | undefined>)[Symbol.for('shadowlap.guard.allow')];
   if (typeof allowGuard === 'function') allowGuard(`${url.hostname.replace(/^\[|\]$/g, '')}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`);
 

@@ -154,7 +154,7 @@ const PROVIDER_IMPORTS: ReadonlyArray<[RegExp, Provider['id'], string]> = [
   [/vertexai\s*[:=]\s*(true|True)/, 'vertex', 'google-genai on Vertex'],
 ];
 
-/** The model providers a project calls, each once, by the first thing that says so, and the models a framework sends where Shadowlap doesn't record. */
+/** The model providers a project calls, each once, by the first thing that says so, and the models a framework sends where shadowlap doesn't record. */
 function providersOf({ cwd, deps, py, texts }: ProjectFiles): { providers: Provider[]; unrecordedModels: UnrecordedModel[] } {
   const providers: Provider[] = [];
   const addProvider = (id: Provider['id'], via: string) => {

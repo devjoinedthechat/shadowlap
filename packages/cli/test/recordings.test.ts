@@ -179,7 +179,7 @@ describe('a recorded test whose model called a tool it never recorded', () => {
       expect((await at('end', { runId: rec.runId, passed: true })).body).toMatchObject({ saved: true });
       const refused = await at('start', { recording: 'recs/cleanup', slot: 'w', mode: 'none' });
       expect(refused.status).toBe(409);
-      expect(refused.body.error?.message).toContain("holds model calls of a tool Shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.");
+      expect(refused.body.error?.message).toContain("holds model calls of a tool shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.");
       expect(refused.body.error?.message).toContain('Or let the tests run it again for real: SHADOWLAP_ALLOW_UNRECORDED=Bash for the test run.');
       await car.close();
       // Allowed, as --allow-unrecorded allows it: the replay starts.
