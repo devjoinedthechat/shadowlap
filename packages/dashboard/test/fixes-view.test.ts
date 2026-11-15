@@ -5,7 +5,6 @@ import { fixLead } from '../src/fix-lead.js';
 import { type FixActions } from '../src/fix-shared.js';
 import { fixDetail, fixesSummary, needsLookFixes } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
-import { chipKeeps } from '../ui/fixes/model.js';
 
 /**
  * The Fixes page's read model: where each fix stands on the ladder, the chip it is under, the to-do
@@ -90,9 +89,9 @@ describe('the Fixes page', () => {
     expect(fixDetail(store, hand.fixId)!.defaultStep).toBe('blame');
     expect(view.counts).toEqual({ all: 7, open: 4, ready: 1, applied: 2, verified: 3 });
     expect(view.totals.failing).toBe(7);
-    // Each of the page's chips keeps its bucket's rows, in the same order (ui/fixes/model.ts).
-    expect(view.fixes.filter((f) => chipKeeps('ready', f)).map((f) => f.fixId)).toEqual([ready.fixId]);
-    expect(view.fixes.filter((f) => chipKeeps('applied', f)).map((f) => f.fixId)).toEqual([broken.fixId, applied.fixId]);
+    // Every fix comes, each in its bucket, which the page's chips keep (ui/fixes/model.ts chipKeeps), in the same order.
+    expect(view.fixes.filter((f) => f.bucket === 'ready').map((f) => f.fixId)).toEqual([ready.fixId]);
+    expect(view.fixes.filter((f) => f.bucket === 'applied').map((f) => f.fixId)).toEqual([broken.fixId, applied.fixId]);
   });
 
   it('says by hand for a change made by hand after a repair that accepted nothing', () => {

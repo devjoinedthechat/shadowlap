@@ -184,7 +184,8 @@ describe('repairMarkdown', () => {
     expect(formatRepair(report)).not.toContain('not rescued');
     // One whose blame's bound bears out only the first model call says that much, as its blame's report heads it.
     const weak = { ...blameReport('01M540RWR1MGKZC97YKV0T4DB6', 'unrescuable'), errorBound: 0.087, confidence: 'medium' as const };
-    report.targets[1] = { ...report.targets[1], unsettled: undefined, ...unrescuedMarks(weak) };
+    const { unsettled: _unsettled, ...settled } = report.targets[1];
+    report.targets[1] = { ...settled, ...unrescuedMarks(weak) };
     expect(repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])[1]).toBe('not rescued from the first model call');
     expect(formatRepair(report)).toMatch(/01M540RWR1 +not rescued from the first model call/);
   });
