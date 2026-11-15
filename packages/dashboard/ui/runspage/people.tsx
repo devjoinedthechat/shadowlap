@@ -1,5 +1,5 @@
 import { tipText } from '../components/HoverCard.js';
-import { personName } from '../overview/model.js';
+import { personName } from '../person.js';
 import { authorTint, ciName } from './authors.js';
 
 /**
