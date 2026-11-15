@@ -34,6 +34,7 @@ import { conversationLink, originOf, tokensText, turnCalls } from './model.js';
 
 /** The Details tab, loaded the first time it shows, as a run's views are: a pointer or the focus reaching the tabs loads it ahead. */
 export const DetailsPart = onShow(() => import('./InspectorDetails.js').then((m) => m.DetailsTab), { failed: <LoadFailed what="details" /> });
+const warmDetails = () => DetailsPart.preload();
 
 export type InspectorTab = 'conversation' | 'response' | 'request' | 'details';
 export const TABS: readonly InspectorTab[] = ['conversation', 'response', 'request', 'details'];
@@ -133,7 +134,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
           </span>
         ) : null}
       </div>
-      <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} onPointerEnter={DetailsPart.preload} onFocus={DetailsPart.preload} />
+      <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} onPointerEnter={warmDetails} onFocus={warmDetails} />
       <div className="ibody" id="ibody" key={`${runId}:${call.callNo}:${tab}`} role="tabpanel" aria-labelledby={`itab-${tab}`} tabIndex={-1}>
         <MarksContext.Provider value={marks}>
           {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} played={played} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} played={played} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsPart runId={runId} detail={detail} models={models} flag={flag ?? null} played={played} />}
