@@ -108,3 +108,26 @@ test('while a job holds the working tree, a step goes plain and says why, in the
   await expect(page.locator('.palette')).toBeVisible();
   expect(posts).toEqual([]);
 });
+
+test('Run blame asks above Spending with blame’s settings beside its check, and starts with what they say', async ({ page }) => {
+  // Every billed press asks: the step's dialog shows, holding its settings.
+  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.abort()));
+  // The job's POST is answered here, so nothing changes the demo every test shares.
+  let asked: Record<string, unknown> | null = null;
+  await page.route(/\/api\/jobs$/, (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    asked = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'A blame of this run is running in another tab.' }) });
+  });
+  const run = demoId('digestFailed');
+  await openPage(page, `/run/${run}`, 'run');
+  await lime(page).click();
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog.locator('header h3')).toContainText('Run blame on');
+  await dialog.locator('input[type="text"]').first().fill('temperature=1');
+  await dialog.locator('input[type="number"]').fill('2');
+  await expect(dialog.locator('.cmdline')).toContainText(`shadowlap blame ${run.slice(0, 10)} --set temperature=1 --budget 2.00`);
+  await expectAccessible(page);
+  await dialog.locator('.dlg-ok').click();
+  await expect.poll(() => asked).toMatchObject({ kind: 'blame', runId: run, set: ['temperature=1'], budget: 2 });
+});

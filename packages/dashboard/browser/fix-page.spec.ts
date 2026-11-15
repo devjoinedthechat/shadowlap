@@ -106,3 +106,61 @@ test('a verified fix offers a check added to the golden that guards it, beside t
   await expectAccessible(page);
 });
 
+
+/**
+ * The fix's page as the server answers it, with `patch` applied: what the demo doesn't hold, so nothing
+ * changes the demo every test shares. By the demo's short id, and the whole one a dialog reads it again by.
+ */
+async function fixAnswered(page: import('@playwright/test').Page, fixId: string, patch: (fix: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
+  await page.route(new RegExp(`/api/fixes/${fixId}[0-9A-Z]*(\\?.*)?$`), async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const answer = await route.fetch();
+    // A read the page has already (304) keeps what it was given, patched.
+    if (answer.status() !== 200) return route.fulfill({ response: answer });
+    return route.fulfill({ response: answer, json: patch((await answer.json()) as Record<string, unknown>) });
+  });
+}
+
+test('Run repair’s ask hands the accepted change over to a branch, and opens it as a pull request once one is named', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const fixId = demoId('emailFix');
+  // Claude Code found, wherever the browser tests run: the ask's fields show.
+  await fixAnswered(page, fixId, (fix) => ({ ...fix, repairer: { ...(fix.repairer as object), problem: null } }));
+  let asked: Record<string, unknown> | null = null;
+  await page.route(/\/api\/jobs$/, (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    asked = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'This fix moved on since the page read it.' }) });
+  });
+  await openPage(page, `/fixes/${fixId}`, 'fix');
+  await page.locator('.ph .actions button', { hasText: 'Run repair' }).first().click();
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  const pr = dialog.locator('.fxhand [role="switch"]');
+  await expect(pr).toBeDisabled();
+  await dialog.locator('.fxhand input').fill('fix/email-once');
+  await pr.click();
+  await expect(pr).toHaveAttribute('aria-checked', 'true');
+  await expect(dialog.locator('.dfacts')).toContainText('committed to fix/email-once and opened as a pull request with gh');
+  await expect(dialog.locator('.cmdline')).toContainText('--branch fix/email-once --pr');
+  await expectAccessible(page);
+  await dialog.locator('.dlg-ok').click();
+  // The page names the fix by its whole id, the demo by its short one.
+  await expect.poll(() => asked).toMatchObject({ kind: 'repair', fixId: expect.stringMatching(new RegExp(`^${fixId}`)), branch: 'fix/email-once', pr: true });
+});
+
+test('a fix’s header links the pull request it merged with, and says what it spent on a card, as its other facts do', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fixId = demoId('refundFix');
+  const url = 'https://github.com/example/support-agent/pull/7';
+  await fixAnswered(page, fixId, (fix) => ({ ...fix, rung: 'merged', pr: { number: 7, url, state: 'merged' } }));
+  await openPage(page, `/fixes/${fixId}`, 'fix');
+  const link = page.locator('main#view .ph p.pmeta .st a');
+  await expect(link).toHaveText('PR #7');
+  await expect(link).toHaveAttribute('href', url);
+  await expect(link).toHaveAttribute('target', '_blank');
+  const spent = page.locator('main#view .ph p.pmeta span[data-tip]', { hasText: /spent$/ });
+  await expect(spent).toHaveText(/^(≈\$[\d.]+|<\$0\.0001|\$0) spent$/);
+  expect(JSON.parse((await spent.getAttribute('data-tip'))!)).toMatchObject({ t: expect.stringMatching(/ spent on this fix$/) });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  await expectAccessible(page);
+});
