@@ -87,7 +87,7 @@ describe('the builder reads the config', () => {
     const read = await get<ChecksConfig>(`checks/goldens?run=${rec}`);
     expect(read).toMatchObject({ exists: true, indent: '  ', order: ['suiteRisk', 'goldens/refund', 'goldens/refund-*', 'goldens/other'], relaid: false, agent: 'node agent.mjs', redactions: 1, judges: ['claude-haiku-4-5'] });
     // Ask a judge…'s models: the docs' example first, the project's judges', then each the engine prices that a judge takes, once each.
-    expect(read.models.slice(0, 2)).toEqual(['claude-haiku-4-5', 'claude-fable-5-1']);
+    expect(read.models.slice(0, 2)).toEqual(['claude-haiku-4-5', 'claude-fable-5-2']);
     expect(read.models).toHaveLength(Object.keys(DEFAULT_PRICES).length);
     expect(read.models).toContain('gemini-2.5-flash');
     expect(read.version).toMatch(/^[0-9a-f]{64}$/);
