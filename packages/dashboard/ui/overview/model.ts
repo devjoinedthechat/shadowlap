@@ -3,6 +3,7 @@ import { cents, compactPath, durLong, num } from '../format.js';
 import { ORIGIN_CODE, type Origin7 } from '../origins.js';
 import { href } from '../route.js';
 import type { GlyphKind } from '../runs.js';
+import { unitsKept } from '../typeset.js';
 import type { ActivityIcon, FixesFunnel, OverviewSummary, TestsTile } from '../types.js';
 
 /**
@@ -176,17 +177,18 @@ export function keepParts(text: string): KeptPart[] {
 /**
  * An activity entry's words with what the mock keeps as one piece inside a longer part, joined by
  * no-break spaces: why a preview settled nothing (`56 of 60 steps got no answer`, `2 of 3 runs could
- * not be asked`, `1 step waits on a judge`), a tally (`5 of 5`, `3 runs`, `2 goldens`), `at call 4`,
- * `2 with a write` and `judged change`. Its dots are left as they are, for `dotParts`.
+ * not be asked`, `1 step waits on a judge`), a tally (`5 of 5`), a figure and its unit as the copy
+ * keeps them (`3 runs`, `2 goldens`, a recording's task `after 40 days.`), `at call 4`, `2 with a
+ * write` and `judged change`. Its dots are left as they are, for `dotParts`.
  */
 export function activityKeep(text: string): string {
-  return text
+  const kept = text
     .replace(/\d+ of \d+ steps got no answer|\d+ of \d+ runs? could not be asked|\d+ steps? waits? on a judge/g, (m) => m.replace(/ /g, NB))
     .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
-    .replace(/(\d) (runs?|calls?|attempts?|goldens?|writes?)\b/g, `$1${NB}$2`)
     .replace(/\bat call (\d+)/g, `at${NB}call${NB}$1`)
     .replace(/(\d+) with a write/g, `$1${NB}with${NB}a${NB}write`)
     .replace(/judged change/g, `judged${NB}change`);
+  return unitsKept(kept);
 }
 
 /**

@@ -202,11 +202,20 @@ function compound(a: string, b: string, before: string | undefined, after: strin
   });
 }
 
+/** Whether word `b` is the unit of the figure word `a` ends on: `40 days`, `3 calls`, `$0.42 spent`, never a small word (`#19 with`). */
+const unitOf = (a: string, b: string): boolean => NUMBER.test(a) && /^[A-Za-z%×(]/.test(b) && !NOT_A_UNIT.has(b.toLowerCase());
+
+/**
+ * A line with a no-break space between each figure and its unit (`after 40 days.`), as rule 3 holds
+ * them, and no other join: for words that keep their own pieces, such as an activity entry's.
+ */
+export const unitsKept = (text: string): string => text.replace(/([^ ]+) (?=([^ ]+))/g, (m, a: string, b: string) => (unitOf(lastPiece(a), firstPiece(b)) ? `${a} ` : m));
+
 /** How strongly a number, a tally or a word that names a number holds the word after it, 0 where none does. */
 function figureJoin(a: string, b: string, before: string | undefined, after: string | undefined): number {
   if (/\d$/.test(a) && b === 'of' && !!after && A_NUMBER.test(after)) return JOIN.figure;
   if (a === 'of' && !!before && /\d$/.test(before) && A_NUMBER.test(b)) return JOIN.figure;
-  if (NUMBER.test(a) && /^[A-Za-z%×(]/.test(b) && !NOT_A_UNIT.has(b.toLowerCase())) return JOIN.figure;
+  if (unitOf(a, b)) return JOIN.figure;
   if (NAMES_NUMBER.test(a) && A_NUMBER.test(b)) return JOIN.figure;
   if (/^rev(?:ision)?$/i.test(a) && REV_HASH.test(b)) return JOIN.figure;
   return 0;

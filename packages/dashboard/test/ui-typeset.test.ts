@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { commandParts, type CmdPiece } from '../ui/cmdline.js';
 import { greedy, planCopy, tokens, type CopyMeasure } from '../ui/typeset-lines.js';
-import { codePieces, flatText, flatten, glue, inlineCodeCuts, isShortCopy, JOIN, joinOf, keptWords, pathPieces, sentenceRanges, sentences, type CopyPart, type Piece } from '../ui/typeset.js';
+import { codePieces, flatText, flatten, glue, inlineCodeCuts, isShortCopy, JOIN, joinOf, keptWords, pathPieces, sentenceRanges, sentences, unitsKept, type CopyPart, type Piece } from '../ui/typeset.js';
 
 /**
  * The line-break rules (ui/typeset.ts) and copy set at a width (ui/typeset-lines.ts), the mock's
@@ -71,6 +71,17 @@ describe('glue', () => {
     // "no" holds its word as an article does, more than a small word
     expect(joinOf(['no', 'runs'], 0)).toBe(JOIN.article);
     expect(joinOf(['with', 'runs'], 0)).toBe(JOIN.small);
+  });
+
+  it('keeps a figure with its unit and joins nothing else, for words that keep their own pieces', () => {
+    const u = (s: string) => joins(unitsKept(s));
+    // the figure joins rule 3 holds, as glue joins them, and none of its other joins
+    expect(u('stopped working after 40 days. Can it be repaired?')).toBe('stopped working after 40~days. Can it be repaired?');
+    expect(joins(glue('stopped working after 40 days. Can it be repaired?', () => true))).toContain('40~days.');
+    expect(u('Recorded 12 calls · $0.42 spent · 87% replayed')).toBe('Recorded 12~calls · $0.42~spent · 87%~replayed');
+    // never a small word after a figure, or a figure inside a word; a no-break space already there joins its pieces
+    expect(u('#19 with the rest, order A-1042 and v2 runs')).toBe('#19 with the rest, order A-1042 and v2 runs');
+    expect(u('8\u00a0of\u00a072 runs')).toBe('8~of~72~runs');
   });
 
   it('gives up the weakest join of a run wider than its line, where both sides then fit', () => {
