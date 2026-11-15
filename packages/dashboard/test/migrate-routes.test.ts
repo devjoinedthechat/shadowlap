@@ -149,7 +149,7 @@ describe('Migrate’s price', () => {
     const ask = async (q: string) => ((await (await api(dash, `migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5${q}`)).json()) as { estimate: { usd: number | null; parts?: string[] } | null }).estimate;
     const golden = await ask('');
     expect(golden?.usd).toBeGreaterThan(0);
-    expect(await ask(`&run=${other}`)).toMatchObject({ usd: 0, parts: ['no golden’s call is made with claude-sonnet-4-5'] });
+    expect(await ask(`&run=${other}`)).toMatchObject({ usd: 0, parts: ['no run’s call is made with claude-sonnet-4-5'] });
     // The golden's own recording, named as a run, is priced as the golden is.
     expect((await ask(`&run=${runId}`))?.usd).toBe(golden?.usd);
     expect((await api(dash, 'migrate/estimate?to=claude-sonnet-5-5&run=01NOSUCHRUN00000000000000')).status).toBe(404);

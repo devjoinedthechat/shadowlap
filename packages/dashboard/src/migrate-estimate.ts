@@ -60,7 +60,7 @@ async function migrateEstimates(store: Store, job: MigrateEstimateJob): Promise<
   const estimate = await estimateOf(
     (p) =>
       migrateEstimate(
-        live.map(({ golden, run }) => ({ calls: p.calls(run.runId), failed: recordedRole(store, run, recordedChecks(entries, store, run, job.work?.dir ?? process.cwd(), golden)?.spec ?? null, job.prices) === 'target' })),
+        live.map(({ golden, run }) => ({ calls: p.calls(run.runId), failed: recordedRole(store, run, recordedChecks(entries, store, run, job.work?.dir ?? process.cwd(), golden)?.spec ?? null, job.prices) === 'target', run: golden === null })),
         { to: job.to, from: job.from, rule: job.rule, ...(job.scope ? { scope: job.scope } : {}), ...(job.prices ? { prices: job.prices } : {}) },
       ),
     pricing,

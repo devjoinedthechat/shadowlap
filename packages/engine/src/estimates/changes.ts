@@ -174,9 +174,9 @@ class Missing {
  * ≈$23.01 · ≈$0.31 to ask 41 calls again · then verify, up to 80 attempts a failing run, 200 pairs a
  * good one · live from the switched calls, writes stubbed`). Under verify's gate its card says that
  * attempts the provider cuts short come on top, as they do of every verify's. It asks first whatever
- * Spending says.
+ * Spending says. A run it was given by id (`run`), not as a golden, is named a run in its words.
  */
-export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCall[]; failed: boolean }>, plan: MigratePlan): Estimate {
+export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCall[]; failed: boolean; run?: boolean }>, plan: MigratePlan): Estimate {
   const always = 'it writes a config change and a pull request body';
   const samples = plan.samples ?? MIGRATE_SAMPLES;
   const switched = (c: PricedCall) => askable(c, plan.scope) && switchedTo(c, plan.from, plan.to);
@@ -207,7 +207,9 @@ export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedC
     runs.push(g.failed ? { role: 'target', usd: now } : { role: 'good', usd: now, baseline: was });
   }
   if (missing.any) return { ...noEstimate('migrate', missing.words()), always };
-  if (!n) return { kind: 'migrate', usd: 0, ceiling: false, always, parts: [`no golden’s call is made with ${plan.from.join(' or ') || 'a model it switches from'}`] };
+  const [ran, golden] = [goldens.some((g) => g.run), !goldens.length || goldens.some((g) => !g.run)];
+  const whose = (or: string) => (ran ? (golden ? `golden’s ${or} run’s` : 'run’s') : 'golden’s');
+  if (!n) return { kind: 'migrate', usd: 0, ceiling: false, always, parts: [`no ${whose('or')} call is made with ${plan.from.join(' or ') || 'a model it switches from'}`] };
   const verify = verifyCeiling(runs, plan.rule);
   const failing = runs.filter((r) => r.role === 'target').length;
   // A fixed count (`--attempts`) counts an attempt the provider cut short toward it; a gate doesn't, and starts up to twice its max.
@@ -222,7 +224,7 @@ export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedC
       { what: 'Asking', usd: ask },
       { what: 'Verify', usd: verify.usd! },
     ],
-    ...(gated ? { card: { title: 'If every golden’s gate ran to its limit', lines: ['A gate stops once it decides.', CUT_SHORT_LINE] } } : {}),
+    ...(gated ? { card: { title: `If every ${whose('and')} gate ran to its limit`, lines: ['A gate stops once it decides.', CUT_SHORT_LINE] } } : {}),
     attempts: verify.attempts,
   };
 }
