@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { dash, openPage, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
 import { apiRequests, asksFirst, at, cardStates, click, compareOpen, DIALOG, dialogWalk, escape, fixes, MENU, NOT_FOUND, overlayStates, presetsRecording, press, previews, revision, run, runs, settled, sweep, updateGoldens, VERDICTS, type State } from './routes.js';
 import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { openReport, routeTestsFixture } from './tests-fixture.js';
@@ -79,7 +79,7 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
   // Edit and fork's dialog, from the inspector of the tool call the run failed at, which it opens on.
   states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
   // The check menu, from the inspector's Add check… on a tool call of the refund bug.
-  states.push(['run refundBug', run(page, dash().runs.refundBug as string)], ['run refundBug · a tool call', click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])')], ['run refundBug · the check menu', click(page, '[data-act="ckmenu"]', undefined, { shows: MENU })], ['run refundBug · the check menu closed', escape(page, MENU)]);
+  states.push(['run refundBug', run(page, demoId('refundBug'))], ['run refundBug · a tool call', click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])')], ['run refundBug · the check menu', click(page, '[data-act="ckmenu"]', undefined, { shows: MENU })], ['run refundBug · the check menu closed', escape(page, MENU)]);
   // The presets' finding on their recording, and the matrix its Show results opens in the inspector's place.
   const results = 'main#view section.rmxp[data-kind="presets"]';
   states.push(['the presets’ recording', presetsRecording(page)], ['its presets’ results', click(page, 'button[data-act="results"][data-which="presets"]', undefined, { shows: results })]);

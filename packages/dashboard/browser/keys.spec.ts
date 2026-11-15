@@ -377,7 +377,8 @@ test('the palette says “this row” where a row’s name doesn’t fit its fie
   // A row of Fixes, named in words. A row named by its run's id, as Runs' rows are, takes 142 to 217px
   // of the field's type as the id's letters fall, and the field holds 171px at its narrowest: one fits
   // there, and the page rightly keeps its name, as 01M7BPJ841's did.
-  await openPage(page, '/fixes', 'main#view .pslist');
+  // Its rows, never the list's bars while it loads, which j can't walk.
+  await openPage(page, '/fixes', 'main#view .pslist .psrow[data-rowkey]');
   await page.keyboard.press('j');
   await page.keyboard.press('ControlOrMeta+k');
   const field = page.locator('.palin input');

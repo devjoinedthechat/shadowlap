@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { commandParts, type CmdPiece } from '../ui/cmdline.js';
 import { greedy, planCopy, tokens, type CopyMeasure } from '../ui/typeset-lines.js';
-import { codePieces, flatText, flatten, glue, inlineCodeCuts, isShortCopy, JOIN, joinOf, keptWords, pathPieces, sentenceRanges, sentences, type CopyPart, type Piece } from '../ui/typeset.js';
+import { fieldValue } from '@shadowlap/engine';
+import { codePieces, flatText, flatten, glue, inlineCodeCuts, isShortCopy, JOIN, joinOf, keptWords, longPieces, pathPieces, sentenceRanges, sentences, unitsKept, type CopyPart, type Piece } from '../ui/typeset.js';
 
 /**
  * The line-break rules (ui/typeset.ts) and copy set at a width (ui/typeset-lines.ts), the mock's
@@ -71,6 +72,17 @@ describe('glue', () => {
     // "no" holds its word as an article does, more than a small word
     expect(joinOf(['no', 'runs'], 0)).toBe(JOIN.article);
     expect(joinOf(['with', 'runs'], 0)).toBe(JOIN.small);
+  });
+
+  it('keeps a figure with its unit and joins nothing else, for words that keep their own pieces', () => {
+    const u = (s: string) => joins(unitsKept(s));
+    // the figure joins rule 3 holds, as glue joins them, and none of its other joins
+    expect(u('stopped working after 40 days. Can it be repaired?')).toBe('stopped working after 40~days. Can it be repaired?');
+    expect(joins(glue('stopped working after 40 days. Can it be repaired?', () => true))).toContain('40~days.');
+    expect(u('Recorded 12 calls · $0.42 spent · 87% replayed')).toBe('Recorded 12~calls · $0.42~spent · 87%~replayed');
+    // never a small word after a figure, or a figure inside a word; a no-break space already there joins its pieces
+    expect(u('#19 with the rest, order A-1042 and v2 runs')).toBe('#19 with the rest, order A-1042 and v2 runs');
+    expect(u('8\u00a0of\u00a072 runs')).toBe('8~of~72~runs');
   });
 
   it('gives up the weakest join of a run wider than its line, where both sides then fit', () => {
@@ -153,6 +165,24 @@ describe('copy set at a width', () => {
     expect(pathPieces('s3://northwind-agent-runs/support-agent')).toEqual(['s3://northwind-agent-runs/', 'support-agent']);
     // unmeasured, every such word is held
     expect(keptWords(flatText('Adds refund-in-limit and get_policy.result.limit'), null).map((w) => w.kind)).toEqual(['w', 'w']);
+  });
+
+  it('keeps a request field set to an object or a list whole where its line holds it, and else breaks it only after its = and its value’s commas', () => {
+    // As a verdict's change and a migration's note word it: the field, =, and the value as --set takes it.
+    const sent = `thinking=${fieldValue({ type: 'enabled', budget_tokens: 1024 })}`;
+    const set = `thinking=${fieldValue({ type: 'adaptive' })}`;
+    const words = (text: string) => keptWords(flatText(text), null).map((w) => [text.slice(w.from, w.to), w.kind]);
+    expect(words(`the requests send ${sent}. Remove budget_tokens`)).toEqual([[`${sent}.`, 'long']]);
+    expect(words(`model=claude-haiku-5-5, ${set} from each run's first claude-sonnet-5-5 call`)).toEqual([
+      ['model=claude-haiku-5-5,', 'w'],
+      [set, 'long'],
+      ['claude-sonnet-5-5', 'w'],
+    ]);
+    expect(longPieces(`${sent}.`)).toEqual(['thinking=', '{"type":"enabled",', '"budget_tokens":1024}.']);
+    expect(longPieces(set)).toEqual(['thinking=', '{"type":"adaptive"}']);
+    // a field set to a plain value is a word as any other, and a dotted one breaks after its dots as before
+    expect(words('temperature=1 from each run')).toEqual([]);
+    expect(longPieces('thinking.budget_tokens=4096')).toEqual(['thinking.', 'budget_tokens=4096']);
   });
 
   it('balances no block, nor sentence, whose every word is kept whole: it wraps pretty, outranking a stylesheet’s balance', () => {

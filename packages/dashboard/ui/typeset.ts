@@ -202,11 +202,20 @@ function compound(a: string, b: string, before: string | undefined, after: strin
   });
 }
 
+/** Whether word `b` is the unit of the figure word `a` ends on: `40 days`, `3 calls`, `$0.42 spent`, never a small word (`#19 with`). */
+const unitOf = (a: string, b: string): boolean => NUMBER.test(a) && /^[A-Za-z%×(]/.test(b) && !NOT_A_UNIT.has(b.toLowerCase());
+
+/**
+ * A line with a no-break space between each figure and its unit (`after 40 days.`), as rule 3 holds
+ * them, and no other join: for words that keep their own pieces, such as an activity entry's.
+ */
+export const unitsKept = (text: string): string => text.replace(/([^ ]+) (?=([^ ]+))/g, (m, a: string, b: string) => (unitOf(lastPiece(a), firstPiece(b)) ? `${a}\u00a0` : m));
+
 /** How strongly a number, a tally or a word that names a number holds the word after it, 0 where none does. */
 function figureJoin(a: string, b: string, before: string | undefined, after: string | undefined): number {
   if (/\d$/.test(a) && b === 'of' && !!after && A_NUMBER.test(after)) return JOIN.figure;
   if (a === 'of' && !!before && /\d$/.test(before) && A_NUMBER.test(b)) return JOIN.figure;
-  if (NUMBER.test(a) && /^[A-Za-z%×(]/.test(b) && !NOT_A_UNIT.has(b.toLowerCase())) return JOIN.figure;
+  if (unitOf(a, b)) return JOIN.figure;
   if (NAMES_NUMBER.test(a) && A_NUMBER.test(b)) return JOIN.figure;
   if (/^rev(?:ision)?$/i.test(a) && REV_HASH.test(b)) return JOIN.figure;
   return 0;
@@ -355,10 +364,16 @@ export function glue(text: string, fits: (s: string) => boolean = (s) => s.lengt
 
 // ---------------------------------------------------------------------------------------------- words kept whole
 
-/** A word kept whole: one with a hyphen or a dash between two of its characters (a path or a URL among them), a flag, a range (`#1–#18`), a name with a dot in it. */
-const KEPT = /(^|[\s\u00a0(“"‘[])([^\s\u00a0]*\w[-‐–][#\w][^\s\u00a0]*|--?[A-Za-z][^\s\u00a0]*|[^\s\u00a0]*[A-Za-z_]\.[A-Za-z_][^\s\u00a0]*)/g;
-/** A long one, which may break after a dot or a hyphen where its line can't hold it: a host or a dotted field of 24 characters or more, a hyphenated name of 28. */
-export const LONG = /^(?=[^\s\u00a0]{24,}$)[^/]*\w\.\w|^(?=[^\s\u00a0]{28,}$)[^/]*\w-\w/;
+/** A request field set to an object or a list, as `--set` takes it: `thinking={"type":"adaptive"}`. */
+const FIELD_SET = /^[A-Za-z_][\w.]*=[{[]/;
+/** A word kept whole: one with a hyphen or a dash between two of its characters (a path or a URL among them), a flag, a range (`#1–#18`), a name with a dot in it, a field set to an object or a list. */
+const KEPT = /(^|[\s\u00a0(“"‘[])([^\s\u00a0]*\w[-‐–][#\w][^\s\u00a0]*|--?[A-Za-z][^\s\u00a0]*|[^\s\u00a0]*[A-Za-z_]\.[A-Za-z_][^\s\u00a0]*|[A-Za-z_][\w.]*=[{[][^\s\u00a0]*)/g;
+/**
+ * A long one, which may break where its line can't hold it: after a dot or a hyphen, a host or a
+ * dotted field of 24 characters or more and a hyphenated name of 28; a field set to an object or a
+ * list, whatever its length, after its `=` and its value's commas.
+ */
+export const LONG = /^(?=[^\s\u00a0]{24,}$)[^/]*\w\.\w|^(?=[^\s\u00a0]{28,}$)[^/]*\w-\w|^[A-Za-z_][\w.]*=[{[]/;
 
 /** A word kept whole, by its range: `w` nowrap, `long` a long name (whole where its line holds it), `path` broken only after a slash. */
 export interface KeptWord {
@@ -389,8 +404,11 @@ export function keptWords(f: Flat, fits: ((word: string) => boolean) | null): Ke
   return out;
 }
 
-/** A long name's pieces, each ending on the dot or the hyphen after which it may break. */
-export const longPieces = (w: string): string[] => w.split(/(?<=\w[.-])(?=\w)/);
+/**
+ * A long name's pieces, each ending on the dot or the hyphen after which it may break; a field set's
+ * on its `=` and on each comma between its value's members, as code shown as text breaks after one.
+ */
+export const longPieces = (w: string): string[] => (FIELD_SET.test(w) ? w.split(/(?<==)(?=[{[])|(?<=,)(?=["{[])/) : w.split(/(?<=\w[.-])(?=\w)/));
 /** A path's pieces, each ending on a slash after which it may break: never inside `//`, nor right after `:/`. */
 export const pathPieces = (w: string): string[] => w.split(/(?<=[^/:]\/)(?!\/)/);
 /**

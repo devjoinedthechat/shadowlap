@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { factTip } from '../ui/components/Facts.js';
-import { activityGlyph, activityLine, attemptsPart, chartScale, dayText, funnelParts, keepParts, keepPieces, kindGlyph, lastWeekWords, originCounts, originRows, overviewFacts, personName, reproducedNote, share, shortPaths, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
+import { Store } from '@shadowlap/engine';
+import { activity } from '../src/index.js';
+import { activityGlyph, activityKeep, activityLine, attemptsPart, chartScale, dayText, funnelParts, keepParts, keepPieces, kindGlyph, lastWeekWords, originCounts, originRows, overviewFacts, personName, reproducedNote, share, shortPaths, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
 import { dotInside } from '../ui/overview/words.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
@@ -173,6 +175,18 @@ describe('the Overview’s words', () => {
     expect(activityLine('Golden packed · goldens/refund-flow', 'goldens/refund-flow')).toEqual({ text: 'Golden packed', code: 'goldens/refund-flow' });
     expect(activityLine('Applied fx-01M50ZZESZ to the tree', fix)).toEqual({ text: 'Applied fx-01M50ZZESZ to the tree', code: null });
     expect(activityLine('Tests ran · 2 passed, 0 failed', null)).toEqual({ text: 'Tests ran · 2 passed, 0 failed', code: null });
+  });
+
+  it('keeps a figure with its unit in an activity entry, a recording’s task among its words, as the copy keeps one', () => {
+    // The entry as the server words it, for a recording whose task names a span of days.
+    const nb = '\u00a0';
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'faq.mjs', 'My blender (order A-1042) stopped working after 40 days. Can it be repaired?'], cwd: '.' }, startedAt: 1000 });
+    store.endRun(rec.runId, 'completed', 2000);
+    const entry = activity(store).items.find((a) => a.id === `r:${rec.runId}:end`)!;
+    const kept = activityKeep(activityLine(entry.text, entry.runId ?? entry.ref).text);
+    expect(kept).toBe(`Recorded 0${nb}calls · node faq.mjs My blender (order A-1042) stopped working after 40${nb}days. Can it be…`);
+    store.close();
   });
 });
 

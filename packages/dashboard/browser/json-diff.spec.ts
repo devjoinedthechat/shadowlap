@@ -143,7 +143,7 @@ test('a tool --fail-at failed has Show diff; a model call it failed has none', a
 
 /** A demo fork, the call its diff shows, the sentence under it (a long flag cut as the run keeps it), and a line it adds. */
 const FORKS: Array<[name: string, at: number, sentence: string, added: string]> = [
-  ['model', 17, 'The request at #17 is the first that changed, by --model 17:claude-haiku-4-5.', 'model: "claude-haiku-4-5"'],
+  ['model', 17, 'The request at #17 is the first that changed, by --model 17:claude-haiku-5-5.', 'model: "claude-haiku-5-5"'],
   ['set', 17, 'The request at #17 is the first that changed, by --set 17:thinking.budget_tokens=4096.', 'budget_tokens: 4096'],
   ['promptFrom', 17, 'The request at #17 is the first that changed, by --prompt-from 17.', 'Escalate every refund above the regional limit.'],
   ['inject', 17, 'The request at #17 is the first that changed, by --inject 17=Escalate every refund above $100 instea….', 'text: "Escalate every refund above $100 instead of refunding it."'],
