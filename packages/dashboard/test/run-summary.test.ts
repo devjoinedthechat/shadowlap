@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kindCode } from '../src/call-kinds.js';
-import { displayOrigin, JUDGE_SCOPE, ORIGIN_CODE, Store, storeApiRequest, summarizeRun, type CallKind, type Origin, type Price, type RunMeta, type RunRecord, type RunSummary } from '@shadowlap/engine';
+import { displayOrigin, JUDGE_SCOPE, ORIGIN_CODE, Store, storeApiRequest, summarizeRun, type CallKind, type Origin, type Price, type RunMeta, type RunRecord, type RunSummary, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/engine';
 import { modelName, runPageFacts } from '../src/run-page.js';
 import { blameStep, runWholeFacts } from '../src/run-summary.js';
@@ -11,13 +11,14 @@ import { blameStep, runWholeFacts } from '../src/run-summary.js';
  * (run-summary.ts). It must say exactly what reading every call says: here, on runs of every shape a
  * store holds, seeded and random, the judge's calls among them, retries, answers that never came,
  * flags written as true, 1 or text, usage or none, a model named by the answer, by the call or only
- * in its request, and extra reads (`extraRead`, true or not quite).
+ * in its request, and extra reads (`extraRead`, true or not quite). Prompts run past 100,000 tokens,
+ * where Claude Haiku 5.5's second card starts, and past a config price's own break.
  */
 
 const rnd = (seed: number) => () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
 const pick = <T,>(r: () => number, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)];
 
-const MODELS = ['claude-sonnet-4-5', 'claude-opus-5', 'gpt-5-mini', 'an-unpriced-model'];
+const MODELS = ['claude-sonnet-4-5', 'claude-opus-5', 'gpt-5-mini', 'an-unpriced-model', 'claude-haiku-5-5'];
 const SCOPES = [undefined, undefined, undefined, 'agent', 'agent/sub', 'other', JUDGE_SCOPE];
 
 function buildRun(store: Store, seed: number, meta: RunMeta, mode: 'record' | 'replay' = 'record', scopes: readonly (string | undefined)[] = SCOPES): RunRecord {
@@ -48,7 +49,9 @@ function buildRun(store: Store, seed: number, meta: RunMeta, mode: 'record' | 'r
         const v = flag();
         if (v !== undefined) endMeta[name] = v;
       }
-      if (r() < 0.75) endMeta.usage = { inputTokens: Math.floor(r() * 5000), outputTokens: Math.floor(r() * 900), ...(r() < 0.6 ? { cacheReadInputTokens: Math.floor(r() * 9000) } : {}), ...(r() < 0.3 ? { cacheCreationInputTokens: Math.floor(r() * 2000) } : {}) };
+      // Two prompts in five are long: up to 75,000 uncached and 135,000 read from the cache.
+      const long = r() < 0.4 ? 15 : 1;
+      if (r() < 0.75) endMeta.usage = { inputTokens: Math.floor(r() * 5000 * long), outputTokens: Math.floor(r() * 900), ...(r() < 0.6 ? { cacheReadInputTokens: Math.floor(r() * 9000 * long) } : {}), ...(r() < 0.3 ? { cacheCreationInputTokens: Math.floor(r() * 2000) } : {}) };
       if (where === 'end' || (where === 'start' && r() < 0.2)) endMeta.model = pick(r, MODELS);
       if (r() < 0.3) endMeta.status = pick(r, [200, 429, 529]);
       store.appendCallEnd(identity, { runId: run.runId, callNo, attempt, responseRef: null, outcome: r() < 0.2 ? 'error' : 'ok', meta: endMeta, at: 2000 + callNo });
@@ -64,7 +67,7 @@ function rounded(s: RunSummary): RunSummary {
   return { ...s, cost: { ...s.cost, spent: r(s.cost.spent), saved: r(s.cost.saved), captured: r(s.cost.captured) }, ...(s.judge ? { judge: { ...s.judge, spent: r(s.judge.spent), saved: r(s.judge.saved) } } : {}) };
 }
 
-const PRICES: Record<string, Price> = { 'gpt-5-mini': { input: 0.25, output: 2, cacheRead: 0.025 } };
+const PRICES: Record<string, Price> = { 'gpt-5-mini': { input: 0.25, output: 2, cacheRead: 0.025 }, 'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, above: { tokens: 50_000, input: 10, output: 37.5, cacheRead: 1 } } };
 
 describe('what a run page says of the whole run, read in SQL', () => {
   const store = Store.open(':memory:');
@@ -91,6 +94,26 @@ describe('what a run page says of the whole run, read in SQL', () => {
       }
     }
   }
+
+  it('prices each call on the card its own prompt picks, not the sum of the run\'s: Claude Haiku 5.5\'s, and at a config price\'s own break', () => {
+    const runOf = (model: string, usages: Usage[]) => {
+      const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/w' }, startedAt: 1000 });
+      usages.forEach((usage, i) => {
+        const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: `h${i}`, occurrence: 1 };
+        store.appendCallStart({ runId: run.runId, callNo: i + 1, ...identity, origin: 'live', effect: null, requestRef: null, meta: { model }, at: 1001 + i });
+        store.appendCallEnd(identity, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { usage }, at: 2001 + i });
+      });
+      store.endRun(run.runId, 'completed', 9000);
+      return store.getRun(run.runId)!;
+    };
+    const spent = (run: RunRecord, prices?: Record<string, Price>) => runWholeFacts(store, run, { ...(prices ? { prices } : {}), modelOf: modelResolver(store), name: modelName }).summary.cost.spent;
+    const haiku = runOf('claude-haiku-5-5', [{ inputTokens: 60_000, outputTokens: 1000 }, { inputTokens: 100_000, outputTokens: 1000 }, { inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 100_000 }]);
+    // 160,000 and 2,000 output tokens on the short card; 101,000 and 1,000 on the long one.
+    expect(spent(haiku)).toBeCloseTo((160_000 * 0.1 + 2000 * 0.5 + 1000 * 0.5 + 100_000 * 0.05 + 1000 * 2.5) / 1e6, 12);
+    const own: Record<string, Price> = { 'my-model': { input: 1, output: 2, above: { tokens: 50_000, input: 3, output: 4 } } };
+    const mine = runOf('my-model', [{ inputTokens: 30_000, outputTokens: 10 }, { inputTokens: 30_000, outputTokens: 10 }, { inputTokens: 60_000, outputTokens: 10 }]);
+    expect(spent(mine, own)).toBeCloseTo((60_000 * 1 + 20 * 2 + 60_000 * 3 + 10 * 4) / 1e6, 12);
+  });
 
   it('places blame’s call among the model calls of its scope as the run page does', () => {
     const r = rnd(5);

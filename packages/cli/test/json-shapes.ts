@@ -159,7 +159,7 @@ export const SHAPES = {
   injectionCleanAttempt: { section: 'injection', list: 'Each clean attempt', fields: ['runId', 'attempt', 'forkedAt', 'exitCode', 'made', 'gone', 'why'] },
   // Training: the tasks, a score, and the models to score.
   tasks: { page: 'training.md', section: 'Tasks', grows: true, fields: ['tasks', 'oneSided'] },
-  task: { page: 'training.md', section: 'Tasks', grows: true, fields: ['golden', 'name', 'status', 'note', 'runId', 'takeover', 'scope', 'scopes', 'rewards', 'checks', 'after', 'prefix', 'model', 'provider', 'callName', 'tokensAfter'] },
+  task: { page: 'training.md', section: 'Tasks', grows: true, fields: ['golden', 'name', 'status', 'note', 'runId', 'takeover', 'scope', 'scopes', 'rewards', 'checks', 'after', 'prefix', 'model', 'provider', 'callName', 'tokensAfter', 'callsAfter'] },
   oneSided: { page: 'training.md', section: 'Tasks', grows: true, fields: ['rewards', 'tasks', 'opposite'] },
   tasksScore: { page: 'training.md', section: 'Scoring a model', grows: true, fields: ['model', 'baseUrl', 'via', 'session', 'mean', 'attempts', 'spent', 'judge', 'unknownModels', 'skipped', 'tasks'] },
   tasksScoreTask: { page: 'training.md', section: 'Scoring a model', grows: true, fields: ['task', 'takeover', 'why', 'replayed', 'mean', 'spent', 'judge', 'stopped', 'dropped', 'stored', 'attempts'] },

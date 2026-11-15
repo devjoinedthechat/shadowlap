@@ -11,7 +11,7 @@ const tools = Object.keys(run).map((name) => ({ name, description: name.replace(
 const client = new Anthropic({ apiKey: 'demo-key' });
 const messages = [{ role: 'user', content: 'Acme says INV-20931 was charged twice.' }];
 for (let turn = 0; turn < 8; turn++) {
-  const reply = await client.messages.create({ model: 'claude-sonnet-5', max_tokens: 512, system: 'You handle billing disputes for Acme. Check the invoice before you credit anything.', tools, messages });
+  const reply = await client.messages.create({ model: 'claude-sonnet-5-5', max_tokens: 512, system: 'You handle billing disputes for Acme. Check the invoice before you credit anything.', tools, messages });
   messages.push({ role: 'assistant', content: reply.content });
   const uses = reply.content.filter((b) => b.type === 'tool_use');
   if (!uses.length) break;

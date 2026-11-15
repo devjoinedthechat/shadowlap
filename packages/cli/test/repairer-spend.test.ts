@@ -95,7 +95,7 @@ process.stdin.on('end', () => {
     const promptTokens = Math.ceil((prompt.system.length + prompt.user.length) / 3);
     expect(repairerMost({ provider: 'anthropic', model: 'claude-opus-5-5' }, prompt, prices)).toBe(estimateCost('claude-opus-5-5', { inputTokens: promptTokens, outputTokens: REPAIRER_ANSWER_TOKENS }, prices));
     // Two turns: the prompt twice, the first answer read again by the second, and two answers.
-    expect(repairerMost({ provider: 'claude-code', model: '' }, prompt, prices)).toBe(estimateCost('claude-opus-5-5', { inputTokens: 2 * promptTokens + REPAIRER_ANSWER_TOKENS, outputTokens: 2 * REPAIRER_ANSWER_TOKENS }, prices));
+    expect(repairerMost({ provider: 'claude-code', model: '' }, prompt, prices)).toBeCloseTo(estimateCost('claude-opus-5-5', { inputTokens: 2 * promptTokens + REPAIRER_ANSWER_TOKENS, outputTokens: 2 * REPAIRER_ANSWER_TOKENS }, prices)!, 12);
     expect(repairerMost({ provider: 'claude-code', model: '' }, prompt, prices)!).toBeGreaterThan(2 * repairerMost({ provider: 'anthropic', model: 'claude-opus-5-5' }, prompt, prices)!);
   });
 });

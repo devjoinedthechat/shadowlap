@@ -404,7 +404,7 @@ describe('the warning test --update gives about a value that changes every run',
 describe('what a score refuses before anything runs', () => {
   const call = (callNo: number, name: string, provider: string) => ({ runId: 'r', callNo, kind: 'api', name, fingerprint: 'f', occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: { provider }, at: 1, end: { runId: 'r', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: { provider }, at: 2 }, attempts: [] }) as unknown as CallRecord;
   const task = (name: string, provider: string, before: CallRecord[] = []): LoadedTask => {
-    return { golden: 'goldens/g', name: 'g', status: 'ready', note: null, runId: 'r', takeover: { callNo: 3, why: 'w', from: 'config' }, scope: null, scopes: [null], rewards: null, checks: [], after: { live: [], stubbed: [] }, prefix: 2, model: 'm', provider, callName: name, tokensAfter: null, spec: null, dir: '/g', pack: { path: 'goldens/g', dir: '/g', run: {} as never, lineage: [], calls: [...before, call(3, name, provider)] } };
+    return { golden: 'goldens/g', name: 'g', status: 'ready', note: null, runId: 'r', takeover: { callNo: 3, why: 'w', from: 'config' }, scope: null, scopes: [null], rewards: null, checks: [], after: { live: [], stubbed: [] }, prefix: 2, model: 'm', provider, callName: name, tokensAfter: null, callsAfter: 0, spec: null, dir: '/g', pack: { path: 'goldens/g', dir: '/g', run: {} as never, lineage: [], calls: [...before, call(3, name, provider)] } };
   };
 
   it('a model scoring can\'t switch: Bedrock, Vertex AI and Azure deployments', () => {

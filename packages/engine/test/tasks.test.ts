@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, packRun } from '../src/pack.js';
 import { Store } from '../src/store.js';
-import { attemptScore, averageTokens, CAPS_ONLY_NOTE, describeTask, entryFor, goldenPaths, inconclusiveWhy, isInconclusiveNote, isModelRequest, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
+import { attemptScore, averageCalls, averageTokens, CAPS_ONLY_NOTE, describeTask, entryFor, goldenPaths, inconclusiveWhy, isInconclusiveNote, isModelRequest, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from './training-fixtures.js';
 
 /** Goldens as tasks: where a model takes over, why, what the task rewards, and whether it can be scored. */
@@ -74,6 +74,7 @@ describe('tasks', () => {
       provider: 'anthropic',
       callName: 'POST /v1/messages',
       tokensAfter: { inputTokens: 2000, outputTokens: 100, cacheReadInputTokens: 1000, cacheCreationInputTokens: 0 },
+      callsAfter: 2,
     });
     // Without the lineage in the pack, the store's runs say where it came from.
     packRun(store, fork.runId, join(root, 'goldens', 'bare'));
@@ -213,7 +214,7 @@ describe('tasks', () => {
   });
 
   it('warn when every ready task rewards the same behaviour, naming one that rewards another', () => {
-    const t = (golden: string, status: Task['status'], rewards: string): Task => ({ golden, name: golden, status, note: status === 'blocked' ? 'its test fails' : null, runId: null, takeover: null, scope: null, scopes: [], rewards, checks: [], after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null });
+    const t = (golden: string, status: Task['status'], rewards: string): Task => ({ golden, name: golden, status, note: status === 'blocked' ? 'its test fails' : null, runId: null, takeover: null, scope: null, scopes: [], rewards, checks: [], after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null, callsAfter: 0 });
     expect(oneSided([t('a', 'ready', 'escalate above the limit'), t('b', 'ready', 'escalate above the limit'), t('c', 'blocked', 'refund within the limit')])).toEqual({
       rewards: 'escalate above the limit',
       tasks: ['a', 'b'],
@@ -227,6 +228,10 @@ describe('tasks', () => {
     const t = (u: Task['tokensAfter']) => ({ tokensAfter: u }) as Task;
     expect(averageTokens([t({ inputTokens: 1000, outputTokens: 100 }), t({ inputTokens: 3000, outputTokens: 300, cacheReadInputTokens: 400 }), t(null)])).toEqual({ inputTokens: 2000, outputTokens: 200, cacheReadInputTokens: 200, cacheCreationInputTokens: 0 });
     expect(averageTokens([])).toBeNull();
+    // The calls those tokens were spread over: the mean of the tasks' that used any.
+    const n = (calls: number, u: Task['tokensAfter']) => ({ tokensAfter: u, callsAfter: calls }) as Task;
+    expect(averageCalls([n(2, { inputTokens: 1, outputTokens: 1 }), n(5, { inputTokens: 1, outputTokens: 1 }), n(0, null)])).toBe(3.5);
+    expect(averageCalls([n(0, null)])).toBeNull();
     expect(attemptScore([{ ok: true }, { ok: false }, { ok: true }, { ok: true }])).toBe(0.75);
     // A check that did not apply is no part of the score; one that could not be decided is no pass.
     expect(attemptScore([{ ok: true, status: 'passed' }, { ok: true, status: 'not-applicable' }, { ok: true, status: 'not-applicable' }, { ok: false, status: 'failed' }])).toBe(0.5);

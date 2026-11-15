@@ -35,7 +35,7 @@ const order = process.argv[2] ?? 'A-1042';
 const messages = [{ role: 'user', content: `Order ${order}: the customer asks for a refund.` }];
 
 for (let turn = 0; turn < 12; turn++) {
-  const reply = await client.messages.create({ model: 'claude-sonnet-5', max_tokens: 1024, system: SYSTEM, tools: definitions, messages });
+  const reply = await client.messages.create({ model: 'claude-sonnet-5-5', max_tokens: 1024, system: SYSTEM, tools: definitions, messages });
   messages.push({ role: 'assistant', content: reply.content });
   const uses = reply.content.filter((b) => b.type === 'tool_use');
   if (reply.stop_reason !== 'tool_use' || uses.length === 0) {

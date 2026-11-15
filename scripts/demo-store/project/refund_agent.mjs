@@ -95,7 +95,7 @@ async function handle(ticket) {
     for (let turn = 0; turn < 30; turn++) {
       if (pause) await sleep(pause);
       const reply = await client.messages
-        .stream({ model: 'claude-sonnet-5', max_tokens: 2048, thinking: { type: 'enabled', budget_tokens: 1024 }, system: SYSTEM, tools: definitions, messages })
+        .stream({ model: 'claude-sonnet-5-5', max_tokens: 2048, thinking: { type: 'enabled', budget_tokens: 1024 }, system: SYSTEM, tools: definitions, messages })
         .finalMessage();
       messages.push({ role: 'assistant', content: reply.content });
       const uses = reply.content.filter((b) => b.type === 'tool_use');

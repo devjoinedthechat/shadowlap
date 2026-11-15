@@ -1,5 +1,5 @@
 import { statSync } from 'node:fs';
-import { Store, tildePath } from '@shadowlap/engine';
+import { Store, tildePath, type Price } from '@shadowlap/engine';
 import { storeKeeper } from './keeper.js';
 import { LocalReads, ReadPool, type ReadModels } from './read-pool.js';
 import { LocalSearch, SearchIndexer, type SearchIndex } from './search-index.js';
@@ -106,11 +106,11 @@ export class StoreFiles {
       : `The store (${shown}) was replaced by another file while the dashboard served it: start the dashboard again to read it`;
   }
 
-  /** The read models of the store at `dbPath`: its file's threads, or the server's own for a store in memory. */
-  reads(dbPath: string | null | undefined, store: () => Store): ReadModels {
+  /** The read models of the store at `dbPath`: its file's threads, or the server's own for a store in memory. `prices`: the project's, which its warm-up splits totals by. */
+  reads(dbPath: string | null | undefined, store: () => Store, prices?: () => Record<string, Price> | undefined): ReadModels {
     this.moved(dbPath);
     if (!dbPath || dbPath === ':memory:') {
-      const local = new LocalReads(store);
+      const local = new LocalReads(store, prices);
       this.locals.add(local);
       return local;
     }
@@ -119,7 +119,7 @@ export class StoreFiles {
       const keep = storeKeeper(dbPath, { log: this.o.log });
       void this.keepers.get(dbPath)?.close();
       this.keepers.set(dbPath, keep);
-      pool = new ReadPool({ dbPath, keep, log: this.o.log });
+      pool = new ReadPool({ dbPath, keep, log: this.o.log, ...(prices ? { prices } : {}) });
       this.pools.set(dbPath, pool);
     }
     return pool;

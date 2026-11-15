@@ -2,6 +2,7 @@ import { STATUS_CODES } from 'node:http';
 import { canonicalize } from './canonical.js';
 import { deepEqual } from './diff.js';
 import { sha256 } from './ids.js';
+import { canonicalModel } from './prices.js';
 import { asParsed, cloneExact, isRawNumber } from './json-exact.js';
 import { stripKeysDeep } from './normalize.js';
 import type { SerializedError } from './types.js';
@@ -333,13 +334,17 @@ const GEMINI_USER_SIDE = new Set(['user', 'function', 'tool']);
 
 /**
  * Models that reject a system message after the conversation has started: the provider answers such a
- * request with a 400, so an instruction for them goes in the user turn.
+ * request with a 400, so an instruction for them goes in the user turn. Matched on the id as the price
+ * table knows it (`canonicalModel`), whatever platform served it: Claude Sonnet 5 and its dated
+ * snapshots (`claude-sonnet-5-20260115`), never a later minor version, Claude Sonnet 5.5
+ * (`claude-sonnet-5-5`, `claude-sonnet-5.5` through a gateway), which takes one.
  */
-const NO_LATE_SYSTEM: Array<{ model: RegExp; name: string }> = [{ model: /claude-sonnet-5(?!\d)/i, name: 'Claude Sonnet 5' }];
+const NO_LATE_SYSTEM: Array<{ model: RegExp; name: string }> = [{ model: /claude-sonnet-5(?!\d|-\d{1,2}(?!\d))/i, name: 'Claude Sonnet 5' }];
 
 /** The name of a model that rejects a system message once the conversation has started (`Claude Sonnet 5`), or null. */
 export function noLateSystemMessage(model: string | null | undefined): string | null {
-  return (model ? NO_LATE_SYSTEM.find((m) => m.model.test(model))?.name : undefined) ?? null;
+  const id = model ? canonicalModel(model) : null;
+  return (id ? NO_LATE_SYSTEM.find((m) => m.model.test(id))?.name : undefined) ?? null;
 }
 
 /**

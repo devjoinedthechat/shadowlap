@@ -246,6 +246,8 @@ export interface Task {
   callName: string | null;
   /** What the recording's model calls used from the takeover on: a model's price per attempt is estimated from it. */
   tokensAfter: Usage | null;
+  /** How many model calls those were: an attempt is priced call by call, as the average of them. */
+  callsAfter: number;
   /**
    * Set when the task is blocked because its golden's last test forked before the takeover: the call
    * it forked at, and that test's run (null when the store no longer has it). The golden passes, but
@@ -357,20 +359,20 @@ export function defaultTakeover(golden: Golden, ancestors: readonly RunRecord[] 
   return { callNo: models[0]!.callNo, why: 'the first model call: the model plays the whole run', from: 'first' };
 }
 
-function usageFrom(calls: readonly CallRecord[], from: number): Usage | null {
+function usageFrom(calls: readonly CallRecord[], from: number): Pick<Task, 'tokensAfter' | 'callsAfter'> {
   const u: Required<Usage> = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
-  let any = false;
+  let n = 0;
   for (const c of calls) {
     // The agent's calls after the takeover: a judge check's are none of what a model's turn takes.
     const x = c.kind === 'api' && c.callNo >= from && !isJudgeCall(c) ? c.end?.meta.usage : undefined;
     if (!x) continue;
-    any = true;
+    n++;
     u.inputTokens += x.inputTokens ?? 0;
     u.outputTokens += x.outputTokens ?? 0;
     u.cacheReadInputTokens += x.cacheReadInputTokens ?? 0;
     u.cacheCreationInputTokens += x.cacheCreationInputTokens ?? 0;
   }
-  return any ? u : null;
+  return { tokensAfter: n ? u : null, callsAfter: n };
 }
 
 const uniq = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
@@ -381,7 +383,7 @@ const scopeName = (s: string | null) => (s === null ? 'no scope' : s);
 export function describeTask(input: TaskInput): Task {
   const { golden, fields, checks } = input;
   const name = input.path.split('/').at(-1) ?? input.path;
-  const base: Task = { golden: input.path, name, status: 'ready', note: null, runId: golden?.run.runId ?? null, takeover: null, scope: null, scopes: [], rewards: null, checks, after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null };
+  const base: Task = { golden: input.path, name, status: 'ready', note: null, runId: golden?.run.runId ?? null, takeover: null, scope: null, scopes: [], rewards: null, checks, after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null, callsAfter: 0 };
   const outcome = checks.filter((c) => !c.cap);
   base.rewards = fields.rewards ?? (outcome.length ? outcome.map((c) => c.label).join(' · ') : null);
   if (!golden) return { ...base, status: 'no-golden', note: 'the golden is gone' };
@@ -419,7 +421,7 @@ export function describeTask(input: TaskInput): Task {
     model: typeof model === 'string' ? model : null,
     provider: typeof provider === 'string' ? provider : null,
     callName: call.name,
-    tokensAfter: usageFrom(golden.calls, k),
+    ...usageFrom(golden.calls, k),
   };
   // Nothing would score what a model did, so no model takes over: no call to take over, as the
   // dashboard and `shadowlap tasks` both say, and nothing runs after one.
@@ -510,6 +512,12 @@ export function averageTokens(tasks: readonly Task[]): Usage | null {
   if (!used.length) return null;
   const avg = (pick: (u: Usage) => number | undefined) => Math.round(used.reduce((s, u) => s + (pick(u) ?? 0), 0) / used.length);
   return { inputTokens: avg((u) => u.inputTokens), outputTokens: avg((u) => u.outputTokens), cacheReadInputTokens: avg((u) => u.cacheReadInputTokens), cacheCreationInputTokens: avg((u) => u.cacheCreationInputTokens) };
+}
+
+/** The model calls an attempt is expected to make after its takeover: the mean of the tasks' that used tokens there (`averageTokens`'). */
+export function averageCalls(tasks: readonly Task[]): number | null {
+  const used = tasks.filter((t) => t.tokensAfter !== null);
+  return used.length ? used.reduce((s, t) => s + t.callsAfter, 0) / used.length : null;
 }
 
 /**

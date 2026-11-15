@@ -40,7 +40,7 @@
 //   - Tests: goldens of four kinds (a token budget, a fork replayed five times, a plain replay, the
 //     recordings repair made) run as CI at five commits, with passes, a failed budget check and a
 //     divergence on a per-run UUID; bisect then finds the commit that started it
-//   - the decision diff: what claude-haiku-4-5 decides at each of the ticket run's model calls, the
+//   - the decision diff: what claude-haiku-5-5 decides at each of the ticket run's model calls, the
 //     prompt in the working tree asked against the goldens (--from-code), and a migration of the
 //     goldens to it, the runs whose writes change verified
 //   - normalizers and redaction rules, added with the CLI; an import of each format it reads (HAR,
@@ -134,7 +134,7 @@ mkdirSync(home, { recursive: true });
 
 const models = createModels();
 const control = models.control;
-const anthropic = await startMockAnthropic({ script: models.anthropic, eventDelayMs: () => control.delay });
+const anthropic = await startMockAnthropic({ script: models.anthropic, eventDelayMs: () => control.delay, models: models.listed });
 const openai = await startMockOpenAI({ script: models.openai });
 const gemini = await startMockGemini({ script: models.gemini });
 const bucket = await startBucket('northwind-agent-runs');
@@ -452,7 +452,7 @@ try {
     runs.planted = await replay(runs.ticket, ['--inject-result', '6=@payloads/exfil-email.txt', '--expect', E_EMAIL], { who: 'dana', ok: [1] });
     await label(runs.planted, 'injection');
     if (!fast) {
-      runs.model = await replay(runs.ticket, ['--model', '17:claude-haiku-4-5'], { who: 'maya' });
+      runs.model = await replay(runs.ticket, ['--model', '17:claude-haiku-5-5'], { who: 'maya' });
       runs.set = await replay(runs.ticket, ['--set', '17:thinking.budget_tokens=4096'], { who: 'maya' });
       runs.inject = await replay(runs.ticket, ['--inject', '17=Escalate every refund above $100 instead of refunding it.'], { who: 'ravi' });
       await label(runs.inject, 'what-if');
@@ -478,9 +478,9 @@ try {
   });
 
   await step('a change previewed', async () => {
-    // What claude-haiku-4-5 decides at each of the ticket run's model calls, asked again with nothing
+    // What claude-haiku-5-5 decides at each of the ticket run's model calls, asked again with nothing
     // run: the $240 refund at #17 becomes an escalation, a write changed.
-    await sl(['decisions', runs.ticket, '--model', 'claude-haiku-4-5'], { who: 'maya' });
+    await sl(['decisions', runs.ticket, '--model', 'claude-haiku-5-5'], { who: 'maya' });
     if (!fast) {
       // The prompt in the working tree, read offline and asked at every model call of the goldens.
       edit('refund_agent.mjs', "never guess an order's state.", "never guess an order's state. Escalate every refund above the regional limit.");
@@ -488,7 +488,7 @@ try {
       git(['checkout', '--', 'refund_agent.mjs']);
       // The switch on every golden: the budget golden's $240 refund becomes an escalation, which
       // verify runs end to end; the cost per run compared; what to set.
-      await sl(['migrate', '--to', 'claude-haiku-4-5', '--attempts', '2', '--yes'], { who: 'dana', ok: [0, 1] });
+      await sl(['migrate', '--to', 'claude-haiku-5-5', '--attempts', '2', '--yes'], { who: 'dana', ok: [0, 1] });
     }
   });
 

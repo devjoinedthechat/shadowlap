@@ -226,7 +226,7 @@ function servingOne(opts: DashboardOptions, project: { name: string; path: strin
     jobs: base.jobs,
     uploads: base.uploads,
     read: opts.prices ? { prices: opts.prices } : {},
-    reads: stores.reads(opts.dbPath, () => store),
+    reads: stores.reads(opts.dbPath, () => store, () => opts.prices),
     search: stores.search(opts.dbPath, () => store),
     project,
     config: (): ProjectConfig => (opts.loadConfig ? readConfig(opts.loadConfig) : { normalize: [], redact: opts.redact ?? [], ...(opts.prices ? { prices: opts.prices } : {}) }),

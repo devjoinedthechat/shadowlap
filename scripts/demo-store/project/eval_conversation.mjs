@@ -27,7 +27,7 @@ async function checkPolicy({ region, amount }) {
   return scope('policy-checker', async () => {
     const messages = [{ role: 'user', content: `Order A-1042, $${amount}, ${region}. Does the refund need approval?` }];
     for (let turn = 0; turn < 4; turn++) {
-      const reply = await client.messages.create({ model: 'claude-haiku-4-5', max_tokens: 256, system: CHECKER, tools: [{ name: 'lookup_policy', description: 'Look up the refund rules for a region.', input_schema: object({ region: str, amount: { type: 'number' } }) }], messages });
+      const reply = await client.messages.create({ model: 'claude-haiku-5-5', max_tokens: 256, system: CHECKER, tools: [{ name: 'lookup_policy', description: 'Look up the refund rules for a region.', input_schema: object({ region: str, amount: { type: 'number' } }) }], messages });
       messages.push({ role: 'assistant', content: reply.content });
       const uses = reply.content.filter((b) => b.type === 'tool_use');
       if (!uses.length) return { answer: textOf(reply) };
@@ -48,7 +48,7 @@ const agentTools = [
 /** The agent's turn: tools until it answers the customer. */
 async function agentTurn(messages) {
   for (let step = 0; step < 8; step++) {
-    const reply = await client.messages.create({ model: 'claude-sonnet-5', max_tokens: 1024, system: AGENT, tools: agentTools, messages });
+    const reply = await client.messages.create({ model: 'claude-sonnet-5-5', max_tokens: 1024, system: AGENT, tools: agentTools, messages });
     messages.push({ role: 'assistant', content: reply.content });
     const uses = reply.content.filter((b) => b.type === 'tool_use');
     if (!uses.length) return textOf(reply);
@@ -61,7 +61,7 @@ const persona = process.argv[process.argv.indexOf('--persona') + 1] ?? 'damaged-
 const customer = [{ role: 'user', content: 'Start the conversation with the support agent.' }];
 const agent = [];
 for (let round = 0; round < 4; round++) {
-  const said = await scope('customer', () => client.messages.create({ model: 'claude-haiku-4-5', max_tokens: 256, system: PERSONAS[persona], messages: customer }));
+  const said = await scope('customer', () => client.messages.create({ model: 'claude-haiku-5-5', max_tokens: 256, system: PERSONAS[persona], messages: customer }));
   const line = textOf(said);
   console.log(`customer: ${line}`);
   customer.push({ role: 'assistant', content: said.content });

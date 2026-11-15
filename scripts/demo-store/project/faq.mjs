@@ -36,7 +36,7 @@ const client = new Anthropic({ apiKey: 'demo-key', maxRetries: 0 });
 const definitions = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema }));
 const messages = [{ role: 'user', content: process.argv[2] ?? 'My blender stopped working after 40 days. Can it be repaired?' }];
 for (let turn = 0; turn < 6; turn++) {
-  const reply = await client.messages.create({ model: 'claude-haiku-4-5', max_tokens: 512, system: 'You answer Northwind customers from the help center. Search it first, and follow what the article says.', tools: definitions, messages });
+  const reply = await client.messages.create({ model: 'claude-haiku-5-5', max_tokens: 512, system: 'You answer Northwind customers from the help center. Search it first, and follow what the article says.', tools: definitions, messages });
   messages.push({ role: 'assistant', content: reply.content });
   const uses = reply.content.filter((b) => b.type === 'tool_use');
   if (!uses.length) {

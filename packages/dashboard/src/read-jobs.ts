@@ -119,8 +119,8 @@ type CoreJob =
   | { kind: 'show'; runId: string; read: ReadOptions; tools?: ToolTrust }
   /** The whole analysis of a long run whose first page was answered from its first calls, and its outcome by checks with it. */
   | { kind: 'analyse'; runId: string; outcome?: OutcomeWork | null }
-  /** A slice of the warm-up (run-stats.ts `warmRunStats`), about `budgetMs` long. */
-  | { kind: 'warm'; budgetMs: number }
+  /** A slice of the warm-up (run-stats.ts `warmRunStats`), about `budgetMs` long, its totals split at the breaks of `prices`, the project's. */
+  | { kind: 'warm'; budgetMs: number; prices?: Record<string, Price> }
   /** A search of what runs recorded, from what the search index holds, and how many runs it has yet to cover (search-hits.ts). */
   | { kind: 'search'; q: string; limit: number }
   /** A run's record for the Provenance tab, with what a copy would mask, counted before on a thread of its own (run-mask.ts). */
@@ -180,7 +180,7 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   // out that run's prompt cache, which another thread had kept with its totals.
   const budget = whole ? {} : { budget: SUMMARY_CALLS_BUDGET };
   if (!whole) {
-    const known = overviewKnown(store, { ...when, ...budget });
+    const known = overviewKnown(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}) });
     if (known.done < known.total) return answer({ warming: known });
   }
   const status = w.team ? teamStoreStatus(store, w.team) : null;
@@ -335,7 +335,7 @@ const CORE_READS: ReadTable<CoreJob> = {
   },
   analyse: (store, job) => analyse(store, job.runId, job.outcome ?? null),
   warm: (store, job) => {
-    const done = warmRunStats(store, { budgetMs: job.budgetMs });
+    const done = warmRunStats(store, { budgetMs: job.budgetMs, ...(job.prices ? { prices: job.prices } : {}) });
     const at = warmProgress(store);
     return { ...answer(null), warm: { done, walked: at?.walked ?? 0, total: at?.total ?? 0 } };
   },

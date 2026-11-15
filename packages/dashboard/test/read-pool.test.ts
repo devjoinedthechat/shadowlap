@@ -654,6 +654,21 @@ describe('read models on threads beside the server', () => {
     }
   });
 
+  it('warms at the project\'s prices, splitting the totals it keeps at their breaks', async () => {
+    await warmed();
+    const own = { 'my-model': { input: 1, output: 2, above: { tokens: 50_000, input: 3, output: 4 } } };
+    const priced = new ReadPool({ dbPath, keep: { stats: (rows) => void store.saveRunStats(rows), asks: (rows) => void store.saveRunAsks(rows) }, prices: () => own });
+    try {
+      for (let i = 0; i < 400 && !priced.warmed; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(priced.warmed).toBe(true);
+      const kept = store.query('SELECT run_id AS id, stats FROM run_stats').map((r) => [r.id, (JSON.parse(r.stats as string) as { breaks: number[] }).breaks]);
+      expect(kept.length).toBeGreaterThanOrEqual(3);
+      for (const [runId, breaks] of kept) expect(breaks, String(runId)).toEqual([50_000, 100_000]);
+    } finally {
+      await priced.close();
+    }
+  });
+
   it('ends its threads when closed, and refuses work after', async () => {
     const own = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined } });
     expect((await own.run({ kind: 'recent', read: {} })).status).toBe(200);

@@ -346,7 +346,7 @@ Every model call stores the model it was made with, the provider's stop reason a
 
 ### Prices
 
-Prices are USD per million tokens for the current Claude, OpenAI and Gemini models, matched by the longest model-name prefix. They are estimates: list prices change, and partner platforms and batch tiers differ. A model that is not in the table shows `unknown`, with no number.
+Prices are USD per million tokens for the current Claude, OpenAI and Gemini models, matched by the longest model-name prefix. A number in a prefix matches whole: `claude-fable-5-2` prices Claude Fable 5.2, never Fable 5's dated `claude-fable-5-20260401`. They are estimates: list prices change, and partner platforms and batch tiers differ. A model that is not in the table shows `unknown`, with no number.
 
 Add or override prices in `shadowlap.config.json`:
 
@@ -354,12 +354,24 @@ Add or override prices in `shadowlap.config.json`:
 {
   "prices": {
     "claude-opus-5": { "input": 5, "output": 25, "cacheRead": 0.5, "cacheWrite": 6.25 },
-    "my-finetune": { "input": 2, "output": 8 }
+    "my-finetune": { "input": 2, "output": 8 },
+    "my-long-model": { "input": 1, "output": 4, "above": { "tokens": 200000, "input": 2, "output": 8 } }
   }
 }
 ```
 
 The same table drives the cost figures in `shadowlap run`, `replay` and `show`.
+
+### Prices by the prompt's length
+
+Some models charge more for a long prompt. `above` gives such a model a second rate card:
+
+- **The prompt** is the call's whole input: cache read, cache creation and uncached.
+- **A prompt over `above.tokens`** (a whole number, 1 or more) pays the second card's rates for every token of the call, output too. A prompt of exactly that many tokens pays the first card.
+- **Each call** is priced on its own, by its own prompt. A run's cost is the sum of its calls' costs, never its tokens summed and priced as one call.
+- **A card without `cacheRead` or `cacheWrite`** prices those tokens at its own `input` rate.
+
+The built-in table prices Claude Haiku 5.5 so: up to 100,000 prompt tokens at $0.10 input and $0.50 output, and a longer prompt at $0.50 and $2.50. Each card prices a cache read at 0.1× its input rate and 5-minute cache creation at 1.25×. Claude Haiku 4.5 is $1 and $5 at any length.
 
 ## See also
 

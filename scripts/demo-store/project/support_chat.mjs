@@ -31,7 +31,7 @@ for (let turn = 0; turn < 6; turn++) {
   if (!line) break;
   messages.push({ role: 'user', content: line });
   for (let step = 0; step < 6; step++) {
-    const reply = await client.messages.create({ model: 'claude-sonnet-5', max_tokens: 512, system: SYSTEM, tools: definitions, messages });
+    const reply = await client.messages.create({ model: 'claude-sonnet-5-5', max_tokens: 512, system: SYSTEM, tools: definitions, messages });
     messages.push({ role: 'assistant', content: reply.content });
     const uses = reply.content.filter((b) => b.type === 'tool_use');
     if (!uses.length) {

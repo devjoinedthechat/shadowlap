@@ -38,6 +38,7 @@ const task = (golden: string, status: Task['status'], rewards: string | null, ru
   provider: 'anthropic',
   callName: 'POST /v1/messages',
   tokensAfter: { inputTokens: 2_000, outputTokens: 100 },
+  callsAfter: 1,
 });
 
 /** The verify report of a verify that replayed `target`, with the attempts the store holds. */

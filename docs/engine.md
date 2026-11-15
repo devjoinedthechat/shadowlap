@@ -158,7 +158,9 @@ codes, as the JSON and CI paths do.
 ## Cost, datasets and search
 
 ```ts
-estimateCost(model, usage, prices?): number | null
+estimateCost(model, usage, prices?, band?): number | null  // at the card the call's whole prompt picks
+estimateCalls(model, usages, prices?): number | null   // each call priced alone, summed
+promptTokens(usage) / priceBreaks(prices?) / bandOf(usage, breaks)  // a sum per band prices as its calls
 priceFor(model, prices?) / canonicalModel(model) / shortModel(model) / formatUsd / formatDuration
 DEFAULT_PRICES: Record<string, Price>                  // USD per million tokens, by model prefix
 

@@ -378,7 +378,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const matching = all.filter(m.matches);
   // By spent, from what is known: the runs whose totals aren't, the warm-up works out meanwhile.
   const finished = sort === 'spent' ? matching.filter((r) => r.status !== 'running') : [];
-  const totals = options.known && sort === 'spent' ? totalsKnown(store, index, finished) : null;
+  const totals = options.known && sort === 'spent' ? totalsKnown(store, index, finished, options.prices ? { prices: options.prices } : {}) : null;
   const unknownSpent = totals ? totals.total - totals.done : 0;
   const spent = sort === 'spent' ? (unknownSpent ? knownSpent(store, index, finished, options) : spentOf(store, index, finished, options)) : null;
   const keyOf = (r: IndexedRun): SortKey => {
@@ -426,7 +426,8 @@ function judgeAfterOf(f: ReturnType<typeof filterReads>): Pick<RunsPage, 'judgeA
  */
 export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions & { known?: boolean; totals?: false } = {}): RunRow[] {
   // `totals: false`, for rows that draw no totals (Runs' issues): no call is read for them.
-  const { totals, later } = options.totals === false ? { totals: new Map<string, never>(), later: [] } : options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
+  const atPrices = options.prices ? { prices: options.prices } : {};
+  const { totals, later } = options.totals === false ? { totals: new Map<string, never>(), later: [] } : options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET, ...atPrices }) : { totals: callTotals(store, index, runs, atPrices), later: [] };
   const waiting = new Set(later.map((r) => r.runId));
   const abouts = options.known ? aboutsWithin(store, index, runs, { budget: ROW_CALLS_BUDGET, quick: waiting }) : aboutsOf(store, index, runs);
   const fixed = fixedByOf(store, index);

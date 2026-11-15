@@ -241,16 +241,17 @@ function windowsOf(tz: string, now: number): { today: LocalDay; weekDays: LocalD
  * it is worked out first, newest first: a short run that just ended doesn't send the Overview back to
  * warming, a long one waits for the warm-up.
  */
-export function overviewKnown(store: Store, options: Pick<OverviewOptions, 'tz' | 'now' | 'budget'> = {}): { done: number; total: number } {
+export function overviewKnown(store: Store, options: Pick<OverviewOptions, 'tz' | 'now' | 'budget' | 'prices'> = {}): { done: number; total: number } {
   const { week, lastWeek } = windowsOf(options.tz ?? 'UTC', options.now ?? Date.now());
   const index = loadRunIndex(store);
   const inWindow = index.runs.filter((r) => r.startedAt >= lastWeek.from && r.startedAt < week.to);
   const cache = (r: IndexedRun) => r.startedAt >= week.from && !importedRecording(r);
-  if (options.budget === undefined) return totalsKnown(store, index, inWindow, { cache });
+  const atPrices = options.prices ? { prices: options.prices } : {};
+  if (options.budget === undefined) return totalsKnown(store, index, inWindow, { cache, ...atPrices });
   const finished = inWindow.filter((r) => r.status !== 'running' && r.calls > 0);
-  const { totals } = callTotalsWithin(store, index, finished, { budget: options.budget });
+  const { totals } = callTotalsWithin(store, index, finished, { budget: options.budget, ...atPrices });
   // Kept caches another thread worked out are read here once, with those that fit worked out.
-  const caches = cacheTotalsOf(store, index, finished.filter(cache), { budget: options.budget });
+  const caches = cacheTotalsOf(store, index, finished.filter(cache), { budget: options.budget, ...atPrices });
   // A cache known comes with its run's totals.
   const done = finished.filter((r) => (cache(r) ? caches.has(r.runId) : totals.has(r.runId))).length;
   return { done, total: finished.length };
@@ -264,7 +265,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   const index = loadRunIndex(store);
   const inWindow = index.runs.filter((r) => r.startedAt >= lastWeek.from && r.startedAt < week.to);
   // A recording in progress is added up anew whenever it has made calls.
-  const totals = callTotals(store, index, inWindow);
+  const totals = callTotals(store, index, inWindow, options.prices ? { prices: options.prices } : {});
   const stats = new Map([...totals].map(([runId, t]) => [runId, priced(t, options.prices)] as const));
 
   const sums = { week: emptyWeek(), lastWeek: emptyWeek() };

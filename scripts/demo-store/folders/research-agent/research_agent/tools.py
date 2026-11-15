@@ -6,7 +6,7 @@ from pydantic_ai import Agent
 from shadowlap import tool
 
 agent = Agent(
-    "anthropic:claude-sonnet-4-5",
+    "anthropic:claude-sonnet-5-5",
     system_prompt="You are a research analyst. Find and read filings with the tools; never guess a figure.",
 )
 

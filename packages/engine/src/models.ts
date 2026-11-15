@@ -1,7 +1,7 @@
 import { estimateCost, type Price } from './prices.js';
 import type { TaskScoreRow } from './store.js';
 import { takeoverRefusal, type TakeoverTarget } from './takeover.js';
-import { averageTokens, type Task } from './tasks.js';
+import { averageCalls, averageTokens, type Task } from './tasks.js';
 import type { Usage } from './types.js';
 import { isObject } from './is-object.js';
 
@@ -51,6 +51,8 @@ export interface ListModelsInput {
   /** Models scored before: the model, the endpoint it was asked at, and where it ran. */
   scored?: Array<{ model: string; baseUrl: string | null; via: string | null }>;
   tokens: Usage | null;
+  /** The model calls those tokens are spread over: each is priced alone, as their average, since a price's card goes by a call's prompt. Without it, one call. */
+  calls?: number | null;
   prices?: Record<string, Price>;
   env?: NodeJS.ProcessEnv;
   fetch?: typeof fetch;
@@ -173,11 +175,11 @@ function providerApi(provider: string | null): string {
  * at their takeovers, each model scored before (by its endpoint), and the tokens an attempt is
  * expected to use after its takeover.
  */
-export function listingInput(tasks: readonly Task[], scores: readonly TaskScoreRow[]): Pick<ListModelsInput, 'recorded' | 'scored' | 'tokens'> {
+export function listingInput(tasks: readonly Task[], scores: readonly TaskScoreRow[]): Pick<ListModelsInput, 'recorded' | 'scored' | 'tokens' | 'calls'> {
   const ready = tasks.filter((t) => t.status === 'ready');
   const recorded = [...new Map(ready.filter((t) => t.model).map((t) => [`${t.model!}\n${t.provider ?? ''}`, { model: t.model!, provider: t.provider }])).values()];
   const scored = [...new Map(scores.map((s) => [`${s.model}\n${s.baseUrl ?? ''}`, { model: s.model, baseUrl: s.baseUrl, via: s.via }])).values()];
-  return { recorded, scored, tokens: averageTokens(ready) };
+  return { recorded, scored, tokens: averageTokens(ready), calls: averageCalls(ready) };
 }
 
 const recordedProvider = (input: ListModelsInput) => {
@@ -185,12 +187,20 @@ const recordedProvider = (input: ListModelsInput) => {
   return providers.size === 1 ? [...providers][0]! : null;
 };
 
+/** An attempt's tokens priced as `calls` calls alike, each at the card its own prompt picks. */
+function perAttempt(id: string, tokens: Usage, calls: number, prices: Record<string, Price> | undefined): number | null {
+  if (calls <= 1) return estimateCost(id, tokens, prices);
+  const each = (n: number | undefined) => (n ?? 0) / calls;
+  const one = estimateCost(id, { inputTokens: each(tokens.inputTokens), outputTokens: each(tokens.outputTokens), cacheReadInputTokens: each(tokens.cacheReadInputTokens), cacheCreationInputTokens: each(tokens.cacheCreationInputTokens) }, prices);
+  return one === null ? null : one * calls;
+}
+
 /** The model choices for a set of tasks. */
 export async function listModelChoices(input: ListModelsInput): Promise<ModelListing> {
   const env = input.env ?? process.env;
   const fetchImpl = input.fetch ?? fetch;
   const timeoutMs = input.timeoutMs ?? 1500;
-  const price = (id: string, local: boolean) => (local ? 0 : input.tokens ? estimateCost(id, input.tokens, input.prices) : null);
+  const price = (id: string, local: boolean) => (local ? 0 : input.tokens ? perAttempt(id, input.tokens, input.calls ?? 1, input.prices) : null);
   const choices: ModelChoice[] = [];
   const notes: ModelListing['notes'] = [];
   const has = (id: string, baseUrl: string | null) => choices.some((c) => c.id === id && c.baseUrl === baseUrl);

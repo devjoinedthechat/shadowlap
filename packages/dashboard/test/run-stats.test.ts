@@ -151,6 +151,50 @@ describe('run statistics', () => {
     expect(doubled.spent).not.toBeCloseTo(list.spent, 6);
   });
 
+  it('prices each Claude Haiku 5.5 call on the card its own prompt picks, from tokens summed per band', () => {
+    const at = (inputTokens: number, cacheReadInputTokens = 0) => ({ code: 'l', model: 'claude-haiku-5-5', usage: { inputTokens, outputTokens: 1000, cacheReadInputTokens } });
+    const rec = addRun(store, { startedAt: NOW, calls: [at(60_000), at(100_000), at(1000, 100_000), at(300_000)] });
+    const s = statsOf(rec).get(rec)!;
+    const calls = store.getCalls(rec);
+    expect(s.spent).toBeCloseTo(calls.reduce((n, c) => n + estimateCost('claude-haiku-5-5', c.end!.meta.usage)!, 0), 12);
+    expect(s.spent).toBeCloseTo(summarizeRun(store.getRun(rec)!, calls, [], [], {}).cost.spent, 12);
+    // 160,000 and 2,000 output tokens on the short card; 301,000, 100,000 from the cache and 2,000 on the long one.
+    expect(s.spent).toBeCloseTo((160_000 * 0.1 + 2000 * 0.5 + 301_000 * 0.5 + 100_000 * 0.05 + 2000 * 2.5) / 1e6, 12);
+  });
+
+  it('splits totals again at a config price\'s own break, once, and prices them as each call is', () => {
+    const own = { 'my-model': { input: 1, output: 2, above: { tokens: 50_000, input: 3, output: 4 } } };
+    const at = (inputTokens: number) => ({ code: 'l', model: 'my-model', usage: { inputTokens, outputTokens: 10 } });
+    const rec = addRun(store, { startedAt: NOW, calls: [at(30_000), at(30_000), at(60_000)] });
+    const index = loadRunIndex(store);
+    const run = [index.byId.get(rec)!];
+    // Split at the built-in breaks alone, the config's card can't be told apart: the calls are read again.
+    expect(runStats(store, index, run).get(rec)!.unknownModels).toEqual(['my-model']);
+    expect(runsRead(store)).toBe(1);
+    const mine = runStats(store, index, run, { prices: own }).get(rec)!;
+    expect(runsRead(store)).toBe(2);
+    expect(mine.spent).toBeCloseTo((60_000 * 1 + 20 * 2 + 60_000 * 3 + 10 * 4) / 1e6, 12);
+    // Split at its break too, they price the built-in prices and the config's alike, with no call read again.
+    expect(runStats(store, index, run, { prices: own }).get(rec)!.spent).toBe(mine.spent);
+    expect(spentOf(store, index, run, { prices: own }).get(rec)).toBe(mine.spent);
+    expect(runStats(store, index, run).get(rec)!.unknownModels).toEqual(['my-model']);
+    expect(runsRead(store)).toBe(2);
+    expect(JSON.parse(store.query('SELECT stats FROM run_stats WHERE run_id = ?', rec)[0].stats as string).breaks).toEqual([50_000, 100_000]);
+  });
+
+  it('reads totals kept before they were split by the prompt\'s length as split at none: the strip as kept, a price worked out again', () => {
+    const rec = addRun(store, { startedAt: NOW, calls: [{ code: 'l', model: 'claude-haiku-5-5', usage: { inputTokens: 60_000, outputTokens: 10 } }, { code: 'l', model: 'claude-haiku-5-5', usage: { inputTokens: 60_000, outputTokens: 10 } }] });
+    const index = loadRunIndex(store);
+    const run = index.byId.get(rec)!;
+    // As an earlier build kept them: a model's row of six fields, its tokens summed whole, and no breaks.
+    store.saveRunStats([{ runId: rec, key: `t4|${run.status}|${run.endedAt}|${run.calls}`, stats: JSON.stringify({ codes: 'xx', models: [['l', 'claude-haiku-5-5', 120_000, 20, 0, 0]], notWaitedMs: 0 }) }]);
+    expect(originStrings(store, index, [run]).get(rec)).toBe('xx');
+    expect(runsRead(store)).toBe(0);
+    // Priced, they are worked out again: each call on the short card, not their sum on the long one.
+    expect(runStats(store, index, [run]).get(rec)!.spent).toBeCloseTo((120_000 * 0.1 + 20 * 0.5) / 1e6, 12);
+    expect(runsRead(store)).toBe(1);
+  });
+
   it('reads what runs spent, as the table sorts by it: live, or what a run recorded elsewhere cost there', () => {
     const rec = addRun(store, { startedAt: NOW - DAY, calls: 'llllbl' });
     const fork = addRun(store, { parent: rec, startedAt: NOW, divergence: 3, calls: 'rrll' });
@@ -414,5 +458,18 @@ describe('kept totals', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('are worked out ahead at the project\'s prices, so a page pricing at them reads no calls', async () => {
+    const own = { 'my-model': { input: 1, output: 2, above: { tokens: 50_000, input: 3, output: 4 } } };
+    const runs = [0, 1, 2].map((i) => addRun(store, { startedAt: NOW - (i + 1) * 60_000, calls: [{ code: 'l', model: 'my-model', usage: { inputTokens: 30_000, outputTokens: 10 } }, { code: 'l', model: 'my-model', usage: { inputTokens: 60_000, outputTokens: 10 } }] }));
+    // A slice of the warm-up as the read pool sends it, with the project's prices.
+    for (let i = 0; i < 20; i++) if ((await runJob(store, { kind: 'warm', budgetMs: 0, prices: own })).warm?.done) break;
+    expect(runsRead(store)).toBe(3);
+    const index = loadRunIndex(store);
+    const stats = runStats(store, index, runs.map((id) => index.byId.get(id)!), { prices: own });
+    expect(runsRead(store)).toBe(3);
+    for (const id of runs) expect(stats.get(id)!.spent).toBeCloseTo((30_000 * 1 + 10 * 2 + 60_000 * 3 + 10 * 4) / 1e6, 12);
+    expect(totalsKnown(store, index, runs.map((id) => index.byId.get(id)!), { prices: own })).toEqual({ done: 3, total: 3 });
   });
 });

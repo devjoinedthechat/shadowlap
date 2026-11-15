@@ -362,8 +362,9 @@ like the models they name.
 | Bedrock Converse | A text block on the user turn | Sampling settings in `inferenceConfig`, and `top_k` in `additionalModelRequestFields` | In the path |
 
 - **A system message mid-conversation.** `--inject-as system` is refused on Claude Sonnet 5, which
-  takes none mid-conversation. Gemini refuses one too, since it takes system instructions only in
-  `systemInstruction`; and so does Converse, which takes system prompts only in `system`.
+  takes none mid-conversation; Claude Sonnet 5.5 takes one. Gemini refuses one too, since it takes
+  system instructions only in `systemInstruction`; and so does Converse, which takes system prompts
+  only in `system`.
 - **The Responses API's state.** A request that continues with `previous_response_id` sends only the
   turns after the response it continues, and the provider keeps the instruction. A fork's live call
   that continues a recorded response is sent with the whole conversation it continues, and one that

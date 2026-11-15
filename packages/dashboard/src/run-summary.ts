@@ -1,4 +1,4 @@
-import { estimateCost, importedRecording, JUDGE_SCOPE, RESERVED_SCOPE_PREFIX, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type StoreOf, type Usage } from '@shadowlap/engine';
+import { estimateCost, importedRecording, JUDGE_SCOPE, priceBreaks, RESERVED_SCOPE_PREFIX, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type StoreOf, type Usage } from '@shadowlap/engine';
 
 /**
  * What a run's page says of the whole run, worked out in SQL over its call events without reading
@@ -9,8 +9,9 @@ import { estimateCost, importedRecording, JUDGE_SCOPE, RESERVED_SCOPE_PREFIX, sh
  * run's first page reads only the calls it shows (api.ts `runDetail`).
  *
  * Each call's flags are read as the summary reads them, by JavaScript's truthiness of the stored
- * value; the costs are priced from tokens summed per model, which is what pricing each call and
- * summing comes to (prices are per token).
+ * value; the costs are priced from tokens summed per model and band of the prompt's length (the
+ * engine's `bandOf`), which is what pricing each call and summing comes to: prices are per token,
+ * and within a band every call pays the same card.
  */
 
 /** JavaScript's truthiness of the JSON value at `path` of the column `col`, as a reader of the parsed object sees it. */
@@ -52,23 +53,25 @@ const KIND = `CASE WHEN outcome = 'error' AND origin NOT IN ('blocked', 'stubbed
  * The calls grouped by what the summary tells apart, in one statement over the calls read once: the
  * strip's characters (`origins`, and `kinds` by what each call was), the groups of calls that name a model or need none, the model
  * calls that name none, one each, whose model is read from their request, and the agent's extra
- * reads, one each (a replay's plain read answered live, `meta.extraRead`).
+ * reads, one each (a replay's plain read answered live, `meta.extraRead`). Bound, in order: the run,
+ * then the prices' breaks as a JSON array (the engine's `priceBreaks`), which `over` is the band of.
  */
 const FACTS_SQL = `
-WITH calls AS MATERIALIZED (${CALLS})
+WITH calls AS MATERIALIZED (${CALLS}),
+banded AS (SELECT *, (SELECT IFNULL(MAX(b.value), 0) FROM json_each(?) b WHERE b.value < IFNULL(ti, 0) + IFNULL(tcr, 0) + IFNULL(tcw, 0)) AS over FROM calls)
 SELECT 'origins' AS what, group_concat(${CODE}, '' ORDER BY n) AS origins, group_concat(${KIND}, '' ORDER BY n) AS kinds, NULL AS kind, NULL AS origin, NULL AS judge, NULL AS model,
        NULL AS injected, NULL AS refused, NULL AS offline, NULL AS used, NULL AS calls, NULL AS clean, NULL AS first,
-       NULL AS ti, NULL AS tout, NULL AS tcr, NULL AS tcw, NULL AS name, NULL AS req FROM calls
+       NULL AS ti, NULL AS tout, NULL AS tcr, NULL AS tcw, NULL AS over, NULL AS name, NULL AS req FROM calls
 UNION ALL
 SELECT 'group', NULL, NULL, kind, origin, judge, model, injected, refused, offline, used, COUNT(*), TOTAL(clean), MIN(n),
-       TOTAL(ti), TOTAL(tout), TOTAL(tcr), TOTAL(tcw), NULL, NULL
-FROM calls WHERE model IS NOT NULL OR kind != 'api'
-GROUP BY kind, origin, judge, model, injected, refused, offline, used
+       TOTAL(ti), TOTAL(tout), TOTAL(tcr), TOTAL(tcw), over, NULL, NULL
+FROM banded WHERE model IS NOT NULL OR kind != 'api'
+GROUP BY kind, origin, judge, model, injected, refused, offline, used, over
 UNION ALL
-SELECT 'unnamed', NULL, NULL, kind, origin, judge, NULL, injected, refused, offline, used, 1, clean, n, ti, tout, tcr, tcw, name, req
-FROM calls WHERE model IS NULL AND kind = 'api'
+SELECT 'unnamed', NULL, NULL, kind, origin, judge, NULL, injected, refused, offline, used, 1, clean, n, ti, tout, tcr, tcw, over, name, req
+FROM banded WHERE model IS NULL AND kind = 'api'
 UNION ALL
-SELECT 'extra', NULL, NULL, kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, n, NULL, NULL, NULL, NULL, name, NULL
+SELECT 'extra', NULL, NULL, kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, n, NULL, NULL, NULL, NULL, NULL, name, NULL
 FROM calls WHERE extra = 1 AND judge = 0`;
 
 /**
@@ -99,6 +102,8 @@ interface Group {
   clean: number;
   first: number;
   usage: Usage;
+  /** The band of the prices' breaks its calls' prompts fall in (the engine's `bandOf`): their card. */
+  over: number;
 }
 
 function groupOf(r: Record<string, unknown>, model: string | null): Group {
@@ -115,6 +120,7 @@ function groupOf(r: Record<string, unknown>, model: string | null): Group {
     clean: Number(r.clean),
     first: Number(r.first),
     usage: { inputTokens: Number(r.ti) || 0, outputTokens: Number(r.tout) || 0, cacheReadInputTokens: Number(r.tcr) || 0, cacheCreationInputTokens: Number(r.tcw) || 0 },
+    over: Number(r.over) || 0,
   };
 }
 
@@ -160,7 +166,7 @@ export function runWholeFacts(store: StoreOf<'readModels'>, run: RunRecord, o: {
   let strings = { origins: '', kinds: '' };
   const groups: Group[] = [];
   const extraReads: RunSummary['extraReads'] = [];
-  for (const r of store.query(FACTS_SQL, run.runId)) {
+  for (const r of store.query(FACTS_SQL, run.runId, JSON.stringify(priceBreaks(o.prices)))) {
     if (r.what === 'origins') strings = stripStrings(r);
     else if (r.what === 'extra') extraReads.push({ callNo: Number(r.first), kind: r.kind as CallRecord['kind'], name: String(r.name) });
     else if (r.what === 'group') groups.push(groupOf(r, typeof r.model === 'string' || typeof r.model === 'number' ? String(r.model) : null));
@@ -191,7 +197,7 @@ export function runWholeFacts(store: StoreOf<'readModels'>, run: RunRecord, o: {
     if (g.origin === 'live' && !imported) upstreamRequests += g.clean;
     if (!g.used) continue;
     if (g.origin === 'replayed') add(tokens, g.usage);
-    const usd = estimateCost(g.model, g.usage, o.prices);
+    const usd = estimateCost(g.model, g.usage, o.prices, g.over);
     if (usd === null) continue;
     if (g.origin === 'replayed') cost.saved += usd;
     else if (g.origin === 'live' && imported) cost.captured += usd;
@@ -236,7 +242,7 @@ function judgeOf(groups: readonly Group[], imported: boolean, prices: Record<str
     else if (g.origin === 'live') out.live += g.calls;
     if (g.origin === 'live' && !imported) out.upstreamRequests += g.clean;
     if (!g.used) continue;
-    const usd = estimateCost(g.model, g.usage, prices);
+    const usd = estimateCost(g.model, g.usage, prices, g.over);
     if (usd === null) continue;
     if (g.origin === 'replayed') out.saved += usd;
     else if (g.origin === 'live' && !imported) out.spent += usd;

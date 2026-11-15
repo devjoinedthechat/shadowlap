@@ -97,14 +97,22 @@ async function streamingUpstream(n: number, ms: number): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-/** A streamed model call for `runId`: when each of its chunks arrived, kept in `arrivals` as they do. */
+/**
+ * A streamed model call for `runId`: when each of its chunks arrived, kept in `arrivals` as they do,
+ * and how many came. A chunk is an event of the stream, whole: two can come in one read, and one can
+ * come over two.
+ */
 async function streamed(sidecar: Sidecar, runId: string, arrivals: number[]): Promise<number> {
   const res = await fetch(`${sidecar.envFor(runId).OPENAI_BASE_URL}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer k' }, body: JSON.stringify({ model: 'gpt-5', stream: true, messages: [{ role: 'user', content: 'count' }] }) });
-  const reader = res.body!.getReader();
+  const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let pending = '';
   for (;;) {
-    const { done } = await reader.read();
+    const { done, value } = await reader.read();
     if (done) break;
-    arrivals.push(performance.now());
+    pending += value;
+    const events = pending.split('\n\n');
+    pending = events.pop()!;
+    for (const e of events) if (e.startsWith('data: {')) arrivals.push(performance.now());
   }
   return arrivals.length;
 }
@@ -172,8 +180,8 @@ describe('a run that starts or ends while another process holds the store', () =
       expect(beside.calls(c.runId)).toBe(2);
       expect(beside.calls(b.runId)).toBe(4);
       expect(beside.run(b.runId)).toMatchObject({ status: 'completed', ended_at: ended.run.endedAt });
-      // The stream came whole.
-      expect(await stream).toBeGreaterThanOrEqual(30);
+      // The stream came whole: every chunk the upstream sent.
+      expect(await stream).toBe(30);
       sidecar.endRun(a.runId, 'completed');
       sidecar.endRun(c.runId, 'completed');
     } finally {

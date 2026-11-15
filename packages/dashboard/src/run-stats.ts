@@ -1,4 +1,4 @@
-import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type RunConversations, type SqlValue, type Store, type StoreOf, type Usage } from '@shadowlap/engine';
+import { bandOf, countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, priceBreaks, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type RunConversations, type SqlValue, type Store, type StoreOf, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/engine';
 import { int } from './fields.js';
 import { askKeyOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -12,7 +12,9 @@ import { askKeyOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-in
  * run's totals never change, so they are kept in the store (`run_stats`) and read back as one row
  * per run, in this process and the next: every run's calls are read once in the store's life, and
  * a recent run's once more for its cache. Prices are applied on reading, so changing them needs no
- * rework. What a recording's user asked first, which its about line quotes, is kept apart
+ * rework, but for where a price changes card by the prompt's length (`above`): tokens are summed per
+ * band of those lengths, and totals summed without a break the prices have are worked out again
+ * (`breaks`). What a recording's user asked first, which its about line quotes, is kept apart
  * (`run_asks`), and the run index reads it with each run.
  *
  * What is worked out is kept through the store's keeper (`keepWith`): the store itself by default;
@@ -24,11 +26,14 @@ export interface CallTotals {
   /** One character per call, in call order: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
   codes: string;
   /**
-   * Tokens per model and bucket: `l` spent live, `r` replayed (not re-spent), `c` captured (the
+   * Tokens per model, bucket and band: `l` spent live, `r` replayed (not re-spent), `c` captured (the
    * calls of a recording unpacked from a pack or imported from a capture). A teammate's recording
-   * pulled from the team store spent live (`l`), where it was recorded.
+   * pulled from the team store spent live (`l`), where it was recorded. `over` is the band of
+   * `breaks` the calls' prompts fall in (the engine's `bandOf`), which picks their card.
    */
-  models: Array<[bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number]>;
+  models: Array<[bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number, over: number]>;
+  /** The prompt lengths the tokens are split at (the engine's `priceBreaks`): prices whose breaks are all among them are applied exactly. */
+  breaks: number[];
   /**
    * Time not waited: for every replayed call, how long it took when it was recorded. A replayed call
    * that carries it (`meta.recordedMs`) says so itself; otherwise its recording is the parent's call,
@@ -78,8 +83,17 @@ export interface StatsOptions {
 /**
  * Bumped whenever `CallTotals` changes shape or meaning: totals kept under another format are worked
  * out again. t4: a recording pulled from the team store spends (`l`) rather than captures (`c`).
+ * Totals kept before tokens were split by the prompt's length (no `breaks`, a model's row without
+ * `over`) read as split at no break: what they say of a run stands, and a price that changes card
+ * has them worked out again (`splitAt`).
  */
 const FORMAT = 't4';
+
+/** Whether totals price as exactly as totals split at `want` would: they hold no tokens, or every break wanted is among theirs. */
+const splitAt = (t: CallTotals, want: readonly number[]) => !t.models.length || want.every((b) => t.breaks.includes(b));
+
+/** The breaks a read wants its totals split at: the prices', or none for a read that prices nothing (the strip, what a user asked). */
+const wantedBreaks = (o: { prices?: Record<string, Price> | undefined; unpriced?: true }): number[] => (o.unpriced ? [] : priceBreaks(o.prices));
 
 /**
  * How far back the warm-up works out the prompt cache too: the Overview's week starts at most seven
@@ -170,7 +184,7 @@ export function asksRead(store: StoreOf<never>): number {
   return keptFor(store).asksRead;
 }
 
-const EMPTY: CallTotals = { codes: '', models: [], notWaitedMs: 0, cache: null };
+const EMPTY: CallTotals = { codes: '', models: [], breaks: [], notWaitedMs: 0, cache: null };
 
 /** Where what a store's read models work out is kept: run totals (`run_stats`) and what recordings' users asked (`run_asks`). */
 export interface Keeper {
@@ -210,8 +224,12 @@ function readTotals(json: unknown): CallTotals | null {
   try {
     const t = JSON.parse(json) as Partial<CallTotals>;
     if (typeof t.codes !== 'string' || !Array.isArray(t.models)) return null;
-    const models = t.models.filter((m) => Array.isArray(m) && m.length === 6 && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'));
-    const out: CallTotals = { codes: t.codes, models, notWaitedMs: n(t.notWaitedMs) };
+    const models = (t.models as unknown[])
+      .filter((m): m is unknown[] => Array.isArray(m) && (m.length === 6 || m.length === 7) && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'))
+      // A model's row kept before `over` was (six fields) is in the band of no break.
+      .map((m) => (m.length === 6 ? [...m, 0] : m) as CallTotals['models'][number]);
+    const breaks = Array.isArray(t.breaks) ? t.breaks.filter((b): b is number => typeof b === 'number') : [];
+    const out: CallTotals = { codes: t.codes, models, breaks, notWaitedMs: n(t.notWaitedMs) };
     // Absent: not worked out yet. Null: the run asked nothing.
     const a = t.ask;
     if (a === null) out.ask = null;
@@ -242,8 +260,9 @@ function readTotals(json: unknown): CallTotals | null {
  * where another thread (the warm-up's) may have kept them whole: remembered so, after the run's page
  * worked out its totals, the Overview read a run of 100,000 calls whole for its cache, 31 to 63 s.
  */
-function knownTotals(store: StoreOf<'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { cache?: (r: IndexedRun) => boolean } = {}): { out: Map<string, CallTotals>; unknown: IndexedRun[] } {
+function knownTotals(store: StoreOf<'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { cache?: (r: IndexedRun) => boolean; prices?: Record<string, Price> | undefined; unpriced?: true } = {}): { out: Map<string, CallTotals>; unknown: IndexedRun[] } {
   const k = keptFor(store);
+  const want = wantedBreaks(o);
   const out = new Map<string, CallTotals>();
   const unknown: IndexedRun[] = [];
   // Remembered without the cache it is asked for: what the store keeps is read, in case it has it.
@@ -255,7 +274,7 @@ function knownTotals(store: StoreOf<'readModels'>, index: RunIndex, runs: Iterab
     if (seen.has(r.runId)) continue;
     seen.add(r.runId);
     const hit = r.status === 'running' ? { key: keyOf(r), totals: k.running.totals.get(r.runId) } : k.memory.get(r.runId);
-    if (hit?.totals && hit.key === keyOf(r)) {
+    if (hit?.totals && hit.key === keyOf(r) && splitAt(hit.totals, want)) {
       out.set(r.runId, hit.totals);
       if (r.status !== 'running' && hit.totals.cache === undefined && o.cache?.(r)) partial.push(r);
     } else if (r.calls === 0) out.set(r.runId, EMPTY);
@@ -270,7 +289,7 @@ function knownTotals(store: StoreOf<'readModels'>, index: RunIndex, runs: Iterab
     for (const row of store.query(KEPT_SQL, ids(batch))) {
       const run = index.byId.get(String(row.id));
       const totals = run && row.key === keyOf(run) ? readTotals(row.stats) : null;
-      if (!run || !totals) continue;
+      if (!run || !totals || !splitAt(totals, want)) continue;
       // What this thread remembers stands unless the store's has the cache it lacks.
       if (out.has(run.runId) && totals.cache === undefined) continue;
       out.set(run.runId, totals);
@@ -288,9 +307,9 @@ function knownTotals(store: StoreOf<'readModels'>, index: RunIndex, runs: Iterab
  * by spent) answers with while the warm-up works them out. A run still recording is left out: its
  * calls are read whenever it is asked for.
  */
-export function totalsKnown(store: StoreOf<'readModels'>, index: RunIndex, runs: readonly IndexedRun[], o: { cache?: (r: IndexedRun) => boolean } = {}): { done: number; total: number } {
+export function totalsKnown(store: StoreOf<'readModels'>, index: RunIndex, runs: readonly IndexedRun[], o: { cache?: (r: IndexedRun) => boolean } & StatsOptions = {}): { done: number; total: number } {
   const finished = runs.filter((r) => r.status !== 'running' && r.calls > 0);
-  const { out } = knownTotals(store, index, finished, o.cache ? { cache: o.cache } : {});
+  const { out } = knownTotals(store, index, finished, o);
   let done = 0;
   for (const r of finished) {
     const t = out.get(r.runId);
@@ -301,9 +320,9 @@ export function totalsKnown(store: StoreOf<'readModels'>, index: RunIndex, runs:
 
 /**
  * The totals of `runs`: from memory, from the store, or worked out from their calls (and then kept,
- * for a finished run).
+ * for a finished run). With `prices`, split at their breaks too, so they price them exactly.
  */
-export function callTotals(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean } = {}): Map<string, CallTotals> {
+export function callTotals(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean; unpriced?: true } & StatsOptions = {}): Map<string, CallTotals> {
   return callTotalsWithin(store, index, runs, o).totals;
 }
 
@@ -314,9 +333,9 @@ export function callTotals(store: StoreOf<'recording' | 'readModels'>, index: Ru
  * and a recording's coming once it ends. Runs are worked out in the order given, each that would go
  * past what is left of the budget left out.
  */
-export function callTotalsWithin(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean } = {}): { totals: Map<string, CallTotals>; later: IndexedRun[] } {
+export function callTotalsWithin(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean; unpriced?: true } & StatsOptions = {}): { totals: Map<string, CallTotals>; later: IndexedRun[] } {
   const k = keptFor(store);
-  const { out, unknown } = knownTotals(store, index, runs, o.cache ? { cache: o.cache } : {});
+  const { out, unknown } = knownTotals(store, index, runs, o);
   let room = o.budget ?? Infinity;
   const todo: IndexedRun[] = [];
   const later: IndexedRun[] = [];
@@ -328,7 +347,7 @@ export function callTotalsWithin(store: StoreOf<'recording' | 'readModels'>, ind
   }
   if (!todo.length) return { totals: out, later };
 
-  const fresh = sumCalls(store, index, todo);
+  const fresh = sumCalls(store, index, todo, priceBreaks(o.prices));
   k.runsRead += todo.length;
   const keep: Array<{ runId: string; key: string; stats: string }> = [];
   for (const r of todo) {
@@ -354,9 +373,9 @@ export function callTotalsWithin(store: StoreOf<'recording' | 'readModels'>, ind
  * warm-up to work out. A cache is a pass over every request of its run: inside the Overview's request
  * a run of 100,000 calls held it 31 to 63 s.
  */
-export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], o: { budget?: number } = {}): Map<string, CacheTotals | null> {
+export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], o: { budget?: number } & StatsOptions = {}): Map<string, CacheTotals | null> {
   const k = keptFor(store);
-  const wanted = { cache: () => true };
+  const wanted = { cache: () => true, ...(o.prices ? { prices: o.prices } : {}) };
   const totals = o.budget === undefined ? callTotals(store, index, runs, wanted) : callTotalsWithin(store, index, runs, { ...wanted, budget: o.budget }).totals;
   let room = o.budget ?? Infinity;
   const out = new Map<string, CacheTotals | null>();
@@ -427,7 +446,7 @@ export function asksOf(store: Store, index: RunIndex, runs: readonly IndexedRun[
   }
   if (!todo.length) return out;
   // What an earlier build kept with the totals is moved to `run_asks`; with `known`, only from memory or the store.
-  const totals = o.known || o.analysed ? knownTotals(store, index, todo).out : callTotals(store, index, todo);
+  const totals = o.known || o.analysed ? knownTotals(store, index, todo, { unpriced: true }).out : callTotals(store, index, todo, { unpriced: true });
   const keep: Array<{ runId: string; key: string; ask: string | null }> = [];
   for (const r of todo) {
     let ask = totals.get(r.runId)?.ask;
@@ -474,10 +493,13 @@ const WARM_COST = 2000;
  * it when it starts and while it is idle, a slice at a time, so the first look at the Overview or
  * the Runs page reads kept totals instead of every call of every run. A slice stops at the first
  * batch that ends past the budget; batches are cut by the calls they read, so a slice ends close
- * to it. True once it has been through every run in the store.
+ * to it. True once it has been through every run in the store. With `prices`, the totals are split
+ * at their breaks, as the pages that price them ask for them.
  */
-export function warmRunStats(store: Store, options: { budgetMs?: number; now?: number } = {}): boolean {
+export function warmRunStats(store: Store, options: { budgetMs?: number; now?: number } & StatsOptions = {}): boolean {
   const budget = options.budgetMs ?? 50;
+  const atPrices = options.prices ? { prices: options.prices } : {};
+  const want = priceBreaks(options.prices);
   const started = performance.now();
   const recent = (options.now ?? Date.now()) - CACHE_AHEAD_MS;
   const index = loadRunIndex(store);
@@ -493,22 +515,27 @@ export function warmRunStats(store: Store, options: { budgetMs?: number; now?: n
     while (w.next < index.runs.length && batch.length < WARM_RUNS && cost < WARM_COST) {
       const r = index.runs[w.next++]!;
       if (r.status === 'running' || r.calls === 0) continue;
-      const known = k.memory.get(r.runId);
       const cache = r.startedAt >= recent && !importedRecording(r);
       const ask = asksFor(r);
-      if (known?.key === keyOf(r) && (!cache || known.totals.cache !== undefined) && (!ask || askKnown(k, r))) continue;
+      if (warmed(k, r, want, { cache, ask })) continue;
       batch.push(r);
       if (cache) caches.push(r);
       if (ask) asks.push(r);
       cost += (cache ? r.calls * 4 : r.calls) + (ask ? r.calls : 0);
     }
-    if (batch.length) callTotals(store, index, batch);
-    if (caches.length) cacheTotalsOf(store, index, caches);
+    if (batch.length) callTotals(store, index, batch, atPrices);
+    if (caches.length) cacheTotalsOf(store, index, caches, atPrices);
     if (asks.length) asksOf(store, index, asks);
     // At least one batch a call, however small the budget.
     if (w.next < index.runs.length && performance.now() - started >= budget) return false;
   }
   return true;
+}
+
+/** Whether the warm-up has nothing left to work out for `r`: its totals split at `want`, and its cache and ask where it needs them. */
+function warmed(k: Kept, r: IndexedRun, want: readonly number[], needs: { cache: boolean; ask: boolean }): boolean {
+  const known = k.memory.get(r.runId);
+  return !!known && known.key === keyOf(r) && splitAt(known.totals, want) && (!needs.cache || known.totals.cache !== undefined) && (!needs.ask || askKnown(k, r));
 }
 
 function remember(k: Kept, r: IndexedRun, totals: CallTotals): void {
@@ -518,7 +545,7 @@ function remember(k: Kept, r: IndexedRun, totals: CallTotals): void {
 
 interface Building {
   codes: string[];
-  models: Map<string, [bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number]>;
+  models: Map<string, [bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number, over: number]>;
   notWaitedMs: number;
   /** Replayed calls that don't carry their recorded duration: the parent's calls they came from. */
   sources: number[];
@@ -527,7 +554,7 @@ interface Building {
 }
 
 /** One pass over the calls of `runs`, in call order. */
-function sumCalls(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: readonly IndexedRun[]): Map<string, CallTotals> {
+function sumCalls(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: readonly IndexedRun[], breaks: number[]): Map<string, CallTotals> {
   const building = new Map<string, Building>();
   // The runs whose calls a replayed call may point back to: kept while reading, so a parent read in
   // this pass is not read again for its replays' durations.
@@ -581,8 +608,9 @@ function sumCalls(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, r
         (typeof row.smodel === 'string' ? row.smodel : null) ??
         (typeof row.req === 'string' ? resolve({ kind: 'api', requestRef: row.req, name: String(row.name) } as CallRecord) : null);
       if (!model) continue;
-      const key = `${bucket}\u0000${model}`;
-      const m = b.models.get(key) ?? [bucket, model, 0, 0, 0, 0];
+      const over = bandOf({ inputTokens: input, outputTokens: 0, cacheReadInputTokens: cacheRead, cacheCreationInputTokens: cacheWrite }, breaks);
+      const key = `${bucket}\u0000${model}\u0000${over}`;
+      const m = b.models.get(key) ?? [bucket, model, 0, 0, 0, 0, over];
       m[2] += input;
       m[3] += n(usage.outputTokens);
       m[4] += cacheRead;
@@ -599,7 +627,7 @@ function sumCalls(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, r
     let notWaitedMs = b.notWaitedMs;
     for (const callNo of b.sources) notWaitedMs += of(r.parentRunId, callNo);
     // Without live usage there is no cache to work out; with it, it is worked out when asked for.
-    out.set(r.runId, { codes: b.codes.join(''), models: [...b.models.values()], notWaitedMs, ...(b.liveUsage ? {} : { cache: null }) });
+    out.set(r.runId, { codes: b.codes.join(''), models: [...b.models.values()], breaks, notWaitedMs, ...(b.liveUsage ? {} : { cache: null }) });
   }
   return out;
 }
@@ -660,8 +688,8 @@ function addParent(index: RunIndex, runId: string, tables: Map<string, unknown>,
 /** A run's statistics under the prices given. */
 export function priced(t: CallTotals, prices?: Record<string, Price>): RunStats {
   const s: RunStats = { calls: t.codes.length, origins: countOrigins(t.codes), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: t.notWaitedMs };
-  for (const [bucket, model, input, output, cacheRead, cacheWrite] of t.models) {
-    const usd = estimateCost(model, { inputTokens: input, outputTokens: output, cacheReadInputTokens: cacheRead, cacheCreationInputTokens: cacheWrite }, prices);
+  for (const [bucket, model, input, output, cacheRead, cacheWrite, over] of t.models) {
+    const usd = estimateCost(model, { inputTokens: input, outputTokens: output, cacheReadInputTokens: cacheRead, cacheCreationInputTokens: cacheWrite }, prices, over);
     if (usd === null) {
       if (!s.unknownModels.includes(model)) s.unknownModels.push(model);
     } else if (bucket === 'r') s.saved += usd;
@@ -674,7 +702,7 @@ export function priced(t: CallTotals, prices?: Record<string, Price>): RunStats 
 /** The call statistics of `runs`. */
 export function runStats(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, options: StatsOptions = {}): Map<string, RunStats> {
   const out = new Map<string, RunStats>();
-  for (const [runId, t] of callTotals(store, index, runs)) out.set(runId, priced(t, options.prices));
+  for (const [runId, t] of callTotals(store, index, runs, options)) out.set(runId, priced(t, options.prices));
   return out;
 }
 
@@ -692,7 +720,7 @@ export function spentOf(store: StoreOf<'recording' | 'readModels'>, index: RunIn
 /** What each run spent live as `spentOf` says, from the totals already known alone (`knownTotals`): a run whose totals aren't is left out. */
 export function knownSpent(store: StoreOf<'readModels'>, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): Map<string, number> {
   const out = new Map<string, number>();
-  for (const [runId, t] of knownTotals(store, index, runs).out) {
+  for (const [runId, t] of knownTotals(store, index, runs, options).out) {
     const s = priced(t, options.prices);
     out.set(runId, s.spent + s.captured);
   }
@@ -702,7 +730,7 @@ export function knownSpent(store: StoreOf<'readModels'>, index: RunIndex, runs: 
 /** Every call's origin, one character per call in call order, for each run asked for. */
 export function originStrings(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: readonly IndexedRun[]): Map<string, string> {
   const out = new Map<string, string>();
-  for (const [runId, t] of callTotals(store, index, runs)) out.set(runId, t.codes);
+  for (const [runId, t] of callTotals(store, index, runs, { unpriced: true })) out.set(runId, t.codes);
   return out;
 }
 

@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
+import { applyEdit, messageOf, commitTitle, eachRun, estimateCalls, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { loadConfig } from './config.js';
 import { recoverWorkingTree } from './repair-journal.js';
@@ -112,7 +112,8 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
   const model = r.model || (r.provider === 'claude-code' ? DEFAULT_ANTHROPIC_REPAIRER : null);
   const turns = repairerTurns(r);
   const promptTokens = Math.ceil((prompt.system.length + prompt.user.length) / PROMPT_CHARS_PER_TOKEN);
-  return estimateCost(model, { inputTokens: turns * promptTokens + (turns - 1) * REPAIRER_ANSWER_TOKENS, outputTokens: turns * REPAIRER_ANSWER_TOKENS }, prices);
+  // Each turn priced as the call it is: the prompt, from the second on with the answer before it.
+  return estimateCalls(model, Array.from({ length: turns }, (_, k) => ({ inputTokens: promptTokens + (k ? REPAIRER_ANSWER_TOKENS : 0), outputTokens: REPAIRER_ANSWER_TOKENS })), prices);
 }
 
 /**

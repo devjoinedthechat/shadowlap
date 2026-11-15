@@ -364,18 +364,20 @@ describe('a preview', () => {
 });
 
 describe('a migration', () => {
-  // The recording made with claude-sonnet-4-5 for its first two model calls, which a switch to claude-sonnet-5-5 (priced as claude-sonnet-5) asks again.
+  // The recording made with claude-sonnet-4-5 for its first two model calls, which a switch to claude-sonnet-5-5 asks again.
   const golden = (): CallRecord[] => recording().map((c) => (c.callNo === 1 || c.callNo === 3 ? { ...c, meta: { ...c.meta, model: 'claude-sonnet-4-5-20250929' }, end: { ...c.end!, meta: { ...c.end!.meta, model: 'claude-sonnet-4-5-20250929' } } } : c));
-  // As recorded, #1 costs $0.006 and #3 $0.0078 at claude-sonnet-4-5's price; switched, $0.004 and $0.0052.
+  // As recorded, #1 costs $0.006 and #3 $0.0078 at claude-sonnet-4-5's price; switched, $0.004 and $0.0051 (its cache reads at $0.10).
   const was = 0.006 + 0.0078 + COST[5] + COST[6];
+  const switched = 0.004 + 0.0051;
+  const after = switched + COST[5] + COST[6];
 
   it('asks the switched calls again, then verifies every golden they touch to its gate’s limit, and always asks first', () => {
     const plan = { to: 'claude-sonnet-5-5', from: ['claude-sonnet-4-5-20250929'] };
     const e = migrateEstimate([{ calls: pricedCalls(golden()), failed: false }, { calls: pricedCalls(golden()), failed: true }, { calls: calls(), failed: false }], plan);
-    const ask = 2 * (COST[1] + COST[3]);
+    const ask = 2 * switched;
     expect(e).toMatchObject({ kind: 'migrate', ceiling: true, always: 'it writes a config change and a pull request body' });
     expect(e.parts).toEqual([`${amountWords(ask)} to ask 4 calls again`, 'then verify, up to 80 attempts a failing run, 200 pairs a good one', 'live from the switched calls, writes stubbed']);
-    expect(e.usd).toBeCloseTo(ask + 200 * (ALL + was) + 80 * ALL, 10);
+    expect(e.usd).toBeCloseTo(ask + 200 * (after + was) + 80 * after, 10);
     expect(e.items![0].usd).toBeCloseTo(ask, 10);
   });
 

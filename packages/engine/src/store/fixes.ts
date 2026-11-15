@@ -251,19 +251,19 @@ export abstract class Fixes extends StorePart {
     this.db.prepare(`INSERT OR IGNORE INTO fix_links (fix_id, kind, ref, at, data) VALUES (?, ?, ?, ?, ?)`).run(fixId, kind, ref, at, data === null ? null : JSON.stringify(data));
   }
 
-  /** A fix's links, in the order they were made. */
+  /** A fix's links, in the order they were made: two made in the same millisecond, by which came first (rowid), never by a random id. */
   fixLinks(fixId: string, kind?: FixLinkKind): FixLink[] {
     const rows = kind
-      ? this.db.prepare(`SELECT * FROM fix_links WHERE fix_id = ? AND kind = ? ORDER BY at ASC, ref ASC`).all(fixId, kind)
-      : this.db.prepare(`SELECT * FROM fix_links WHERE fix_id = ? ORDER BY at ASC, ref ASC`).all(fixId);
+      ? this.db.prepare(`SELECT * FROM fix_links WHERE fix_id = ? AND kind = ? ORDER BY at ASC, rowid ASC`).all(fixId, kind)
+      : this.db.prepare(`SELECT * FROM fix_links WHERE fix_id = ? ORDER BY at ASC, rowid ASC`).all(fixId);
     return rows.map(rowToFixLink);
   }
 
   /** The links to a run or a report, from every fix, in the order they were made. */
   linksTo(ref: string, kind?: FixLinkKind): FixLink[] {
     const rows = kind
-      ? this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? AND kind = ? ORDER BY at ASC, fix_id ASC`).all(ref, kind)
-      : this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? ORDER BY at ASC, fix_id ASC`).all(ref);
+      ? this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? AND kind = ? ORDER BY at ASC, rowid ASC`).all(ref, kind)
+      : this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? ORDER BY at ASC, rowid ASC`).all(ref);
     return rows.map(rowToFixLink);
   }
 
@@ -327,14 +327,14 @@ export abstract class Fixes extends StorePart {
     return row ? rowToBlame(row) : null;
   }
 
-  /** The blames of one run, the first made first. */
+  /** The blames of one run, the first made first (in the same millisecond, the one kept first). */
   blamesOfRun(runId: string): StoredBlame[] {
-    return this.db.prepare(`SELECT * FROM blames WHERE run_id = ? ORDER BY at ASC, blame_id ASC`).all(runId).map(rowToBlame);
+    return this.db.prepare(`SELECT * FROM blames WHERE run_id = ? ORDER BY at ASC, rowid ASC`).all(runId).map(rowToBlame);
   }
 
   /** Every blame, the first made first. */
   listBlames(): StoredBlame[] {
-    return this.db.prepare(`SELECT * FROM blames ORDER BY at ASC, blame_id ASC`).all().map(rowToBlame);
+    return this.db.prepare(`SELECT * FROM blames ORDER BY at ASC, rowid ASC`).all().map(rowToBlame);
   }
 
   putVerdict(v: StoredVerdict): void {

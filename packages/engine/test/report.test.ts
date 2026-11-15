@@ -93,6 +93,14 @@ describe('summarizeRun: where the calls were answered and paid for', () => {
   const priced = (c: CallRecord, extra: Record<string, unknown> = {}): CallRecord => ({ ...c, meta: { model: 'claude-sonnet-4-5' }, end: { ...c.end!, meta: { usage: { inputTokens: 1_000_000, outputTokens: 0 }, ...extra } } });
   const prices = { 'claude-sonnet-4-5': { input: 3, output: 15 } };
 
+  it('prices each call at the card its own prompt picks, spent and saved alike', () => {
+    const haiku = (c: CallRecord, inputTokens: number): CallRecord => ({ ...c, meta: { model: 'claude-haiku-5-5' }, end: { ...c.end!, meta: { usage: { inputTokens, outputTokens: 1000 } } } });
+    const calls = [haiku(call(1, 'api', 'POST /v1/messages', 'live'), 100_000), haiku(call(2, 'api', 'POST /v1/messages', 'live'), 100_001), haiku(call(3, 'api', 'POST /v1/messages', 'replayed'), 100_001)];
+    const s = summarizeRun({ ...run(null), mode: 'record', parentRunId: null }, calls);
+    expect(s.cost.spent).toBeCloseTo((100_000 * 0.1 + 1000 * 0.5 + 100_001 * 0.5 + 1000 * 2.5) / 1e6, 12);
+    expect(s.cost.saved).toBeCloseTo((100_001 * 0.5 + 1000 * 2.5) / 1e6, 12);
+  });
+
   it('counts an imported recording as captured, not spent here, and sends nothing upstream', () => {
     const imported: RunRecord = { ...run(null), mode: 'record', parentRunId: null, meta: { imported: { at: 1, from: 'session.har' } } };
     const s = summarizeRun(imported, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });

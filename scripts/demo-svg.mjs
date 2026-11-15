@@ -59,7 +59,7 @@ symlinkSync(join(root, 'node_modules'), join(project, 'node_modules'), 'dir');
 writeFileSync(join(project, '.gitignore'), 'node_modules\n.shadowlap/\n');
 
 const models = createModels();
-const anthropic = await startMockAnthropic({ script: models.anthropic });
+const anthropic = await startMockAnthropic({ script: models.anthropic, models: models.listed });
 
 // Nothing of this machine's own setup reaches the session: no provider keys or endpoints, no CI
 // markers, no git configuration. Colour stays on: the terminal is a real one.

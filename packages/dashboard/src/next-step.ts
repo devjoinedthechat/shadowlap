@@ -505,7 +505,7 @@ export async function searchedCommits(dir: string | null | undefined, good: stri
 /** What each of a gate's attempts spent live, at `prices`: those the run index has. */
 export function attemptSpends(store: Store, index: RunIndex, attempts: readonly string[], prices: Record<string, Price> | undefined): number[] {
   const runs = attempts.map((id) => index.byId.get(id)).filter((r): r is IndexedRun => !!r);
-  return [...callTotals(store, index, runs).values()].map((t) => pricedTotals(t, prices).spent);
+  return [...callTotals(store, index, runs, prices ? { prices } : {}).values()].map((t) => pricedTotals(t, prices).spent);
 }
 
 /**

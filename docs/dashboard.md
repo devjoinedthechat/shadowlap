@@ -3119,6 +3119,8 @@ The work done on those threads:
 
 Each finished run's totals (what it spent, its calls, what its user asked first) are worked out once in the store's life, newest first. They are kept in the store by a thread of their own, so a write never holds the server's. While another command is writing the store (the search index, a recording, `gc`), they wait, and are kept once it is done. What one thread worked out, another reads from the store.
 
+**Prices apply as the totals are read**, so a changed price needs no call read again. A run's tokens are kept per model and per [band of the prompt's length](./tui.md#prices-by-the-prompts-length), split where a price changes card. A price in `shadowlap.config.json` with a break the kept totals aren't split at has those runs' calls read once more, and the warm-up splits at the config's breaks too.
+
 **On a store no dashboard has opened yet**, the Overview says how many runs are added up so far, until they all are, and every other page works meanwhile. Until then, the Runs table filters by the about lines known so far, and sorts by what the runs known so far spent. It says how many that is, and reads its first page again as more are known.
 
 **A row** adds up its own run's totals as it is asked for only when that is quick (5,000 calls a request in all):

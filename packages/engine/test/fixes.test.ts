@@ -132,6 +132,28 @@ describe('Fixes: grouping', () => {
   });
 });
 
+describe('Fixes: what was made last', () => {
+  it('keeps the links and blames made in the same millisecond in the order they were made, not by their random ids', () => {
+    const run = makeRun(store, { labels: ['refund-bug'] });
+    const first = blame(run, { at: 5_000, outcome: 'unrescuable' });
+    // Blamed again in the same millisecond, under an id that sorts before the first's.
+    const again = { ...first.blame, blameId: 'bl-0000000000AAAAAAAAAAAAAAAA', outcome: 'blamed' as const };
+    expect(again.blameId < first.blame.blameId).toBe(true);
+    store.putBlame(again);
+    store.addFixLink(first.fix.fixId, 'blame', again.blameId, 5_000);
+    expect(store.fixLinks(first.fix.fixId, 'blame').map((l) => l.ref)).toEqual([first.blame.blameId, again.blameId]);
+    expect(store.blamesOfRun(run).map((b) => b.blameId)).toEqual([first.blame.blameId, again.blameId]);
+    expect(store.listBlames().map((b) => b.blameId)).toEqual([first.blame.blameId, again.blameId]);
+    // The fix's latest blame is the one made last.
+    expect(fixRecords(store, store.getFix(first.fix.fixId)!).blames.at(-1)!.blameId).toBe(again.blameId);
+    // A run linked to a second fix in that millisecond, whose id sorts first: the first link stays first.
+    const other = { ...first.fix, fixId: 'fx-00000000000000000000000000' };
+    store.insertFix(other);
+    store.addFixLink(other.fixId, 'failing', run, 5_000);
+    expect(store.linksTo(run, 'failing').map((l) => l.fixId)).toEqual([first.fix.fixId, other.fixId]);
+  });
+});
+
 describe('Fixes: verdicts and repairs', () => {
   it('keeps every verdict; an accepted one turns the fix verified, and a later rejected one leaves it so', () => {
     const a = makeRun(store, { labels: ['refund-over-limit'] });

@@ -47,6 +47,16 @@ describe('the limits an estimate is worked out from', () => {
     expect(repairerBound('openai:gpt-5', chars, { 'gpt-5': { input: 9, output: 9 } }).usd).toBe(repairerMost({ provider: 'openai', model: 'gpt-5' }, prompt, { 'gpt-5': { input: 9, output: 9 } }));
   });
 
+  it('price each of the repairer’s turns at the card its own prompt picks', () => {
+    // 90,000 prompt tokens: Claude Code's first turn is on Claude Haiku 5.5's short card, its second, with the first answer, on the long one.
+    const prompt = { system: '', user: 'y'.repeat(90_000 * PROMPT_CHARS_PER_TOKEN) };
+    const a = REPAIRER_ANSWER_TOKENS;
+    const most = (90_000 * 0.1 + a * 0.5 + (90_000 + a) * 0.5 + a * 2.5) / 1e6;
+    expect(repairerMost({ provider: 'claude-code', model: 'claude-haiku-5-5' }, prompt)).toBeCloseTo(most, 12);
+    expect(repairerBound('claude-code:claude-haiku-5-5', 90_000 * PROMPT_CHARS_PER_TOKEN).usd).toBeCloseTo(most, 12);
+    expect(repairerMost({ provider: 'anthropic', model: 'claude-haiku-5-5' }, prompt)).toBeCloseTo((90_000 * 0.1 + a * 0.5) / 1e6, 12);
+  });
+
   it('decide as many candidates as repair may: what it asks the repairer for, the most it tries, never past ⌊1/risk⌋', () => {
     expect(defaultOf('repair', '--candidates')).toBe(REPAIR_CANDIDATES);
     const run: CallRecord = { runId: 'r', callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'f', occurrence: 0, origin: 'live', effect: null, requestRef: null, meta: { model: 'claude-sonnet-5' }, at: 1, end: { runId: 'r', callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { model: 'claude-sonnet-5', usage: { inputTokens: 100, outputTokens: 10 } }, at: 1 }, attempts: [] };
