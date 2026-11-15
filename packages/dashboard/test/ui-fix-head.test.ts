@@ -1,11 +1,12 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
+import { changeFixCheck, checkKey, markFixApplied, recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { blameReport, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { runningStep, showPatchCard } from '../ui/fixes/head.js';
+import { blameAgainTip, blameNextStep } from '../ui/fixes/model.js';
 import { rungStatus } from '../ui/fixes/list.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixDetail, FixRung, JobListItem } from '../ui/types.js';
@@ -90,6 +91,49 @@ describe('where a fix stands', () => {
     expect(r!.all('.ph .badge')).toEqual([]);
   });
 
+  it('names who opened and applied it, its labels, its good runs and what everything behind it took, its pull request a link, each on a card', async () => {
+    const run = makeRun(engineStore(), { labels: ['double-email', 'email-eu'] });
+    const good = makeRun(engineStore(), { labels: ['good'], status: 'completed' });
+    const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: SEND_ONCE, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', actor: 'ana@example.com', at: (at += DAY) });
+    const pr = 'https://github.com/acme/agent/pull/138';
+    recordRepair(store, { repairId: 'repair-first', dir: '.shadowlap/repairs/repair-first', report: repairReport({ targets: [run], good: [good], accepted: false }), expect: SEND_ONCE, command: 'shadowlap repair', at: (at += DAY) });
+    recordRepair(store, { repairId: 'repair-pr', dir: '.shadowlap/repairs/repair-pr', report: repairReport({ targets: [run], good: [good], pr }), expect: SEND_ONCE, command: 'shadowlap repair', at: (at += DAY) });
+    markFixApplied(store, fix.fixId, { patch: 'applied', repairId: 'repair-pr', goldens: ['goldens/double-email'], tests: 'passed', by: 'ben@example.com', via: 'fix apply' });
+    await open(fix.fixId, 'repair');
+    const tip = (el: FakeElement) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows: string[][] };
+    expect(tip(r!.one('.ph .eyebrow code'))).toMatchObject({ t: 'Its labels', s: 'It groups the runs labelled double-email, email-eu.' });
+    const meta = r!.one('.ph p.pmeta');
+    expect(text(meta)).toMatch(/· opened \w+ \d+, \d\d:\d\d by ana ·/);
+    const facts = meta.querySelectorAll('span[data-tip]');
+    const card = (words: RegExp) => tip(facts.find((el) => words.test(text(el)))!);
+    expect(card(/^1 good$/)).toMatchObject({ t: '1 good run', s: `${good.slice(0, 10)}. A change that breaks one is rejected.` });
+    expect(card(/^applied .* by ben$/)).toMatchObject({ t: 'Applied', rows: [['With', 'fix apply', ''], ['Patch', 'applied to the working tree', ''], ['Goldens', 'goldens/double-email', ''], ['Their test', 'passed', '']] });
+    expect(card(/spent$/).t).toMatch(/^≈\$[\d.]+ spent on this fix$/);
+    // Its pull request, opened by the repair, a link to its page.
+    const link = r!.one('.ph p.pmeta .fxsource a');
+    expect([text(link), link.props.href, link.props.target]).toEqual(['PR #138', pr, '_blank']);
+    // The repair the step doesn't show, on its facts' card.
+    expect(tip(r!.byText('.verdict span[data-tip]', '1 other repair'))).toMatchObject({ t: '1 other repair of this fix', rows: [[expect.any(String), 'not fixed · No change yet', '']] });
+    // Merged with it: the status names it, a link.
+    store.mergeFixData(fix.fixId, { source: { pr: { state: 'merged' } } });
+    await r!.unmount();
+    await open(fix.fixId);
+    expect(text(r!.one('.ph p.pmeta .st'))).toBe('merged · PR #138');
+    expect(r!.one('.ph p.pmeta .st a').props.href).toBe(pr);
+  });
+
+  it('says on the Must line when its check changed, its card listing each check it had, and the runs that check left out', async () => {
+    const f = blamed();
+    const other = blamed();
+    const AT_MOST = { tools: { send_email: { max: 1 } } };
+    changeFixCheck(store, f.fixId, { check: { expect: AT_MOST, key: checkKey(AT_MOST), oracle: ['send_email called at most once'], text: 'send_email called at most once' }, judged: { failing: { [f.run]: 'failed', [other.run]: 'passed' }, good: {} }, at: (at += DAY), actor: 'ben@example.com' });
+    await open(f.fixId);
+    const changed = r!.all('.ph p.chk span[data-tip]').find((el) => text(el).startsWith('changed '))!;
+    expect(JSON.parse(String(changed.props['data-tip']))).toMatchObject({ t: 'Its check changed once', rows: [[expect.stringMatching(/ by ben$/), 'send_email called at most once, its check now', ''], [expect.any(String), 'send_email called once', '']] });
+    const left = r!.byText('.ph p.pmeta span[data-tip]', '1 left out by its check');
+    expect(JSON.parse(String(left.props['data-tip']))).toMatchObject({ t: '1 run left the fix', rows: [['Failing runs it passes', other.run.slice(0, 10), '']] });
+  });
+
   it('says Show patch’s card by where the patch is: in the working tree once applied, on main once merged', () => {
     const fix = (rung: FixRung, applied: boolean, pulled = false) => ({ rung, actions: { applied, apply: { pulled } } as FixDetail['actions'] });
     expect(showPatchCard(fix('applied', true))).toBe('Applied: the patch is in the working tree and its goldens pass');
@@ -155,5 +199,19 @@ describe('the stepper', () => {
     await open(f.fixId, null, { jobs: job('repair', 'Repairing') as unknown as JobListItem[] });
     await r!.until('the jobs to load', () => r!.all('nav.stepper a.busy').length === 1);
     expect(text(r!.one('nav.stepper a.busy b'))).toBe('Repairing…');
+  });
+
+  it('says Run blame again after a fixed count probes by the same count, on its card and while it runs, never at a lower bar', () => {
+    const run = makeRun(engineStore(), { labels: ['digest'] });
+    const report = blameReport(run, 'unrescuable');
+    // As blame keeps a fixed count's first probe an attempt it could not judge stopped: inconclusive, with why, and no gate.
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive', undecided: 'judge "explains" gave no verdict' }];
+    const { fix } = recordBlame(store, { runId: run, report, expect: SEND_ONCE, scope: null, command: 'shadowlap blame', rerun: { flags: [], command: null }, title: 't', checkText: 'c', at: (at += DAY) });
+    const d = fixDetail(store, fix.fixId)!;
+    const said = 'The same search again, 5 attempts a probe: its first probe stopped on an attempt that could not be judged';
+    expect(blameAgainTip(d.actions.blameAgain!)).toBe(said);
+    expect(blameNextStep(d)?.tip).toBe(said);
+    const job = { kind: 'blame', title: 'Blaming again', args: d.actions.blameAgain!.argv, fixId: fix.fixId, done: false };
+    expect(runningStep(d, [job])?.meta).toBe('with the same 5 attempts a probe');
   });
 });

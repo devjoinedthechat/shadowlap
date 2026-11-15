@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { agentOfArgv, BLAME_DEFAULTS, type BlameReport, type Block, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, repairArgv, setFixTitle, type SprtGate, Store, unsettledFirst } from '@shadowlap/engine';
+import { agentOfArgv, BLAME_DEFAULTS, type BlameReport, type Block, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, repairArgv, setFixTitle, type SprtGate, Store, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
@@ -215,7 +215,7 @@ describe('a fix', () => {
     expect(d.steps[2]).toMatchObject({ title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     const diff = store.getRepair('repair-munzln2i')!.report.patch;
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
-    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], command: `shadowlap fix apply ${fixId}`, gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, names: [{ run: failing.slice(0, 10), name: 'refund-bug' }], held: null, change: null }, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
+    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], command: `shadowlap fix apply ${fixId}`, gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, names: [{ run: failing.slice(0, 10), name: 'refund-bug' }], held: null, change: null }, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, verifyChange: { runs: [failing, held], argv: verifyArgv(store, fixRecords(store, store.getFix(fixId)!)), command: `shadowlap verify --fixes ${failing} --holdout ${held} --keeps ${good} --expect '${JSON.stringify(EXPECT)}'` } });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
     // The good run its verdicts kept: label:good would also take any run labelled good since.
     expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
@@ -560,7 +560,7 @@ describe('a fix', () => {
     const { fix } = blame(run, { expect: null });
     const d = fixDetail(store, fix.fixId)!;
     expect(d).toMatchObject({ defaultStep: 'blame', repair: null, verify: [], defaultVerify: null, applied: null });
-    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null, noFixWhy: null, candidates: 3, spent: false }, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
+    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null, noFixWhy: null, candidates: 3, spent: false }, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, verifyChange: { runs: [run], argv: ['verify', '--fixes', run], command: `shadowlap verify --fixes ${run}` } });
     expect(d.commands.verify).toBe(`shadowlap verify --fixes ${run.slice(0, 10)}`);
   });
 
@@ -588,8 +588,8 @@ describe('a fix', () => {
     expect(noFix(kept(['d'], (r) => blameReport(r, 'unrescuable'), { scope: 'agent' }))).toMatch(/^No failing run was rescued/);
     // A blame that found the call has a passing path to learn from: the repair runs.
     expect(noFix(kept(['e'], (r) => blameReport(r)))).toBeNull();
-    // One made with a rescue the repair doesn't ask for is made again, live, and may find the call.
-    expect(noFix(kept(['f'], (r) => blameReport(r, 'unrescuable'), { fields: { temperature: 1 } }))).toBeNull();
+    // One made with a rescue: the repair asks for the same (`--set`), so it is reused all the same.
+    expect(noFix(kept(['f'], (r) => ({ ...blameReport(r, 'unrescuable'), rescue: { fields: { temperature: 1 } } }), { fields: { temperature: 1 } }))).toMatch(/^No failing run was rescued/);
     // So is one kept with the fix only, from before blames were kept on the run as well.
     const before = makeRun(store, { labels: ['g'] });
     expect(noFix(recordBlame(store, { runId: before, report: blameReport(before, 'unrescuable'), expect: EXPECT, scope: null, command: 'b', title: 't', checkText: 'x', at: NOW }).fix.fixId)).toBeNull();
@@ -637,7 +637,7 @@ describe('a fix', () => {
       repair: null,
       apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], command: `shadowlap fix apply ${fix.fixId}`, gitApply: null, pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, patchFile: '.shadowlap/repairs/repair-applied/fix.patch', refused: null, inTree: false, goldens: 1, names: [{ run: run.slice(0, 10), name: 'refund-bug' }], held: null, change: null },
       applied: true,
-      blameAgain: null, blameStronger: null, verifyLeft: null,
+      blameAgain: null, blameStronger: null, verifyLeft: null, verifyChange: { runs: [run], argv: ['verify', '--fixes', 'label:refund-bug', '--expect', JSON.stringify(EXPECT)], command: `shadowlap verify --fixes label:refund-bug --expect '${JSON.stringify(EXPECT)}'` },
     });
     // fix apply copied them and the test failed: the fix doesn't hold, and Needs a look says so first.
     markFixApplied(store, fix.fixId, { patch: 'applied', repairId: 'repair-applied', goldens: [`goldens/${run.slice(0, 10)}`], tests: 'failed', via: 'fix apply' });
@@ -729,9 +729,10 @@ describe('what settles a fix left unsettled', () => {
     const outcomes = Array.from({ length: 80 }, (_, i) => i % 5 !== 0);
     const { failing, fixId } = incomplete({ decision: 'inconclusive', passes: outcomes, stopReason: null });
     const v = fixDetail(store, fixId)!.verify[0];
-    expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'inconclusive', why: null }, max: 160, keptMax: 200, budget: '0.012' });
+    // Its budget didn't stop it: it keeps it, as the verify ran with it.
+    expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'inconclusive', why: null }, max: 160, keptMax: 200, budget: null, keptBudget: '0.012' });
     // The good run keeps the 200 pairs it ran under: a gate's max of 160 alone would cap them at 160.
-    expect(v.more!.argv.slice(-4)).toEqual(['--gate', '{"max":160}', '--kept-max', '200']);
+    expect(v.more!.argv.slice(-6)).toEqual(['--gate', '{"max":160}', '--budget', '0.012', '--kept-max', '200']);
     expect(v.more!.expected).toBeGreaterThan(13);
   });
 

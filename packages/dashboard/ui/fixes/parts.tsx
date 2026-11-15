@@ -3,9 +3,11 @@ import { JUDGE_ASKED } from '../../../engine/src/checks/labels.js';
 import { titled, Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { headingRef } from '../focus-manager.js';
+import { Status } from '../components/Status.js';
 import { judgeRows } from '../judge-rows.js';
-import type { FixRow } from '../types.js';
+import type { FixesViewRow, FixPr, FixRow } from '../types.js';
 import { failedMust, flagParts, wholeParts } from './model.js';
+import { rungStatus } from './rung-status.js';
 
 /** A judge's card, on the Must line and on its line of the Blame step's check: its rows as Tests' checks draw them (`judgeRows`: what it asks, what it reads, the model), and when it is asked. */
 export const judgeTip = (j: NonNullable<FixRow['judge']>): string => tipCard(j.label, judgeRows(j), `${JUDGE_ASKED.charAt(0).toUpperCase()}${JUDGE_ASKED.slice(1)}`);
@@ -103,4 +105,39 @@ export function Flagged({ text }: { text: string }) {
       )}
     </>
   );
+}
+
+/** A pull request's page, where its address is a web page's: one a pull from the team store brought may be anything else, which stays words. */
+export const prHref = (pr: Pick<FixPr, 'url'> | null | undefined): string | null => (pr && /^https?:\/\/\S+$/.test(pr.url) ? pr.url : null);
+
+/** Words with the pull request they name (`PR #138`) a link to its page, which opens apart from the dashboard; the words alone where it has none. */
+function PrIn({ text, pr }: { text: string; pr: Pick<FixPr, 'url' | 'number'> | null | undefined }) {
+  const page = prHref(pr);
+  const named = pr ? (pr.number !== null ? `PR #${pr.number}` : pr.url) : '';
+  const at = page && named ? text.indexOf(named) : -1;
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <a className="prlink" href={page!} target="_blank" rel="noopener noreferrer">
+        {named}
+      </a>
+      {text.slice(at + named.length)}
+    </>
+  );
+}
+
+/** A fix's place on the ladder, as its row and its page say it (`rungStatus`), the pull request it merged with a link to its page. */
+export function RungStatus({ f }: { f: Pick<FixesViewRow, 'rung' | 'pr' | 'broken' | 'status'> }) {
+  const status = rungStatus(f);
+  return (
+    <Status tone={status.tone}>
+      <PrIn text={status.text} pr={f.pr} />
+    </Status>
+  );
+}
+
+/** Where a fix came from (`from CI · PR #138`, `PR #138 closed`), its pull request a link to its page. */
+export function FixSource({ source, pr }: { source: string; pr: FixPr | null | undefined }) {
+  return <PrIn text={source} pr={pr} />;
 }

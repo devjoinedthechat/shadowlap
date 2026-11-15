@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, outcomeCounts, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, NO_REPAIRER, outcomeCounts, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { num } from './fields.js';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
@@ -118,14 +118,15 @@ const EVENT_TEXT = new Map<string, Describe>([
     },
   ],
   ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
-  ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
+  ['repair.empty', (e, d) => repairEmpty(e, d)],
   // A kept preview's verify (`decisions --verify`) is worded by its session's name and opens the preview.
-  ['verify.accepted', (e, d) => previewVerify(d, 'fixok', 'Verified', counted(d)) ?? { kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
-  ['verify.rejected', (e, d) => previewVerify(d, 'fixbad', 'Verify rejected the change', counted(d) ?? rejection(d)) ?? { kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
+  ['verify.accepted', (e, d) => previewVerify(d, 'fixok', 'Verified', counted(d)) ?? fixVerdict(d, { kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
+  ['verify.rejected', (e, d) => previewVerify(d, 'fixbad', 'Verify rejected the change', counted(d) ?? rejection(d)) ?? fixVerdict(d, { kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
   // A verify that settled nothing: why, by its first reason (a run left inconclusive, the provider gone).
-  ['verify.incomplete', (e, d) => previewVerify(d, 'fixinc', 'Verify inconclusive', strings(d.reasons)[0] ?? null) ?? { kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
+  ['verify.incomplete', (e, d) => previewVerify(d, 'fixinc', 'Verify inconclusive', strings(d.reasons)[0] ?? null) ?? fixVerdict(d, { kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
   // A fix with no patch (verified on the working tree, or with a change of request fields) was only marked applied, as its page says.
-  ['fix.applied', (e, d) => ({ kind: 'fixok', text: `${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
+  // One whose goldens then failed their test stays applied, and doesn't hold: red, in the drawer's words.
+  ['fix.applied', (e, d) => ({ kind: 'fixok', ...(d.tests === 'failed' ? { outcome: 'err' as const } : {}), text: parts(`${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, d.tests === 'failed' && 'tests failed'), href: fixHref(e.ref) })],
   // An open fix given another check (`shadowlap fix check`, the builder's Save check): what its runs must do now.
   ['fix.check', (e, d) => ({ kind: 'setting', text: `Check changed · ${str(d.title) ?? e.ref ?? ''}${str(d.check) ? `: ${str(d.check)!}` : ''}`, href: fixHref(e.ref) })],
   ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: links.training() })],
@@ -197,6 +198,37 @@ function previewVerify(d: Record<string, unknown>, kind: 'fixok' | 'fixbad' | 'f
 /** How a session verify's runs came out, counted in the engine's words (`1 fixed, 1 kept`); null where the event keeps none. */
 function counted(d: Record<string, unknown>): string | null {
   return outcomeCounts(strings(d.outcomes)) || null;
+}
+
+/**
+ * A verdict on a fix's runs as the feed tells it: one that counts for none of the fixes it names (a
+ * check other than theirs, runs that passed already) is no verdict on them, so it is drawn plain, as
+ * its Verify step draws it, and says so. A verify of runs in no fix (a migration's) keeps its colour.
+ */
+function fixVerdict(d: Record<string, unknown>, said: EventText): EventText {
+  if (!strings(d.fixes).length || strings(d.counts).length) return said;
+  return { ...said, outcome: 'plain', text: `${said.text} · doesn’t count for the fix` };
+}
+
+/**
+ * A repair that accepted no candidate, by how its report ended (as `shadowlap repair` records it):
+ * red only where it tried candidates and accepted none; amber where it stopped, had no fix to try, or
+ * asked no repairer and tried nothing, in the words the job's drawer ends on.
+ */
+function repairEmpty(e: StoredEvent, d: Record<string, unknown>): EventText {
+  const href = fixHref(e.ref, 'repair');
+  const why = str(d.why) ?? str(d.title) ?? e.ref ?? '';
+  if (d.outcome === 'stopped') return { kind: 'fixinc', outcome: 'warn', text: `Repair stopped · ${why}`, href };
+  if (d.outcome === 'no-diagnosis') return { kind: 'fixinc', outcome: 'warn', text: `Repair had no fix to try · ${why}`, href };
+  const unasked = num(d.candidates) === 0 ? notAsked(str(d.why)) : null;
+  if (unasked) return { kind: 'fixinc', outcome: 'warn', text: `Repairer not asked · ${unasked}`, href };
+  return { kind: 'fixbad', text: `Repair found no fix · ${why}`, href };
+}
+
+/** Why a repair asked no repairer, as its report's why says it then (`NO_REPAIRER`), without "the repairer could not be asked"; null for any other why. */
+function notAsked(why: string | null): string | null {
+  if (why?.startsWith(`${NO_REPAIRER.notAsked}: `)) return why.slice(NO_REPAIRER.notAsked.length + 2);
+  return why === NO_REPAIRER.unconfigured || why === NO_REPAIRER.nothingToRewrite ? why : null;
 }
 
 /** A verify's page: under its fix, at the verdict when the event names it. */

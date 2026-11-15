@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { INCONCLUSIVE_FIRST_HEAD } from '../src/blame-words.js';
-import { blameSpan, confidenceWhy, decidePin, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, pinRisk, pinRule, pinWords, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport, type PinCheck } from '../src/blame.js';
+import { blameSpan, confidenceWhy, decidePin, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, pinRisk, pinRule, pinWords, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedSaid, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport, type PinCheck } from '../src/blame.js';
 import { addPair, NO_PAIRS, pairedOdds, pairedWorstCase } from '../src/noninferiority.js';
 import { plain } from '../src/report.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
@@ -240,6 +240,10 @@ describe('formatBlame', () => {
     const weak = base({ outcome: 'unrescuable', probes: [{ ...first, risk: 0.087 }], lost: first, errorBound: 0.087, confidence: 'medium' });
     expect(unrescuedHead(weak)).toBe('✗ Not rescued from the first model call');
     expect(formatBlame(weak)).not.toContain('Not rescued from any model call');
+    // Every page that sums the blame up says it in the same words, from the same bound.
+    expect([unrescuedSaid(supported), unrescuedSaid(weak)]).toEqual(['not rescued from any model call', 'not rescued from the first model call']);
+    // A report made before blame bounded its error keeps "any", as its head does.
+    expect(unrescuedSaid(base({ outcome: 'unrescuable', probes: [first], lost: first, confidence: 'medium' }))).toBe('not rescued from any model call');
   });
 
   it('says no answer lost a run whose attempts met its recorded write error again, or passed answering as it did', () => {

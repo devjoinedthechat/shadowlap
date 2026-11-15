@@ -276,7 +276,7 @@ function ProbeRow({ b, p, focus, open, onToggle, groups }: { b: BlameStep; p: Pr
         <tr className="sub">
           <td colSpan={4}>
             <div id={listId}>
-              {groups ? <AttemptGroups groups={groups.groups} attempts={groups.attempts} label={`probe #${p.callNo}`} /> : null}
+              {groups ? <AttemptGroups groups={groups.groups} attempts={groups.attempts} read={groups.read} label={`probe #${p.callNo}`} /> : null}
               <AttemptList attempts={attempts} rescued={b.rescuedRunId} />
             </div>
           </td>

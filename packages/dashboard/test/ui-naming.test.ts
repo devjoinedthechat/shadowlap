@@ -433,5 +433,9 @@ describe('an event’s icon', () => {
     const replay = renderToStaticMarkup(createElement(EventIcon, { kind: activityGlyph('replay') }));
     expect(replay).toContain('aria-label="Replay"');
     expect(replay).toContain('class="glyph replay ic"');
+    // A verdict that counts for no fix it names: the loop with no verdict's colour, and never "Fix accepted".
+    const plain = renderToStaticMarkup(createElement(EventIcon, { kind: 'fixok', outcome: 'plain' }));
+    expect(plain).toContain('class="glyph fixok ic plain"');
+    expect(plain).toContain('aria-label="Verify that doesn&#x27;t count for the fix"');
   });
 });

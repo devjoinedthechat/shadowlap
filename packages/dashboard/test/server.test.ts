@@ -351,7 +351,7 @@ describe('dashboard server: actions', () => {
     type Item = { key: string; flag: string | null; group: string | null; hint: string | null; prompt: { initial?: string; choices?: Array<{ value: string }> } | null };
     const model = (await (await api(`runs/${runId}/calls/3`)).json()) as { forkTitle: string; actions: Item[] };
     expect(model.forkTitle).toBe('At #3 · model call');
-    expect(model.actions.filter((a) => a.group === 'call').map((a) => a.key)).toEqual(['i', 'm', 'g', 'f', 'a']);
+    expect(model.actions.filter((a) => a.group === 'call').map((a) => a.key)).toEqual(['i', 'm', 'd', 'g', 'f', 'a']);
     expect(model.actions.filter((a) => a.group === 'run').map((a) => a.key)).toEqual(['e', 's', 'c']);
     expect(model.actions.find((a) => a.key === 'i')).toMatchObject({ flag: '--inject 3=… --inject-as user', hint: expect.stringContaining('--inject-as user') });
     const tool = (await (await api(`runs/${runId}/calls/4`)).json()) as { call: { kind: string; name: string }; result: { result: unknown }; forkTitle: string; actions: Item[] };

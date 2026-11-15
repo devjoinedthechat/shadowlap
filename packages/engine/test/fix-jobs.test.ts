@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fixRecords, recordBlame, recordRepair, recordVerdict, repairArgv, Store, verifyArgv } from '../src/index.js';
+import { fixRecords, noFixReason, recordBlame, recordRepair, recordVerdict, repairArgv, Store, verifyArgv, type BlameReport } from '../src/index.js';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from './fix-fixtures.js';
 
 /**
@@ -58,5 +58,42 @@ describe('a verify from a fix', () => {
     store.deleteRun(a);
     store.deleteRun(c);
     expect(verifyArgv(store, rec())).toEqual(['verify', '--fixes', 'label:refund-bug-eu', ...CHECK]);
+  });
+});
+
+describe('a repair from a fix', () => {
+  /** A blame of `runId` kept with its fix, rescuing by the request fields given, the run keeping it as its own (`meta.blame`). */
+  const blamedWith = (runId: string, report: BlameReport, rescuedRunId: string | null = null) => {
+    const kept = recordBlame(store, { runId, report, expect: EXPECT, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}' });
+    store.updateRunMeta(runId, { blame: { at: 2, outcome: report.outcome, callNo: report.blamed?.callNo ?? null, confidence: 'high', rescuedRunId, fields: report.rescue.fields, oracle: report.oracle, probes: [], spent: 0.03 } });
+    return kept.fix.fixId;
+  };
+
+  it('rescues as the blame it shows did: the request fields it set, and a stronger model it was asked with, which the repair blames with where asking again rescues nothing', () => {
+    const run = makeRun(store, { labels: ['refund-bug'] });
+    blamedWith(run, { ...blameReport(run, 'unrescuable'), rescue: { fields: { temperature: 1 } } });
+    const rescued = makeRun(store, {});
+    const found = blameReport(run);
+    const fixId = blamedWith(run, { ...found, rescue: { fields: { temperature: 1, model: 'claude-opus-5-5' } }, contrast: { ...found.contrast!, rescuedRunId: rescued } }, rescued);
+    const rec = () => fixRecords(store, store.getFix(fixId)!);
+    expect(repairArgv(store, rec())).toEqual(['repair', '--fixes', 'label:refund-bug', '--set', 'temperature=1', '--stronger', 'claude-opus-5-5', ...CHECK]);
+    // Both blames are reused: asking the recorded model again rescued nothing, the stronger model did, so the repair has a path to learn from.
+    expect(noFixReason(store, rec(), null)).toBeNull();
+  });
+
+  it('ends "No fix to try" where neither asking again nor the stronger model rescued the run, and runs nothing it can’t say safely', () => {
+    const run = makeRun(store, { labels: ['refund-bug'] });
+    blamedWith(run, blameReport(run, 'unrescuable'));
+    const fixId = blamedWith(run, { ...blameReport(run, 'unrescuable'), rescue: { fields: { model: 'claude-opus-5-5' } } });
+    const rec = () => fixRecords(store, store.getFix(fixId)!);
+    expect(repairArgv(store, rec())).toEqual(['repair', '--fixes', 'label:refund-bug', '--stronger', 'claude-opus-5-5', ...CHECK]);
+    expect(noFixReason(store, rec(), null)).toMatchObject({ kind: 'unrescued' });
+    // A model that reads as a flag, or a field that would hide part of the command: no repair from here.
+    const odd = makeRun(store, { labels: ['odd-bug'] });
+    const oddFix = blamedWith(odd, { ...blameReport(odd, 'unrescuable'), rescue: { fields: { model: '--help' } } });
+    expect(repairArgv(store, fixRecords(store, store.getFix(oddFix)!))).toEqual([]);
+    const hidden = makeRun(store, { labels: ['hidden-bug'] });
+    const hiddenFix = blamedWith(hidden, { ...blameReport(hidden, 'unrescuable'), rescue: { fields: { stop: 'a\u202eb' } } });
+    expect(repairArgv(store, fixRecords(store, store.getFix(hiddenFix)!))).toEqual([]);
   });
 });

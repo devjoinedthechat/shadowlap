@@ -21,7 +21,8 @@ import {
   repairerProblem,
   repeatEstimate,
   resolveFix,
-  reusedBlame,
+  repairRescue,
+  repairReuse,
   runBisectEstimate,
   selectedRuns,
   shownBlame,
@@ -221,21 +222,26 @@ export interface FixEstimates {
   verify: Record<string, Estimate>;
   /** Verify this run, on a verified fix's failing runs no accepted verdict checked (`actions.verifyLeft`); null where it isn't offered. */
   verifyLeft: Estimate | null;
+  /** Verify your change, on the fix's failing runs, held-out runs and good runs (`actions.verifyChange`); null where it isn't offered. */
+  verifyChange: Estimate | null;
 }
 
 
 /**
  * Run repair as its command selects the runs (engine fix-jobs.ts `repairArgv`): each failing run with
- * the blame the repair would reuse on it under the fix's check and its blame's scope, so a blame is
- * priced only where it runs one; the good runs each candidate must keep passing; and Free where it
- * ends "No fix to try" before it runs anything.
+ * the blame the repair would end with on it under the fix's check, its blame's scope and rescue, a
+ * stronger model its blame was asked with among it (`repairReuse`), so a blame is priced only where
+ * it runs one; the good runs each candidate must keep passing; and Free where it ends "No fix to try"
+ * before it runs anything.
  */
 function repairPrice(store: Store, rec: FixRecords, job: FixEstimatesJob, p: Pricing): Estimate {
   const runs = fixRunArgs(store, rec);
-  const scope = shownBlame(rec)?.scope ?? null;
+  const shown = shownBlame(rec);
+  const scope = shown?.scope ?? null;
   const oracle = rec.fix.check.oracle;
+  const rescue = repairRescue(shown) ?? { fields: {}, stronger: null };
   const failing = selectedRuns(store, ['--fixes', ...(runs?.fixes ?? [])]).map((r) => {
-    const reused = reusedBlame(store, r.runId, { oracle, fields: {}, scope });
+    const reused = repairReuse(store, r.runId, { oracle, fields: rescue.fields, scope, stronger: rescue.stronger });
     return { runId: r.runId, startedAt: r.startedAt, calls: p.calls(r.runId), blame: reused ? { outcome: reused.stored.outcome } : null };
   });
   const good = selectedRuns(store, ['--keeps', ...(runs?.keeps ?? [])]).map((r) => ({ calls: p.calls(r.runId) }));
@@ -273,6 +279,26 @@ function verifyLeftPrice(rec: FixRecords, runs: readonly string[], job: FixEstim
   );
 }
 
+/**
+ * Verify your change, as its command selects the runs (`actions.verifyChange`): each failing run, and
+ * each it holds out, priced from its recording live from its first model call, and each good run it
+ * keeps with its baseline, by the config's verify rule.
+ */
+function verifyChangePrice(store: Store, argv: readonly string[], job: FixEstimatesJob, p: Pricing): Estimate {
+  const role = (flag: string) => selectedRuns(store, [flag, ...listed(argv, flag)]);
+  const runs = [...role('--fixes').map((r) => wholeRun('target', p.calls(r.runId))), ...role('--holdout').map((r) => wholeRun('holdout', p.calls(r.runId))), ...role('--keeps').map((r) => wholeRun('good', p.calls(r.runId)))];
+  return verifyEstimate(runs, { rule: job.rule, budget: budgetOf(argv) });
+}
+
+/** The words after `flag` in a command line, up to the next flag. */
+function listed(argv: readonly string[], flag: string): string[] {
+  const at = argv.indexOf(flag);
+  if (at < 0) return [];
+  const rest = argv.slice(at + 1);
+  const end = rest.findIndex((a) => a.startsWith('--'));
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
 /** The `--budget` a step's command runs with, before any command of the agent's own after `--`; null for none. */
 function budgetOf(argv: readonly string[]): number | null {
   const end = argv.indexOf('--');
@@ -291,6 +317,7 @@ async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAns
   const b = shownBlame(rec);
   const next = (again: boolean) => (b ? estimateOf((p) => blameNextPrice(rec, b, { again, model: job.model ?? STRONGER_MODEL }, p), pricing) : null);
   const left = d.actions.verifyLeft;
+  const change = d.actions.verifyChange;
   const verify: Record<string, Estimate> = {};
   for (const step of d.verify) {
     const more = step.more;
@@ -309,6 +336,7 @@ async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAns
     blameStronger: d.actions.blameStronger ? await next(false) : null,
     verify,
     verifyLeft: left ? await estimateOf((p) => verifyLeftPrice(rec, left.runs, job, p), pricing) : null,
+    verifyChange: change ? await estimateOf((p) => verifyChangePrice(store, change.argv, job, p), pricing) : null,
   };
   return answer(body, { tagged: true });
 }

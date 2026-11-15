@@ -313,7 +313,8 @@ export function NextStepButton(props: StepProps) {
     case 'replay':
       return <ReplayButton run={run} step={step} lime onAction={onAction} />;
     case 'blame':
-      return <RunBlameButton runId={run.run.runId} offer={step.offer} estimate={stepEstimate(step)} title={blameTitle(step.offer)} tip={tipOf(stepCard(step))} className="btn lime" icon lead mark={shortcut('blame')} {...(step.capture ? { capture: true } : {})} {...(step.command ? { line: step.command } : {})} />;
+      // The page's offer, once it has come, says more than the step's: the check, the agents, a recording at temperature 0.
+      return <RunBlameButton runId={run.run.runId} offer={{ ...step.offer, ...(props.offers?.blame ?? {}) }} estimate={stepEstimate(step)} title={blameTitle(step.offer)} tip={tipOf(stepCard(step))} className="btn lime" icon lead mark={shortcut('blame')} {...(step.capture ? { capture: true } : {})} {...(step.command ? { line: step.command } : {})} />;
     case 'normalizer':
     case 'update-golden':
       return step.key === 'update-golden' && !(props.offers?.test ?? step.test) ? <UpdateStep step={step} /> : <DivergedStep {...props} step={step} />;

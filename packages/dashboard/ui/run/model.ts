@@ -94,7 +94,7 @@ export function attemptOf(d: { run: Pick<RunDetail['run'], 'meta'>; attemptPlace
   }
   const k = place ? place.k : whole(rep?.attempt);
   if (m.probe && typeof m.probe === 'object') return { kind: 'probe', k, n, callNo: whole(m.probe.callNo), ...keptVerdict(m.probe) };
-  if (m.verify && typeof m.verify === 'object') return { kind: 'verify', k, n, role: typeof m.verify.role === 'string' ? m.verify.role : null, ...keptVerdict(m.verify) };
+  if (m.verify && typeof m.verify === 'object') return { kind: 'verify', k, n, role: typeof m.verify.role === 'string' ? m.verify.role : null, ...keptVerdict(m.verify), ...(m.verify.arm === 'baseline' ? { arm: 'baseline' as const } : {}) };
   if (rep) return { kind: 'repeat', k, n, count: whole(rep.of) };
   return null;
 }

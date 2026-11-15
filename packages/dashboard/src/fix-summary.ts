@@ -1,4 +1,4 @@
-import { checkSuggestion, commitTitle, fixCost, fixRecords, labelledFixes, lostWords, NO_REPAIRER, noRepairerOf, repairToApply, type RunRecord, shownBlame, type StoredRepair, type StoreOf, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { checkSuggestion, commitTitle, fixCost, fixRecords, labelledFixes, lostWords, NO_REPAIRER, noRepairerOf, repairToApply, type RunRecord, shownBlame, type StoredRepair, type StoreOf, unrescuedSaid } from '@shadowlap/engine';
 import { acceptedCandidate, brokenOf, counting, fieldsOf, fixHref, noAnswerLost, type PatchCheck, patchMerged, rejectedSinceApplied, rungOf, runHref, short, shownRepair, unblamedRuns, unrepairedVerdict } from './fix-shared.js';
 
 /** The Overview's fixes: how many there are by status and week, and those that need a look. */
@@ -135,7 +135,7 @@ export function needsLookFixes(store: StoreOf<'recording' | 'readModels' | 'fixe
     if (fix.status === 'open') {
       const b = shownBlame(rec);
       // At the call blame names, or around or between two when no one call is pinned.
-      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped part way';
+      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedSaid(b.report) : 'blame stopped part way';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
       // A repair whose repairer was never asked looked for no change: it says why, not that its candidates were rejected.

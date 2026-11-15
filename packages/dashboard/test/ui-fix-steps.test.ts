@@ -50,7 +50,7 @@ function app(): AppState {
     // As the fix's pooled read answers: with the about lines of the runs its steps name.
     fix: (id: string) => Promise.resolve(withAbouts(store, fixDetail(store, id)!)),
     jobs: () => Promise.resolve([]),
-    attemptGroups: () => Promise.resolve({ blame: null, verify: [], cut: false }),
+    attemptGroups: () => Promise.resolve({ blame: null, verify: [] }),
     startJob: () => new Promise(() => undefined),
   } as unknown as Client;
   return { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined } as unknown as AppState;

@@ -520,6 +520,45 @@ describe('actions palette', () => {
     store.close();
   });
 
+  it('sets a request field from a model call on, saying what the CLI would refuse and running nothing then', async () => {
+    const { store, runId } = goldenStore();
+    const spawned: string[][] = [];
+    const spawnCli = (args: string[]) => {
+      spawned.push(args);
+      throw new Error('nothing is run here');
+    };
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={runId} spawnCli={spawnCli} columns={120} rows={30} />, 120, 30);
+    await frameWith(lastFrame, '> #1');
+    stdin.write('j');
+    stdin.write('j');
+    await frameMatching(lastFrame, /> #3\s/);
+    stdin.write(':');
+    let frame = await frameWith(lastFrame, 'At #3 · model call');
+    expect(frame).toContain('Set request field from here…');
+    expect(frame).toContain('--set 3:…');
+    stdin.write('d');
+    // Its question, after the imported pack's warning, the line wrapped where the pane is narrow.
+    await frameWith(lastFrame, 'a dotted key a path):');
+    stdin.write('temperature');
+    await frameWith(lastFrame, '› temperature');
+    stdin.write('\r');
+    // Not key=value: said in the CLI's words, and nothing runs.
+    await frameWith(lastFrame, '--set expects <call>:<key>=<value>, got "3:temperature"');
+    expect(spawned).toEqual([]);
+    // One the CLI takes goes on to the yes someone else's command asks for (the golden came with unpack).
+    stdin.write(':');
+    await frameWith(lastFrame, 'At #3 · model call');
+    stdin.write('d');
+    await frameWith(lastFrame, 'a dotted key a path):');
+    stdin.write('temperature=1');
+    await frameWith(lastFrame, '› temperature=1');
+    stdin.write('\r');
+    frame = await frameWith(lastFrame, 'Type yes to run it:');
+    expect(frame).toContain(`shadowlap replay ${runId} --set 3:temperature=1`);
+    expect(spawned).toEqual([]);
+    store.close();
+  });
+
   it('runs someone else’s command only on a yes of its own, after showing it exactly', async () => {
     const { store, runId } = goldenStore();
     const spawned: string[][] = [];

@@ -71,7 +71,10 @@ export interface FixDetail extends FixRow {
    * failing run), as repair packs one. Null without an accepted verdict that counts, or such an attempt.
    */
   fixedRun: string | null;
+  /** Who opened it: its first blame's author, where it is named (only where checks are shared, on a page). */
   openedBy: string | null;
+  /** Every check it has had, the first first, the last the one it has: its words, when it was given, and by whom where named. */
+  checks: Array<{ text: string; at: number; by: string | null }>;
   upstreamRequests: number;
   /** The step a fix opens on without one in its URL: its last finished step. */
   defaultStep: StepKey;
@@ -196,7 +199,7 @@ const openCrash = (fix: StoredFix, b: StoredBlame | null, crash: ((b: StoredBlam
  * apply copies and what else, and `keptMax` the config's `verify.max`, which Run more attempts keeps a
  * good run's pairs to: this stays a read of the store without them.
  */
-export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder; keptMax?: number | null; crash?: (b: StoredBlame) => FixCrash | null } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder; keptMax?: number | null; crash?: (b: StoredBlame) => FixCrash | null; names?: boolean } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -227,8 +230,10 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
   };
   const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify, options.keptMax ?? null));
-  const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs });
+  const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs, verifyArgs });
   const crash = openCrash(fix, b, options.crash);
+  // Who did each, as `fix show` names them; a page names them only where checks are shared (a team store).
+  const named = (who: string | null | undefined): string | null => (options.names === false ? null : (who ?? null));
   return {
     ...row,
     expect,
@@ -238,7 +243,8 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     left: rec.left,
     guard: guardOf(store, rec, options.goldensFolder),
     fixedRun: fixedRunOf(rec),
-    openedBy: fix.data.openedBy ?? null,
+    openedBy: named(fix.data.openedBy),
+    checks: rec.checks.map((c) => ({ text: c.check.text, at: c.at, by: named(c.actor) })),
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions,
@@ -257,6 +263,6 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     defaultVerify: counting(rec).at(-1)?.verifyId ?? verify[0]?.verifyId ?? null,
     commands,
     repairer: { name: configured ?? DEFAULT_REPAIRER, configured: configured !== null, problem: fix.status === 'open' && options.checkRepairer ? options.checkRepairer(configured ?? DEFAULT_REPAIRER, configured !== null) : null },
-    applied: fix.data.applied ?? null,
+    applied: fix.data.applied ? { ...fix.data.applied, by: named(fix.data.applied.by) } : null,
   };
 }

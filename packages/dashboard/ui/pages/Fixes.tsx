@@ -12,9 +12,9 @@ import { rememberList } from '../fixes/data.js';
 import { FixPage } from '../fixes/FixPage.js';
 // What a fix's jobs end on in the drawer, registered as the Fixes chunk loads.
 import '../fixes/job-footers.js';
-import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadWait, rowCells, rungStatus, STEP_NAMES, UNBLAMED_CELLS, unblamedFailed, unblamedShows, type StepCell } from '../fixes/list.js';
+import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadWait, rowCells, STEP_NAMES, UNBLAMED_CELLS, unblamedFailed, unblamedShows, type StepCell } from '../fixes/list.js';
 import { chipKeeps, failingLine, FIX_CHIPS, fixStamp, treeBusy, type FixChip } from '../fixes/model.js';
-import { FailedMust, Whole } from '../fixes/parts.js';
+import { FailedMust, FixSource, RungStatus, Whole } from '../fixes/parts.js';
 import { fixRowScope, unblamedScope } from '../fixes/row-scope.js';
 import { RowStep } from '../fixes/RowStep.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
@@ -175,7 +175,6 @@ const OPEN = (
 );
 
 const FixListRow = memo(function FixListRow({ f, jobs, focused, why, version }: { f: FixesViewRow; jobs: readonly JobListItem[]; focused: boolean; why: string | null; version: string }) {
-  const status = rungStatus(f);
   const card = failingCard(f);
   return (
     <div className={focused ? 'psrow krow' : 'psrow'} role="listitem" data-rowkey={f.href}>
@@ -184,14 +183,16 @@ const FixListRow = memo(function FixListRow({ f, jobs, focused, why, version }: 
           {f.title}
         </a>
         <span className="rs">
-          <Status tone={status.tone}>{status.text}</Status>
+          <RungStatus f={f} />
           {f.label ? <span className="chip">{f.label}</span> : null}
           {f.ci ? (
             <span className="chip" data-tip={tipCard('From CI', [], ciCard(f))}>
               from CI
             </span>
           ) : f.source ? (
-            <span className="chip">{f.source}</span>
+            <span className="chip">
+              <FixSource source={f.source} pr={f.pr} />
+            </span>
           ) : null}
           <span className="nw">
             <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)} onClick={issueClick(issueKey.fix(f.fixId))}>

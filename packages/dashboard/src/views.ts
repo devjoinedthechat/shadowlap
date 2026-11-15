@@ -196,9 +196,10 @@ export interface ActivityItem {
   kind: ActivityIcon;
   /**
    * How it came out, by its colour, whatever its shape: `err` what failed or was rejected, `warn`
-   * what couldn't decide, stopped or needs a look. Absent: the shape's own colour.
+   * what couldn't decide, stopped or needs a look, `plain` a verdict that counts for no fix it names.
+   * Absent: the shape's own colour.
    */
-  outcome?: 'err' | 'warn';
+  outcome?: 'err' | 'warn' | 'plain';
   /** What happened, in the mock's words: "Replay clean · 30/30 · 0 upstream". */
   text: string;
   /** The run it is about. */

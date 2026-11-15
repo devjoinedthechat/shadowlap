@@ -5,7 +5,6 @@ import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Link } from '../components/Link.js';
-import { Status } from '../components/Status.js';
 import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
@@ -26,22 +25,23 @@ import { rememberFix } from './data.js';
 import { blameNextAsk } from './BlameAgain.js';
 import { blameNextPrice, repairCard, useFixEstimates, verifyPrice } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
-import { appliedButton, failingLine, fixAction, fixName, fixStamp, headBlameNext, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
+import { appliedButton, failingLine, fixAction, headBlameNext, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
 import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
-import { failingCard, leadCard, rungStatus, STEP_NAMES } from './list.js';
+import { failingCard, leadCard, STEP_NAMES } from './list.js';
 import { useFixRead, useFollowJobs } from './page-fix.js';
 import { MustCheckLink, useFixCheckEntry } from './check-entry.js';
-import { FailedMust, FixTitle } from './parts.js';
+import { Applied, CheckChanged, FixLabels, GoodRuns, LeftOut, Opened, Spent } from './HeadFacts.js';
+import { FailedMust, FixSource, FixTitle, RungStatus } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useServerJobs, useTreeBusy } from './tree.js';
 import { leadWait, verifyTip } from './lead.js';
 import { CrashStepButton } from '../revert/CrashStep.js';
 import { EditorButton } from '../revert/EditorButton.js';
 import { VerifyAsk } from './verify-asks.js';
-import { VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
+import { VerifyChangeButton, VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
 
 export { StrongerDialog } from './BlameAgain.js';
-import { ApplyDialog, PatchDialog, RepairDialog } from './FixDialogs.js';
+import { ApplyDialog, PatchDialog, PrDialog, RepairDialog } from './FixDialogs.js';
 export { ApplyDialog, PatchDialog, RepairDialog } from './FixDialogs.js';
 import { ACTIONS } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -150,19 +150,18 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
   const app = useApp();
   const [renaming, setRenaming] = useState(false);
   const head = useFitFixHead();
-  const status = rungStatus(fix);
   const card = failingCard({ failing: fix.failing, failingIds: fix.failingRuns.slice(0, 5).map((r) => shortId(r.runId)), failedCheck: fix.failedCheck ?? null });
   const prNamed = fix.rung === 'merged' && fix.pr?.number != null;
   return (
     <div className="ph fxh" ref={head}>
       <div>
         <div className="eyebrow">
-          fix · <code>{fixName(fix)}</code>
+          fix · <FixLabels fix={fix} />
         </div>
         <FixTitle title={fix.title} />
         <p className="pmeta">
           {/* Each separator is held to the item before it, so a wrapped line never starts with one. */}
-          <Status tone={status.tone}>{status.text}</Status>
+          <RungStatus f={fix} />
           {GLUED_SEPARATOR}
           <span>
             <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)} onClick={issueClick(issueKey.fix(fix.fixId))}>
@@ -170,25 +169,24 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
             </Link>
           </span>
           {GLUED_SEPARATOR}
-          <span>{`${fix.good} good`}</span>
+          <GoodRuns fix={fix} />
+          <LeftOut fix={fix} />
           {GLUED_SEPARATOR}
-          <span>opened {fixStamp(fix.openedAt)}</span>
+          <Opened fix={fix} />
           {fix.verifiedAt ? (
             <>
               {GLUED_SEPARATOR}
               <span>verified {laterStamp(fix.verifiedAt, fix.openedAt)}</span>
             </>
           ) : null}
-          {fix.appliedAt ? (
-            <>
-              {GLUED_SEPARATOR}
-              <span>applied {laterStamp(fix.appliedAt, fix.verifiedAt ?? fix.openedAt)}</span>
-            </>
-          ) : null}
+          <Applied fix={fix} />
+          <Spent fix={fix} />
           {fix.source && !prNamed ? (
             <>
               {GLUED_SEPARATOR}
-              <span className="fxsource">{fix.source}</span>
+              <span className="fxsource">
+                <FixSource source={fix.source} pr={fix.pr} />
+              </span>
             </>
           ) : null}
           {app.exported ? null : (
@@ -199,7 +197,15 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
         </p>
         {/* What failed and what it must do, as the list says it: the title says what failed until someone renames it; then the way to change it. */}
         <p className="chk">
-          <FailedMust fix={fix} tail={<MustCheckLink fix={fix} />} />
+          <FailedMust
+            fix={fix}
+            tail={
+              <>
+                <CheckChanged fix={fix} />
+                <MustCheckLink fix={fix} />
+              </>
+            }
+          />
         </p>
         {fix.broken ? <p className="fxbad">This fix doesn’t hold: {fix.broken}.</p> : null}
       </div>
@@ -247,8 +253,8 @@ export function RenameFixDialog({ fix, onClose, onDone }: { fix: FixDetail; onCl
   );
 }
 
-/** What a button of the header opens: Run repair's dialog, Apply fix's (Mark applied, Finish applying), or the patch to read. */
-type Ask = 'repair' | 'apply' | 'patch';
+/** What a button of the header opens: Run repair's dialog, Apply fix's (Mark applied, Finish applying), the patch to read, or Record pull request…'s. */
+type Ask = 'repair' | 'apply' | 'patch' | 'pr';
 
 /** What each status's buttons are given: the fix, its prices, the lead that takes the lime (none while its Verify step leads), why its write waits, and what a press opens. */
 interface ButtonsProps {
@@ -330,6 +336,7 @@ export function FixActions({ fix, shown = null }: { fix: FixDetail; shown?: Veri
       {asking === 'repair' ? <RepairDialog fix={fix} onClose={close} onRun={(repairer, sent) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer, ...sent }))} /> : null}
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={close} onRun={(names) => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId, ...(names ? { names } : {}) }))} /> : null}
       {asking === 'patch' && diff ? <PatchDialog fix={fix} diff={diff} onClose={close} /> : null}
+      {asking === 'pr' ? <PrDialog fix={fix} onClose={close} onRun={(url) => app.guard(() => void start(JOB_KINDS.fixPr, { fixId: fix.fixId, url }))} /> : null}
       {consent ? (
         <ConsentDialog
           why={consent.why}
@@ -388,6 +395,8 @@ function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { sh
         />
       ) : null}
       <CrashButtons fix={fix} lime={lime} />
+      {/* A change of your own, verified, where it is the fix's next step: the lime one, rightmost. The Verify step offers it otherwise. */}
+      {lime?.key === 'verify-change' ? <VerifyChangeButton fix={fix} prices={prices} lead /> : null}
       {left ? <VerdictNext fix={fix} v={left} prices={prices} /> : null}
     </>
   );
@@ -439,12 +448,31 @@ function VerifiedButtons({ fix, prices, lime, why, ask }: ButtonsProps) {
   );
 }
 
-/** An applied fix's buttons: its patch to read, then Finish applying while applying left something undone; Marked applied, plain, for one with no patch, its hover naming the change. */
+/**
+ * Record pull request…, on an applied fix no merged pull request holds, where the dashboard records
+ * them: the one opened for it by hand recorded on it, as `shadowlap fix pr` records it, for Fixes to
+ * read where it stands and say merged once it is. It writes the store alone, so it waits for no other job.
+ */
+function RecordPrButton({ fix, ask }: Pick<ButtonsProps, 'fix' | 'ask'>) {
+  const app = useApp();
+  // A dashboard that doesn't record them offers nothing to.
+  if (fix.rung === 'merged' || !app.hasKind(JOB_KINDS.fixPr)) return null;
+  const why = app.actionsOff;
+  const command = `$ shadowlap fix pr ${shortFixId(fix.fixId)} <url>`;
+  return (
+    <ActionButton className="btn" why={why} tip={ACTIONS.recordPullRequest.confirm} sub={fix.pr ? 'Record the pull request opened for this fix in place of the one it has' : 'Record the pull request you opened for this fix'} command={command} onClick={() => ask('pr')}>
+      {ACTIONS.recordPullRequest.label}
+    </ActionButton>
+  );
+}
+
+/** An applied fix's buttons: its patch to read, Record pull request…, then Finish applying while applying left something undone; Marked applied, plain, for one with no patch, its hover naming the change. */
 function AppliedButtons({ fix, lime, why, ask }: ButtonsProps) {
   const marked = appliedButton(fix.actions.apply);
   return (
     <>
       <ShowPatch fix={fix} ask={ask} />
+      <RecordPrButton fix={fix} ask={ask} />
       {fixAction(fix).kind !== 'applied' ? (
         <ApplyButton fix={fix} lime={lime} why={why} ask={ask} />
       ) : marked ? (
@@ -510,7 +538,7 @@ function VerdictNext({ fix, v, prices }: { fix: FixDetail; v: VerifyStep; prices
       tip={verifyTip(more)}
       command={more.command}
       estimate={estimate}
-      ask={(begin, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={() => begin({})} onClose={close} />}
+      ask={(begin, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={(fields) => begin(fields)} onClose={close} />}
     />
   );
 }

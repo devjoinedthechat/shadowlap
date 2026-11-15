@@ -339,7 +339,7 @@ describe('a fix’s estimates', () => {
     const fixId = blame(failing, blameReport(failing));
     const plan = (reused: { outcome: 'blamed' } | null) => repairEstimate({ failing: [{ runId: failing, startedAt: store.getRun(failing)!.startedAt, calls: priced(failing), blame: reused }], good: [{ calls: priced(good) }], scope: null, rule: RULE, repairer: DEFAULT_REPAIRER, noFix: null, last: null });
     const fresh = await get<FixEstimates>(`fixes/${fixId}/estimates`);
-    expect(fresh).toEqual({ repair: plain(plan(null)), blameAgain: null, blameStronger: null, verify: {}, verifyLeft: null });
+    expect(fresh).toEqual({ repair: plain(plan(null)), blameAgain: null, blameStronger: null, verify: {}, verifyLeft: null, verifyChange: expect.objectContaining({ kind: 'verify' }) as unknown });
     expect(fresh.repair).toMatchObject({ kind: 'repair', ceiling: true, parts: ['a new blame, then up to 3 candidates', 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] });
     // The blame stored on the run, under the fix's check, with the fork that rescued it: reused, not priced again.
     const rescue = addRun(store, { parent: failing, startedAt: T0 + 72, calls: 'rl' });
@@ -355,6 +355,19 @@ describe('a fix’s estimates', () => {
     expect((await get<FixEstimates>(`fixes/${lostFix}/estimates`)).repair).toMatchObject({ kind: 'repair', usd: 0, parts: [expect.stringMatching(/^nothing runs: the blame it reuses/)] });
     expect((await api('fixes/fx-nosuchfix/estimates')).status).toBe(404);
     expect((await api(`fixes/${fixId}/estimates?model=--help`)).status).toBe(400);
+  });
+
+  it('prices Run repair after Run blame with stronger model rescued its run with neither blame again: the repair reuses both', async () => {
+    const failing = addRun(store, { startedAt: T0 + 74, status: 'failed', calls: 'lllll', meta: { labels: ['stronger-bug'] } });
+    blame(failing, blameReport(failing, 'unrescuable'));
+    const rescue = addRun(store, { parent: failing, startedAt: T0 + 75, calls: 'rl' });
+    const found = blameReport(failing);
+    const fixId = blame(failing, { ...found, rescue: { fields: { model: 'claude-opus-5-5' } }, contrast: { ...found.contrast!, rescuedRunId: rescue } });
+    store.updateRunMeta(failing, { blame: { at: 3, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: rescue, fields: { model: 'claude-opus-5-5' }, oracle: ORACLE, probes: [], spent: 0.03 } });
+    // Neither priced again, and nothing free: the repair learns from the stronger model's rescue.
+    const est = await get<FixEstimates>(`fixes/${fixId}/estimates`);
+    expect(est.repair).toMatchObject({ kind: 'repair', ceiling: true, parts: ['up to 3 candidates', 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] });
+    expect(est.repair!.usd).toBeGreaterThan(0);
   });
 
   it('prices Run blame again by the gate or count its command carries, and with a stronger model at the model typed', async () => {

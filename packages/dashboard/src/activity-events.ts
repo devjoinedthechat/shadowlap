@@ -13,8 +13,8 @@ import { links } from './links.js';
 /** How a stored event reads in the feed. */
 export interface EventText {
   kind: ActivityIcon;
-  /** Its colour when it failed (`err`) or couldn't decide, stopped or needs a look (`warn`): ActivityItem's. */
-  outcome?: 'err' | 'warn';
+  /** Its colour when it failed (`err`), couldn't decide, stopped or needs a look (`warn`), or is a verdict that counts for no fix (`plain`): ActivityItem's. */
+  outcome?: 'err' | 'warn' | 'plain';
   text: string;
   /** Where it opens; defaults to its run, if it has one. */
   href?: string;

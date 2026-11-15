@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { recordBlame, recordVerdict, Store, type BlameReport, type VerifiedRun } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixBundles, fixDetail, fixList } from '../src/fixes.js';
+import { fixBundles, fixDetail, fixForRun, fixList, needsLookFixes } from '../src/fixes.js';
 import { runsRule, verifiedLine } from '../src/verdict.js';
 import { bundleLine } from '../ui/fixes/model.js';
 
@@ -75,11 +75,26 @@ describe('a good run kept against its baseline', () => {
       store.endRun(runId, 'completed');
       return { ...a, runId };
     });
-    report.runs[1] = { ...keptRun(good), attempts, passes: attempts.length };
+    // Its baseline's attempts, the same run at the base revision, filed under it too, as verify marks them (verify.ts `arm`).
+    const baseline = attempts.slice(0, 3).map((a, i) => {
+      const runId = `01M5G0000000000000000000C${i}`;
+      store.createRun({ runId, mode: 'replay', parentRunId: good, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_100 + i, meta: { verify: { role: 'good', passed: i > 0, verdict: i > 0 ? 'passed' : 'failed', arm: 'baseline', revision: '35034be' } } });
+      store.endRun(runId, i > 0 ? 'completed' : 'failed');
+      return { ...a, runId, passed: i > 0 };
+    });
+    report.runs[1] = { ...keptRun(good), attempts, passes: attempts.length, baselineRuns: baseline };
     report.kept = KEPT;
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: 2_000 });
-    const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
-    expect(bundle).toMatchObject({ verdictLine: `kept · ${report.runs[1].passes} of ${report.runs[1].attempts.length} passed, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
+    const verifies = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
+    const [bundle, base] = verifies;
+    expect(bundle).toMatchObject({ title: 'verify · good', verdictLine: `kept · ${report.runs[1].passes} of ${report.runs[1].attempts.length} passed, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
+    // The change's attempts are counted apart from its baseline's.
+    expect(bundle.attempts.map((a) => a.runId)).toEqual(attempts.map((a) => a.runId));
+    // The baseline's: a bundle of their own, named as the code before the change, with the verdict they counted towards, never a loose one read inconclusive.
+    expect(verifies).toHaveLength(2);
+    expect(base).toMatchObject({ title: 'verify · baseline', arm: 'baseline', change: 'the code before the change at 35034be', verdict: 'accepted', counts: true, role: 'good', passes: 2, verdictLine: 'baseline · 2 of 3 passed' });
+    expect(base.attempts.map((a) => a.runId)).toEqual(baseline.map((a) => a.runId));
+    expect(bundleLine(base, (usd) => `≈$${usd.toFixed(3)}`)).toBe('baseline · 2 of 3 passed · ≈$0.036 · the code before the change at 35034be · accepted');
   });
 });
 
@@ -118,5 +133,9 @@ describe('a blame that rescued the run from no call', () => {
     // Its fix's Blame step heads it the same way, from blame's own headline.
     const step = (label: string) => fixDetail(store, fixList(store).fixes.find((f) => f.label === label)!.fixId)!.blame!.title;
     expect([step('a'), step('b')]).toEqual(['Not rescued from the first model call', 'Not rescued from any model call']);
+    // So do the run's page and Needs a look, wherever they sum the blame up.
+    expect([fixForRun(store, a)?.blame?.short, fixForRun(store, b)?.blame?.short]).toEqual(['not rescued from the first model call', 'not rescued from any model call']);
+    const look = (runId: string) => needsLookFixes(store).find((x) => x.fixId === fixForRun(store, runId)?.fix?.fixId)?.detail;
+    expect([look(a), look(b)]).toEqual(['not rescued from the first model call · no change yet', 'not rescued from any model call · no change yet']);
   });
 });

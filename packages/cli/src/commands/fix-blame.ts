@@ -80,8 +80,11 @@ export async function blameRun(opts: GlobalOpts, runArg: string, command: string
     reportBlame(report, flags);
   } catch (err) {
     if (!(err instanceof BlameError)) throw err;
-    if (flags.json) process.stdout.write(JSON.stringify({ runId: parent.runId, outcome: 'error', error: { reason: err.reason, message: err.message }, judge: err.judge }, null, 2) + '\n');
+    const json = { runId: parent.runId, outcome: 'error', error: { reason: err.reason, message: err.message }, judge: err.judge };
+    if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
     else process.stderr.write(`\n${p.red('✗')} ${err.message}\n`);
+    // A dashboard job's drawer says why it could not search, as it says how a search came out.
+    emitJobEvent({ type: 'result', data: json });
     process.exitCode = blameErrorStatus(err.reason);
   }
 }

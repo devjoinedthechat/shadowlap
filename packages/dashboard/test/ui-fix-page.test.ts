@@ -280,10 +280,11 @@ describe('Run repair', () => {
     expect(text(r!.one('.dialog .dcost'))).toContain('nothing runs: the blame it reuses rescued no call');
   });
 
-  it('says the agent runs live and is billed when the repair has a passing path to learn from', async () => {
+  it('says the agent runs live and is billed when the repair has a passing path to learn from, and hands it over as you ask', async () => {
     const run = newRun({ labels: ['refund-bug'] });
     const { fix } = blame(run);
-    await open(fix.fixId);
+    const started: Array<[string, unknown]> = [];
+    await open(fix.fixId, null, null, { started });
     const button = r!.byText('.ph .actions button', 'Run repair');
     expect(button.className).toBe('btn lime');
     await r!.click(button);
@@ -300,6 +301,25 @@ describe('Run repair', () => {
     const kept = r!.all('.dialog .cmdline span.nw').map((e) => e.textContent);
     expect(kept).toContain('--repairer ');
     expect(kept[kept.indexOf('--repairer ') + 1]).toBe('claude-code');
+    // As a pull request, as repair --branch and --pr hand one over: no switch to turn on until a branch is named.
+    expect(r!.one('.dialog .fxhand [role="switch"]').disabled).toBe(true);
+    await r!.type(r!.one('.dialog .fxhand input'), 'fix/refund-limit');
+    await r!.click(r!.one('.dialog .fxhand [role="switch"]'));
+    expect(r!.all('.dialog .dfacts div').map(text)).toContain('Hands overthe accepted one, committed to fix/refund-limit and opened as a pull request with gh');
+    expect(text(r!.one('.dialog .cmdline'))).toContain('--repairer claude-code --branch fix/refund-limit --pr');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['repair', { fixId: fix.fixId, repairer: 'claude-code', branch: 'fix/refund-limit', pr: true }]]);
+  });
+
+  it('rescues as the fix’s blame did, with the stronger model that rescued its run', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    blame(run, { report: blameReport(run, 'unrescuable') });
+    const { fix } = blame(run, { report: { ...blameReport(run), rescue: { fields: { temperature: 1, model: 'claude-opus-5-5' } } } });
+    await open(fix.fixId);
+    await r!.click(r!.byText('.ph .actions button', 'Run repair'));
+    await r!.until('the dialog to read the fix again', () => !r!.one('.dialog .dlg-ok').disabled);
+    expect(r!.all('.dialog .dfacts div').map(text)).toContain('Rescueswith temperature=1 from each probed call, then claude-opus-5-5 where the recorded model rescues nothing, as the fix’s blame did');
+    expect(text(r!.one('.dialog .cmdline'))).toContain('--set temperature=1 --stronger claude-opus-5-5');
   });
 });
 
@@ -423,12 +443,13 @@ describe('Apply fix', () => {
     expect(started).toEqual([['apply', { fixId, names: { [runs[1]]: 'refund-once' } }]]);
   });
 
-  it('offers the patch to read on an applied fix, never a git apply that would fail', async () => {
+  it('offers the patch to read on an applied fix, never a git apply that would fail, and records the pull request opened for it', async () => {
     const fixId = verified();
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/01M3RZ0001'], tests: 'passed', via: 'fix apply' });
-    await open(fixId);
+    const started: Array<[string, unknown]> = [];
+    await open(fixId, null, null, { started });
     // The status says applied: no Patch applied beside it.
-    expect(buttons()).toEqual(['Show patch']);
+    expect(buttons()).toEqual(['Show patch', 'Record pull request…']);
     await r!.click(r!.byText('.ph .actions button', 'Show patch'));
     expect(text(r!.one('.dialog h3'))).toBe('Show patch');
     expect(text(r!.one('.dialog header p'))).toContain('The fix as repair handed it over, in your working tree since you applied it.');
@@ -436,6 +457,20 @@ describe('Apply fix', () => {
     expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+ You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
     // To read only: Close, and nothing to run.
     expect(r!.all('.dialog footer button').map(text)).toEqual(['Close']);
+    await r!.click(r!.one('.dialog footer button'));
+    // A pull request opened for it by hand, recorded as fix pr records it.
+    await r!.click(r!.byText('.ph .actions button', 'Record pull request…'));
+    expect(text(r!.one('.dialog h3'))).toBe('Record pull request');
+    const url = 'https://github.com/acme/agent/pull/138';
+    await r!.type(r!.one('.dialog input'), url);
+    expect(text(r!.one('.dialog .cmdline'))).toContain(`shadowlap fix pr ${fixId.slice(0, 13)} ${url}`);
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['fix-pr', { fixId, url }]]);
+    // A dashboard that doesn't record pull requests offers nothing to.
+    await r!.unmount();
+    r = await render(createElement(AppContext.Provider, { value: { ...app(), hasKind: (k: string) => k !== JOB_KINDS.fixPr } }, createElement(FixPage, { id: fixId, step: null, sub: null })));
+    await r.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
+    expect(buttons()).toEqual(['Show patch']);
   });
 });
 
@@ -618,6 +653,18 @@ describe('what settles a fix left unsettled', () => {
     expect(r!.all('.dialog dl')).toHaveLength(0);
   });
 
+  it('asks Run blame again of a fixed count whose first probe stopped on an attempt that couldn’t be judged by that count, never a lower bar', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const report = blameReport(run, 'unrescuable');
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive', undecided: 'judge "explains" gave no verdict' }];
+    const { fix } = blame(run, { report });
+    await open(fix.fixId, null, null, { started: [] });
+    await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(text(r!.one('.dialog header'))).toContain('Probes again with the same 5 attempts a probe: the last search’s first probe stopped on an attempt that could not be judged.');
+    expect(text(r!.one('.dialog header'))).not.toContain('lower bar');
+    expect(text(r!.one('.dialog dl'))).toBe('Count5 attempts a probe, a rescue at 2 passing');
+  });
+
   it('prices Run blame with stronger model at the model typed once the field rests, its card at the placeholder’s, opening on every setting', async () => {
     const other = newRun({ labels: ['digest'] });
     const { fix } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });
@@ -630,7 +677,8 @@ describe('what settles a fix left unsettled', () => {
     expect((JSON.parse(String(stronger.props['data-tip'])) as { est?: unknown }).est).toEqual({ usd: 2.8, ceiling: true, form: true });
     await r!.click(stronger);
     expect(text(r!.one('.dialog .dcost'))).toContain('Billed by your provider');
-    await r!.type(r!.one('.dialog input'), 'claude-opus-5');
+    // The model's field, the dialog's text field: Stop at $ beside it takes an amount.
+    await r!.type(r!.one('.dialog input[type="text"]'), 'claude-opus-5');
     await r!.wait(300);
     expect(text(r!.one('.dialog .dcost'))).toBe('At most ≈$2.80 · up to 7 probes');
     await r!.click(r!.one('.dialog .dlg-ok'));
@@ -658,7 +706,8 @@ describe('Mark applied for a change of request fields', () => {
     const button = r!.byText('.ph .actions button', 'Marked applied');
     expect(button.disabled).toBe(true);
     expect(button.props.title).toBe("Verified with temperature=1 from each run's first model call, a change to the requests that your agent makes, not to your files");
-    expect(r!.all('.ph .actions button').map(text)).toEqual(['Marked applied']);
+    // A pull request opened for that change can be recorded all the same.
+    expect(r!.all('.ph .actions button').map(text)).toEqual(['Record pull request…', 'Marked applied']);
   });
 
   it('reads Marked applied for a fix verified on the working tree, as it was', async () => {
@@ -799,5 +848,36 @@ describe('Apply fix from the palette', () => {
     APPLY_ASK.ask(fix.fixId);
     await r!.until('the dialog to open again', () => dialogs().length === 1);
     expect(dialogs()).toEqual(['Apply fix?']);
+  });
+});
+
+describe('a change of your own, and Stop at $', () => {
+  it('offers Verify your change on an unverified fix’s Verify step, asking with Stop at $, the command run with the budget typed', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    const started: Array<[string, unknown]> = [];
+    await open(fix.fixId, 'verify', null, { started });
+    // The empty step: what verify checks, its button, and the command it runs, for a terminal.
+    const press = r!.byText('.stepempty .actions button', 'Verify your change');
+    expect(press.className).toBe('btn');
+    await r!.click(press);
+    expect(text(r!.one('.dialog h3'))).toBe('Verify your change');
+    const command = `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}'`;
+    expect(text(r!.one('.dialog .cmdline'))).toContain(command);
+    // Stop at $: empty, for none, until an amount is typed; the command shows the budget it runs with.
+    const stop = r!.one('.dialog .fxstop input');
+    expect(stop.props.placeholder).toBe('none');
+    await r!.type(stop, '2');
+    expect(text(r!.one('.dialog .cmdline'))).toContain(`${command} --budget 2.00`);
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['verify', { fixId: fix.fixId, change: true, budget: 2 }]]);
+  });
+
+  it('leads with Verify your change after a repair whose gate rejected every candidate: the lime one, rightmost', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    recordRepair(store, { repairId: 'repair-none', dir: '.shadowlap/repairs/repair-none', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair', at: NOW + 1 });
+    await open(fix.fixId, 'repair');
+    expect(r!.all('.ph .actions button').map((b) => [text(b), b.className]).at(-1)).toEqual(['Verify your change', 'btn lime']);
   });
 });

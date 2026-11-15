@@ -91,7 +91,7 @@ export const SHAPES = {
   fixList: { section: 'fix', grows: true, fields: ['fixes', 'counts'] },
   fixRow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'judge', 'failed', 'failing', 'good', 'steps', 'source', 'openedAt', 'verifiedAt', 'appliedAt', 'broken', 'attempts', 'spent'] },
   fixCounts: { section: 'fix', grows: true, fields: ['all', 'open', 'verified'] },
-  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'judge', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'left', 'guard', 'fixedRun', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr', 'lead'] },
+  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'judge', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'left', 'guard', 'fixedRun', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'checks', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr', 'lead'] },
   fixApply: { section: 'fix', grows: true, fields: ['fixId', 'status', 'again', 'patch', 'repairId', 'goldens', 'tests'] },
   fixPr: { section: 'fix', grows: true, fields: ['fixId', 'pr'] },
   fixCheck: { section: 'fix', fields: ['fixId', 'status', 'check', 'previous', 'runs', 'left', 'uncounted', 'next'] },

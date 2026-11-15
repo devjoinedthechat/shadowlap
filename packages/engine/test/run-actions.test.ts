@@ -23,10 +23,11 @@ const keys = (actions: ReturnType<typeof buildActions>, group?: 'call' | 'run' |
 describe('the fork menu at a call', () => {
   it('offers a model call inject, switch the model, a changed prompt, an HTTP failure and diverge, each in the CLI’s verbs with its flag', () => {
     const actions = buildActions(run(), call);
-    expect(keys(actions, 'call')).toEqual(['i', 'm', 'g', 'f', 'a']);
+    expect(keys(actions, 'call')).toEqual(['i', 'm', 'd', 'g', 'f', 'a']);
     expect(actions.filter((a) => a.group === 'call').map((a) => [a.label, a.flag])).toEqual([
       ['Inject instruction…', '--inject 3=… --inject-as user'],
       ['Switch model from here…', '--model 3:…'],
+      ['Set request field from here…', '--set 3:…'],
       ['Use changed prompt from here', '--prompt-from 3'],
       ['Fail with HTTP status…', '--fail-at 3=429'],
       ['Run live from here', '--diverge-at 3'],
@@ -43,6 +44,17 @@ describe('the fork menu at a call', () => {
     expect(fail.prompt!.initial).toBe('429');
     expect(fail.prompt!.build(' 529 ')).toEqual(['replay', ID, '--fail-at', '3=529']);
     expect(forkMenuTitle(call)).toBe('At #3 · model call');
+  });
+
+  it('sets a request field from a model call on, as replay --set does, refusing an answer the CLI refuses', () => {
+    const set = buildActions(run(), call).find((a) => a.key === 'd')!;
+    expect(set.prompt!.placeholder).toBe('temperature=1');
+    expect(set.prompt!.build(' temperature=1 ')).toEqual(['replay', ID, '--set', '3:temperature=1']);
+    expect(set.prompt!.build('generationConfig.topK=40')).toEqual(['replay', ID, '--set', '3:generationConfig.topK=40']);
+    for (const ok of ['temperature=1', 'max_tokens=2048', 'stop="END"', 'metadata.user=']) expect(set.prompt!.check!(ok)).toBeNull();
+    // In the CLI's words (run-agent.ts): a key, then =, then the value.
+    expect(set.prompt!.check!('temperature')).toBe('--set expects <call>:<key>=<value>, got "3:temperature"');
+    expect(set.prompt!.check!('1x=2')).toBe('--set expects <call>:<key>=<value>, got "3:1x=2"');
   });
 
   it('offers a read tool override, a tool error, a planted instruction, force live and diverge', () => {
@@ -293,6 +305,7 @@ describe('the terminal UI\'s fork menu', () => {
       ['r', 'replay once the recording finishes'],
       ['i', 'fork once the recording finishes'],
       ['m', 'fork once the recording finishes'],
+      ['d', 'fork once the recording finishes'],
       ['g', 'fork once the recording finishes'],
       ['f', 'fork once the recording finishes'],
       ['a', 'fork once the recording finishes'],

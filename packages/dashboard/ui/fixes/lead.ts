@@ -13,6 +13,9 @@ import { blameAgainTip, STRONGER_TIP, treeBusy, type TreeJob } from './model.js'
  * and its wait. Light on purpose: the Overview loads it, and none of a fix's page.
  */
 
+/** Verify your change's card and its ask's lead: what it verifies, and on which runs. */
+export const VERIFY_CHANGE_TIP = 'Verifies your change, the code as it is now, on the failing runs, the runs held out and the good runs kept';
+
 /** Verify this run's card: the failing runs it verifies, by their short ids, on the code as it is now. */
 export const verifyLeftCard = (runs: readonly string[]): string =>
   `Verifies the code as it is now on ${runs.map(shortId).join(', ')}, the failing run${pluralS(runs.length)} this change wasn’t verified on`;
@@ -29,6 +32,7 @@ export const LEAD_KIND: Readonly<Record<FixLead['key'], string>> = {
   more: JOB_KINDS.verify,
   again: JOB_KINDS.verify,
   'verify-left': JOB_KINDS.verify,
+  'verify-change': JOB_KINDS.verify,
   bisect: JOB_KINDS.bisect,
   revert: JOB_KINDS.revert,
 };
@@ -42,6 +46,7 @@ export const LEAD_VERB: Readonly<Record<FixLead['key'], string>> = {
   more: 'run more attempts',
   again: 'verify again',
   'verify-left': 'verify it',
+  'verify-change': 'verify your change',
   bisect: 'find the breaking commit',
   revert: 'revert it',
 };
@@ -55,7 +60,7 @@ const capital = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 export function leadCard(lead: FixLead): string | null {
   switch (lead.key) {
     case 'blame-again':
-      return blameAgainTip({ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, underCheck: lead.underCheck });
+      return blameAgainTip({ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, count: lead.count, underCheck: lead.underCheck });
     case 'blame-stronger':
       return STRONGER_TIP;
     case 'repair':
@@ -64,6 +69,8 @@ export function leadCard(lead: FixLead): string | null {
       return lead.pending ? capital(lead.pending) : lead.label === ACTIONS.applyFix.label ? 'Asks first: it changes your working tree' : null;
     case 'verify-left':
       return verifyLeftCard(lead.runs);
+    case 'verify-change':
+      return VERIFY_CHANGE_TIP;
     case 'bisect':
     case 'revert':
       // A crash's own step, in the words its run's page gives it.

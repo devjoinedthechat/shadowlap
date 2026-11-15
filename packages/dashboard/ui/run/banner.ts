@@ -57,7 +57,10 @@ export interface BannerInput {
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
   checks: ReadonlyArray<JudgedCheck & { label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
-  fix: { id: string; status: string; title: string } | null;
+  /** The fix the run fails in, or keeps passing for (`fixRole` `good`), with what its finding says of it where the server says (FixView `state`). */
+  fix: { id: string; status: string; title: string; state?: string | null } | null;
+  /** How the run takes part in its fix (`RunDetail.fixRole`): `good`, a run a repair or a verify of it kept. */
+  fixRole?: string | null;
   upstreamRequests: number;
   /** What the run spent live, in dollars, which a test that went live from its fork says. */
   spent?: number;
@@ -123,6 +126,8 @@ export interface AttemptInput {
   callNo?: number | null;
   /** A verify attempt's: the role of the run it replayed under the change. */
   role?: string | null;
+  /** A good run's baseline attempt (verify's `arm`): the same run under the code before the change, never the change. */
+  arm?: 'baseline';
   /** A test attempt's: the golden it tested. */
   golden?: string | null;
   /** How blame or verify judged it, as the record keeps it; a `--repeat`'s is worked out from its checks and exit. */
@@ -179,7 +184,9 @@ export type Banner =
    * as the label instead, the failure in its `why`: `stopped` and `inconclusive` need a look (amber), `not rescued` is a
    * failure. `fixedBy`: the run that passed since, for a test replay its golden's next replay passed, whose `why` says so.
    */
-  | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState; fixedBy?: string };
+  | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState; fixedBy?: string }
+  /** A run a fix keeps passing (a good run a repair or a verify of it kept), with the way to the fix. */
+  | { kind: 'kept'; fix: { id: string; status: string; title: string }; why: string };
 
 /** What made a fork diverge, in words. */
 export const DIVERGED: Readonly<Record<string, string>> = {
@@ -565,13 +572,14 @@ function probeAsked(i: BannerInput, a: AttemptInput | null, rescuedAt: number | 
 
 /**
  * A verify's attempt: the change it verified, a flag (`--model`, `--set`) naming itself, a change in
- * the code being in the request where the attempt forked, with the code it ran.
+ * the code being in the request where the attempt forked, with the code it ran. A good run's baseline
+ * attempt ran the code before the change, live from where the change's attempt forked: it says so.
  */
 function verifyAsked(i: BannerInput, a: AttemptInput, which: string | null): Asked {
   const d = i.divergence;
   const iv = madeBy(i);
-  const role = VERIFY_ROLES[a.role ?? ''];
-  const change = iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? `the change it verified is in the request${changedAt(d)}` : leftAs(d);
+  const role = a.arm === 'baseline' ? 'baseline' : VERIFY_ROLES[a.role ?? ''];
+  const change = a.arm === 'baseline' ? `the code before the change, ${leftAs(d)}` : iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? `the change it verified is in the request${changedAt(d)}` : leftAs(d);
   // One part, held together, as the bundle names it (`verify · target`): a wrapped line never parts it.
   const head = [`verify${role ? `\u00a0· ${role}` : ''}${which ? `, ${which}` : ''}`, i.codeVersion ? `code\u00a0${i.codeVersion}` : null].filter(Boolean).join(' · ');
   return { what: `${head}: ${change}`, callNo: d?.callNo ?? null, flag: iv ? flagText(iv) : null };
@@ -740,9 +748,18 @@ function fixedBanner(i: BannerInput, by: string): Banner | null {
   return { kind: 'failed', lead: crash?.line ?? failure.replace(/^check failed: /, ''), why: fixedByWords(by), fix: i.fix, blamed: true, fixedBy: by };
 }
 
-/** How the fix that lists a failed run stands, in the finding's words; null when none does. */
+/**
+ * How the fix that lists a failed run stands, in the finding's words: as the server says it, as Fixes
+ * says it (fix-for-run.ts `fixStateWords`: what changed for an open one, merged, broken since), else
+ * no change yet, or fixed and its status. Null when none lists it.
+ */
 function fixState(fix: BannerInput['fix']): string | null {
-  return fix ? (fix.status === 'open' ? `no change yet for “${fix.title}”` : `fixed: “${fix.title}”, ${fix.status}`) : null;
+  return fix ? (fix.state ?? (fix.status === 'open' ? `no change yet for “${fix.title}”` : `fixed: “${fix.title}”, ${fix.status}`)) : null;
+}
+
+/** A run that passed which a fix keeps passing (a good run of it), when nothing else is found: it says so, in the server's words (`state`), with the way to the fix. */
+function keptBanner(i: BannerInput): Banner | null {
+  return i.fixRole === 'good' && i.fix ? { kind: 'kept', fix: i.fix, why: i.fix.state ?? '' } : null;
 }
 
 /**
@@ -760,7 +777,7 @@ export function ownBanner(i: BannerInput): Banner | null {
   // An attempt of blame, verify or --repeat is one sample of many: it says so, and how it came out.
   if (i.attempt) return attemptBanner(i, i.attempt, null);
   if (d && !forkedTest(i)) return i.type === 'test' ? divergedBanner(i, d) : forkBanner(i, d);
-  return lostBanner(i.blame) ?? checksBanner(i) ?? (i.interrupted ? { kind: 'interrupted', why: interruptedWhy(i) } : null) ?? failedBanner(i);
+  return lostBanner(i.blame) ?? checksBanner(i) ?? (i.interrupted ? { kind: 'interrupted', why: interruptedWhy(i) } : null) ?? failedBanner(i) ?? keptBanner(i);
 }
 
 /** What the run did that Shadowlap did not record: a finding of its own, so it never hides the failure after it. */

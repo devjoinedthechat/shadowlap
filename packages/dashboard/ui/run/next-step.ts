@@ -5,7 +5,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import { normalizeAction } from '../normalize.js';
 import type { PaletteEntry } from '../palette.js';
 import { keyColumn, type ShortcutId } from '../shortcuts.js';
-import type { ActionItem, BlameBeside, NextStep, NextStepRow, RunDetail } from '../types.js';
+import type { ActionItem, BlameBeside, FixView, NextStep, NextStepRow, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
 import { PACK_VERB } from './share-steps.js';
 
@@ -105,7 +105,7 @@ function stepForm(step: NextStep): boolean {
  * dialog says the rest.
  */
 export function stepCard(step: NextStep): StepCard {
-  const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
+  const own = step.key === 'fix' ? fixStatusWords(step.status, step.said).why : step.key === 'blame' ? blameTitle(step.offer) : null;
   return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step, stepForm(step)) };
 }
 
@@ -126,11 +126,14 @@ export function stepCostLine(step: NextStep): { price: string; parts: string[]; 
 }
 
 /**
- * A fix's status as the run page's Open fix says it on hover and its banner beside it: open until a
- * change is verified, then verified, then applied.
+ * A fix's status as the run page's Open fix says it on hover and its banner beside it: as the server
+ * says it (`said`, fix-for-run.ts `fixSaid`, as Fixes says it: broken in red, merged with its pull
+ * request, what changed for an open one), else open until a change is verified, then verified, then
+ * applied.
  */
-export function fixStatusWords(status: string): { tone: 'warn' | 'ok'; text: string; why: string } {
+export function fixStatusWords(status: string, said?: FixView['said']): NonNullable<FixView['said']> {
+  if (said) return said;
   if (status === 'open') return { tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' };
   if (status === 'applied') return { tone: 'ok', text: 'fix applied', why: 'applied: its change is in your working tree' };
-  return { tone: 'ok', text: `fix ${status}`, why: `${status}: a change fixed its failing runs, ready to apply` };
+  return { tone: 'ok', text: `fix ${status}`, why: `${status}: a change fixed its failing runs, not applied yet` };
 }

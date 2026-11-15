@@ -6,11 +6,13 @@ import { fixStatusWords, nextStepOf, stepCard, stepCostLine } from '../ui/run/ne
 import { Banner } from '../ui/run/FindingsBar.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
+import { ScopeBar } from '../ui/run/parts.js';
+import { scopeBlame } from '../ui/fixes/RunBlame.js';
 import { SERVED_PARTS } from '../ui/pages/served.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
-import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
+import type { BlameOffer, NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
 import { render, shownText, type Rendered } from './ui-render.js';
 import { STEP_PARTS } from './ui-served-now.js';
 import { resetSpending } from '../ui/spending.js';
@@ -119,13 +121,25 @@ describe('the run page’s next step', () => {
     expect(lime(page)).toEqual(['Open fix']);
     const open = page.byText('.rhead .actions a', 'Open fix');
     expect(open.props.href).toBe(verified.href);
-    expect(tip(open)).toMatchObject({ t: `“${verified.title}”`, s: 'verified: a change fixed its failing runs, ready to apply' });
+    // Verified and not applied: never "ready to apply", which a patch merged or in the working tree already isn't.
+    expect(tip(open)).toMatchObject({ t: `“${verified.title}”`, s: 'verified: a change fixed its failing runs, not applied yet' });
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     // The banner says how the fix stands instead of linking it again.
     expect(shownText(page.one('.banner .bk'))).toBe('lost at');
     expect(page.all('.banner a').some((a) => a.textContent === 'Fix →')).toBe(false);
     expect(page.one('.banner .st').className).toBe('st ok');
     expect(page.one('.banner .st').textContent).toBe('fix verified');
+  });
+
+  it('says on the run page a fix applied whose goldens failed since is broken, in red, never applied in lime', async () => {
+    // As the server says it (fix-for-run.ts `fixSaid`), on the run's fix and its Open fix alike.
+    const said = { tone: 'err', text: 'fix broken', why: 'applied, but it doesn’t hold: shadowlap test failed on its goldens' } as const;
+    const broken = { ...verified, status: 'applied', said };
+    const run = detail({ state: failedState, fix: broken, blame: lost, next: { ...FIX, status: 'applied', said } });
+    page = await render(both(run));
+    expect(tip(page.byText('.rhead .actions a', 'Open fix'))).toMatchObject({ s: 'applied, but it doesn’t hold: shadowlap test failed on its goldens' });
+    expect(page.one('.banner .st').className).toBe('st err');
+    expect(page.one('.banner .st').textContent).toBe('fix broken');
   });
 
   it('says a run lost gradually around two calls so in its banner, each call one to select, never lost at the first', async () => {
@@ -141,9 +155,16 @@ describe('the run page’s next step', () => {
     expect(selected).toEqual([7]);
   });
 
-  it('says an open fix is open, in amber', () => {
+  it('says an open fix is open, in amber, and how a fix stands as the server says it', () => {
     expect(fixStatusWords('open')).toEqual({ tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' });
     expect(fixStatusWords('applied').text).toBe('fix applied');
+    // Verified, not applied: never "ready to apply", which a patch in the working tree already isn't.
+    expect(fixStatusWords('verified')).toEqual({ tone: 'ok', text: 'fix verified', why: 'verified: a change fixed its failing runs, not applied yet' });
+    // As Fixes says it, where the server says it: merged with its pull request.
+    const merged = { tone: 'ok', text: 'fix merged · PR #42', why: 'merged: its change shipped with its pull request' } as const;
+    expect(fixStatusWords('verified', merged)).toEqual(merged);
+    // Open fix's card on the header says the same.
+    expect(stepCard({ ...FIX, status: 'verified', said: merged }).sub).toBe('merged: its change shipped with its pull request');
   });
 
   it('blames a failure nobody blamed, with what it bills on its hover, and the banner doesn’t offer it again', async () => {
@@ -163,6 +184,32 @@ describe('the run page’s next step', () => {
     resetSpending(20);
     await page.click(lead);
     expect(started).toEqual([['blame', { runId: REC, estimate: { usd: 10.88, ceiling: true } }]]);
+  });
+
+  it('asks first on a run recorded at temperature 0, its check to edit, its agents and temperature=1 to start from, and starts with what its settings say', async () => {
+    const check = { tools: { send_email: 1 } };
+    const estimate: NonNullable<NextStep['estimate']> = { kind: 'blame', usd: 10.88, ceiling: true, parts: [] };
+    const failed = detail({ status: 'failed', state: { ...failedState, outcome: { kind: 'check-failed', check: null } }, next: { ...OFFER, offer: { from: 'run', expect: check, failed: ['send_email called once'] }, command: `shadowlap blame ${REC.slice(0, 10)}`, estimate } as NextStep });
+    // The page's offers say what the step's don't: its agents, and its first model call at temperature 0.
+    const offers = { blame: { from: 'run', expect: check, failed: ['send_email called once'], scopes: ['support/agent', 'support/user'], temperature0: true }, test: null } as unknown as RunOffers;
+    const { a, started } = jobs();
+    page = await render(both(failed, offers, a));
+    resetSpending(20);
+    await page.click(page.byText('.rhead .actions button', 'Run blame'));
+    // Under the threshold all the same: a blame at temperature 0 would ask the model again for nothing.
+    expect(started).toEqual([]);
+    await page.until('its settings to be asked', () => page!.all('.dialog textarea').length === 1);
+    const dialog = (sel: string) => page!.one(`.dialog ${sel}`);
+    expect(dialog('textarea').props.value).toBe(JSON.stringify(check));
+    expect(page.all('.dialog input[type="text"]').map((i) => i.props.value)).toEqual(['temperature=1', '']);
+    expect(page.one('.dialog').textContent).toContain('Recorded at temperature 0');
+    expect(page.all('.dialog select option').map((o) => o.textContent)).toEqual(['every agent', 'support/agent', 'support/user']);
+    await page.fire(dialog('select'), 'change', { target: { value: 'support/agent' } } as never);
+    expect(dialog('.cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '${JSON.stringify(check)}' --scope support/agent --set temperature=1`);
+    await page.click(dialog('.dlg-ok'));
+    // The check it opened with goes unsent: the server picks the same.
+    expect(started).toEqual([['blame', { runId: REC, scope: 'support/agent', set: ['temperature=1'], estimate: { usd: 10.88, ceiling: true } }]]);
+    resetSpending();
   });
 
   it('gains what a long run’s step bills once its read of its own answers, and asks only where its answer left it out', async () => {
@@ -627,5 +674,28 @@ describe('the run page’s next step', () => {
     expect(stepCard({ key: 'injection-test', label: 'Run injection test…', runId: REC }).title).toBe('Run injection test');
     expect(stepCostLine(OFFER)).toBeNull();
     expect(nextStepOf({})).toBeNull();
+  });
+});
+
+describe('the Agents bar’s Run blame', () => {
+  it('blames within the agent its hint names, asking first with that agent picked, where the run can be blamed', async () => {
+    const call = (callNo: number, kind: 'api' | 'tool', scope: string) => ({ callNo, kind, name: kind === 'api' ? 'POST /v1/messages' : 'send_email', origin: 'live', scope, agent: scope });
+    const run = { ...detail({ status: 'failed', state: failedState }), calls: [call(1, 'api', 'agent'), call(2, 'tool', 'agent'), call(3, 'api', 'customer')] } as unknown as RunDetail;
+    const blame: BlameOffer = { from: 'exit', expect: null, failed: [], scopes: ['agent', 'customer'] } as unknown as BlameOffer;
+    const bar = (a: AppState, offer: BlameOffer | null) => createElement(AppContext.Provider, { value: a }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, createElement(ScopeBar, { run, scopes: ['agent', 'customer'], scope: 'all', judge: 0, onScope: () => undefined, blame: scopeBlame(REC, { blame: offer }) })));
+    // Where it can't be blamed, the hint says the command alone.
+    page = await render(bar(app(), null));
+    expect(page.one('.shint').textContent).toBe(`Blame only the agent, not the customer it answers: shadowlap blame ${REC.slice(0, 10)} --scope agent`);
+    await page.unmount();
+    const { a, started } = jobs();
+    page = await render(bar(a, blame));
+    resetSpending(20);
+    await page.click(page.byText('.shint button', 'Run blame'));
+    expect(started).toEqual([]);
+    await page.until('its settings to be asked', () => page!.all('.dialog select').length === 1);
+    expect(page.one('.dialog select').props.value).toBe('agent');
+    expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --scope agent`);
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['blame', { runId: REC, scope: 'agent' }]]);
   });
 });

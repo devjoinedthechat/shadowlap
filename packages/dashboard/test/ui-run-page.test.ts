@@ -108,6 +108,13 @@ describe('an action’s dialog', () => {
     expect(copy('x', { flag: '--inject-result 17=… --repeat 3', prompt: { label: 'Text:', choices: planted } }).choices).toBeUndefined();
   });
 
+  it('asks Set request field from here… for key=value, its command the replay with that field from the call on', () => {
+    const copy = dialogCopy(a('d', 'Set request field from here…', { flag: '--set 17:…', prompt: { label: 'Request field to set from #17 on:', placeholder: 'temperature=1' } }), ctx);
+    expect(copy).toMatchObject({ title: 'Set request field from #17', label: 'Field (key=value)', placeholder: 'temperature=1', doc: 'switchModel' });
+    expect(copy.command!('temperature=1')).toBe('shadowlap replay 01K5CQ4N7G --set 17:temperature=1');
+    expect(copy.command!('')).toBe('shadowlap replay 01K5CQ4N7G --set 17:<key>=<value>');
+  });
+
   it('says in red what a write forced live does, and asks on Cancel', () => {
     const copy = dialogCopy(a('l', 'Force send_email live', { flag: '--live-tool send_email', prompt: null, asksFirst: true, warns: 'send_email acts on your systems' }), { ...ctx, callName: 'send_email' });
     expect(copy).toMatchObject({ title: 'Force send_email live', ok: 'Force send_email live', warn: { text: '`send_email` acts on your systems', tone: 'red' }, doc: 'forceLive', lead: 'Runs send_email for real at its first call and at every call of it after.' });

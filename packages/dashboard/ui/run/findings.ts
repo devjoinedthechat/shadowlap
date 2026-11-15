@@ -80,6 +80,8 @@ export function bannerSays(b: Banner): string {
       return 'not recorded';
     case 'failed':
       return b.label ?? b.lead ?? 'failed';
+    case 'kept':
+      return 'good run';
     default:
       return b.kind;
   }

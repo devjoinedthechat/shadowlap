@@ -100,8 +100,10 @@ export interface VerifyMore {
   keptMax: number | null;
   expected: number;
   cost: number | null;
-  /** The budget the verdict ran with, which Run more attempts leaves out; null when it had none. */
+  /** The budget the verdict ran with, which Run more attempts leaves out, as it is what stopped the verify; null otherwise. */
   budget: string | null;
+  /** The budget the verdict ran with, which Run more attempts keeps, as it didn't stop the verify (Verify again keeps it too); null otherwise. */
+  keptBudget: string | null;
   /** Built from the verdict's checked fields and flags (rerun.ts), never from its command line. */
   argv: string[];
   command: string;
@@ -342,6 +344,28 @@ function sameVerify(v: StoredVerdict, fallback: string): string {
   return made ? commandLine(made.argv) : fallback;
 }
 
+/** A verify's stop reason when it stopped at its `--budget` (the CLI's attempts.ts words it so). */
+const BUDGET_STOP = /^the budget of \S+ is spent$/;
+
+/** Whether Run more attempts settles a verdict its `--budget` stopped. */
+const stoppedAtBudget = (r: StoredVerdict['report'], kind: VerifyMore['kind']): boolean => kind === 'more' && BUDGET_STOP.test(r.stopReason ?? '');
+
+/** The kept flags Run more attempts leaves out: the budget that stopped the verify, and a good run's pairs where it names them itself. */
+function moreDrops(spent: boolean, keptMax: boolean): Set<string> {
+  const drop = new Set<string>();
+  if (spent) drop.add('--budget');
+  if (keptMax) drop.add('--kept-max');
+  return drop;
+}
+
+/** The budget Run more attempts leaves out (`budget`: the one that stopped the verify), or the one its command keeps (`keptBudget`). */
+function moreBudgets(spent: boolean, made: { argv: readonly string[]; rerun: RerunFlags }): Pick<VerifyMore, 'budget' | 'keptBudget'> {
+  if (spent) return { budget: made.rerun.dropped['--budget'] ?? null, keptBudget: null };
+  const end = made.argv.indexOf('--');
+  const at = (end < 0 ? made.argv : made.argv.slice(0, end)).indexOf('--budget');
+  return { budget: null, keptBudget: at < 0 ? null : (made.argv[at + 1] ?? null) };
+}
+
 /** A verdict's open runs by why each is open, by the predicate Changes reads its open runs with (`openRunWhy`). */
 function openRuns(runs: readonly VerifiedRun[]): Record<'ranOut' | 'stopped' | 'unjudged', VerifiedRun[]> {
   const why = (x: VerifiedRun) => (x.verdict === 'open' ? openRunWhy(outcomeOf(x), x.undecided) : null);
@@ -395,8 +419,9 @@ export function verifyMore(v: StoredVerdict, configKept: number | null = null): 
   const raised: SprtGate | null = gate ? { ...gate, max } : null;
   const kept = kind === 'more' && gate && raised ? keptLimit(v, gate, raised, configKept, ranOut.some((x) => x.role === 'good')) : null;
   if (kind === 'more' && gate && ranOut.length && max <= gate.max && !kept?.rose) return null;
-  // Run more attempts leaves out the budget that stopped it, and names a good run's pairs itself; Verify again runs as it ran.
-  const made = verdictArgs(v, { gate: raised, ...(kind === 'more' ? { drop: new Set(['--budget', ...(kept ? ['--kept-max'] : [])]), extra: kept ? kept.flag : [] } : {}) });
+  // Run more attempts leaves out the budget that stopped it (one that didn't, it keeps), and names a good run's pairs itself; Verify again runs as it ran.
+  const spent = stoppedAtBudget(r, kind);
+  const made = verdictArgs(v, { gate: raised, ...(kind === 'more' ? { drop: moreDrops(spent, !!kept), extra: kept ? kept.flag : [] } : {}) });
   if (!made) return null;
   const { expected, cost } = moreExpected(r, raised);
   return {
@@ -406,7 +431,7 @@ export function verifyMore(v: StoredVerdict, configKept: number | null = null): 
     keptMax: kept ? kept.max : null,
     expected,
     cost,
-    budget: kind === 'more' ? (made.rerun.dropped['--budget'] ?? null) : null,
+    ...moreBudgets(spent, made),
     argv: made.argv,
     command: commandLine(made.argv),
     pulled: v.pulled ?? null,

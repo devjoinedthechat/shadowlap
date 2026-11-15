@@ -142,7 +142,7 @@ type CoreJob =
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
    * the server's thread, and why `fix apply` refuses a pulled repair's patch there, by the repair.
    */
-  | { kind: 'fix'; fixId: string; repairer: string | null; keptMax?: number | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string; next?: NextStepWork | null; serving?: FoundServing };
+  | { kind: 'fix'; fixId: string; repairer: string | null; keptMax?: number | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string; next?: NextStepWork | null; serving?: FoundServing; names?: boolean };
 
 /** A run id that names no single run: several runs (409), or none (404). */
 function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
@@ -225,7 +225,8 @@ function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnsw
   // A crash no model rescued leads with its run's own step, its commit served as the route read how,
   // and the exception it died of (fix-crash.ts).
   const crash = (b: StoredBlame) => fixCrash(store, b, { work: job.next ?? null, reads: stepReads(store), serving: job.serving ?? null, error: true });
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, keptMax: job.keptMax ?? null, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}), crash });
+  // Who opened, applied and gave each check, named only where checks are shared (`names`, a team store).
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, keptMax: job.keptMax ?? null, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}), crash, names: job.names === true });
   return d ? answer({ ...withAbouts(store, d), failedCheck: failedChecks(store, loadRunIndex(store))(d.fixId) }, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 

@@ -1,4 +1,4 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, messageOf, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, parseExpect, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type Store, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, blameSteps, DEFAULT_REPAIRER, HIDDEN_IN_NAME, scopeArg, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, messageOf, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, parseExpect, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type Store, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
@@ -6,6 +6,7 @@ import { type FixCheckPreviewJob, hiddenCheckWords, notOpenWords } from '../fix-
 import { patchMerged, patchToCheck } from '../fix-shared.js';
 import { APPLY_GOLDENS, fixBundles, fixDetail, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
 import { foundServing } from '../found-here.js';
+import { budgetFlags } from '../injection.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
@@ -18,6 +19,7 @@ import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
 import { MODEL, modelParam, verifyRule } from './estimates.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * Fixes: the list (`GET /api/fixes`: every fix in to-do order, with the counts per chip, what they
@@ -94,6 +96,7 @@ async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes' | 'team'>, fi
     // A crash's way on is its run's next step (fix-crash.ts), and its first bad commit is served as every route serves one.
     next: nextStepWork(ctx),
     serving: await foundServing(project),
+    names: namesTeamStore(project),
   });
 }
 
@@ -156,6 +159,23 @@ function fixRunCalls(store: Store, fixId: string): number {
   return [...new Set(store.fixLinks(fixId).flatMap((l) => (l.kind === 'failing' || l.kind === 'good' ? [l.ref] : [])))].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
 }
 
+/**
+ * Stop at $, as a fix job's dialog sends it (`budget`): an amount above 0 runs the command with that
+ * `--budget`, in place of one it kept; null runs it with none; left out, the command as it was made.
+ * Before any command of the agent's own after `--`. Said before the yes a command asks for, which is
+ * to the line with it.
+ */
+function withBudget(args: readonly string[], budget: unknown): string[] | { error: string } {
+  if (budget === undefined) return [...args];
+  const flags = budget === null ? [] : budgetFlags(budget);
+  if (!Array.isArray(flags)) return { error: flags.error };
+  const end = args.indexOf('--');
+  const head = end < 0 ? [...args] : args.slice(0, end);
+  const at = head.indexOf('--budget');
+  if (at >= 0) head.splice(at, 2);
+  return [...head, ...flags, ...(end < 0 ? [] : args.slice(end))];
+}
+
 /** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it and to `args`. */
 function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[]): JobConsent {
   return needsConsent({ runs, yes, args });
@@ -181,6 +201,9 @@ function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' 
     if (!d.actions.blameStronger) return { error: `${id}'s blame can't be made again with another model: it found where the run was lost, found the model's answer isn't what lost it, or asked another model already`, status: 409 };
     args = [...d.actions.blameStronger.argv, '--model', req.model.trim()];
   }
+  const budgeted = withBudget(args, req.budget);
+  if (!Array.isArray(budgeted)) return budgeted;
+  args = budgeted;
   const run = lookupRun(store, args[1]!);
   if (!run) return { error: `the run ${id} blamed is gone from the store`, status: 409 };
   // A blame a pull brought runs again only once the user says yes to the exact command, as an imported run's does.
@@ -201,11 +224,30 @@ function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   const v = d.verify.find((x) => x.verifyId === req.verifyId);
   if (!v) return { error: `no verdict ${req.verifyId.slice(0, 40)} on ${short(fix.fixId)}`, status: 404 };
   if (!v.more) return { error: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)} is ${v.verdict}, or doesn't count for it: there is nothing to settle`, status: 409 };
+  const args = withBudget(v.more.argv, req.budget);
+  if (!Array.isArray(args)) return args;
   // A verdict a pull brought runs again only once the user says yes to the exact command, as an imported run's does.
   const runs = v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null);
-  const consent = needsConsent({ runs, yes: req.yes, args: v.more.argv, pulled: v.more.pulled ? { what: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)}`, left: v.more.left } : null });
+  const consent = needsConsent({ runs, yes: req.yes, args, pulled: v.more.pulled ? { what: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)}`, left: v.more.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...v.more.argv, ...consent.yes], fixId: fix.fixId, title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
+  return { args: [...args, ...consent.yes], fixId: fix.fixId, title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
+}
+
+/**
+ * Verify your change, on any fix with a failing run left (`actions.verifyChange`): a change made by
+ * hand, verified on the code as it is now on the fix's failing runs, the runs it holds out and the good
+ * runs it keeps, under its check. Built from the fix's records alone, as its empty Verify step's command
+ * is; a run whose command came from someone else's pack, among every run it selects, asks first.
+ */
+function verifyChangeJob(req: JobRequest, store: StoreOf<'recording' | 'fixes'>): JobBuildResult {
+  const fix = findFix(store, req.fixId);
+  const argv = verifyArgv(store, fixRecords(store, fix));
+  if (!argv.length) return { error: `none of the failing runs of ${short(fix.fixId)} is left in the store, so there is nothing to verify`, status: 409 };
+  const args = withBudget(argv, req.budget);
+  if (!Array.isArray(args)) return args;
+  const consent = importedCommand(selectedRuns(store, argv), req.yes, args);
+  if ('ask' in consent) return consent.ask;
+  return { args: [...args, ...consent.yes], fixId: fix.fixId, title: ACTIONS.verifyYourChange.doing };
 }
 
 /** Why Verify this run is refused, in the order `verifyLeftOr` finds it. */
@@ -231,10 +273,12 @@ async function verifyLeftJob(req: JobRequest, store: StoreOf<'recording' | 'fixe
   const got = verifyLeftOr(store, rec, patchMerged(rec, check));
   if ('none' in got) return { error: VERIFY_LEFT_REFUSED[got.none](id), status: 409 };
   const left = got.offer;
+  const args = withBudget(left.argv, req.budget);
+  if (!Array.isArray(args)) return args;
   const runs = left.runs.map((r) => store.getRun(r)).filter((r): r is RunRecord => r !== null);
-  const consent = needsConsent({ runs, yes: req.yes, args: left.argv, pulled: left.pulled ? { what: `${id}'s accepted verdict`, left: left.left } : null });
+  const consent = needsConsent({ runs, yes: req.yes, args, pulled: left.pulled ? { what: `${id}'s accepted verdict`, left: left.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...left.argv, ...consent.yes], fixId: fix.fixId, title: ACTIONS.verifyThisRun.doing };
+  return { args: [...args, ...consent.yes], fixId: fix.fixId, title: ACTIONS.verifyThisRun.doing };
 }
 
 function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, configDir: string | null): JobBuildResult {
@@ -265,11 +309,49 @@ function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
     }
     expect = found.expect;
   }
-  const args = ['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])];
+  const settings = blameSettings(req, store, run);
+  if ('error' in settings) return settings;
+  const args = withBudget(['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : []), ...settings.args], req.budget);
+  if (!Array.isArray(args)) return args;
   if (capture) return { args: [...args, '--', ...own], runId: run.runId };
   const consent = importedCommand([run], req.yes, args);
   if ('ask' in consent) return consent.ask;
   return { args: [...args, ...consent.yes], runId: run.runId };
+}
+
+/** A request field as `blame --set` takes it (fix-flags.ts): a key, a dotted path, then `=` and the value. */
+const SET_FIELD = /^[A-Za-z_][\w.]*=[\s\S]*$/;
+
+/**
+ * Run blame's settings beside its check, as its dialog sends them, made into `blame` arguments and
+ * refused as the CLI refuses them, before anything runs: the agent to search (`scope`, one the run's
+ * model calls name), request fields set from each probed call on (`set`, each `key=value`), and
+ * another model to rescue with (`model`), never both that and a `model=` field.
+ */
+function blameSettings(req: JobRequest, store: StoreOf<'recording'>, run: RunRecord): { args: string[] } | { error: string } {
+  const args: string[] = [];
+  if (req.scope !== undefined && req.scope !== null) {
+    const scope = typeof req.scope === 'string' ? scopeArg(req.scope.trim()) : null;
+    if (!scope?.length) return { error: 'scope is the name of an agent the run’s calls were made in' };
+    const calls = store.getCalls(run.runId);
+    if (!blameSteps(calls, scope[1]).length) {
+      const scopes = [...new Set(calls.flatMap((c) => (c.kind === 'api' && typeof c.meta.scope === 'string' ? [c.meta.scope] : [])))];
+      return { error: `${run.runId.slice(0, 10)} made no model calls in scope ${scope[1]!} (${scopes.length ? `its scopes: ${scopes.join(', ')}` : 'it used no scopes'})` };
+    }
+    args.push(...scope);
+  }
+  const sets = req.set === undefined || req.set === null ? [] : Array.isArray(req.set) ? req.set : [req.set];
+  for (const s of sets) {
+    const spec = typeof s === 'string' ? s.trim() : '';
+    if (!SET_FIELD.test(spec) || HIDDEN_IN_NAME.test(spec) || spec.length > 2000) return { error: `--set expects <key>=<value>, such as temperature=1, got "${String(s).slice(0, 80)}"` };
+    args.push('--set', spec);
+  }
+  if (req.model !== undefined && req.model !== null) {
+    if (typeof req.model !== 'string' || !MODEL.test(req.model.trim())) return { error: 'name the model to blame with, such as claude-opus-5-5' };
+    if (args.some((a) => a.startsWith('model='))) return { error: '--model and --set model=… both set the model; use one' };
+    args.push('--model', req.model.trim());
+  }
+  return { args };
 }
 
 /** What a capture's import failed it on, as a check a blame takes (next-step.ts): the rules on calls it broke. */
@@ -293,6 +375,38 @@ function repairerChanged(req: JobRequest, configured: string | null): JobBuildRe
   return { error: `the repairer in shadowlap.config.json changed since this page loaded: now ${who}. Nothing ran: open Run repair again`, status: 409 };
 }
 
+/** A branch name as `repair --branch` takes one: no flag, no space, no `..` or `//`, nothing hidden; git's own rule refuses the rest in the CLI's words. */
+const BRANCH = /^(?!.*\.\.)(?!.*\/\/)(?!.*@\{)[A-Za-z0-9_][\w./-]{0,199}$/;
+
+/**
+ * Run repair's hand-over, as its dialog sends it: the accepted change committed to a branch of its
+ * own (`branch`, `repair --branch`, without checking it out), pushed and opened as a pull request
+ * with gh (`pr`, `--pr`), as the CLI does it. Refused before anything runs: a name `--branch` would
+ * misread, or `--pr` with no branch, in the CLI's words.
+ */
+function handOverArgs(req: JobRequest): { args: string[] } | { error: string } {
+  const branch = req.branch === undefined || req.branch === null ? null : typeof req.branch === 'string' ? req.branch.trim() : '';
+  if (branch !== null && (!BRANCH.test(branch) || /(?:\/|\.|\.lock)$/.test(branch) || /(?:^|\/)\./.test(branch))) return { error: 'name the branch to commit the fix to, such as fix/refund-limit' };
+  if (req.pr === true && branch === null) return { error: '--pr opens a pull request from the branch --branch <name> makes; give both' };
+  return { args: branch === null ? [] : ['--branch', branch, ...(req.pr === true ? ['--pr'] : [])] };
+}
+
+/** A pull request's address as `fix pr` records one: an http(s) link, at most 2048 characters. */
+const PR_URL = /^https?:\/\/\S+$/;
+
+/**
+ * Record pull request…: the pull request opened for a fix by hand, recorded on it as `shadowlap fix pr
+ * <fix> <url>` records it, open until gh reads it otherwise (pr-state.ts). Refused in the CLI's words
+ * before anything runs.
+ */
+function fixPrJob(req: JobRequest, store: StoreOf<'fixes'>): JobBuildResult {
+  const fix = findFix(store, req.fixId);
+  if (typeof req.url !== 'string' || !req.url.trim()) return { error: 'url is the pull request’s https:// link' };
+  const url = req.url.trim();
+  if (!PR_URL.test(url) || url.length > 2048 || HIDDEN_IN_NAME.test(url)) return { error: `${url.slice(0, 80)} is not a pull request's address: give its https:// link` };
+  return { args: ['fix', 'pr', fix.fixId, url], fixId: fix.fixId, title: ACTIONS.recordPullRequest.doing };
+}
+
 function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, repairer: string | null): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const configured = repairer?.trim() || null;
@@ -303,8 +417,11 @@ function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   if (!d.actions.repair) return { error: `none of the failing runs of ${short(fix.fixId)} is left in the store, so there is nothing to repair`, status: 409 };
   // It would blame every failing run, then find no one to propose a fix: nothing runs.
   if (d.repairer.problem) return { error: `${d.repairer.problem.replace(/\.$/, '')}. Nothing ran`, status: 409 };
+  const handOver = handOverArgs(req);
+  if ('error' in handOver) return handOver;
   // Every run the command will select, as the CLI selects it: a label can bring in an imported run.
-  const args = repairJobArgv(d.actions.repair.argv, configured);
+  const args = withBudget([...repairJobArgv(d.actions.repair.argv, configured), ...handOver.args], req.budget);
+  if (!Array.isArray(args)) return args;
   const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes, args);
   if ('ask' in consent) return consent.ask;
   return { args: [...args, ...consent.yes], fixId: fix.fixId };
@@ -433,6 +550,9 @@ export function register(router: Router, ctx: RouteContext): void {
   jobs.registerJobKind('apply', { title: () => ACTIONS.applyFix.doing, build: (req, b) => applyJob(req, b.store) });
   // Another check for an open fix: it changes the store alone, never the working tree, so it waits on no other job.
   jobs.registerJobKind('fix-check', { title: () => ACTIONS.editCheck.doing, build: (req, b) => fixCheckJob(req, b.store) });
-  // A verdict's more attempts (`verifyId`), or a verified fix's runs left (`left: true`, Verify this run).
-  jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => (req.left === true ? verifyLeftJob(req, b.store, b.project?.path ?? null) : verifyJob(req, b.store, verifyRule(ctx).keptMax)) });
+  // A pull request opened for a fix, recorded on it: the store alone, as a check is.
+  jobs.registerJobKind('fix-pr', { title: () => ACTIONS.recordPullRequest.doing, build: (req, b) => fixPrJob(req, b.store) });
+  // A verdict's more attempts (`verifyId`), a verified fix's runs left (`left: true`, Verify this run),
+  // or a change of your own on the fix's runs (`change: true`, Verify your change).
+  jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => (req.change === true ? verifyChangeJob(req, b.store) : req.left === true ? verifyLeftJob(req, b.store, b.project?.path ?? null) : verifyJob(req, b.store, verifyRule(ctx).keptMax)) });
 }

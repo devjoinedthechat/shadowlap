@@ -833,6 +833,9 @@ export function actionArgs(store: StoreOf<'recording'>, idOrPrefix: string, call
   // One that asks only for a yes to someone else's command takes it from the request (importedConsent).
   const v = action.imported === 'confirm' ? 'yes' : (value ?? '').trim();
   if (!v) return { error: `${action.prompt.label} is required` };
+  // What the CLI would refuse is refused here, in its words, before anything runs.
+  const refusedValue = action.imported === 'confirm' ? null : (action.prompt.check?.(v) ?? null);
+  if (refusedValue) return { error: refusedValue, status: 400 };
   const judged = judgedBy(key, o.expect);
   if ('error' in judged) return judged;
   // Its checks join the line before it is asked about: a yes is to the line that runs.

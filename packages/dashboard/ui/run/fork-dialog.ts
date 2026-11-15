@@ -213,6 +213,15 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     ...withCommand(forkLine(ctx.id, a.flag, false, '<model>')),
     cost: billed(liveFromPart(at)),
   }),
+  d: ({ a, ctx, at, p }) => ({
+    title: `Set request field from ${at}`,
+    lead: `Each request from ${at} on sets the field where its provider keeps it; the calls before it replay.`,
+    doc: 'switchModel',
+    label: 'Field (key=value)',
+    placeholder: p.placeholder ?? 'temperature=1',
+    ...withCommand(forkLine(ctx.id, a.flag, false, '<key>=<value>')),
+    cost: billed(liveFromPart(at)),
+  }),
   e: ({ a, ctx }) => ({
     title: ACTIONS.repeat.title,
     lead: typeof ctx.forkAt === 'number' ? `Runs this fork’s change five times from #${ctx.forkAt} and compares the paths they take.` : 'Runs this fork’s change five times and compares the paths they take.',

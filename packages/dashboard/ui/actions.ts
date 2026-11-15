@@ -125,6 +125,7 @@ export function forkMenu(actions: readonly ActionLike[], toolName?: string | nul
 const ROW_LINE: Readonly<Record<string, string>> = {
   i: 'Adds the instruction at this call, kept for every later request of the fork',
   m: 'From this call on, the new model answers live',
+  d: 'From this call on, each request sets the field you name, answered live',
   g: 'From this call on, the model sees your code’s system prompt and tools',
   f: 'Every attempt fails, so the SDK’s retry policy runs and then gives up',
   u: 'The agent gets this reply instead of the recorded one',

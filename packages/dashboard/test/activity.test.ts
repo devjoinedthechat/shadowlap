@@ -656,14 +656,23 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'blame.done', ref: 'fx-refund-limit', data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: null, opened: false }, at: 3010 });
     recordEvent(store, { kind: 'blame.done', ref: 'fx-budget', data: { outcome: 'stopped', callNo: null, confidence: 'low', title: 'refund over the limit', opened: false }, at: 3020 });
     recordEvent(store, { kind: 'blame.done', ref: 'fx-lost', data: { outcome: 'unrescuable', callNo: null, confidence: 'low', title: 'wrong ticket closed', opened: true }, at: 3030 });
-    recordEvent(store, { kind: 'repair.accepted', ref: 'fx-refund-limit', data: { repairId: 'r-munzln2i', outcome: 'accepted', fixes: ['fx-refund-limit'], title: 'Escalate refunds above the policy limit', verifyId: 'v-1', counts: ['fx-refund-limit'], candidates: 2 }, at: 3100 });
-    recordEvent(store, { kind: 'repair.empty', ref: 'fx-budget', data: { repairId: 'r-2', outcome: 'empty', fixes: ['fx-budget'], why: 'no candidate passed its replays', candidates: 3 }, at: 3110 });
-    recordEvent(store, { kind: 'verify.rejected', ref: 'fx-refund-limit', data: { verifyId: 'v-370712a', fixes: ['fx-refund-limit'], counts: [], code: 'c91d0f4', reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed (refund issued twice)'] }, at: 3200 });
-    recordEvent(store, { kind: 'verify.rejected', ref: 'fx-budget', data: { verifyId: 'v-2', fixes: ['fx-budget'], counts: [], code: 'c91d0f4', reasons: ['failing run 01K5CQ2E8M not fixed: 1 of 5 passed'] }, at: 3210 });
-    recordEvent(store, { kind: 'verify.incomplete', ref: 'fx-lost', data: { verifyId: 'v-3', fixes: ['fx-lost'], counts: [], code: 'c91d0f4', reasons: ['target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529'] }, at: 3220 });
+    // As `shadowlap repair` records them (recordRepairFix): the outcome its report ended on, and why for one that accepted nothing.
+    recordEvent(store, { kind: 'repair.accepted', ref: 'fx-refund-limit', data: { repairId: 'r-munzln2i', outcome: 'fixed', fixes: ['fx-refund-limit'], title: 'Escalate refunds above the policy limit', verifyId: 'v-1', counts: ['fx-refund-limit'], candidates: 2 }, at: 3100 });
+    recordEvent(store, { kind: 'repair.empty', ref: 'fx-budget', data: { repairId: 'r-2', outcome: 'not-fixed', fixes: ['fx-budget'], why: 'the gate accepted none of the 3 candidates tried', candidates: 3 }, at: 3110 });
+    recordEvent(store, { kind: 'repair.empty', ref: 'fx-budget', data: { repairId: 'r-3', outcome: 'stopped', fixes: ['fx-budget'], why: 'the budget of $0.50 is spent', candidates: 1 }, at: 3120 });
+    recordEvent(store, { kind: 'repair.empty', ref: 'fx-lost', data: { repairId: 'r-4', outcome: 'no-diagnosis', fixes: ['fx-lost'], why: 'no failing run could be blamed: the agent made no model calls', candidates: 0 }, at: 3130 });
+    recordEvent(store, { kind: 'repair.empty', ref: 'fx-lost', data: { repairId: 'r-5', outcome: 'not-fixed', fixes: ['fx-lost'], why: 'the repairer could not be asked: claude was not found', candidates: 0 }, at: 3140 });
+    recordEvent(store, { kind: 'verify.rejected', ref: 'fx-refund-limit', data: { verifyId: 'v-370712a', fixes: ['fx-refund-limit'], counts: ['fx-refund-limit'], code: 'c91d0f4', reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed (refund issued twice)'] }, at: 3200 });
+    recordEvent(store, { kind: 'verify.rejected', ref: 'fx-budget', data: { verifyId: 'v-2', fixes: ['fx-budget'], counts: ['fx-budget'], code: 'c91d0f4', reasons: ['failing run 01K5CQ2E8M not fixed: 1 of 5 passed'] }, at: 3210 });
+    recordEvent(store, { kind: 'verify.incomplete', ref: 'fx-lost', data: { verifyId: 'v-3', fixes: ['fx-lost'], counts: ['fx-lost'], code: 'c91d0f4', reasons: ['target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529'] }, at: 3220 });
+    // A verdict on a fix's runs that doesn't count for it (another check, say): verify names no fix it counts for.
+    recordEvent(store, { kind: 'verify.accepted', ref: 'fx-budget', data: { verifyId: 'v-6', fixes: ['fx-budget'], counts: [], code: 'c91d0f4', reasons: [] }, at: 3230 });
+    recordEvent(store, { kind: 'verify.rejected', ref: 'fx-budget', data: { verifyId: 'v-7', fixes: ['fx-budget'], counts: [], code: 'c91d0f4', reasons: ['failing run 01K5CQ2E8M not fixed: 0 of 5 passed'] }, at: 3240 });
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-refund-limit', data: { title: 'Escalate refunds above the policy limit', repairId: 'r-munzln2i', patch: 'applied', goldens: 1, tests: 'passed' }, at: 3300 });
     // A fix with no patch, verified with temperature=1: only marked applied.
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', repairId: null, patch: 'none', goldens: 0, tests: 'skipped' }, at: 3310 });
+    // Applied, and the goldens it copied failed their test: the fix stays applied, and doesn't hold.
+    recordEvent(store, { kind: 'fix.applied', ref: 'fx-budget', data: { title: 'Refund over the limit', repairId: 'r-6', patch: 'applied', goldens: 1, tests: 'failed' }, at: 3315 });
     recordEvent(store, { kind: 'fix.check', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', check: 'send_email called once', previous: 'send_email called at most twice' }, at: 3320 });
     // The tests slice: a session, one cut short, a golden updated.
     recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-1', data: { passed: 3, failed: 1, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0 }, at: 4000 });
@@ -707,13 +716,27 @@ describe('events as each feature records them', () => {
     expect(at(3020)?.text).toBe('Blame stopped · refund over the limit');
     expect(at(3030)?.text).toBe('Blamed · wrong ticket closed, not rescued from any model call');
     expect(at(3100)).toMatchObject({ kind: 'fixok', text: 'Repair accepted · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit/repair' });
-    expect(at(3110)).toMatchObject({ kind: 'fixbad', text: 'Repair found no fix · no candidate passed its replays' });
+    // Candidates tried and none accepted: red. Stopped, with no fix to try, or with no repairer asked
+    // (none tried): amber, in the words the job's drawer ends on, and nothing reads as a fix rejected.
+    const shown = (t: number) => [at(t)?.kind, at(t)?.outcome, at(t)?.text];
+    expect(shown(3110)).toEqual(['fixbad', undefined, 'Repair found no fix · the gate accepted none of the 3 candidates tried']);
+    expect(at(3110)?.href).toBe('#/fixes/fx-budget/repair');
+    expect(shown(3120)).toEqual(['fixinc', 'warn', 'Repair stopped · the budget of $0.50 is spent']);
+    expect(shown(3130)).toEqual(['fixinc', 'warn', 'Repair had no fix to try · no failing run could be blamed: the agent made no model calls']);
+    expect(shown(3140)).toEqual(['fixinc', 'warn', 'Repairer not asked · claude was not found']);
     expect(at(3200)).toMatchObject({ kind: 'fixbad', text: 'Verify rejected · breaks a good run', href: '#/fixes/fx-refund-limit/verify/v-370712a' });
+    expect(at(3200)?.outcome).toBeUndefined();
     expect(at(3210)?.text).toBe('Verify rejected · failing run 01K5CQ2E8M not fixed: 1 of 5 passed');
     // One that settled nothing says why, in the shape of an inconclusive fix.
     expect(at(3220)).toMatchObject({ kind: 'fixinc', outcome: 'warn', text: 'Verify inconclusive · target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529', href: '#/fixes/fx-lost/verify/v-3' });
+    // A verdict that counts for no fix it names is no verdict on it: plain, as its Verify step draws it, and said so.
+    expect(shown(3230)).toEqual(['fixok', 'plain', 'Verify accepted · fx-budget · doesn’t count for the fix']);
+    expect(shown(3240)).toEqual(['fixbad', 'plain', 'Verify rejected · failing run 01K5CQ2E8M not fixed: 0 of 5 passed · doesn’t count for the fix']);
     expect(at(3300)).toMatchObject({ kind: 'fixok', text: 'Patch applied · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit' });
+    expect(at(3300)?.outcome).toBeUndefined();
     expect(at(3310)).toMatchObject({ kind: 'fixok', text: 'Marked applied · Confirmation email sent twice', href: '#/fixes/fx-double-email' });
+    // Its goldens failed their test: red, in the drawer's words, as the fix that doesn't hold.
+    expect(shown(3315)).toEqual(['fixok', 'err', 'Patch applied · Refund over the limit · tests failed']);
     expect(at(3320)).toMatchObject({ kind: 'setting', text: 'Check changed · Confirmation email sent twice: send_email called once', href: '#/fixes/fx-double-email' });
     expect(at(4000)).toMatchObject({ kind: 'test', outcome: 'err', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });
     expect(at(4010)).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Tests stopped · 1 passed, 0 failed, 3 not run' });

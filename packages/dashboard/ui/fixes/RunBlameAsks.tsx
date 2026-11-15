@@ -1,13 +1,14 @@
 import { probesPart } from '../../../engine/src/cost-words.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import { AskNote } from '../components/AskNote.js';
 import type { CostLineProps } from '../components/CostLine.js';
-import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
+import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
 import { onShow } from '../components/OnShow.js';
 import { shortId } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import { guardedWayOn, useApp } from '../state.js';
+import type { BlameOffer } from '../types.js';
+import { BlameSettingsDialog } from './BlameSettings.js';
 import type { BlameAsking } from './RunBlame.js';
 
 /** The check a blame needs, asked for in a dialog the run page rarely opens: a part of its own (CheckDialog.tsx). */
@@ -20,9 +21,12 @@ const CheckDialog = onShow(() => import('./CheckDialog.js').then((m) => m.CheckD
  * Each starts the blame with `start`, which closes it or asks again, and the check's dialog shows
  * the server's refusal of the check it was given.
  */
-export function RunBlameAsks({ runId, asking, estimate, form, line, failed, start, onClose }: {
+export function RunBlameAsks({ runId, asking, estimate, form, line, failed, offer, scope, start, onClose }: {
   runId: string;
   asking: NonNullable<BlameAsking>;
+  /** The offer the button was given, which the settings start from; the agent the Agents bar picked. */
+  offer?: Pick<BlameOffer, 'from' | 'failed'> & Partial<Pick<BlameOffer, 'expect' | 'scopes' | 'temperature0'>>;
+  scope?: string | undefined;
   /** What it bills, for the dialogs' cost line. */
   estimate: Estimate | null | undefined;
   /** It asks for its command or its check, so its yes runs it whatever Spending says. */
@@ -54,19 +58,8 @@ export function RunBlameAsks({ runId, asking, estimate, form, line, failed, star
         />
       );
     case 'ask':
-      return (
-        <ConfirmDialog
-          title={title}
-          lead="Finds the model call that lost the run."
-          doc="blame"
-          command={line ?? `shadowlap blame ${shortId(runId)}`}
-          cost={cost}
-          footNote={<AskNote estimate={estimate} form={form} />}
-          ok={ACTIONS.runBlame.label}
-          onClose={onClose}
-          onOk={() => app.guard(() => void start({}))}
-        />
-      );
+      // The check it is judged by, to edit or empty, and its settings beside it: the agent, request fields, a model, Stop at $.
+      return <BlameSettingsDialog runId={runId} offer={offer ?? { from: 'exit', failed: [...failed] }} scope={scope} line={line} cost={cost} estimate={estimate} form={form} start={start} onClose={onClose} />;
     case 'check':
       return (
         <CheckDialog

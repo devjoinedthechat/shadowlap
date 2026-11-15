@@ -285,6 +285,9 @@ export function PromptPane({ run, action, width, height, onArgs, onNothing, onCa
         {...(prompt.placeholder !== undefined ? { placeholder: prompt.placeholder } : {})}
         active
         onSubmit={(value) => {
+          // What the CLI would refuse (a field that isn't key=value) is said here, and nothing runs.
+          const refused = value.trim() ? (prompt.check?.(value.trim()) ?? null) : null;
+          if (refused) return onNothing(refused);
           const args = value.trim() ? prompt.build(value.trim()) : [];
           if (args.length) onArgs(args);
           else onNothing(value.trim() ? notRun(run) : null);

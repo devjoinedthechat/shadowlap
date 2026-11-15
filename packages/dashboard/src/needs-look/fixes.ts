@@ -1,4 +1,4 @@
-import { fixLabelInfo, type FixRecords, fixRecords, lostWords, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { fixLabelInfo, type FixRecords, fixRecords, lostWords, shownBlame, unrescuedSaid, unsettledFirst } from '@shadowlap/engine';
 import { failedWords } from '../failed-words.js';
 import { fixActions } from '../fix-actions.js';
 import { fixCrash } from '../fix-crash.js';
@@ -106,7 +106,7 @@ export function openFixWords(rec: FixRecords): string {
     : b.outcome === 'blamed' && b.report.blamed
       ? lostWords(b.report.blamed.callNo, b.report.range, 'calls')
       : b.outcome === 'unrescuable'
-        ? unrescuedWords(unsettledFirst(b.report))
+        ? unrescuedSaid(b.report)
         : `blame stopped part way${b.report.blamed ? ` · rescued up to #${b.report.blamed.callNo} so far` : ''}`;
   if (noAnswerLost(b)) return `${where} · look at the tools, the harness or the command`;
   const change = changeWords(rec);

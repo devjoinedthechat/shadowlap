@@ -326,6 +326,9 @@ function blameCount(r: BlameReport, pulled = false): string[] | null {
   return countArgs(r.attemptsPerProbe, r.needed, pulled);
 }
 
+/** The fixed count a blame's next search probes by, from its arguments (`blameCount`'s), or null under a gate. */
+const countOf = (decide: readonly string[]): { attempts: number; needed: number } | null => (decide[0] === '--attempts' ? { attempts: Number(decide[1]), needed: Number(decide[3]) } : null);
+
 /**
  * Run blame again for a blame that found its call under a check the fix had before: the same search
  * under the fix's check, by the shown blame's gate or count, with no gate of its own to raise and no
@@ -333,8 +336,9 @@ function blameCount(r: BlameReport, pulled = false): string[] | null {
  */
 function oldCheckAgain(rec: FixRecords, b: StoredBlame): FixActions['blameAgain'] {
   const g = nextBlameGate(b, false);
-  const made = blameArgs(b, rec.fix.check.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report, !!b.pulled));
-  return made ? { kind: 'old-check', argv: made.argv, command: commandLine(made.argv), gate: null, lastGood: null, soFar: null, pulled: b.pulled ?? null, left: made.rerun.left, underCheck: true } : null;
+  const decide = g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report, !!b.pulled);
+  const made = blameArgs(b, rec.fix.check.expect, decide);
+  return made ? { kind: 'old-check', argv: made.argv, command: commandLine(made.argv), gate: null, count: countOf(decide ?? []), lastGood: null, soFar: null, pulled: b.pulled ?? null, left: made.rerun.left, underCheck: true } : null;
 }
 
 /**
@@ -359,12 +363,14 @@ export function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: Store
   const g = nextBlameGate(b, false);
   if (stopped || unsettled) {
     const gate = nextBlameGate(b, unsettled);
-    const made = blameArgs(b, rec.fix.check.expect, gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report, !!pulled));
+    const decide = gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report, !!pulled);
+    const made = blameArgs(b, rec.fix.check.expect, decide);
     if (!made) return none;
     // The last blame's bar beside the lower one, and how far a stopped search got: its ask says both.
+    // A fixed count has no bar to lower: it probes by the same count again, which its ask names.
     const lastGood = unsettled && gate ? (b.report.gate?.good ?? null) : null;
     const soFar = stopped ? (b.report.blamed?.callNo ?? null) : null;
-    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, lastGood, soFar, pulled, left: made.rerun.left, underCheck }, blameStronger: null };
+    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, count: countOf(decide ?? []), lastGood, soFar, pulled, left: made.rerun.left, underCheck }, blameStronger: null };
   }
   // A stronger model can't help when blame found the model's answer isn't what lost the run, nor one asked already.
   if (noAnswerLost(b) || b.report.rescue.fields.model !== undefined) return none;

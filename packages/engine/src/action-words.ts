@@ -32,6 +32,7 @@ export const ACTIONS = {
   // (run-actions.ts); Force <tool> live names its tool.
   injectInstruction: { label: 'Inject instruction…', doing: 'Forking' },
   switchModel: { label: 'Switch model from here…', doing: 'Forking' },
+  setRequestField: { label: 'Set request field from here…', doing: 'Forking' },
   useChangedPrompt: { label: 'Use changed prompt from here', doing: 'Forking' },
   failWithStatus: { label: 'Fail with HTTP status…', doing: 'Forking' },
   overrideResult: { label: 'Override result…', doing: 'Forking' },
@@ -59,6 +60,8 @@ export const ACTIONS = {
   // A verified fix's failing runs that no accepted verify checked, verified on the code as it is now.
   verifyThisRun: { label: 'Verify this run', doing: 'Verifying' },
   verifyTheseRuns: { label: 'Verify these runs', doing: 'Verifying' },
+  // A change made by hand, verified on a fix's failing runs, held-out runs and good runs, under its check.
+  verifyYourChange: { label: 'Verify your change', doing: 'Verifying your change' },
   applyFix: { label: 'Apply fix', doing: 'Applying fix' },
   // A migration's config change, put in the working tree as `shadowlap migrate apply` puts it.
   applyConfigChange: { label: 'Apply config change', doing: 'Applying config change' },
@@ -89,6 +92,8 @@ export const ACTIONS = {
   // A check changed in the check builder: a golden's its own recording fails (Tests, a run's page, Needs a
   // look), or an open fix's (`shadowlap fix check`), whose Save is the builder's confirm.
   editCheck: { label: 'Edit check…', confirm: 'Save check', doing: 'Changing check' },
+  // The pull request opened for a fix by hand, or by CI's fix on failure, recorded on it (`shadowlap fix pr <fix> <url>`).
+  recordPullRequest: { label: 'Record pull request…', confirm: 'Record pull request', doing: 'Recording pull request' },
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
   openCandidates: { label: 'Open candidates' },

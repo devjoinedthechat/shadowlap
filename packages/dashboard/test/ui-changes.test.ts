@@ -402,6 +402,10 @@ describe('Verdicts', () => {
       ['test session', 'b7e40c2', 'PR #127 merged'],
       ['test session', 'c91d0f4', 'PR #142'],
     ]);
+    // One CI named the page of is a link to it, apart from the dashboard; one it didn't stays words.
+    const link = table()[0].querySelector('td.vdc .rsub a')!;
+    expect([shown(link), link.getAttribute('href'), link.getAttribute('target')]).toEqual(['PR #127 merged', 'https://github.com/northwind/support-agent/pull/127', '_blank']);
+    expect(table()[1].querySelectorAll('td.vdc .rsub a')).toHaveLength(0);
     const flag = table()[0].querySelector('td.vdv .vdflag')!;
     expect([flag.textContent, flag.className, flag.getAttribute('tabindex'), flag.getAttribute('data-tip')]).toEqual(['merged while failing', 'rsub vdflag', '0', tipCard('merged while failing', [], 'PR #127 merged with 6 of 7 goldens passed at b7e40c2: the change shipped with this verdict')]);
     expect(table()[1].querySelectorAll('.vdflag')).toHaveLength(0);
@@ -558,6 +562,9 @@ describe('Verdicts', () => {
     // A session's pull request after its revision, where it stands once gh said; none without a number.
     expect(kindLine(session({ by: 'maya', pullRequest: { number: 142, url: null, state: 'open' } }))).toEqual([{ words: 'test session' }, { code: 'd2e8a1f' }, { words: 'PR #142 open' }, { words: 'maya' }]);
     expect(kindLine(session({ pullRequest: { number: 142, url: null, state: null } }))).toEqual([{ words: 'test session' }, { code: 'd2e8a1f' }, { words: 'PR #142' }]);
+    // Its page, where CI named one that is a web page, and nothing else.
+    expect(kindLine(session({ pullRequest: { number: 142, url: 'https://github.com/acme/agent/pull/142', state: 'open' } }))[2]).toEqual({ words: 'PR #142 open', href: 'https://github.com/acme/agent/pull/142' });
+    expect(kindLine(session({ pullRequest: { number: 142, url: 'javascript:alert(1)', state: 'open' } }))[2]).toEqual({ words: 'PR #142 open' });
     expect(kindLine(session({ pullRequest: { number: null, url: null, state: null } }))).toEqual([{ words: 'test session' }, { code: 'd2e8a1f' }]);
     expect(flagLine(session({ revision: null, line: '2 of 3 goldens passed', pullRequest: { number: 9, url: null, state: 'merged' }, flag: 'merged while inconclusive' }))).toBe('PR #9 merged with 2 of 3 goldens passed: the change shipped with this verdict');
     expect(verdictHref(session({ key: 'd2e8a1f+dirty' }))).toBe('#/changes/verdicts/d2e8a1f%2Bdirty');

@@ -122,9 +122,21 @@ export function leadingVerdict(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'de
 /** What Run blame again does for a blame found under the fix's old check, on its card and its ask. */
 export const UNDER_CHECK_AGAIN = 'Finds the call that lost the run under the fix’s check';
 
-/** Run blame again's card, on the fix's header and its Fixes row alike: under the fix's check first, for a blame found under its old one. */
-export const blameAgainTip = (again: { kind: 'stopped' | 'unsettled' | 'old-check'; gate: { good: number; max: number } | null; underCheck: boolean }): string =>
-  again.underCheck ? UNDER_CHECK_AGAIN : again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
+/** What a fixed count's blame again does: it has no bar to lower, so it probes by the same count once more. */
+export const sameCount = (count: { attempts: number }): string => `the same ${count.attempts} attempt${s(count.attempts)} a probe`;
+
+/**
+ * Run blame again's card, on the fix's header and its Fixes row alike: under the fix's check first,
+ * for a blame found under its old one; for one inconclusive under a gate, the gate it lowers to; under
+ * a fixed count, which has no bar to lower, the same count again.
+ */
+export const blameAgainTip = (again: { kind: 'stopped' | 'unsettled' | 'old-check'; gate: { good: number; max: number } | null; count: { attempts: number } | null; underCheck: boolean }): string => {
+  if (again.underCheck) return UNDER_CHECK_AGAIN;
+  if (again.kind === 'stopped') return 'Runs the search to the end, without the budget that stopped it';
+  if (again.gate) return `More attempts and a lower bar: a rescue at ${Math.round(again.gate.good * 100)}% or more, up to ${again.gate.max} attempts`;
+  const n = again.count?.attempts ?? 0;
+  return `The same search again, ${n} attempt${s(n)} a probe: its first probe stopped on an attempt that could not be judged`;
+};
 
 /** Run blame with stronger model's card. */
 export const STRONGER_TIP = 'Another model answers from each probed call instead of the recorded one';
@@ -155,12 +167,13 @@ export const headBlameNext = (f: Pick<FixDetail, 'status' | 'actions'>): ReturnT
  * ("is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up
  * to 160 a run: about 35 attempts, ≈$0.70.").
  */
-export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected' | 'cost' | 'budget'>): string {
+export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected' | 'cost' | 'budget'> & { keptBudget?: string | null }): string {
   if (m.kind === 'again') return ` stopped at attempt ${m.run.attempt ?? '?'}, which could not be judged${m.run.why ? `: ${m.run.why}` : ''}. Verify again once it can be.`;
   // Inconclusive, the page's one word for a run its attempts left open, with why when they stopped first.
   const why = ` is inconclusive${m.run.state !== 'inconclusive' && m.run.why ? `: ${m.run.why}` : ''}.`;
   const takes = `about\u00a0${m.expected} attempt${m.expected === 1 ? '' : 's'}${m.cost !== null ? `, ${approx(m.cost)}` : ''}`;
-  return `${why} Run more attempts verifies again from the start (verify has no --continue), up to ${m.max} a run${m.budget ? `, without its --budget ${m.budget}` : ''}: ${takes}.`;
+  const budget = m.budget ? `, without its --budget ${m.budget}` : m.keptBudget ? `, still stopping at its --budget ${m.keptBudget}` : '';
+  return `${why} Run more attempts verifies again from the start (verify has no --continue), up to ${m.max} a run${budget}: ${takes}.`;
 }
 
 /** What the page's main button does, if anything: repair an open fix, apply a verified one, finish an apply, or nothing. */
@@ -453,9 +466,9 @@ export function probeVerdictWords(verdict: BlameStep['probes'][number]['verdict'
 
 // ---------------------------------------------------------------------------------------------- repair
 
-/** A candidate's verdict as a status: accepted in lime, rejected and build failed in red, anything else muted (never red for what didn't fail). */
-export function candidateTone(v: CandidateVerdict): 'ok' | 'err' | 'mu' {
-  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'err' : 'mu';
+/** A candidate's verdict as a status: accepted in lime, rejected and build failed in red, inconclusive in amber as it is everywhere, anything else muted (never red for what didn't fail). */
+export function candidateTone(v: CandidateVerdict): 'ok' | 'err' | 'warn' | 'mu' {
+  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'err' : v === 'inconclusive' ? 'warn' : 'mu';
 }
 
 /**
@@ -593,9 +606,9 @@ export function bundledRuns(bundles: readonly FixBundle[]): Set<string> {
   return out;
 }
 
-/** An attempt's mark: none for a pass, amber for one that could not be judged (neither passed nor failed), red for a failure. */
-export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' | 'no' | undefined {
-  return a.passed ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
+/** An attempt's mark: none for a pass, or for one the provider was unavailable for (never counted); amber for one that could not be judged (neither passed nor failed), red for a failure. */
+export function attemptMark(a: { passed: boolean; verdict?: string; unavailable?: boolean }): 'unsure' | 'no' | undefined {
+  return a.passed || a.unavailable ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
 }
 
 /**
@@ -604,8 +617,10 @@ export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' 
  * verdict that doesn't count for the fix is no verdict on it, so its icon is a verify's, drawn plain
  * (`plain`), as its Verify step draws the verdict.
  */
-export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & { tone?: FixBundle['tone'] }): { kind: 'blame' | 'fixok' | 'fixbad' | 'warn'; label: string; plain?: true } {
+export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & { tone?: FixBundle['tone']; arm?: FixBundle['arm'] }): { kind: 'blame' | 'fixok' | 'fixbad' | 'warn'; label: string; plain?: true } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
+  // A good run's baseline, the code before the change, is no verdict of its own: plain, and named so.
+  if (b.arm === 'baseline') return { kind: 'fixok', label: 'Verify’s baseline: the code before the change', plain: true };
   if (b.counts === false) return { kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true };
   if (b.tone === 'ok') return { kind: 'fixok', label: 'Verify attempts: the run held' };
   if (b.tone === 'no') return { kind: 'fixbad', label: 'Verify attempts: the run failed' };
@@ -632,6 +647,16 @@ export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | '
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
   return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
+}
+
+/**
+ * A verify bundle's hover: the change it checked, how that came out in the word every page says a
+ * verdict in (inconclusive, never verify's incomplete), and "doesn't count" for a verdict that
+ * doesn't count for the fix. None for blame's attempts, or a verify's no report names.
+ */
+export function bundleHover(b: Pick<FixBundle, 'kind' | 'change' | 'verdict' | 'counts'>): string | undefined {
+  if (b.kind !== 'verify' || !b.change) return undefined;
+  return `${b.change}${b.verdict ? ` · ${verdictWord(b.verdict)}` : ''}${b.counts === false ? " · doesn't count" : ''}`;
 }
 
 /**
@@ -674,9 +699,34 @@ export function otherBlameWords(o: FixDetail['blames'][number]): string {
 // ---------------------------------------------------------------------------------------------- the job drawer
 
 /**
+ * Why a blame refused to search, by the reason its error gives (the CLI's BlameError), in a few words
+ * after "refused": the run passes when replayed, its replay isn't the recording's, and so on. A check
+ * no probe could decide is amber, as an inconclusive job is.
+ */
+const BLAME_REFUSED: Readonly<Record<string, { why: string; tone: 'warn' | 'err' }>> = {
+  passes: { why: 'passes when replayed', tone: 'err' },
+  diverged: { why: 'doesn’t replay as recorded', tone: 'err' },
+  bypassed: { why: 'replay went around shadowlap', tone: 'err' },
+  prefix: { why: 'replays aren’t clean', tone: 'err' },
+  'no-model-calls': { why: 'no model calls to probe', tone: 'err' },
+  unpriced: { why: 'no price for its model', tone: 'err' },
+  inconclusive: { why: 'a check can’t be decided', tone: 'warn' },
+};
+
+/** A blame that ended on an error (`outcome: 'error'`), as the drawer says it: stopped before it began, or refused, and why. */
+function blameErrorStatus(r: Record<string, unknown>, exit: string): { text: string; tone: 'warn' | 'err' } {
+  const reason = isObject(r.error) && typeof r.error.reason === 'string' ? r.error.reason : null;
+  if (reason === 'interrupted') return { text: `interrupted · ${exit}`, tone: 'warn' };
+  const refused = reason ? BLAME_REFUSED[reason] : undefined;
+  return refused ? { text: `refused · ${refused.why} · ${exit}`, tone: refused.tone } : { text: `refused · ${exit}`, tone: 'err' };
+}
+
+/**
  * How a blame, a repair or a fix apply ended, as the drawer's status says it, from the result the
  * command reported: "lost at #5 · exit 0" (or "lost between #7 and #9 · exit 0"), "no fix
- * found · exit 1", "applied · tests passed · exit 0".
+ * found · exit 1", "applied · tests passed · exit 0". A blame that found no call rescues the run is
+ * red, as the run page draws it, and one inconclusive at its first model call (exit 3) amber; one
+ * that refused to search says why ("refused · passes when replayed · exit 1").
  * A repair whose repairer was never asked (claude was not found, none is configured, it had nothing
  * to rewrite) and that tried nothing else looked for no fix: "repairer not asked", in amber. Null
  * for any other job, or a result this doesn't know, so the drawer reads the output instead.
@@ -694,9 +744,10 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
       // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): inconclusive, never "not rescued".
       const first = Array.isArray(r.probes) && isObject(r.probes[0]) ? r.probes[0] : null;
       const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
-      return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+      return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: unsettled ? 'warn' : 'err' };
     }
     if (r.outcome === 'stopped') return { text: `${blameStateWord('stopped', false)} · ${exit}`, tone: 'warn' };
+    if (r.outcome === 'error') return blameErrorStatus(r, exit);
     return null;
   }
   if (job.kind === 'repair') {

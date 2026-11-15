@@ -263,6 +263,8 @@ The rest is what commands record as they change the project or write something:
 - A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 - A preview's verify, by the preview's name and how its runs came out (*Verified · Model switch to claude-haiku-4-5: 1 fixed, 1 kept*), counted the same way where it rejected the change, or why it settled nothing. It opens the preview.
+- A fix's repairs, verdicts and applies, each opening the fix, a repair that tried candidates and accepted none in red. One that stopped, had no fix to try or asked no repairer is amber (*Repairer not asked · claude was not found*).
+- A verdict on a fix's runs that counts for none of them is plain, as its Verify step draws it, and says *doesn't count for the fix*. An applied fix whose goldens failed their test is red (*Patch applied · Refund over the limit · tests failed*).
 
 An entry no page shows is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview), and a migration on [Migrate](#migrate), as does *Config change applied*, which `migrate apply` records with the goldens it left to update. A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
 
@@ -535,7 +537,8 @@ What each step does:
 
 - **Run tests** runs the whole session, as Tests' header does, at its estimate. Its hover says the checks changed since this test, which the session judges as they stand, and its finding names the checks gone.
 - **Edit check…** opens the [check builder](#making-a-check) on the golden, at the check. The golden's own recording fails it, so either the check is wrong, or the golden needs an update because the agent should do this. An exported copy offers none.
-- **Open fix**: its hover names the fix, and the failure's finding says how the fix stands, *fix open* or *fix verified*, where it linked it.
+- **Open fix**: its hover names the fix, and the failure's finding says how the fix stands, where it linked it, as Fixes says it. It reads *fix open* (with what changed, if anything), *fix verified*, *fix applied* or *fix merged · PR #138*, and *fix broken* in red for an applied fix that doesn't hold.
+- **A good run of a fix**, one a repair or a verify of it kept, says so in its finding when nothing else is found, with **Fix →**.
 - **Run blame** isn't offered on a run that made no model call, or on one that was stopped: blame needs a run that fails again as recorded. On a capture, it asks for your command first.
 - **Compare with parent** leads for a fork, and for an attempt: a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result.
 - **Update golden**: a change it was made for reads as a changed system prompt, a tool's definition or the model, which go into every request.
@@ -807,7 +810,7 @@ The dashboard names the agents itself, so a run needs no `scope()` to show them.
 
 A handoff (`transfer_to_billing`) keeps the conversation and changes its agent: the calls after it are `billing`'s. The names are for reading only: replay matches calls by scope, never by them.
 
-The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line.
+The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line. Where the run can be blamed, **Run blame** follows the command and asks first, that scope picked.
 
 A judged run with no scopes says there instead that no count, budget or cost of the agent's includes the judge's calls. Blame and Preview never offer the judge's scope.
 
@@ -922,6 +925,8 @@ Attempts are bundled:
 - **A golden with a gate** says what the gate made of its attempts, as Tests does, with its verdict, tally and bound, and its rule once under them.
 - **A verified run** has an icon saying how it came out. A verdict that doesn't count for the fix says so, *doesn't count*, with a plain icon.
 - **Under a run several fixes share**, such as a good run every repair kept, each bundle names its fix.
+- **A good run's baseline**, the same run under the code before the change, is a bundle of its own beside the change's (*verify · baseline*), with a plain icon. It is counted apart and named so (*baseline · 2 of 3 passed · the code before the change at 35034be · accepted*), and its attempts' pages say so too.
+- **A probe's attempt the provider was unavailable for** sits in its probe's bundle, unmarked, its note saying it was retried and never counted.
 
 Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 passed · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
 
@@ -1099,7 +1104,7 @@ Verdicts lists every change checked, newest first, one row each. A change is one
 
 - **A test session** that ran every golden at a revision. Its row opens [the revision's page](#a-revisions-page).
 - **A preview or a migration**: what a change of model, prompt or tools decides differently. A preview's row opens it on [Preview](#preview), a migration's on [Migrate](#migrate).
-- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
+- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify, muted where it doesn't count for the fix, as that step draws it, with why under its verdict.
 
 Each row gives the change and how it was checked (*test session · d2e8a1f · PR #142 open*), what it was checked on (*7 goldens*), what moved (*2 goldens failed*, and *1 write changed* where its comment kept the decisions) and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
 
@@ -1386,7 +1391,17 @@ The header counts what the fixes came to: *1 fix verified · 2 open · 1 failing
 
 A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link that opens its issue on Runs › Failed, its good runs, and when it was opened, verified and applied. Where its status names no pull request, the line then gives the fix's source (*from CI · PR #138*, *PR #138 closed*). **Rename** ends it.
 
-Under the about line: what failed and its check, as the list says them. A check with a judge has the judge's card on the check, on the page and its Fixes row alike: what it asks, what it reads and the model, asked live in each attempt that exits 0.
+Each part of the line has a card where it holds more:
+
+- **Its name**: every label it groups runs by, where it has more than one.
+- **Its good runs**: each by id, which a change must keep passing.
+- **Left out by its check**: the runs a check given since judged otherwise, where there are any.
+- **Opened** and **applied**: who did each, where checks are shared (a [team store](./team.md)), as Changes names who made a change. Applied's card says how: with `fix apply` or `repair --apply`, its patch, the goldens it copied and their test.
+- **Spent**: what its blames, repairs and verifies ran live, and the repairer, in attempts, upstream requests and dollars.
+
+A pull request it names is a link to its page, here, on its Fixes row and in Changes › Verdicts.
+
+Under the about line: what failed and its check, as the list says them. A check with a judge has the judge's card on the check, on the page and its Fixes row alike: what it asks, what it reads and the model, asked live in each attempt that exits 0. A check changed since the fix opened says when (*changed Nov 3, 10:12*), its card listing each check it had and who gave it, where named.
 
 The check ends on the way to change it. On an open fix, **Edit check…** opens the [check builder](#making-a-check) on the fix's own check. A verified or applied fix keeps the check its verdict was given under, so it offers **Add check to *golden*…**, for the golden that guards it, or **Add check…** where none does. A verified fix no golden guards is usually one to apply first.
 
@@ -1411,7 +1426,7 @@ Its sections:
 - **The probes**, headed by the gate's rule, each row opening the run at its call, `j` and `k` walking them. One cell holds the tally, its bound and a bar of the interval against the gate's two marks. The verdict is a dot and a word.
 - **Every attempt** of a probe, under its row on request, grouped by what each did. A group shows the tool calls its attempts made from the probed call on and how they came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
 
-Each group of attempts shows how many took that path, why the first of a failing group failed, and one of them to open.
+Each group of attempts shows how many took that path, why the first of a failing group failed, and one of them to open. Of more than 200 attempts, the groups are of the first 200, and say so (*what the first 200 of 812 attempts did*).
 
 A blame with no probe says *No attempt ran:* and why, in the probes' place.
 
@@ -1445,6 +1460,8 @@ The Repair step opens on its verdict line:
 
 - **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
 - **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
+
+A fix repaired more than once says so beside when the shown one ran (*1 other repair*), its card listing each: when, how it ended and its change.
 
 A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the check, or change the prompt yourself and verify it.
 
@@ -1486,7 +1503,7 @@ A verdict made under a check the fix had before counts only while its check asks
 - **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled.
 - **Verify again**, for one stopped by an attempt that couldn't be judged.
 
-Run more attempts verifies its runs again from the start, named in their roles, since verify has no `--continue`. It doubles a failing run's attempts where its gate ran out of them. A good run keeps the pairs it ran under (`--kept-max`), doubled only where one ran out. It runs without the budget that stopped it.
+Run more attempts verifies its runs again from the start, named in their roles, since verify has no `--continue`. It doubles a failing run's attempts where its gate ran out of them. A good run keeps the pairs it ran under (`--kept-max`), doubled only where one ran out. It runs without the budget that stopped it, and keeps one that didn't.
 
 Both are built from the verdict's report and the flags kept beside it, never from its command line:
 
@@ -1498,6 +1515,12 @@ A line under the verdict says which run is open and why, and what settling it ta
 The verdict line says what it checked and its oracle under the headline. Its command is the box at the foot, with its own Copy. A verdict that counts and was rejected after the fix was applied also says, under its verdict line, *Rejected after the fix was applied: it no longer holds.*
 
 **Why it wasn't accepted.** A rejected verdict, or an inconclusive one the header can't settle, lists verify's reasons above its runs, in red, with a run it couldn't settle in amber.
+
+**Verify your change** checks a change you made by hand, the code in your working tree, on the fix's failing runs, the runs a repair held out and the good runs it keeps, under its check. It runs the command the step shows, `shadowlap verify --fixes … --holdout … --keeps … --expect …`. An unverified fix's Verify step offers it beside that command, and one with verdicts offers it small at its foot.
+
+The fix's header leads with it, lime, where it is the next step: after a repair whose gate rejected every candidate, with nothing left to settle, and where Run repair would end *No fix to try*. It is priced and goes by [Spending](#spending), and a run whose command came from someone else's pack asks first.
+
+**Stop at $.** The asks of Run blame again, Run blame with stronger model, Run repair, Run more attempts, Verify again, Verify this run and Verify your change each have the injection test's Stop at $. No attempt starts once that much is spent (`--budget`). It starts at the budget the step's command keeps, else empty, for none.
 
 Then come:
 
@@ -2275,6 +2298,8 @@ A job that bills nothing, such as a replay offline, starts at once on every sett
 | A recorded user input | **Override user reply…**, **Run live from here** |
 | The whole run | **Repeat 5 times** (`--repeat 5`), **Replay with writes stubbed**, **Run error-path presets…** (`--chaos`), **Run injection test…**, **Find breaking commit…** |
 
+A model call also offers **Set request field from here…**: it asks for `key=value`, such as `temperature=1`, and forks with `--set <n>:<key>=<value>`, refusing another shape in the CLI's words.
+
 The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
 - **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it goes by [Spending](#spending), asking in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
@@ -2338,6 +2363,16 @@ On the run's page, the run leaves the lists at once and the page goes to Runs, a
 When the run failed a check none of those give, or nothing says what a passing run must do, it asks for the check. The blame opens the run's fix, or joins one, and links to it.
 
 A capture has no command to run again, so **Run blame** asks for yours, which runs as `shadowlap blame <run> -- <command>`. A capture its import judged failed is blamed on the rules on calls it broke.
+
+**Its settings.** Where **Run blame** asks first, its dialog holds [blame's settings](./blame.md#the-rescue) beside the check, each in its command as you type:
+
+- **Judged by**: the check, as JSON, to edit, or empty for the exit code alone (`--expect`).
+- **Agent**: where the run's model calls name several, the one to search (`--scope`).
+- **Request fields**: `key=value` pairs set from each probed call on (`--set`).
+- **Rescue with model**: another model (`--model`).
+- **Stop at $**, as a fix's jobs have it on its [Verify step](#verify-step).
+
+A run whose first model call was recorded at temperature 0 always asks, with `temperature=1` to start from: a model asked again at temperature 0 answers the same. A setting blame would refuse is refused before anything runs, in the CLI's words.
 
 ### Making a check
 
@@ -2472,8 +2507,10 @@ Its drawer reads *Packing with injection gate*, prints the line it added, then t
 **Run repair**, on an open fix, runs [`shadowlap repair`](./repair.md):
 
 - **From** the fix's failing runs, its check and the scope its blame searched, so the repair blames the same calls and reuses that blame. A blame that stopped part way, whose rescued fork is gone, or that was found under the old check, it blames again first.
+- **Rescuing** as that blame did: the request fields it set (`--set`), and the model **Run blame with stronger model…** asked (`--stronger`), which the repair blames with where the recorded model rescues nothing. So it reuses both blames, and its dialog says so under **Rescues**.
 - **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
 - **With** the repairer `repair.repairer` in `shadowlap.config.json` names, or else your own Claude Code (`--repairer claude-code`).
+- **Handing over** the accepted change as a patch for you to apply, or, as the CLI hands one over, committed to the branch **Commit to branch** names, without checking it out (`--branch`). **Open it as a pull request with gh** then pushes it and opens it (`--pr`), and the fix records it.
 
 It asks first on every setting of [Spending](#spending), since it runs your agent live. Its card and Cost line say how many candidates it tries, each verified up to twice, and what that is estimated to cost. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
 
@@ -2492,12 +2529,14 @@ It asks first on every setting of [Spending](#spending), since it runs your agen
 
 The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
-- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), that stopped part way (to the end, without its budget), or that was found under an earlier check, under the fix's check.
+- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), that stopped part way (to the end, without its budget), or that was found under an earlier check, under the fix's check. A blame of a fixed count (`--attempts`) has no bar to lower: it probes by the same count again, which its card and its ask name.
 - **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run. Its Cost line follows the model you type.
 
-Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, or, for a search that stopped, the furthest call it had rescued the run at.
+Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, the count for a fixed count, or, for a search that stopped, the furthest call it had rescued the run at.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
+
+**Record pull request…**, on an applied fix no merged pull request holds, records the pull request you opened for it, as `shadowlap fix pr <fix> <url>` does. Fixes then reads where it stands with gh, as for one repair opened, and says *merged* once it is.
 
 **After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*, and its notice offers **Edit check…**, since what is left is to change the check or verify a change of your own. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
 
@@ -2690,6 +2729,13 @@ How a preview and its verify ended:
 - **A preview** is titled by its way (*Previewing model switch*). It ends *finished · exit 0*, or *inconclusive · exit 3* in amber where it settled nothing, with **Open preview**.
 - **Its verify** is titled by its runs (*Verifying 2 runs*, *Running more attempts*). It ends on the verdict the session answers: *accepted*, *rejected* in red or *inconclusive* in amber, with its exit code.
 - **A read of what your working tree sends**, for Preview changed prompt, ends *read · exit 0*.
+
+How a blame ended:
+
+- **It found the call**: *lost at #5 · exit 0*, or *lost between #7 and #9* where no one call is pinned, in lime.
+- **No call rescues the run**: *not rescued · exit 0*, in red, as the run's page says it.
+- **Its first probe couldn't tell**: *inconclusive · exit 3*, in amber. So is *stopped*, for a search cut short.
+- **It refused to search**: why, as *refused · passes when replayed · exit 1*. A run that doesn't replay as recorded, a replay that went around shadowlap, or a model with no price say so the same way, above the CLI's words on what to do.
 
 Closing and stopping:
 
@@ -3603,6 +3649,7 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `decisions-verify { sessionId, runId?, runIds?, max?, keptMax?, yes? }` | `decisions --verify`; for Run more attempts, a failing run's attempts raised to `max` and a good run's pairs to `keptMax` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
 | `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
+| `fix-pr { fixId, url }` | Record pull request…: [`fix pr`](./cli.md#fix-pr) with the pull request's link; a 400 for one that isn't one |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or a trace by its id, `{ format: "langfuse", traceId, host? }`, from `langfuse`, `langsmith`, `phoenix` or `logfire`, with `project?` too for `phoenix` |
 | `import { format, uploadIds }` | Several uploads at once, for `litellm` and `otel`, up to 20 |
@@ -3629,10 +3676,14 @@ It is read beside the server, since it counts every imported run, and revalidate
 | `test-update { goldens, normalize?, reason? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
 | `verify { fixId, left: true, yes? }` | Verify this run: the failing runs no accepted verdict checked |
+| `verify { fixId, change: true, yes? }` | Verify your change: the fix's failing, held-out and good runs, under its check |
 
 What some of them do:
 
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
+- **`branch`** and **`pr`**, on `repair`: Run repair's hand-over, run as `--branch` and `--pr`. A name `--branch` would misread, or `pr` without a branch, is a 400.
+- **`scope`**, **`set`** and **`model`**, on a run's `blame`: Run blame's settings, run as `--scope`, `--set` for each `key=value` and `--model`. One blame would refuse is a 400 in its words.
+- **`budget`**, on `blame`, `verify` and `repair`: Stop at $, an amount in dollars above 0, run as `--budget` in place of one the command kept, or null for none. Left out, the command runs as it was made; an amount that isn't one is a 400.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why, and lists them in `live`; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
 - **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead. With `normalize: true`, it is Add normalizer and update for several goldens: it adds each rule in their divergences' `newRules` once, then updates them all. When none of them diverged on a value that changes every run, it is refused (400).

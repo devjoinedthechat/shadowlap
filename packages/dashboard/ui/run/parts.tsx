@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
@@ -200,7 +200,7 @@ function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
  * its own (`scopes` empty); a judge's calls (`judge`, how many) follow the agents' after a hairline,
  * under a chip of their own, as the design draws them.
  */
-export function ScopeBar({ run, scopes, scope, judge, onScope }: { run: RunDetail; scopes: string[]; scope: string; judge: number; onScope: (s: string) => void }) {
+export function ScopeBar({ run, scopes, scope, judge, onScope, blame = null }: { run: RunDetail; scopes: string[]; scope: string; judge: number; onScope: (s: string) => void; /** Run blame within the agent the hint names, where the run can be blamed (RunBlame.tsx `scopeBlame`): the page hands it in, so a page that shows only the bar's parts loads none of it. */ blame?: ((scope: string) => ReactNode) | null }) {
   // Blame the agent, not the model that plays its user: the scope picked, else the one that acts.
   // Blame is scoped by the scopes the author gave, so a run with none gets no hint: a judged one says
   // what its judge's calls count towards.
@@ -225,6 +225,13 @@ export function ScopeBar({ run, scopes, scope, judge, onScope }: { run: RunDetai
       {hint ? (
         <span className="shint">
           {hint.lead}: <code>shadowlap blame {shortId(run.run.runId)} --scope {hint.scope}</code>
+          {/* Where the run can be blamed, a press runs it: its ask opens with that agent picked. */}
+          {blame ? (
+            <>
+              {' '}
+              {blame(hint.scope)}
+            </>
+          ) : null}
         </span>
       ) : judge ? (
         <span className="shint">A judge’s calls are the check’s: no count, budget or cost of the agent’s includes them</span>

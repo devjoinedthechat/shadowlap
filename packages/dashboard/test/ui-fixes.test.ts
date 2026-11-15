@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySteps, markLead, updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
-import { appliedButton, attemptMark, blameNextStep, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, keepAt, laterStamp, mergeTreeJobs, moreLine, otherBlameWords, outcomeTone, outdatedOf, parseCheck, patchFiles, patchLines, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleStatuses, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, attemptMark, blameNextStep, bundledRuns, bundleGlyph, bundleHover, bundleLine, bundleSource, callRowCells, candidateTone, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, keepAt, laterStamp, mergeTreeJobs, moreLine, otherBlameWords, outcomeTone, outdatedOf, parseCheck, patchFiles, patchLines, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleStatuses, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { breakPoints, cellKeepsWhole, inlineParts, parseMarkdown, plainCell } from '../ui/components/Markdown.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
@@ -11,7 +11,7 @@ import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '..
 const verify = (verifyId: string, verdict: VerifyStep['verdict'] = 'accepted'): VerifyStep =>
   ({ verifyId, verdict, href: `#/fixes/fx-1/verify/${verifyId}`, label: `x · ${verdict}` }) as VerifyStep;
 
-const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, ...o });
+const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, verifyChange: null, ...o });
 
 describe('the list', () => {
   it('keeps each fix under its own bucket’s chip, and every fix under All', () => {
@@ -360,7 +360,8 @@ describe('the Repair step’s candidates', () => {
   });
 
   it('gives candidates and roles their status words, never red for what didn’t fail', () => {
-    expect((['accepted', 'rejected', 'set aside', 'build failed', 'not tried', 'unsettled'] as const).map(candidateTone)).toEqual(['ok', 'err', 'mu', 'err', 'mu', 'mu']);
+    // One whose verification left it open is inconclusive, in amber, as an inconclusive verdict is everywhere.
+    expect((['accepted', 'rejected', 'set aside', 'build failed', 'not tried', 'inconclusive'] as const).map(candidateTone)).toEqual(['ok', 'err', 'mu', 'err', 'mu', 'warn']);
     expect(roleStatuses([{ role: 'target', held: 1, of: 1 }, { role: 'good', held: 0, of: 1 }])).toEqual([
       { text: 'target 1 of 1', tone: 'ok' },
       { text: 'good 0 of 1', tone: 'err' },
@@ -378,6 +379,8 @@ describe('the Verify step', () => {
     const run = { runId: '01M5JERYHZ', state: 'stopped' as const, why: 'the budget of $0.01 is spent', attempt: null };
     expect(moreLine({ kind: 'more', run, max: 80, expected: 12, cost: 0.045, budget: '0.012' })).toBe(' is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about\u00a012 attempts, ≈$0.045.');
     expect(moreLine({ kind: 'more', run: { ...run, state: 'inconclusive', why: null }, max: 160, expected: 35, cost: null, budget: null })).toBe(' is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up to 160 a run: about\u00a035 attempts.');
+    // A budget that didn't stop it is kept, and the line says so.
+    expect(moreLine({ kind: 'more', run: { ...run, state: 'inconclusive', why: null }, max: 160, expected: 35, cost: null, budget: null, keptBudget: '0.012' })).toBe(' is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up to 160 a run, still stopping at its --budget 0.012: about\u00a035 attempts.');
     expect(moreLine({ kind: 'again', run: { ...run, state: 'unjudged', why: 'no key for anthropic', attempt: 3 }, max: 80, expected: 3, cost: null, budget: null })).toBe(' stopped at attempt 3, which could not be judged: no key for anthropic. Verify again once it can be.');
   });
 
@@ -397,8 +400,8 @@ describe('the Verify step', () => {
   it('leads an open fix with its blame’s next step while blame placed the failure on no call', () => {
     const none = actions({});
     const gate = { kind: 'sprt' as const, good: 0.4, bad: 0.1, risk: 0.05, max: 40 };
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, lastGood: 0.6, soFar: null, pulled: null, left: [], underCheck: false } } })).toEqual({ kind: 'again', label: 'Run blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'stopped', argv: [], command: 'c', gate: null, lastGood: null, soFar: 3, pulled: null, left: [], underCheck: false } } })).toMatchObject({ kind: 'again', tip: 'Runs the search to the end, without the budget that stopped it' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, count: null, lastGood: 0.6, soFar: null, pulled: null, left: [], underCheck: false } } })).toEqual({ kind: 'again', label: 'Run blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'stopped', argv: [], command: 'c', gate: null, count: null, lastGood: null, soFar: 3, pulled: null, left: [], underCheck: false } } })).toMatchObject({ kind: 'again', tip: 'Runs the search to the end, without the budget that stopped it' });
     expect(blameNextStep({ status: 'open', actions: { ...none, blameStronger: { argv: [], command: 'c --model <model>', attempts: 4, spent: 0.002, pulled: null, left: [] } } })).toMatchObject({ kind: 'stronger', label: 'Run blame with stronger model…' });
     expect(blameNextStep({ status: 'open', actions: none })).toBeNull();
     expect(blameNextStep({ status: 'verified', actions: { ...none, blameStronger: { argv: [], command: 'c', attempts: 4, spent: 0, pulled: null, left: [] } } })).toBeNull();
@@ -416,6 +419,8 @@ describe('the Forks view’s bundles', () => {
 
   it('gives a verify the icon of how its run came out, inconclusive in amber, never a fork’s, and plain for one that doesn’t count for the fix', () => {
     expect(bundleGlyph({ kind: 'blame', verdict: null, counts: null }).kind).toBe('blame');
+    // A good run's baseline, the code before the change, decides nothing of its own: plain, and named so.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true, arm: 'baseline' })).toEqual({ kind: 'fixok', label: 'Verify’s baseline: the code before the change', plain: true });
     // A run the change fixed, under a verify that rejected it for another run: its own outcome.
     expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: true, tone: 'ok' })).toEqual({ kind: 'fixok', label: 'Verify attempts: the run held' });
     expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true, tone: 'no' }).kind).toBe('fixbad');
@@ -466,6 +471,12 @@ describe('the Forks view’s bundles', () => {
     expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 · accepted');
   });
 
+  it('names on a verify bundle’s hover the change and how it came out in a page’s word, never verify’s own', () => {
+    expect(bundleHover({ kind: 'verify', change: 'repair candidate 3', verdict: 'incomplete', counts: true })).toBe('repair candidate 3 · inconclusive');
+    expect(bundleHover({ kind: 'verify', change: 'working tree', verdict: 'accepted', counts: false })).toBe("working tree · accepted · doesn't count");
+    expect(bundleHover({ kind: 'blame', change: null, verdict: null, counts: null })).toBeUndefined();
+  });
+
   it('says a verdict that doesn’t count for the fix doesn’t, as the Verify step’s switch does, and keeps a revision with its “at”', () => {
     const money = (usd: number) => `≈$${usd.toFixed(3)}`;
     expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, spent: 0.057, change: 'dbcef5d', verdict: 'accepted', counts: false }), money)).toBe("1 attempt, 1 passed · ≈$0.057 · dbcef5d · accepted · doesn't count");
@@ -484,6 +495,8 @@ describe('the Forks view’s bundles', () => {
     expect([attempt('A', true), attempt('B', false), unsure].map(attemptMark)).toEqual([undefined, 'no', 'unsure']);
     // An attempt kept before attempts had a verdict reads as whether it passed.
     expect(attemptMark({ passed: false })).toBe('no');
+    // One the provider was unavailable for is no verdict at all: plain, and its note says it was never counted.
+    expect(attemptMark({ passed: false, verdict: 'inconclusive', unavailable: true })).toBeUndefined();
     expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree · inconclusive');
   });
 });
@@ -585,12 +598,14 @@ describe('the job drawer', () => {
     expect(otherBlameWords({ ...other, range: { from: 5, to: 7, gradual: true } })).toBe('lost gradually around #5 and #7');
     expect(otherBlameWords({ ...other, outcome: 'unrescuable', lostAt: null, unsettled: true })).toBe('inconclusive');
     expect(otherBlameWords({ ...other, outcome: 'stopped', lostAt: null })).toBe('stopped');
-    expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    // Its first probe couldn't tell, and nothing else was found: inconclusive, never "not rescued".
+    // No call rescues the run, a finding blame exits 0 on: red, as the run page's banner draws it.
+    expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'err' });
+    // Its first probe couldn't tell, and nothing else was found: inconclusive, never "not rescued", which
+    // blame exits 3 on, in amber as the run page and Activity draw it.
     const unsettled = { outcome: 'unrescuable', blamed: null, sameAnswer: null, failedWrite: null, probes: [{ callNo: 1, decision: 'inconclusive' }] };
-    expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'inconclusive · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 3, unsettled), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'err' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'err' });
     expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'warn' });
     expect(jobStatus(job('repair', 3, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 3', tone: 'warn' });
     expect(jobStatus(job('repair', 1, { outcome: 'no-diagnosis' }), [])).toEqual({ text: 'no fix to try · exit 1', tone: 'warn' });
@@ -621,6 +636,22 @@ describe('the job drawer', () => {
     expect(ask).toMatchObject({ title: 'Update 2 diverged goldens?', lead: 'Re-records the 2 goldens, for a change you meant.', ok: 'Update 2 goldens', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
     expect(ask.goldens[0]).toMatchObject({ name: 'refund-in-limit', where: '#1 ~ $.tools[4].description' });
     expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', ok: 'Update golden', fields: { golden: 'goldens/01M53A4MZS' } });
+  });
+
+  it('ends a blame that could not search on why, as its error says it', () => {
+    // As `shadowlap blame` reports one (fix-blame.ts), with the status blameErrorStatus gives it.
+    const refused = (reason: string, code: number) => jobStatus(job('blame', code, { runId: '01M5', outcome: 'error', error: { reason, message: '…' }, judge: null }), []);
+    expect(refused('passes', 1)).toEqual({ text: 'refused · passes when replayed · exit 1', tone: 'err' });
+    expect(refused('diverged', 1)).toEqual({ text: 'refused · doesn’t replay as recorded · exit 1', tone: 'err' });
+    expect(refused('bypassed', 1)).toEqual({ text: 'refused · replay went around shadowlap · exit 1', tone: 'err' });
+    expect(refused('prefix', 1)).toEqual({ text: 'refused · replays aren’t clean · exit 1', tone: 'err' });
+    expect(refused('no-model-calls', 2)).toEqual({ text: 'refused · no model calls to probe · exit 2', tone: 'err' });
+    expect(refused('unpriced', 2)).toEqual({ text: 'refused · no price for its model · exit 2', tone: 'err' });
+    // A check no probe could decide, and a stop, are amber, as every inconclusive or stopped job is.
+    expect(refused('inconclusive', 3)).toEqual({ text: 'refused · a check can’t be decided · exit 3', tone: 'warn' });
+    expect(refused('interrupted', 130)).toEqual({ text: 'interrupted · exit 130', tone: 'warn' });
+    // A reason this doesn't know reads as a refusal all the same.
+    expect(refused('elsewhere', 1)).toEqual({ text: 'refused · exit 1', tone: 'err' });
   });
 
   it('leaves other jobs, and a result it does not know, to the output', () => {

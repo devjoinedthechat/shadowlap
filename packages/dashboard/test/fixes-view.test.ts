@@ -167,16 +167,16 @@ describe('a capture its import judged failed', () => {
 });
 
 describe('the step a fix leads with', () => {
-  const actions = (o: Partial<FixActions> = {}): FixActions => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, ...o });
+  const actions = (o: Partial<FixActions> = {}): FixActions => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, verifyChange: null, ...o });
   const repair = { argv: ['repair'], command: 'shadowlap repair --fixes label:send_email', noFix: null, noFixWhy: null, candidates: 3, spent: false };
   const apply = { kind: 'patch' as const, argv: ['fix', 'apply', 'F'], command: 'shadowlap fix apply F', gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: null, change: null };
   const recOf = (fixId: string) => fixRecords(store, store.getFix(fixId)!);
 
   it('leads an open fix with blame again, blame with a stronger model, or Run repair, in that order', () => {
     const f = recOf(opened('send_email').fixId);
-    const again = { kind: 'stopped' as const, argv: ['blame'], command: 'shadowlap blame 01M3RZ0001', gate: null, lastGood: null, soFar: 9, pulled: null, left: [], underCheck: false };
+    const again = { kind: 'stopped' as const, argv: ['blame'], command: 'shadowlap blame 01M3RZ0001', gate: null, count: null, lastGood: null, soFar: 9, pulled: null, left: [], underCheck: false };
     const stronger = { argv: ['blame'], command: 'shadowlap blame 01M3RZ0001', attempts: 4, spent: 0.2, pulled: null, left: [] };
-    expect(fixLead(f, actions({ blameAgain: again, blameStronger: stronger, repair }), { repairer: null })).toEqual({ key: 'blame-again', label: 'Run blame again', command: again.command, use: 'reads', stopped: true, gate: null, soFar: 9, lastGood: null, underCheck: false });
+    expect(fixLead(f, actions({ blameAgain: again, blameStronger: stronger, repair }), { repairer: null })).toEqual({ key: 'blame-again', label: 'Run blame again', command: again.command, use: 'reads', stopped: true, gate: null, count: null, soFar: 9, lastGood: null, underCheck: false });
     expect(fixLead(f, actions({ blameStronger: stronger, repair }), { repairer: null })).toEqual({ key: 'blame-stronger', label: 'Run blame with stronger model…', command: stronger.command, use: 'reads' });
     expect(fixLead(f, actions({ repair }), { repairer: ' anthropic ' })).toEqual({ key: 'repair', label: 'Run repair', command: repair.command, use: 'writes', repairer: 'anthropic' });
     // A repair that would end "No fix to try" runs nothing, and with no repair at all there is no step: the row opens the fix.
@@ -209,7 +209,8 @@ describe('the step a fix leads with', () => {
       const { verdict } = recordVerdict(store, { report, expect: f.expect, command: `shadowlap verify --fixes label:${c.tool} --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null }, at: (at += DAY) });
       // What the fix's own Verify step offers for that verdict, and what its row leads with.
       const more = fixDetail(store, f.fixId)!.verify[0].more!;
-      const lead = { key: c.key, label: c.label, command: more.command, use: 'reads', verifyId: verdict.verifyId, max: 80, attempts: 5 };
+      // With the budget its ask keeps where the step keeps one (Stop at $).
+      const lead = { key: c.key, label: c.label, command: more.command, use: 'reads', verifyId: verdict.verifyId, max: 80, attempts: 5, keptBudget: more.keptBudget ?? null };
       expect(more.kind).toBe(c.key);
       expect(fixLead(recOf(f.fixId), actions({ repair }), { repairer: null })).toEqual(lead);
       expect(rowOf(f.fixId).next).toEqual(lead);
