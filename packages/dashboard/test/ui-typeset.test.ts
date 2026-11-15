@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { commandParts, type CmdPiece } from '../ui/cmdline.js';
 import { greedy, planCopy, tokens, type CopyMeasure } from '../ui/typeset-lines.js';
-import { codePieces, flatText, flatten, glue, inlineCodeCuts, isShortCopy, JOIN, joinOf, keptWords, pathPieces, sentenceRanges, sentences, unitsKept, type CopyPart, type Piece } from '../ui/typeset.js';
+import { fieldValue } from '@shadowlap/engine';
+import { codePieces, flatText, flatten, glue, inlineCodeCuts, isShortCopy, JOIN, joinOf, keptWords, longPieces, pathPieces, sentenceRanges, sentences, unitsKept, type CopyPart, type Piece } from '../ui/typeset.js';
 
 /**
  * The line-break rules (ui/typeset.ts) and copy set at a width (ui/typeset-lines.ts), the mock's
@@ -164,6 +165,24 @@ describe('copy set at a width', () => {
     expect(pathPieces('s3://northwind-agent-runs/support-agent')).toEqual(['s3://northwind-agent-runs/', 'support-agent']);
     // unmeasured, every such word is held
     expect(keptWords(flatText('Adds refund-in-limit and get_policy.result.limit'), null).map((w) => w.kind)).toEqual(['w', 'w']);
+  });
+
+  it('keeps a request field set to an object or a list whole where its line holds it, and else breaks it only after its = and its value’s commas', () => {
+    // As a verdict's change and a migration's note word it: the field, =, and the value as --set takes it.
+    const sent = `thinking=${fieldValue({ type: 'enabled', budget_tokens: 1024 })}`;
+    const set = `thinking=${fieldValue({ type: 'adaptive' })}`;
+    const words = (text: string) => keptWords(flatText(text), null).map((w) => [text.slice(w.from, w.to), w.kind]);
+    expect(words(`the requests send ${sent}. Remove budget_tokens`)).toEqual([[`${sent}.`, 'long']]);
+    expect(words(`model=claude-haiku-5-5, ${set} from each run's first claude-sonnet-5-5 call`)).toEqual([
+      ['model=claude-haiku-5-5,', 'w'],
+      [set, 'long'],
+      ['claude-sonnet-5-5', 'w'],
+    ]);
+    expect(longPieces(`${sent}.`)).toEqual(['thinking=', '{"type":"enabled",', '"budget_tokens":1024}.']);
+    expect(longPieces(set)).toEqual(['thinking=', '{"type":"adaptive"}']);
+    // a field set to a plain value is a word as any other, and a dotted one breaks after its dots as before
+    expect(words('temperature=1 from each run')).toEqual([]);
+    expect(longPieces('thinking.budget_tokens=4096')).toEqual(['thinking.', 'budget_tokens=4096']);
   });
 
   it('balances no block, nor sentence, whose every word is kept whole: it wraps pretty, outranking a stylesheet’s balance', () => {
