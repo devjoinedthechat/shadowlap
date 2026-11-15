@@ -31,6 +31,9 @@ const shownParts = (page: Page) =>
  */
 async function expectGivenWay(page: Page): Promise<string[]> {
   const bar = page.locator('footer.status');
+  // Read once its facts are in, the store's path and the runs counted: before, it fits their placeholders, "store …" among them.
+  await expect(bar.locator('.st-store code')).toHaveCount(1);
+  await expect(bar.locator('> span.st-runs:not(.sep)')).not.toContainText('…');
   expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   const shown = await shownParts(page);
   expect(shown).toContain('st-runs');
@@ -48,16 +51,18 @@ test('on a laptop the sidebar holds the project, the pages, Recent runs and Sett
   await expect(pages.getByRole('link')).toHaveText([/^Overview/, /^Runs\s*\d/, /^Changes/, /^Fixes/, /^Tests/, /^Training/]);
   expect(await pages.locator('hr').evaluate((hr) => [hr.previousElementSibling?.textContent, hr.nextElementSibling?.textContent])).toEqual([expect.stringMatching(/^Tests/), expect.stringMatching(/^Training/)]);
   await expect(page.getByRole('navigation', { name: 'Project settings' }).getByRole('link')).toHaveText(['Settings']);
-  // Recent runs: two lines a run, 52px tall, and eight of them whole at 1440×900, the search being in the top bar.
-  const rows = await page.locator('#side .runs a.run').evaluateAll((els) => {
-    const box = document.querySelector('#side .runs')!.getBoundingClientRect();
-    const whole = els.filter((el) => {
-      const r = el.getBoundingClientRect();
-      return r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+  // Recent runs: two lines a run, 52px tall, and eight of them whole at 1440×900, the search being in the top bar. Read
+  // until the list has come: the sidebar asks for it apart from the Overview, and may draw it after the page.
+  const rows = () =>
+    page.locator('#side .runs a.run').evaluateAll((els) => {
+      const box = document.querySelector('#side .runs')!.getBoundingClientRect();
+      const whole = els.filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+      });
+      return { heights: [...new Set(whole.map((el) => Math.round(el.getBoundingClientRect().height)))], whole: whole.length };
     });
-    return { heights: [...new Set(whole.map((el) => Math.round(el.getBoundingClientRect().height)))], whole: whole.length };
-  });
-  expect(rows).toEqual({ heights: [52], whole: 8 });
+  await expect.poll(rows).toEqual({ heights: [52], whole: 8 });
   // Search sits in the top bar, 248px wide, saying its key; the sidebar's top is the project alone.
   const search = page.locator('.top .search.sbtn');
   expect((await search.boundingBox())!.width).toBe(248);
@@ -223,6 +228,8 @@ test.describe('on a touch screen', () => {
 
 test('offline, the status bar says so, and the palette says it once under its field, a job’s row kept with its hint and paused', async ({ page }) => {
   await openPage(page, '/', 'overview');
+  // Offline once the server has said what it runs, the store's path in the status bar with it: a job's row needs its kind.
+  await expect(page.locator('footer.status .st-store code')).toHaveCount(1);
   await page.route('**/api/**', (route) => route.abort());
   await page.waitForSelector('.connbar', { state: 'visible', timeout: 30_000 });
   await expect(page.locator('footer.status .st-sync')).toHaveText('offline');
