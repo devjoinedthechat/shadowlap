@@ -138,9 +138,9 @@ addPaletteSource(({ app, go }) =>
         {
           group: 'Actions',
           label: ACTIONS.importCapture.label,
-          // The dialog's sources, short enough to show whole on a desktop's row; the file formats match unseen.
+          // The dialog's sources, short enough to show whole on a desktop's row; the file formats, and a pack to unpack, match unseen.
           hint: 'a file, or a Langfuse, LangSmith, Phoenix or Logfire trace',
-          match: 'HAR nock VCR LiteLLM OpenTelemetry OTLP',
+          match: 'HAR nock VCR LiteLLM OpenTelemetry OTLP unpack',
           job: true,
           run: () =>
             app.guard(() => {
