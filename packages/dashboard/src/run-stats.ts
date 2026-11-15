@@ -82,13 +82,18 @@ export interface StatsOptions {
 
 /**
  * Bumped whenever `CallTotals` changes shape or meaning: totals kept under another format are worked
- * out again. t4: a recording pulled from the team store spends (`l`) rather than captures (`c`). t5:
- * tokens are split by band of the prompt's length (`breaks`).
+ * out again. t4: a recording pulled from the team store spends (`l`) rather than captures (`c`).
+ * Totals kept before tokens were split by the prompt's length (no `breaks`, a model's row without
+ * `over`) read as split at no break: what they say of a run stands, and a price that changes card
+ * has them worked out again (`splitAt`).
  */
-const FORMAT = 't5';
+const FORMAT = 't4';
 
 /** Whether totals price as exactly as totals split at `want` would: they hold no tokens, or every break wanted is among theirs. */
 const splitAt = (t: CallTotals, want: readonly number[]) => !t.models.length || want.every((b) => t.breaks.includes(b));
+
+/** The breaks a read wants its totals split at: the prices', or none for a read that prices nothing (the strip, what a user asked). */
+const wantedBreaks = (o: { prices?: Record<string, Price> | undefined; unpriced?: true }): number[] => (o.unpriced ? [] : priceBreaks(o.prices));
 
 /**
  * How far back the warm-up works out the prompt cache too: the Overview's week starts at most seven
@@ -219,7 +224,10 @@ function readTotals(json: unknown): CallTotals | null {
   try {
     const t = JSON.parse(json) as Partial<CallTotals>;
     if (typeof t.codes !== 'string' || !Array.isArray(t.models)) return null;
-    const models = t.models.filter((m) => Array.isArray(m) && m.length === 7 && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'));
+    const models = (t.models as unknown[])
+      .filter((m): m is unknown[] => Array.isArray(m) && (m.length === 6 || m.length === 7) && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'))
+      // A model's row kept before `over` was (six fields) is in the band of no break.
+      .map((m) => (m.length === 6 ? [...m, 0] : m) as CallTotals['models'][number]);
     const breaks = Array.isArray(t.breaks) ? t.breaks.filter((b): b is number => typeof b === 'number') : [];
     const out: CallTotals = { codes: t.codes, models, breaks, notWaitedMs: n(t.notWaitedMs) };
     // Absent: not worked out yet. Null: the run asked nothing.
@@ -252,9 +260,9 @@ function readTotals(json: unknown): CallTotals | null {
  * where another thread (the warm-up's) may have kept them whole: remembered so, after the run's page
  * worked out its totals, the Overview read a run of 100,000 calls whole for its cache, 31 to 63 s.
  */
-function knownTotals(store: StoreOf<'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { cache?: (r: IndexedRun) => boolean; prices?: Record<string, Price> | undefined } = {}): { out: Map<string, CallTotals>; unknown: IndexedRun[] } {
+function knownTotals(store: StoreOf<'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { cache?: (r: IndexedRun) => boolean; prices?: Record<string, Price> | undefined; unpriced?: true } = {}): { out: Map<string, CallTotals>; unknown: IndexedRun[] } {
   const k = keptFor(store);
-  const want = priceBreaks(o.prices);
+  const want = wantedBreaks(o);
   const out = new Map<string, CallTotals>();
   const unknown: IndexedRun[] = [];
   // Remembered without the cache it is asked for: what the store keeps is read, in case it has it.
@@ -314,7 +322,7 @@ export function totalsKnown(store: StoreOf<'readModels'>, index: RunIndex, runs:
  * The totals of `runs`: from memory, from the store, or worked out from their calls (and then kept,
  * for a finished run). With `prices`, split at their breaks too, so they price them exactly.
  */
-export function callTotals(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean } & StatsOptions = {}): Map<string, CallTotals> {
+export function callTotals(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean; unpriced?: true } & StatsOptions = {}): Map<string, CallTotals> {
   return callTotalsWithin(store, index, runs, o).totals;
 }
 
@@ -325,7 +333,7 @@ export function callTotals(store: StoreOf<'recording' | 'readModels'>, index: Ru
  * and a recording's coming once it ends. Runs are worked out in the order given, each that would go
  * past what is left of the budget left out.
  */
-export function callTotalsWithin(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean } & StatsOptions = {}): { totals: Map<string, CallTotals>; later: IndexedRun[] } {
+export function callTotalsWithin(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean; unpriced?: true } & StatsOptions = {}): { totals: Map<string, CallTotals>; later: IndexedRun[] } {
   const k = keptFor(store);
   const { out, unknown } = knownTotals(store, index, runs, o);
   let room = o.budget ?? Infinity;
@@ -438,7 +446,7 @@ export function asksOf(store: Store, index: RunIndex, runs: readonly IndexedRun[
   }
   if (!todo.length) return out;
   // What an earlier build kept with the totals is moved to `run_asks`; with `known`, only from memory or the store.
-  const totals = o.known || o.analysed ? knownTotals(store, index, todo).out : callTotals(store, index, todo);
+  const totals = o.known || o.analysed ? knownTotals(store, index, todo, { unpriced: true }).out : callTotals(store, index, todo, { unpriced: true });
   const keep: Array<{ runId: string; key: string; ask: string | null }> = [];
   for (const r of todo) {
     let ask = totals.get(r.runId)?.ask;
@@ -722,7 +730,7 @@ export function knownSpent(store: StoreOf<'readModels'>, index: RunIndex, runs: 
 /** Every call's origin, one character per call in call order, for each run asked for. */
 export function originStrings(store: StoreOf<'recording' | 'readModels'>, index: RunIndex, runs: readonly IndexedRun[]): Map<string, string> {
   const out = new Map<string, string>();
-  for (const [runId, t] of callTotals(store, index, runs)) out.set(runId, t.codes);
+  for (const [runId, t] of callTotals(store, index, runs, { unpriced: true })) out.set(runId, t.codes);
   return out;
 }
 

@@ -182,6 +182,19 @@ describe('run statistics', () => {
     expect(JSON.parse(store.query('SELECT stats FROM run_stats WHERE run_id = ?', rec)[0].stats as string).breaks).toEqual([50_000, 100_000]);
   });
 
+  it('reads totals kept before they were split by the prompt\'s length as split at none: the strip as kept, a price worked out again', () => {
+    const rec = addRun(store, { startedAt: NOW, calls: [{ code: 'l', model: 'claude-haiku-5-5', usage: { inputTokens: 60_000, outputTokens: 10 } }, { code: 'l', model: 'claude-haiku-5-5', usage: { inputTokens: 60_000, outputTokens: 10 } }] });
+    const index = loadRunIndex(store);
+    const run = index.byId.get(rec)!;
+    // As an earlier build kept them: a model's row of six fields, its tokens summed whole, and no breaks.
+    store.saveRunStats([{ runId: rec, key: `t4|${run.status}|${run.endedAt}|${run.calls}`, stats: JSON.stringify({ codes: 'xx', models: [['l', 'claude-haiku-5-5', 120_000, 20, 0, 0]], notWaitedMs: 0 }) }]);
+    expect(originStrings(store, index, [run]).get(rec)).toBe('xx');
+    expect(runsRead(store)).toBe(0);
+    // Priced, they are worked out again: each call on the short card, not their sum on the long one.
+    expect(runStats(store, index, [run]).get(rec)!.spent).toBeCloseTo((120_000 * 0.1 + 20 * 0.5) / 1e6, 12);
+    expect(runsRead(store)).toBe(1);
+  });
+
   it('reads what runs spent, as the table sorts by it: live, or what a run recorded elsewhere cost there', () => {
     const rec = addRun(store, { startedAt: NOW - DAY, calls: 'llllbl' });
     const fork = addRun(store, { parent: rec, startedAt: NOW, divergence: 3, calls: 'rrll' });
