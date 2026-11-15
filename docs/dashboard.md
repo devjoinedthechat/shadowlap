@@ -263,7 +263,7 @@ The rest is what commands record as they change the project or write something:
 - A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 - A preview's verify, by the preview's name and how its runs came out (*Verified · Model switch to claude-haiku-4-5: 1 fixed, 1 kept*), counted the same way where it rejected the change, or why it settled nothing. It opens the preview.
-- A fix's repairs, verdicts and applies, each opening the fix. A repair that tried candidates and accepted none is red. One that stopped, had no fix to try or asked no repairer is amber (*Repairer not asked · claude was not found*).
+- A fix's repairs, verdicts and applies, each opening the fix, a repair that tried candidates and accepted none in red. One that stopped, had no fix to try or asked no repairer is amber (*Repairer not asked · claude was not found*).
 - A verdict on a fix's runs that counts for none of them is plain, as its Verify step draws it, and says *doesn't count for the fix*. An applied fix whose goldens failed their test is red (*Patch applied · Refund over the limit · tests failed*).
 
 An entry no page shows is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview), and a migration on [Migrate](#migrate), as does *Config change applied*, which `migrate apply` records with the goldens it left to update. A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
@@ -1074,7 +1074,7 @@ Verdicts lists every change checked, newest first, one row each. A change is one
 
 - **A test session** that ran every golden at a revision. Its row opens [the revision's page](#a-revisions-page).
 - **A preview or a migration**: what a change of model, prompt or tools decides differently. A preview's row opens it on [Preview](#preview), a migration's on [Migrate](#migrate).
-- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify. One that doesn't count for the fix is muted, as its Verify step draws it, and says why under its verdict.
+- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify, muted where it doesn't count for the fix, as that step draws it, with why under its verdict.
 
 Each row gives the change and how it was checked (*test session · d2e8a1f · PR #142 open*), what it was checked on (*7 goldens*), what moved (*2 goldens failed*, and *1 write changed* where its comment kept the decisions) and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
 
@@ -2460,7 +2460,7 @@ Its drawer reads *Packing with injection gate*, prints the line it added, then t
 - **Rescuing** as that blame did: the request fields it set (`--set`), and the model **Run blame with stronger model…** asked (`--stronger`), which the repair blames with where the recorded model rescues nothing. So it reuses both blames, and its dialog says so under **Rescues**.
 - **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
 - **With** the repairer `repair.repairer` in `shadowlap.config.json` names, or else your own Claude Code (`--repairer claude-code`).
-- **Handing over** the accepted change as a patch for you to apply, or as the CLI hands one over. **Commit to branch** commits it to a branch of that name without checking it out (`--branch`). **Open it as a pull request with gh** then pushes it and opens it (`--pr`), and the fix records it.
+- **Handing over** the accepted change as a patch for you to apply, or, as the CLI hands one over, committed to the branch **Commit to branch** names, without checking it out (`--branch`). **Open it as a pull request with gh** then pushes it and opens it (`--pr`), and the fix records it.
 
 It asks first on every setting of [Spending](#spending), since it runs your agent live. Its card and Cost line say how many candidates it tries, each verified up to twice, and what that is estimated to cost. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
 
@@ -3608,7 +3608,7 @@ What some of them do:
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
 - **`branch`** and **`pr`**, on `repair`: Run repair's hand-over, run as `--branch` and `--pr`. A name `--branch` would misread, or `pr` without a branch, is a 400.
 - **`scope`**, **`set`** and **`model`**, on a run's `blame`: Run blame's settings, run as `--scope`, `--set` for each `key=value` and `--model`. One blame would refuse is a 400 in its words.
-- **`budget`**, on `blame`, `verify` and `repair`: Stop at $, an amount in dollars above 0, run as `--budget` in place of one the command kept, or null for none. Left out, the command runs as it was made. An amount that isn't one is a 400.
+- **`budget`**, on `blame`, `verify` and `repair`: Stop at $, an amount in dollars above 0, run as `--budget` in place of one the command kept, or null for none. Left out, the command runs as it was made; an amount that isn't one is a 400.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why, and lists them in `live`; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
 - **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead. With `normalize: true`, it is Add normalizer and update for several goldens: it adds each rule in their divergences' `newRules` once, then updates them all. When none of them diverged on a value that changes every run, it is refused (400).
