@@ -8,6 +8,9 @@ table.vdt td.vdv .rsub, table.vdt td.vdc .rsub { white-space: normal; }
 table.vdt td.vdm { color: var(--dim); white-space: normal; }
 table.vdt td.vdm .sep { color: var(--faint); }
 table.vdt td.vdw { white-space: nowrap; color: var(--dim); }
+/* a change's link is a 24px target (WCAG 2.5.8), as its kind line can hold a pull request's link just under it: inline, its
+   padding takes no room, so the row's lines sit as they did, and it stops short of that link */
+table.vdt td.vdc a.rowa { padding: 4px 0; }
 table.vdg td:first-child { white-space: nowrap; width: 1%; padding-right: 24px; }
 table.vdg td:first-child code { white-space: nowrap; }
 table.vdg .rsub { white-space: normal; }
