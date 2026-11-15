@@ -386,9 +386,14 @@ describe('read models at scale', () => {
   it('finds the runs a word every run recorded is in, and the tools each run called, each in less than a plain read of every call', () => {
     const plain = plainRead();
     // The search index as it holds what tool calls were given, a document a call: a word in every run, in half its calls.
+    // Written as the dashboard's indexer adds a run it has not indexed (search.ts): replacing a run's
+    // documents first looks for any it had, a scan of every document so far, run after run.
     const store = Store.open(path);
     try {
-      for (const [runId, n] of lengths) store.replaceSearchDocs(runId, n, 'completed', Array.from({ length: Math.floor(n / 2) }, (_, i) => ({ callNo: 2 * i + 2, field: 'input', text: `lookup_order {"order":"A-${1000 + i}","why":"refund check"}` })));
+      for (const [runId, n] of lengths) {
+        const docs = Array.from({ length: Math.floor(n / 2) }, (_, i) => ({ callNo: 2 * i + 2, field: 'input', text: `lookup_order {"order":"A-${1000 + i}","why":"refund check"}` }));
+        expect(store.addSearchDocs(runId, { expected: null, next: { calls: n, status: 'completed', progress: null }, docs })).toBe(true);
+      }
     } finally {
       store.close();
     }
