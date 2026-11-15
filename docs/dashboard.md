@@ -3392,7 +3392,7 @@ The whole answer also adds `code`, the code card: the `commits` between the two 
 **The Tests screen** (`/api/tests`) holds:
 
 - the goldens on disk;
-- the verdict of their last results, with the line of the newest session that ran them all (`session`, with `live` while its process runs), and what ran since on its own (`since`);
+- the verdict of their last results, with the line of the newest session that ran them all (`session`, with `live` while its process runs, and its `actor` only where names show), and what ran since on its own (`since`);
 - inconclusive goldens counted apart (`inconclusive`);
 - each golden's history by revision: each cell's `verdict`, its pass `rate` as passes of attempts, the `bound` its gate put on that rate, and `dropped` where a [gate](./gating.md) against history found a drop, with what it compared (`drop`). A cell has `updated` where `test --update` re-recorded it, with its `reason` where one was kept;
 - each revision's commit as git has it (`revisionFacts`): its `subject`, and its author (`by`) only where names show;

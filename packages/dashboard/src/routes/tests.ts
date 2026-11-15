@@ -282,7 +282,7 @@ export function register(router: Router, ctx: RouteContext): void {
   };
 
   router.get('/tests', async (r) => {
-    const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
+    const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers(), shared: namesTeamStore(ctx.project?.path) }), ctx.project?.path);
     const { tests } = nextStepWork(ctx);
     // A gate's card shows its entry as the config holds it, read as the check builder reads it.
     const written = (gated: readonly string[]) => (ctx.project ? writtenEntries(ctx.project.path, gated) : new Map<string, unknown>());

@@ -125,6 +125,17 @@ afterAll(async () => {
 });
 
 describe('GET /api/tests', () => {
+  it('says who ran the session its verdict names only where names show, a team store set in the project', async () => {
+    expect((await getJson<TestsView>(dash, 'tests')).verdict?.session.actor).toBeNull();
+    const config = join(project, 'shadowlap.config.json');
+    writeFileSync(config, `${JSON.stringify({ store: 's3://northwind-agent-runs/support-agent' }, null, 2)}\n`);
+    try {
+      expect((await getJson<TestsView>(dash, 'tests')).verdict?.session.actor).toBe('ci');
+    } finally {
+      rmSync(config, { force: true });
+    }
+  });
+
   it('reads the goldens the CLI lists and how each did', async () => {
     const view = await getJson<TestsView>(dash, 'tests');
     expect(view.empty).toBe(false);

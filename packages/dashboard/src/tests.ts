@@ -111,6 +111,8 @@ export interface TestsOptions {
   folder?: string;
   /** The normalizers in the project's config now: a divergence whose rules are all there needs only a re-run. */
   normalizers?: readonly Normalizer[];
+  /** Names show (a team store), so a session says who ran it. */
+  shared?: boolean;
 }
 
 export interface TestsSessionView {
@@ -126,6 +128,7 @@ export interface TestsSessionView {
   failed: number;
   inconclusive: number;
   upstreamRequests: number;
+  /** Who ran it, only where names show (a team store); null otherwise. */
   actor: string | null;
   /** A signal stopped it: the goldens after the one it was replaying didn't run. */
   interrupted: boolean;
@@ -445,8 +448,9 @@ export function nameOf(path: string, folder: string): string {
 /**
  * A session as the screen shows it. Its totals are written when it ends; one that hasn't (it is
  * running, or its process was killed) counts the results it has, as every other count here does.
+ * Who ran it only where names show (`shared`).
  */
-function sessionView(store: StoreOf<'tests'>, s: TestSession): TestsSessionView {
+function sessionView(store: StoreOf<'tests'>, s: TestSession, shared: boolean): TestsSessionView {
   let { passed, failed } = s;
   let inconclusive = 0;
   // By each result's verdict: an inconclusive golden counts apart, whatever its session's
@@ -457,7 +461,7 @@ function sessionView(store: StoreOf<'tests'>, s: TestSession): TestsSessionView 
     inconclusive = results.filter((r) => verdictOfResult(r) === 'inconclusive').length;
     failed = results.length - passed - inconclusive;
   }
-  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed, failed, inconclusive, upstreamRequests: s.upstreamRequests, actor: s.actor, interrupted: s.interrupted, live: sessionLive(store, s) };
+  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed, failed, inconclusive, upstreamRequests: s.upstreamRequests, actor: shared ? s.actor : null, interrupted: s.interrupted, live: sessionLive(store, s) };
 }
 
 /** When a session last did something: its end, or its newest result while it has none. */
@@ -847,6 +851,7 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
 export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'chaos' | 'readModels'>, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
   const rules = options.normalizers ?? [];
+  const shared = options.shared ?? false;
   const sessionsView = testSessions(store, goldens, options.revisions ?? 6);
   const { revisions } = sessionsView;
   // Only what the page shows is read: each golden's newest result, and the results of the sessions
@@ -967,7 +972,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       untested,
       title: verdictTitle({ first, goldens, passing, total, notRun, presetsOnly }, folder),
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
-      session: sessionView(store, shown),
+      session: sessionView(store, shown, shared),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),
     };
   }
@@ -985,7 +990,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
     failures,
     inconclusive,
     diverged,
-    ...liveSessionFields(store, liveTestSession(store), goldens.map((g) => g.path), { view: (s) => sessionView(store, s), asks: asksForAll }),
+    ...liveSessionFields(store, liveTestSession(store), goldens.map((g) => g.path), { view: (s) => sessionView(store, s, shared), asks: asksForAll }),
     chaosRunning: presets ? { id: presets.sessionId, command: presets.command.join(' '), startedAt: presets.startedAt } : null,
     commands: {
       ci: `shadowlap test ${patterns.map(ciWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`,
