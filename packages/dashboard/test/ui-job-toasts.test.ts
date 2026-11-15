@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { endToast } from '../ui/jobs.js';
+import { endToast, jobHeader } from '../ui/jobs.js';
+import { jobTitle } from '../ui/job-title.js';
 
 /**
  * The toast a job ends with behind a closed drawer says its title in the past tense only where that
@@ -11,6 +12,28 @@ import { endToast } from '../ui/jobs.js';
 const done = (o: { args: string[]; code: number; kind?: string; title?: string; result?: unknown }) => ({ done: true, ...o });
 
 describe('the toast a job ends with', () => {
+  it('words a pack’s import as unpack reports it: the runs it brought in, those already here, one kept as another recording, a refusal', () => {
+    const [A, B] = ['01K5CQ4N7G8M2XWQH6V3T9RB1D', '01K5CQ5P2X8M2XWQH6V3T9RB1E'];
+    const dir = '.shadowlap/uploads/01K0UPLOAD0000000000000001/support-refund';
+    const unpack = (code: number, result?: unknown) => done({ kind: 'import', title: 'Importing pack', args: ['unpack', dir], code, ...(result ? { result } : {}) });
+    const ended = (result: unknown) => ({ toast: endToast(unpack(0, result), []), header: jobHeader(unpack(0, result), []) });
+    expect(ended({ imported: [A, B], skipped: [], mismatched: [] })).toEqual({ toast: 'Imported pack · 2 runs · exit 0', header: { title: 'Imported pack', text: '2 runs · exit 0', tone: 'ok' } });
+    expect(ended({ imported: [B], skipped: [A], mismatched: [] }).toast).toBe('Imported pack · 1 run · 1 already here · exit 0');
+    expect(ended({ imported: [], skipped: [A, B], mismatched: [] })).toEqual({ toast: 'Tried importing pack · 2 runs already here · exit 0', header: { title: 'Tried importing pack', text: '2 runs already here · exit 0', tone: '' } });
+    const kept = [{ runId: B, command: null, calls: true }];
+    expect(ended({ imported: [A], skipped: [B], mismatched: kept })).toEqual({
+      toast: 'Imported pack · 1 run · 1 not imported: the store holds another recording under its id · exit 0',
+      header: { title: 'Imported pack', text: '1 run · 1 not imported: the store holds another recording under its id · exit 0', tone: 'warn' },
+    });
+    expect(ended({ imported: [], skipped: [A, B], mismatched: [{ ...kept[0], runId: A }, ...kept] }).toast).toBe('Tried importing pack · 2 not imported: the store holds another recording under their ids · exit 0');
+    // Refused, in unpack's words, the folder named as it was picked.
+    const refused = [`shadowlap: ${dir}: unexpected format some-other-pack`];
+    expect(endToast(unpack(2), refused)).toBe('Tried importing pack · refused · support-refund: unexpected format some-other-pack · exit 2');
+    expect(jobHeader(unpack(2), refused)).toEqual({ title: 'Tried importing pack', text: 'refused · support-refund: unexpected format some-other-pack · exit 2', tone: 'err' });
+    // A job the server sent no title for is named by its command as the server names it.
+    expect(jobTitle({ args: ['unpack', dir], done: false, code: null })).toBe('Importing pack');
+  });
+
   it('never says a job that failed did what its title says', () => {
     expect(endToast(done({ kind: 'import', title: 'Importing capture', args: ['import', 'x.har'], code: 2 }), ['shadowlap: x.har is not a HAR file: no log.entries'])).toBe('Tried importing capture · shadowlap: x.har is not a HAR file: no log.entries');
     expect(endToast(done({ title: 'Exporting HTML report', args: ['export', 'html', 'X', 'x.html'], code: 2 }), ['shadowlap: no run X'])).toBe('Tried exporting HTML report · shadowlap: no run X');

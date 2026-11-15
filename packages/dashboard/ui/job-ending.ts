@@ -243,7 +243,32 @@ function doctorStatus(job: EndedJob, code: number): JobWords | null {
   return { text: `${sum.text} · exit ${code}`, tone: sum.tone };
 }
 
+const runCount = (n: number): string => `${n} run${n === 1 ? '' : 's'}`;
+
+/**
+ * Import capture…'s pack (`shadowlap unpack`), by the result it reports: the runs it imported
+ * (`imported · 2 runs`, which the drawer links), those already here, and those the store holds
+ * another recording under the id of, which it kept as they were, in amber. A pack the CLI refused
+ * ends in its words, the folder named as it was picked rather than by where its upload went.
+ */
+function packImportStatus(job: EndedJob, all: string, code: number): JobWords | null {
+  if (job.kind !== 'import' || job.args[0] !== 'unpack') return null;
+  const exit = `exit ${code}`;
+  if (code === 2) {
+    const said = [...all.matchAll(/^shadowlap: (.+)$/gm)].at(-1)?.[1];
+    const dir = job.args[1] ?? '';
+    return said ? { text: `refused · ${dir ? said.split(dir).join(dir.slice(dir.lastIndexOf('/') + 1)) : said} · ${exit}`, tone: 'err' } : null;
+  }
+  const r = asRecord(job.result);
+  if (code !== 0 || !r || !Array.isArray(r.imported) || !Array.isArray(r.skipped)) return null;
+  const imported = r.imported.length;
+  const kept = Array.isArray(r.mismatched) ? r.mismatched.length : 0;
+  const here = r.skipped.length - kept;
+  const parts = [...(here > 0 ? [`${imported ? here : runCount(here)} already here`] : []), ...(kept ? [`${kept} not imported: the store holds another recording under ${kept === 1 ? 'its id' : 'their ids'}`] : [])];
+  return { text: [...(imported ? [`imported · ${runCount(imported)}`] : []), ...parts, exit].join(' · '), tone: kept ? 'warn' : imported ? 'ok' : '' };
+}
+
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return doctorStatus(job, code) ?? fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return packImportStatus(job, all, code) ?? doctorStatus(job, code) ?? fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? previewStatus(job, code) ?? verdictStatus(job, code) ?? migrateStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
 }
