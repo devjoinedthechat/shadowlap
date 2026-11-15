@@ -56,7 +56,7 @@ describe('the global options', () => {
     expect(replay.out).toContain('no run matches "x"');
     const test = shadowlap(dir, ['test', 'goldens/x', '--db', 'r.db']);
     expect(test.out).not.toContain('unknown option');
-    expect(test.out).toContain('goldens/x is not a Shadowlap pack');
+    expect(test.out).toContain('goldens/x is not a shadowlap pack');
     // The session is kept where --db says.
     expect(existsSync(join(dir, 'r.db'))).toBe(true);
     expect(existsSync(join(dir, '.shadowlap', 'shadowlap.db'))).toBe(false);

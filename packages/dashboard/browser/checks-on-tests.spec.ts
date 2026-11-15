@@ -222,7 +222,7 @@ const lastModel = (calls: readonly Row[]): number => Math.max(...calls.filter((c
 /**
  * The good run's page with the checks `checks.now` gives as its own, which the demo never judged it
  * by (set it again before the page is read again), and its last model call made the judge's, as a
- * judge's call is recorded: in Shadowlap's own scope, its row naming its check and verdict. The
+ * judge's call is recorded: in shadowlap's own scope, its row naming its check and verdict. The
  * judge's call's number, and how many calls the run has.
  */
 async function routeChecks(page: Page, checks: { now: (last: number) => CheckView[] }): Promise<{ id: string; last: number; calls: number }> {

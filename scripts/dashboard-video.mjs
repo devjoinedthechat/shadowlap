@@ -44,7 +44,7 @@ function startMock(delayMs) {
 const paced = startMock(90);
 const quick = startMock(0);
 const [pacedUrl, mockUrl] = await Promise.all([paced.url, quick.url]);
-// Shadowlap's files for this machine (the agents registered while they run) go in the folder the
+// shadowlap's files for this machine (the agents registered while they run) go in the folder the
 // recording is made in, which goes when it is done: never in the real ~/.shadowlap.
 const env = { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mockUrl, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: join(work, 'home'), AGENT_DATE: '2026-09-16', SHADOWLAP_GUARD: 'off' };
 const fp = (...args) => {

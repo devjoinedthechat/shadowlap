@@ -22,7 +22,7 @@ import { palette as p, shortId } from '../ui.js';
 
 /** Recordings from what already sat in front of the traffic. */
 
-const HOSTS = 'Shadowlap reads Anthropic, OpenAI, Gemini, Azure, Vertex and Bedrock hosts.';
+const HOSTS = 'shadowlap reads Anthropic, OpenAI, Gemini, Azure, Vertex and Bedrock hosts.';
 
 function printJson(json: ImportJson): void {
   console.log(JSON.stringify(json, null, 2));

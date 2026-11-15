@@ -70,10 +70,10 @@ describe('a report’s hint', () => {
   it('keeps each guard case’s fix after a colon, doctor’s own words for a process it can’t watch', () => {
     expect(hintWords({ key: 'unguarded' }).replace(/’/g, "'")).toBe(`A process the network guard can't watch ran while the golden replayed, and under --guard block that fails it: ${UNGUARDED_FIX}`);
     const preload = hintWords({ key: 'no-preload' });
-    expect(preload).toMatch(/^No Shadowlap preload loaded in the agent’s processes while the golden replayed, .*: run the agent/);
+    expect(preload).toMatch(/^No shadowlap preload loaded in the agent’s processes while the golden replayed, .*: run the agent/);
     expect(preload).toContain('shadowlap doctor');
     expect(preload).toContain('--guard warn');
-    expect(hintWords({ key: 'blocked', hosts: ['api.stripe.com', 'hooks.slack.com'] })).toBe('The agent connected to api.stripe.com, hooks.slack.com directly, past Shadowlap, and CI replays offline, so the network guard blocked it: wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=api.stripe.com,hooks.slack.com.');
+    expect(hintWords({ key: 'blocked', hosts: ['api.stripe.com', 'hooks.slack.com'] })).toBe('The agent connected to api.stripe.com, hooks.slack.com directly, past shadowlap, and CI replays offline, so the network guard blocked it: wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=api.stripe.com,hooks.slack.com.');
   });
 
   it('says what kept an injection gate from saying, by its reason, and what to do', () => {

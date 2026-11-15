@@ -117,7 +117,7 @@ describe('shadowlap doctor', () => {
     writeFileSync(join(dir, 'agent.mjs'), 'candidate');
     mkdirSync(join(dir, '.shadowlap'));
     const b64 = (s: string) => Buffer.from(s).toString('base64');
-    // As an older Shadowlap wrote it: its process, gone, and the file by its absolute path.
+    // As an older shadowlap wrote it: its process, gone, and the file by its absolute path.
     const journal = (path: string) => writeFileSync(join(dir, '.shadowlap', 'repair-journal.json'), JSON.stringify({ pid: 2 ** 22 - 1, files: [{ path, original: b64('original'), patched: b64('candidate') }] }));
     const repair = () => runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' }).find((c) => c.name === 'repair');
     journal(join(dir, 'agent.mjs'));

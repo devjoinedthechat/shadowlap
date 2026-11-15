@@ -91,23 +91,23 @@ export interface AgentFileWords {
 }
 
 /**
- * An instruction file's row, as the design words it: found and mentioning Shadowlap, found without
- * a Shadowlap section yet (amber), or not in this project. A file whose agents read Shadowlap's
+ * An instruction file's row, as the design words it: found and mentioning shadowlap, found without
+ * a shadowlap section yet (amber), or not in this project. A file whose agents read shadowlap's
  * skills from where they are installed needs no section (`covered`, the words that say so):
  * CLAUDE.md once the plugin is in the project, AGENTS.md and the others once the skills are in
  * `.agents/skills`.
  */
 export function agentFileWords(file: { found: boolean; mentions: boolean }, covered: string | null = null): AgentFileWords {
   if (!file.found) return { text: 'not in this project', tone: 'muted' };
-  if (file.mentions) return { text: 'found · mentions Shadowlap', tone: 'ok' };
+  if (file.mentions) return { text: 'found · mentions shadowlap', tone: 'ok' };
   if (covered) return { text: `found · ${covered}`, tone: 'ok' };
-  return { text: 'found · no Shadowlap section yet', tone: 'warn' };
+  return { text: 'found · no shadowlap section yet', tone: 'warn' };
 }
 
 /**
- * The `.agents/skills` row with Shadowlap's skills (`skillOffer().agents`): this version's read
+ * The `.agents/skills` row with shadowlap's skills (`skillOffer().agents`): this version's read
  * "found · shadowlap-setup-agent, shadowlap-debug-agent, 0.1.0" with nothing to do; with none yet,
- * the folder's own words and Add the skills; another version's, "found · Shadowlap’s skills 0.0.9"
+ * the folder's own words and Add the skills; another version's, "found · shadowlap’s skills 0.0.9"
  * and Update to 0.1.0, asking nothing; ones edited here, Replace with 0.1.0's copy…, which asks
  * first; a way that is blocked, the folder's words and why (`why`), with no button.
  */
@@ -120,12 +120,12 @@ export function sharedSkillsWords(
   if (offer.blocked) return { ...agentFileWords(file), action: null, why: offer.blocked };
   if (offer.state === 'current') return { text: `found · ${names.join(', ')}${version ? `, ${version}` : ''}`, tone: 'ok', action: null, why: null };
   if (offer.state === 'missing') {
-    const own: AgentFileWords = file.found ? { text: 'found · no Shadowlap skills yet', tone: 'warn' } : { text: 'not in this project', tone: 'muted' };
+    const own: AgentFileWords = file.found ? { text: 'found · no shadowlap skills yet', tone: 'warn' } : { text: 'not in this project', tone: 'muted' };
     return { ...own, action: offer.install ? { label: 'Add the skills', ask: false } : null, why: null };
   }
   const to = version ?? 'this version';
-  if (offer.state === 'other-version') return { text: `found · Shadowlap’s skills ${offer.installedVersion ?? ''}`.trimEnd(), tone: 'warn', action: offer.install ? { label: `Update to ${to}`, ask: false } : null, why: null };
-  return { text: 'found · Shadowlap’s skills, edited here', tone: 'warn', action: offer.install ? { label: `Replace with ${to}’s copy…`, ask: true } : null, why: null };
+  if (offer.state === 'other-version') return { text: `found · shadowlap’s skills ${offer.installedVersion ?? ''}`.trimEnd(), tone: 'warn', action: offer.install ? { label: `Update to ${to}`, ask: false } : null, why: null };
+  return { text: 'found · shadowlap’s skills, edited here', tone: 'warn', action: offer.install ? { label: `Replace with ${to}’s copy…`, ask: true } : null, why: null };
 }
 
 /**

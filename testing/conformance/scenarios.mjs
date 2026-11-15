@@ -1,4 +1,4 @@
-// What every Shadowlap SDK must do, as scenarios a client program performs and assertions on what
+// What every shadowlap SDK must do, as scenarios a client program performs and assertions on what
 // the sidecar recorded. See docs/protocol.md; the client contract is in README.md.
 import assert from 'node:assert/strict';
 
@@ -272,8 +272,8 @@ export const SCENARIOS = [
     why: 'with no SHADOWLAP_URL the wrappers are transparent: the real code runs and nothing is recorded',
     inactive: 'live-ok',
     check({ recordOut }) {
-      assert.equal(recordOut.active, false, 'the client must report Shadowlap as inactive');
-      assert.equal(recordOut.implRuns, 1, 'the implementation must run normally outside Shadowlap');
+      assert.equal(recordOut.active, false, 'the client must report shadowlap as inactive');
+      assert.equal(recordOut.implRuns, 1, 'the implementation must run normally outside shadowlap');
       assert.deepEqual(recordOut.result, { got: 1 });
     },
   },

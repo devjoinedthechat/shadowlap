@@ -19,8 +19,8 @@ export const IMPORT_FILE_FORMATS: Readonly<Record<ImportFileFormat, string>> = {
 
 export type ImportFormatGuess = { format: ImportFileFormat; reason?: undefined } | { format: null; reason: string };
 
-const YAML = 'A YAML cassette has to be converted to JSON first: Shadowlap reads JSON, so no YAML parser is trusted with a file from anywhere.';
-const UNKNOWN = 'Not a format Shadowlap imports. It reads HAR, nock or VCR as JSON, LiteLLM JSONL, and OpenTelemetry OTLP JSON.';
+const YAML = 'A YAML cassette has to be converted to JSON first: shadowlap reads JSON, so no YAML parser is trusted with a file from anywhere.';
+const UNKNOWN = 'Not a format shadowlap imports. It reads HAR, nock or VCR as JSON, LiteLLM JSONL, and OpenTelemetry OTLP JSON.';
 
 /** How much of the file's start the content check looks at. */
 const SNIFF_BYTES = 4096;
@@ -129,7 +129,7 @@ function sniff(text: string): ImportFileFormat | null {
  * The import format for a file. `.har` is HAR. A `.json` file is OpenTelemetry (OTLP JSON) when its
  * name says otel, otlp or trace, VCR when it says cassette or vcr; otherwise its content decides
  * (with `firstBytes`: the top-level keys of OTLP, HAR, a VCR cassette, a nock recording or a
- * Shadowlap capture), and nock when it says nothing. A `.jsonl` file is LiteLLM, unless its name
+ * shadowlap capture), and nock when it says nothing. A `.jsonl` file is LiteLLM, unless its name
  * says otel, otlp or trace or its first line is OTLP, as the collector's file exporter writes it.
  * Content never overrides a name that says what the file is. YAML and anything else are refused,
  * with the reason to show.

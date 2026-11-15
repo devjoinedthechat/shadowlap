@@ -96,7 +96,7 @@ describe('shadowlap skill install', () => {
     Store.open(join(cwd, '.shadowlap', 'shadowlap.db')).close();
     const added = await shadowlap(cwd, ['skill', 'install', 'cursor']);
     expect(added.code, added.stderr).toBe(0);
-    expect(added.stdout).toContain(`✓ Installed Shadowlap’s skills, ${VERSION}, in .agents/skills`);
+    expect(added.stdout).toContain(`✓ Installed shadowlap’s skills, ${VERSION}, in .agents/skills`);
     expect(added.stdout).toContain('use shadowlap-setup-agent and shadowlap-debug-agent when a task calls for them');
     const text = readFileSync(join(cwd, SHARED), 'utf8');
     expect(text).toMatch(/^---\nname: shadowlap-debug-agent\n/);
@@ -106,7 +106,7 @@ describe('shadowlap skill install', () => {
     expect(again.code).toBe(0);
     expect(JSON.parse(again.stdout)).toMatchObject({ agent: 'agents', path: '.agents/skills', before: 'current', outcome: 'unchanged' });
     const kiro = await shadowlap(cwd, ['skill', 'install', 'kiro']);
-    expect(kiro.stdout).toContain(`✓ Installed Shadowlap’s skills, ${VERSION}, in .kiro/skills`);
+    expect(kiro.stdout).toContain(`✓ Installed shadowlap’s skills, ${VERSION}, in .kiro/skills`);
     expect(kiro.stdout).toContain('Kiro read skills from there');
     const store = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
     try {

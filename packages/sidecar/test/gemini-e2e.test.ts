@@ -42,7 +42,7 @@ interface AgentResult {
 async function runAgent(system: string): Promise<AgentResult> {
   // A fresh client per run: the SDK reads GOOGLE_GEMINI_BASE_URL when it is constructed.
   const ai = new GoogleGenAI({ apiKey: 'AIza-test' });
-  const contents: Content[] = [{ role: 'user', parts: [{ text: 'Research Shadowlap and email the team.' }] }];
+  const contents: Content[] = [{ role: 'user', parts: [{ text: 'Research shadowlap and email the team.' }] }];
   let modelCalls = 0;
   const toolErrors: string[] = [];
   for (let i = 0; i < 10; i++) {

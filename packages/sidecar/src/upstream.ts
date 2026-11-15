@@ -50,7 +50,7 @@ const KEPT_CLOSED_WITHIN_MS = 5_000;
  * response whose headers take more than five minutes, and so does its body between two chunks: a
  * non-streaming request to a slow model does both, a local model writing a long answer or a
  * reasoning model at high effort. A proxy in the request path must not end a call sooner than its
- * client would; the client's own timeout still governs its request to Shadowlap, and `signal` ends
+ * client would; the client's own timeout still governs its request to shadowlap, and `signal` ends
  * this one when that client has gone. A compressed body is decoded, as fetch did (decodedBody).
  * `inFlight` holds the request until it has ended, so whoever owns the set can end it sooner
  * (Sidecar.close).
@@ -58,7 +58,7 @@ const KEPT_CLOSED_WITHIN_MS = 5_000;
  * A connection kept from an earlier call may be one the upstream closes just as this request goes
  * out on it: the request meets a reset at once, before any answer, though the upstream never took it
  * up. It goes once more on a new connection, as a browser sends it again, so the agent never sees a
- * failure of Shadowlap's own connection. A reset on a new connection, after the answer began, or
+ * failure of shadowlap's own connection. A reset on a new connection, after the answer began, or
  * longer after the request went out than KEPT_CLOSED_WITHIN_MS, is the upstream's, and is passed on.
  */
 export function requestUpstream(url: string, method: string, headers: Record<string, string>, body: Buffer | null, inFlight?: Set<ClientRequest>, signal?: AbortSignal): Promise<Response> {

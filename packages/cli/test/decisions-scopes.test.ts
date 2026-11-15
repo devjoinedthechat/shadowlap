@@ -13,7 +13,7 @@ import type { MigrateReport } from '../src/migrate.js';
 /**
  * A switch changes the agent's model calls, not every call a recording holds. The agent here talks
  * to a simulated customer on another model (in a scope of its own), and the recording holds a call
- * Shadowlap's judge made after it (the reserved scope `shadowlap:judge`). `decisions --model` and
+ * shadowlap's judge made after it (the reserved scope `shadowlap:judge`). `decisions --model` and
  * `migrate --to` change the calls made with the model the runs use most (or those `--from` names),
  * leave the customer's and the judge's as they are, verify the same way, patch only the strings
  * that name the model in code and config, and mask what the redaction rules mask in every report.
@@ -126,7 +126,7 @@ beforeAll(async () => {
   const rec = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
   expect(rec.code, rec.out).toBe(0);
   runId = /recording run (\w{26})/.exec(rec.out)![1]!;
-  // The call Shadowlap's judge makes after the agent exits, kept in the run as the judge keeps it.
+  // The call shadowlap's judge makes after the agent exits, kept in the run as the judge keeps it.
   const store = Store.open(db);
   try {
     const calls = store.getCalls(runId);
@@ -263,7 +263,7 @@ describe('migrate, on a project that names its model in many places', () => {
       store.close();
     }
 
-    // The patch: the agent's default in code, the YAML value and the .env value; never a key, prose, a test, or Shadowlap's config.
+    // The patch: the agent's default in code, the YAML value and the .env value; never a key, prose, a test, or shadowlap's config.
     const change = report.configChange!;
     expect(change.files.map((f) => f.path).sort()).toEqual(['.env', 'agent.mjs', 'config.yaml']);
     expect(change.patch).toContain(`-  model: ${AGENT_MODEL}\n+  model: ${NEW_MODEL}`);

@@ -7,7 +7,7 @@ import { messageOf, processAlive, shadowlapHome, withLockFile } from '@shadowlap
 import { startCommand } from './start-command.js';
 
 /**
- * Which sidecar and run a process Shadowlap started belongs to, for a `shadowlap mcp` proxy started
+ * Which sidecar and run a process shadowlap started belongs to, for a `shadowlap mcp` proxy started
  * further down that process's tree.
  *
  * The proxy learns its sidecar from SHADOWLAP_URL and SHADOWLAP_RUN_ID when it gets them. But MCP
@@ -18,7 +18,7 @@ import { startCommand } from './start-command.js';
  * run, and removes it when the agent exits. The proxy walks up its own ancestors and takes the
  * nearest one's. Attempts running at once never collide: each agent has its own process id.
  *
- * The files live in Shadowlap's home folder (safeHome): `~/.shadowlap/agents`, as the home folder
+ * The files live in shadowlap's home folder (safeHome): `~/.shadowlap/agents`, as the home folder
  * is what clients pass on, or `agents` in SHADOWLAP_HOME, which a proxy shares only when its client
  * passes SHADOWLAP_HOME on too. Where that can't be written, they go in the project's
  * `.shadowlap/agents`. A `home` option, wherever one is taken, is that folder (null: none). The
@@ -39,24 +39,24 @@ export interface SidecarTarget {
   runId: string;
 }
 
-/** What `shadowlap mcp` found: the run to record into, nothing (not under Shadowlap), or a reason it can't record. */
+/** What `shadowlap mcp` found: the run to record into, nothing (not under shadowlap), or a reason it can't record. */
 export type SidecarLookup = { kind: 'sidecar'; target: SidecarTarget; from: string } | { kind: 'unusable'; reason: string } | { kind: 'none' };
 
 interface Registration {
   v: 1;
   /** The agent's process id: the file's name. */
   pid: number;
-  /** The process that started it: the Shadowlap CLI. */
+  /** The process that started it: the shadowlap CLI. */
   parent: number;
   url: string;
   runId: string;
 }
 
-/** Where registrations go: `agents` in Shadowlap's home folder (safeHome), `.shadowlap/agents` in a project's. */
+/** Where registrations go: `agents` in shadowlap's home folder (safeHome), `.shadowlap/agents` in a project's. */
 const AGENTS = 'agents';
 const FOLDER = join('.shadowlap', AGENTS);
 
-/** The sidecar only ever listens on loopback; anything else is not a Shadowlap sidecar. */
+/** The sidecar only ever listens on loopback; anything else is not a shadowlap sidecar. */
 export function isLoopbackUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -67,7 +67,7 @@ export function isLoopbackUrl(url: string): boolean {
 }
 
 /**
- * Shadowlap's folder for this machine's files (shadowlapHome: SHADOWLAP_HOME, else ~/.shadowlap),
+ * shadowlap's folder for this machine's files (shadowlapHome: SHADOWLAP_HOME, else ~/.shadowlap),
  * where agents and `mcp --listen` proxies (mcp-proxies.ts) are registered while they run; null when
  * there is no home folder and SHADOWLAP_HOME names none.
  */
@@ -82,7 +82,7 @@ export function safeHome(env: NodeJS.ProcessEnv = process.env): string | null {
   return isAbsolute(own) ? own : null;
 }
 
-/** The folders a registration may be in, in the order they are tried: Shadowlap's home folder's, then the project's. */
+/** The folders a registration may be in, in the order they are tried: shadowlap's home folder's, then the project's. */
 export function registryDirs(cwd: string = process.cwd(), home: string | null = safeHome()): string[] {
   return [...(home ? [join(home, AGENTS)] : []), join(resolve(cwd), FOLDER)];
 }
@@ -117,7 +117,7 @@ const LOCK_WAIT_MS = 2_000;
 /** Runs `fn` holding the folder's lock (see the header). */
 function underLock(dir: string, fn: () => void): void {
   const lock = join(dir, '.lock');
-  withLockFile(lock, { wait: LOCK_WAIT_MS, mode: 0o600, busy: () => new Error(`${dir} is being changed by another Shadowlap command (if none is running, delete ${lock})`) }, fn);
+  withLockFile(lock, { wait: LOCK_WAIT_MS, mode: 0o600, busy: () => new Error(`${dir} is being changed by another shadowlap command (if none is running, delete ${lock})`) }, fn);
 }
 
 /** Removes files left by agents whose process is gone (a CLI that was killed can't clean up). Called holding the folder's lock. */
@@ -449,7 +449,7 @@ export function peerProcess(port: number, serverPort: number, note?: (why: strin
 }
 
 /**
- * The Shadowlap commands that start agents, read off the CLI's own command tree, by the names a
+ * The shadowlap commands that start agents, read off the CLI's own command tree, by the names a
  * command line gives them: each that takes `--guard`, the network guard every agent it starts runs
  * under, or has a subcommand that does (`tasks score`). Read so, a command added later that starts
  * an agent is among them without a list to keep: it decides its agents' guard as every one does.
@@ -460,7 +460,7 @@ export function agentCommands(program: Command): ReadonlySet<string> {
 }
 
 /**
- * Whether a command line is the Shadowlap CLI running one of `commands`, those that start agents
+ * Whether a command line is the shadowlap CLI running one of `commands`, those that start agents
  * (agentCommands). Used only to refuse writes when such an ancestor is seen but its sidecar can't be
  * found. Its words apart give the command exactly. A line the system joined loses where `--db`'s
  * path ends when the path holds a space, so there any word after it that names such a command, up
@@ -501,7 +501,7 @@ function projectDirs(cwd: string): string[] {
 }
 
 /**
- * A folder registrations are read from. `strict` for Shadowlap's home folder's, which no repository
+ * A folder registrations are read from. `strict` for shadowlap's home folder's, which no repository
  * can put a file in: a file there that can't be trusted means something is wrong, and the proxy fails
  * closed. A project's folder is one a cloned repository could carry, so a file there that can't be
  * trusted is only skipped.
@@ -545,7 +545,7 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
       const why = problem
         ? `${problem}, so the run it names can't be trusted`
         : !j || j.v !== 1 || j.pid !== pid || typeof j.parent !== 'number' || typeof j.url !== 'string' || typeof j.runId !== 'string' || !/^[\w.-]{1,100}$/.test(j.runId)
-          ? `${file} is not a registration Shadowlap wrote`
+          ? `${file} is not a registration shadowlap wrote`
           : null;
       if (why || !j) {
         const answer = refuse(why ?? `${file} is unreadable`);
@@ -558,7 +558,7 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
         skip(`${file} names parent ${j.parent!}, but process ${pid}'s parent is ${parent}: left over from an earlier run, ignoring it`);
         continue;
       }
-      // Where the chain stops, the parent can't be compared: the Shadowlap command that wrote the
+      // Where the chain stops, the parent can't be compared: the shadowlap command that wrote the
       // file must at least still be running, or the file outlived it.
       if (parent === undefined && !processAlive(j.parent!)) {
         skip(`${file} was written by process ${j.parent!}, which has ended: left over from an earlier run, ignoring it`);
@@ -575,7 +575,7 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
   return null;
 }
 
-/** The folders a proxy reads registrations from: Shadowlap's home folder's (strict), then the project's and every folder above it. */
+/** The folders a proxy reads registrations from: shadowlap's home folder's (strict), then the project's and every folder above it. */
 export function lookupDirs(cwd: string | undefined, home: string | null | undefined): RegistryDir[] {
   const h = home === undefined ? safeHome() : home;
   const own = h ? join(h, AGENTS) : null;
@@ -602,7 +602,7 @@ export function parentRegistration(o: { cwd?: string; home?: string | null; skip
 
 /**
  * The run an MCP proxy started with a minimal environment belongs to: the registration of its
- * nearest Shadowlap-started ancestor. When an ancestor is a Shadowlap command that starts agents
+ * nearest shadowlap-started ancestor. When an ancestor is a shadowlap command that starts agents
  * (one of `agentCommands`) but no registration turns up (not yet written, or written where this
  * process can't see it), the answer is `unusable`, so writes are refused rather than run unrecorded.
  */
@@ -625,13 +625,13 @@ export async function lookupRegistration(o: { agentCommands: ReadonlySet<string>
     if (later) return later;
   }
   // Without SHADOWLAP_HOME this process looks in ~/.shadowlap, where a command run with it registers nothing.
-  const hint = process.env.SHADOWLAP_HOME ? '' : '; if Shadowlap runs with SHADOWLAP_HOME set, pass it on to this server too';
-  return { kind: 'unusable', reason: `this process was started under Shadowlap (process ${shadowlap.pid}), but no run is registered for it in ${dirs[0]!.dir}${hint}` };
+  const hint = process.env.SHADOWLAP_HOME ? '' : '; if shadowlap runs with SHADOWLAP_HOME set, pass it on to this server too';
+  return { kind: 'unusable', reason: `this process was started under shadowlap (process ${shadowlap.pid}), but no run is registered for it in ${dirs[0]!.dir}${hint}` };
 }
 
 /**
  * The runs whose agents are running now, as their registrations name them: each agent alive, with
- * the Shadowlap command that started it, in the folders a proxy in `cwd` reads (lookupDirs). A file
+ * the shadowlap command that started it, in the folders a proxy in `cwd` reads (lookupDirs). A file
  * that can't be trusted is skipped, as `findRegistration` skips one in a project's folder.
  */
 export function registeredRuns(o: { cwd?: string; home?: string | null; skip?: (reason: string) => void } = {}): Array<{ target: SidecarTarget; pid: number; from: string }> {

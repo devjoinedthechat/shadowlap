@@ -40,7 +40,7 @@ export interface FoundTool {
 }
 
 /**
- * A Claude Agent SDK the project uses, and where a query of its runs through Shadowlap's fence. Its
+ * A Claude Agent SDK the project uses, and where a query of its runs through shadowlap's fence. Its
  * built-in tools (Bash, Write, Edit and the rest) run inside Claude Code, where no wrapper reaches
  * them: the fence (`withFence`, `with_fence`) records them through the SDK's hooks.
  */
@@ -88,9 +88,9 @@ export interface InitReport {
   tools: FoundTool[];
   /** Each Claude Agent SDK the project uses, and whether its query runs through the fence; empty without one. */
   fence: Fence[];
-  /** Model clients whose base URL is a literal: their calls bypass Shadowlap. */
+  /** Model clients whose base URL is a literal: their calls bypass shadowlap. */
   hardcodedBaseUrls: BaseUrlWarning[];
-  /** Models named through a framework's router whose calls go where Shadowlap neither redirects nor captures. */
+  /** Models named through a framework's router whose calls go where shadowlap neither redirects nor captures. */
   unrecordedModels: UnrecordedModel[];
   /** A local or OpenAI-compatible server the project already points at. */
   modelServer: { url: string; upstream: string; from: string } | null;

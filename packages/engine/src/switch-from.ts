@@ -9,7 +9,7 @@ import type { CallRecord } from './types.js';
  * the runs' model calls were made with, counted, and from those the default.
  */
 
-/** Whether a model call is one `--scope` asks: made in that scope, or with `none`, in none. Shadowlap's own scopes (its judge's) never are. */
+/** Whether a model call is one `--scope` asks: made in that scope, or with `none`, in none. shadowlap's own scopes (its judge's) never are. */
 export function askedInScope(callScope: unknown, scope: string | null): boolean {
   if (isReservedScope(callScope)) return false;
   if (scope === null) return true;
@@ -26,7 +26,7 @@ export interface ModelUse {
 
 /**
  * The models the runs' model calls were made with, as recorded (the agent's whose request was kept:
- * Shadowlap's own scopes left out, and other scopes than `scope`), with how many calls each: most
+ * shadowlap's own scopes left out, and other scopes than `scope`), with how many calls each: most
  * used first.
  */
 export function modelUse(runs: Iterable<readonly CallRecord[]>, scope: string | null): ModelUse[] {

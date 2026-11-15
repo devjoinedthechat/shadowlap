@@ -1,6 +1,6 @@
 # support-agent
 
-Northwind's support agents, recorded with Shadowlap. Every model in this project is a scripted
+Northwind's support agents, recorded with shadowlap. Every model in this project is a scripted
 stand-in served on this machine: nothing here talks to a real provider.
 
 | Command | What it does |

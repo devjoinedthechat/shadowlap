@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/dashboard",
   "version": "0.1.0",
-  "description": "Shadowlap dashboard: a local web UI over your recordings (runs, timelines, conversations, diffs, replay and fork actions).",
+  "description": "shadowlap dashboard: a local web UI over your recordings (runs, timelines, conversations, diffs, replay and fork actions).",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

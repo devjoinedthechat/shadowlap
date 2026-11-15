@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/engine",
   "version": "0.1.0",
-  "description": "Shadowlap engine: fingerprinting, normalizers, matching, divergence diff, SQLite store.",
+  "description": "shadowlap engine: fingerprinting, normalizers, matching, divergence diff, SQLite store.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

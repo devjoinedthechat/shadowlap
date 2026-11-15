@@ -114,7 +114,7 @@ export function readPackHead(dir: string): PackHead | { error: string } {
     if (!st.isFile()) return { error: 'run.json is not a regular file' };
     if (st.size > PACK_LIMITS.manifestBytes) return { error: 'run.json is too large' };
     const manifest = JSON.parse(readFileSync(path, 'utf8')) as { format?: unknown; createdAt?: unknown; runs?: unknown };
-    if (manifest.format !== PACK_FORMAT) return { error: 'not a Shadowlap pack' };
+    if (manifest.format !== PACK_FORMAT) return { error: 'not a shadowlap pack' };
     const runs = Array.isArray(manifest.runs) ? manifest.runs : [];
     const run = runs.at(-1) as { runId?: unknown; startedAt?: unknown; command?: { argv?: unknown }; parentRunId?: unknown; meta?: { redactions?: unknown } } | undefined;
     if (!run || typeof run.runId !== 'string') return { error: 'run.json lists no run' };

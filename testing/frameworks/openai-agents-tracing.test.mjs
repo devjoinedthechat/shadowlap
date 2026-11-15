@@ -151,7 +151,7 @@ describe('OpenAI Agents SDK (Python) with tracing on', { skip: PYTHON ? false : 
     const r = await shadowlap(db, ['run', '--summary-json', summaryFile, '--', ...PYTHON, agent], env());
     assert.equal(r.code, 0, r.out);
     assert.match(r.stdout, /Your order ships tomorrow/);
-    // The export reached the provider as it would have without Shadowlap: the trace and its spans.
+    // The export reached the provider as it would have without shadowlap: the trace and its spans.
     assert.ok(traceExports().length >= 1, `no trace export reached the provider:\n${r.out}`);
     assert.match(traceExports()[0].body, /"object":\s*"trace(\.span)?"/);
     recorded = JSON.parse(readFileSync(summaryFile, 'utf8')).summary;
@@ -163,7 +163,7 @@ describe('OpenAI Agents SDK (Python) with tracing on', { skip: PYTHON ? false : 
     assert.equal(recorded.upstreamRequests, calls.length);
   });
 
-  it('replays clean with nothing reaching the provider: Shadowlap answers the trace export itself', async () => {
+  it('replays clean with nothing reaching the provider: shadowlap answers the trace export itself', async () => {
     assert.ok(recorded, 'the recording above');
     const asked = provider.seen.length;
     const summaryFile = join(dir, 'replayed.json');

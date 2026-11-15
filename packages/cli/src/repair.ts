@@ -103,7 +103,7 @@ export const repairerTurns = (r: Pick<Repairer, 'provider'>) => (r.provider === 
 /**
  * The most asking the repairer could cost, before it is asked: its prompt, counted high, and the
  * longest answer it may give, at its model's price (Claude Code's own default is priced as
- * Shadowlap's, DEFAULT_ANTHROPIC_REPAIRER), for each of its turns: Claude Code's second reads the
+ * shadowlap's, DEFAULT_ANTHROPIC_REPAIRER), for each of its turns: Claude Code's second reads the
  * prompt again with the first answer, and gives an answer of its own. Null for a model with no
  * price, which no budget can count beforehand: its reported cost, when it has one, is counted once
  * it answers.
@@ -119,7 +119,7 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
  * Starts a repair in `cwd`, in the git repository whose root is `root` (found from `cwd` when not
  * given): takes `.shadowlap/repair.lock` (the engine's lock file), held until the repair ends, then
  * cleans up after one that died: the worktrees it verified candidates in, and the working tree an
- * older Shadowlap, which tried candidates in place, may have left edited (its journal, which
+ * older shadowlap, which tried candidates in place, may have left edited (its journal, which
  * repair-journal.ts takes only when it is the checkout's own; `ignored` says why one was not). A
  * `.shadowlap`, or a `.shadowlap/repairs` in it, that is a link is refused before anything is made
  * (refuseLink), so nothing goes through it. One

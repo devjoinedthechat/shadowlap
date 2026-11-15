@@ -13,7 +13,7 @@ import { Section } from '../../components/Section.js';
 /**
  * Coding agents, as the design has it (codingAgentsPanel): coding agents need no MCP server, the CLI
  * is their interface; which instruction files the project has (CLAUDE.md, AGENTS.md, and Cursor's
- * rules and Copilot's file where the project has them) and whether each mentions Shadowlap yet; the
+ * rules and Copilot's file where the project has them) and whether each mentions shadowlap yet; the
  * `.agents/skills` row with the skills `shadowlap skill install agents` adds for Codex, Cursor,
  * Copilot and the other agents that read that folder; and the section from docs/agents.md to paste.
  * Once the owner has published the Claude Code plugin (SKILL_PUBLISHED), The skills row above the

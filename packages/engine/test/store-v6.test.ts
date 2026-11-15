@@ -114,13 +114,13 @@ describe('store schema v6', () => {
     second.close();
   });
 
-  it('refuses a store a newer Shadowlap wrote, as it always has', () => {
+  it('refuses a store a newer shadowlap wrote, as it always has', () => {
     const path = storePath();
     Store.open(path).close();
     const raw = new DatabaseSync(path);
     raw.exec(`UPDATE meta SET value = '${SCHEMA_VERSION + 1}' WHERE key = 'schema_version'`);
     raw.close();
-    expect(() => Store.open(path)).toThrow(`${path} was written by a newer Shadowlap (store schema v7; this build understands v6). Upgrade Shadowlap, or point --db at another store.`);
+    expect(() => Store.open(path)).toThrow(`${path} was written by a newer shadowlap (store schema v7; this build understands v6). Upgrade shadowlap, or point --db at another store.`);
     expect(() => Store.openReadOnly(path)).toThrow('this build understands v6');
   });
 });

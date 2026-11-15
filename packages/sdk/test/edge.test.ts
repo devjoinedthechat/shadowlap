@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 /**
  * An Edge runtime (Vercel's, Cloudflare Workers) or a browser bundle has none of Node's modules, and
  * may have no `process` or `Buffer` either. The SDK's default entry, which those load, imports no
- * Node module until a call goes to the sidecar, so it loads there, and outside Shadowlap every
+ * Node module until a call goes to the sidecar, so it loads there, and outside shadowlap every
  * wrapper calls straight through. Here a Node whose module resolver refuses every builtin, with
  * `process` and `Buffer` taken away, imports the built package as such a runtime would.
  */

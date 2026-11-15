@@ -53,7 +53,7 @@ export interface CaptureInput {
 
 const GROUP = GROUPS;
 
-/** The agent's model calls with a request and an answer, in call order: Shadowlap's own (its judge's, made after the agent exits) are none of them. */
+/** The agent's model calls with a request and an answer, in call order: shadowlap's own (its judge's, made after the agent exits) are none of them. */
 const modelCalls = (calls: readonly CallRecord[]) => calls.filter((c) => c.kind === 'api' && c.requestRef && c.end && !isReservedScope(c.meta.scope));
 
 /** What the replay's divergence report says, in a line. */

@@ -145,7 +145,7 @@ export interface RunCacheUse {
 }
 
 /**
- * The rule over one run, for the Overview: its live model calls only (a call Shadowlap answered
+ * The rule over one run, for the Overview: its live model calls only (a call shadowlap answered
  * with an injected failure is not live), or null when none of them reported usage.
  */
 export function runCacheUse(store: Store, calls: readonly CallRecord[], modelOf: ModelResolver = storedModelResolver(store)): RunCacheUse | null {

@@ -42,7 +42,7 @@ export interface Provider {
   headerParameters?: readonly string[];
   /**
    * The fingerprint header every request to the API names its version in (`anthropic-version`), and
-   * the version Shadowlap names when it sends a recorded request that names none. A recording whose
+   * the version shadowlap names when it sends a recorded request that names none. A recording whose
    * calls to this provider name none (one imported from a trace, which never keeps the version) is
    * matched whatever version a replay's requests name, and the replay keeps none either.
    */
@@ -299,7 +299,7 @@ export const openai: Provider = {
 };
 
 /**
- * Base URLs the agent's SDK was given before Shadowlap that are no root with the provider's SDK path
+ * Base URLs the agent's SDK was given before shadowlap that are no root with the provider's SDK path
  * under it: OPENAI_BASE_URL set to a server whose API root doesn't end in `/v1`, such as GitHub
  * Models' `https://models.github.ai/inference` or Gemini's `.../v1beta/openai`, where the SDK sends
  * `/chat/completions` straight under it. `shadowlap run` makes such a URL the upstream as it is, and
@@ -666,7 +666,7 @@ export function formatHostProblem(raw: unknown, where: string): string | null {
   if (extra.length) return `${where} has ${extra.map((k) => `"${k}"`).join(', ')}, which a provider doesn't take: host, format and root`;
   if (typeof host !== 'string' || !FORMAT_HOST.test(host)) return `${where}.host must be a host like api.example.com or *.example.com, with an optional :port, in lower case`;
   if (host.startsWith('*.') && host.includes(':')) return `${where}.host: a host with a port is one host, so it takes no *.`;
-  if (RESERVED.has(host)) return `${where}.host "${host}" is a name Shadowlap uses itself`;
+  if (RESERVED.has(host)) return `${where}.host "${host}" is a name shadowlap uses itself`;
   if (format !== 'openai' && format !== 'anthropic' && format !== 'gemini') return `${where}.format must be openai, anthropic or gemini`;
   if (root !== undefined && (typeof root !== 'string' || !/^(\/[A-Za-z0-9._~-]+)+$/.test(root))) return `${where}.root must be a path such as /api/v1`;
   return null;

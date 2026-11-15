@@ -1,4 +1,4 @@
-// Pydantic AI: a real Agent run by FunctionModel, tools registered with @agent.tool over the Shadowlap
+// Pydantic AI: a real Agent run by FunctionModel, tools registered with @agent.tool over the shadowlap
 // Python @tool decorator, as a subprocess against an in-process sidecar.
 // Needs a Python with pydantic-ai-slim; SHADOWLAP_PYTHON picks the interpreter.
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ const TYPED = fileURLToPath(new URL('./pydantic_ai_typed_agent.py', import.meta.
 
 const PYTHON = findPython('pydantic_ai');
 
-describe('Pydantic AI with the Shadowlap Python SDK', { skip: PYTHON ? false : 'no Python with pydantic_ai (set SHADOWLAP_PYTHON)' }, () => {
+describe('Pydantic AI with the shadowlap Python SDK', { skip: PYTHON ? false : 'no Python with pydantic_ai (set SHADOWLAP_PYTHON)' }, () => {
   let h;
   before(async () => (h = await startHarness()));
   after(() => h.close());

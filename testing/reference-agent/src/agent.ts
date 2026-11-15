@@ -43,7 +43,7 @@ export interface AgentResult {
 }
 
 const FILES: Record<string, string> = {
-  'notes.md': '# Notes\nShadowlap records and replays agent runs.',
+  'notes.md': '# Notes\nshadowlap records and replays agent runs.',
   'config.json': '{"model":"claude-opus-5","max_tokens":1024}',
   'data.csv': 'id,value\n1,10\n2,20',
 };

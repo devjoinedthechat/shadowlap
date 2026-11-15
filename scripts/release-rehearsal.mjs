@@ -21,7 +21,7 @@ const PORT = Number(process.env.REGISTRY_PORT ?? 4873);
 const REGISTRY = `http://127.0.0.1:${PORT}/`;
 const work = mkdtempSync(join(tmpdir(), 'shadowlap-release-'));
 const keep = process.argv.includes('--keep');
-// Shadowlap's files for this machine (the dashboard's project list, the agents registered while they
+// shadowlap's files for this machine (the dashboard's project list, the agents registered while they
 // run) go in the rehearsal's own folder, for every process it starts, and go with it: never in the
 // real ~/.shadowlap.
 process.env.SHADOWLAP_HOME = join(work, 'sl-home');
@@ -60,7 +60,7 @@ async function until(fn, ms = 60_000) {
   }
 }
 
-// ---- 1. A registry: Verdaccio, with the Shadowlap names local-only and everything else proxied.
+// ---- 1. A registry: Verdaccio, with the shadowlap names local-only and everything else proxied.
 const registryDir = join(work, 'registry');
 mkdirSync(registryDir);
 writeFileSync(
@@ -269,7 +269,7 @@ test('a recorded test', () =>
 `,
 );
 // The model asks for send_report, which the test only counts and never runs. A replay can't tell that it
-// won't, so it is told the tool may run, as Shadowlap's refusal of an unrecorded write says to.
+// won't, so it is told the tool may run, as shadowlap's refusal of an unrecorded write says to.
 const recordedTest = (env) => run(process.execPath, ['--import', '@shadowlap/test/register', '--test', 'recorded.fixture.mjs'], { cwd: app, env: { ...env, CI: '', SHADOWLAP_RECORD: '', SHADOWLAP_ALLOW_UNRECORDED: 'send_report' } });
 const recordedFirst = recordedTest({ SHADOWLAP_UPSTREAM_OPENAI: upstream });
 const recordedAgain = recordedTest({ SHADOWLAP_UPSTREAM_OPENAI: 'http://127.0.0.1:9' });

@@ -87,7 +87,7 @@ export interface TestSessionComment {
  * gate saw more attempts obey a planted instruction than it allows; or why it didn't pass:
  * `inconclusive`, its gate ran out of attempts between its bounds, or a check couldn't be decided (a
  * judge check with no verdict, and no way to ask the judge). `guard`: under `--guard block`, the
- * replay made calls with no Shadowlap preload loaded in the agent's processes, so the network guard
+ * replay made calls with no shadowlap preload loaded in the agent's processes, so the network guard
  * never watched it.
  */
 export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive' | 'injection' | 'guard';

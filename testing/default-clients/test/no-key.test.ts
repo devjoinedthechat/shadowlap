@@ -93,7 +93,7 @@ for (const agent of AGENTS) {
       committed(work.dir, golden);
     });
 
-    it('fails before it sends anything without Shadowlap, as in a CI job without secrets', async () => {
+    it('fails before it sends anything without shadowlap, as in a CI job without secrets', async () => {
       // Gemini's Node client looks for Google credentials over the network first: it is left out here.
       if (agent.name === 'gemini-node') return;
       const before = providers.all().length;

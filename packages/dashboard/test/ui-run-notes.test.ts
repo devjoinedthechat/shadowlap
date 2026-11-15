@@ -26,7 +26,7 @@ function call(callNo: number): CallRow {
 
 function answer(): RunDetail {
   return {
-    run: { runId: RUN, parentRunId: null, mode: 'replay', status: 'completed', divergence: null, command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: null, startedAt: T, endedAt: T + 10_000, meta: { labels: [], preloads: { guard: 'warn', hellos: {}, missing: "No Shadowlap preload loaded in the agent's processes, though the run made 3 model calls: the network guard never watched it." } } },
+    run: { runId: RUN, parentRunId: null, mode: 'replay', status: 'completed', divergence: null, command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: null, startedAt: T, endedAt: T + 10_000, meta: { labels: [], preloads: { guard: 'warn', hellos: {}, missing: "No shadowlap preload loaded in the agent's processes, though the run made 3 model calls: the network guard never watched it." } } },
     label: 'clean replay',
     about: { text: 'clean replay', from: 'change' },
     source: null,
@@ -56,7 +56,7 @@ const client = {
   injectionRun: () => Promise.resolve({ untrusted: [], results: [], attempt: null }), injectionResults: () => Promise.resolve({ results: [] }), unrecorded: () => Promise.resolve({ runId: RUN, partial: false, tools: [{ name: 'Bash', count: 3, firstCallNo: 5, effect: 'write', why: 'a Claude Code built-in that runs a command', fix: 'fence' }] }),
   lineage: () => Promise.resolve([]),
   jobs: () => Promise.resolve([]),
-  provenance: () => Promise.resolve({ providers: [{ provider: 'openai', calls: 3, via: 'openrouter.ai' }], preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded.' } }),
+  provenance: () => Promise.resolve({ providers: [{ provider: 'openai', calls: 3, via: 'openrouter.ai' }], preloads: { guard: 'warn', hellos: {}, missing: 'No shadowlap preload loaded.' } }),
   showJson: () => new Promise(() => undefined),
 } as unknown as Client;
 

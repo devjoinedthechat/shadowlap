@@ -137,8 +137,8 @@ export function renderDashboard(s: Stats, options: DashboardOptions = {}): strin
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shadowlap usage</title>
-<meta name="description" content="Public, aggregate usage of Shadowlap: weekly active developers, replays and how many were clean, tokens not re-spent. Anonymous opt-out telemetry, no prompts or tool data.">
+<title>shadowlap usage</title>
+<meta name="description" content="Public, aggregate usage of shadowlap: weekly active developers, replays and how many were clean, tokens not re-spent. Anonymous opt-out telemetry, no prompts or tool data.">
 <link rel="icon" href="${favicon}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -157,7 +157,7 @@ export function renderDashboard(s: Stats, options: DashboardOptions = {}): strin
 
   <header class="hero">
     <div class="eyebrow"><s></s>public usage · anonymous · aggregate</div>
-    <h1>Shadowlap, counted in the open.</h1>
+    <h1>shadowlap, counted in the open.</h1>
     <p class="lede">Every number here comes from the CLI's opt-out telemetry: counts and versions, never prompts, tool data, file paths or names. A developer is an install that replayed at least once in the period.</p>
     <p class="meta">Updated <time datetime="${esc(generated.toISOString())}">${esc(generatedLabel)}</time> · refreshed every minute</p>
   </header>
@@ -193,13 +193,13 @@ export function renderDashboard(s: Stats, options: DashboardOptions = {}): strin
     ${breakdown('Why replays forked', 'the first difference, by kind', s.replays.divergenceByType, DIVERGENCE_LABELS, 'all time', DIVERGENCE_HINTS)}
     ${breakdown('Providers', 'model APIs seen in runs', s.providers, PROVIDER_LABELS, 'events, 30 days')}
     ${breakdown('How tools are recorded', 'SDKs and the MCP proxy', s.sdks, SDK_LABELS, 'events, 30 days')}
-    ${breakdown('Operating systems', 'where Shadowlap runs', s.os, OS_LABELS, 'installs, 30 days')}
+    ${breakdown('Operating systems', 'where shadowlap runs', s.os, OS_LABELS, 'installs, 30 days')}
     ${breakdown('Continuous integration', 'recordings replayed in CI', s.ciSystems, CI_LABELS, 'installs, 30 days')}
     ${breakdown('Versions', 'what people have installed', s.versions, {}, 'installs, 30 days')}
   </section>
 
   <footer class="foot">
-    <p><b>What is sent.</b> Event type, time, Shadowlap and Node versions, OS and architecture, CI system, provider and SDK names, and counts: calls, replayed, live, blocked, tokens not re-spent, duration, exit code. The collector rejects anything else, field by field. Install ids are random; in CI they are a hash, never a repository name.</p>
+    <p><b>What is sent.</b> Event type, time, shadowlap and Node versions, OS and architecture, CI system, provider and SDK names, and counts: calls, replayed, live, blocked, tokens not re-spent, duration, exit code. The collector rejects anything else, field by field. Install ids are random; in CI they are a hash, never a repository name.</p>
     <p><b>Opt out</b> with <code>SHADOWLAP_TELEMETRY=0</code> or <code>DO_NOT_TRACK=1</code>. <a href="/v1/stats">Raw aggregates as JSON</a> · <a href="${esc(repo)}/tree/main/packages/collector">collector source</a></p>
   </footer>
 </div>

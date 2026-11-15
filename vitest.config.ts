@@ -11,7 +11,7 @@ const src = (pkg: string) => fileURLToPath(new URL(`./packages/${pkg}/src/index.
  * that holds a suite, a package's or one under testing/, or in that suite's test folder: the
  * vitest.config.mjs in each passes the suite's folder here (`cd packages/dashboard && npx vitest run
  * test/<file>`). Vitest reads the config in the folder it starts in and none above it, so a run
- * started anywhere else has none of this: no Shadowlap home of its own, so the dashboard's tests
+ * started anywhere else has none of this: no shadowlap home of its own, so the dashboard's tests
  * write in the real ~/.shadowlap, no guard to fail them for it, and Vitest's 5 seconds for a test in
  * place of the timeouts below.
  */
@@ -48,11 +48,11 @@ export function testsIn(folder = ROOT) {
       dir,
       include: dir === resolve(ROOT) ? ['packages/*/test/**/*.test.{ts,tsx}', 'testing/**/test/**/*.test.ts'] : ['test/**/*.test.{ts,tsx}'],
       // Fails the run when a test leaves a .shadowlap folder in the repository's root or testing/frameworks,
-      // or anything in the checkout that git lists and the run didn't build. Gives the run a Shadowlap
+      // or anything in the checkout that git lists and the run didn't build. Gives the run a shadowlap
       // home of its own (SHADOWLAP_HOME), and under CI fails it when a test writes in the real ~/.shadowlap.
       globalSetup: ['./testing/no-stray-stores.mjs'],
       // Each test file a home of its own in the run's, which the processes it starts inherit, and the guard
-      // that fails a test writing in the real home's Shadowlap files, or starting a process to (home-guard.mjs).
+      // that fails a test writing in the real home's shadowlap files, or starting a process to (home-guard.mjs).
       setupFiles: ['./testing/file-home.mjs'],
       // Python, which the guard's and the SDK's tests start, writes no __pycache__ beside what it imports.
       env: { PYTHONDONTWRITEBYTECODE: '1' },

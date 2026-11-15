@@ -80,7 +80,7 @@ export function DrawnComment({ preview: p }: { preview: PrCommentPreview }) {
     <div className="prc">
       {/* the tally glued as the mock's is, a count with its noun */}
       <h4>
-        <Words>{`Shadowlap: ${p.head}`}</Words>
+        <Words>{`shadowlap: ${p.head}`}</Words>
       </h4>
       <ul className="prc-g">
         {p.rows.map((r) => (

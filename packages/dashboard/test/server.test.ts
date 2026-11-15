@@ -35,7 +35,7 @@ beforeAll(async () => {
   store = Store.open(':memory:');
   runId = unpackRun(store, GOLDEN).imported[0]!;
   uiDir = mkdtempSync(join(tmpdir(), 'fp-dash-ui-'));
-  writeFileSync(join(uiDir, 'index.html'), '<!doctype html><title>Shadowlap</title><script type="module" src="/assets/app.js"></script>');
+  writeFileSync(join(uiDir, 'index.html'), '<!doctype html><title>shadowlap</title><script type="module" src="/assets/app.js"></script>');
   // What a downloaded run inlines.
   mkdirSync(join(uiDir, 'assets'));
   writeFileSync(join(uiDir, 'assets', 'app.css'), 'body{}');
@@ -89,7 +89,7 @@ describe('dashboard server: the security boundary', () => {
     expect(page.status).toBe(200);
     expect(page.headers.get('content-security-policy')).toContain("script-src 'self'");
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
-    expect(await (await fetch(`${dash.url}/run/${runId}`)).text()).toContain('<title>Shadowlap</title>'); // client routes load the app
+    expect(await (await fetch(`${dash.url}/run/${runId}`)).text()).toContain('<title>shadowlap</title>'); // client routes load the app
     const port = new URL(dash.url).port;
     expect((await raw('/%2e%2e/%2e%2e/package.json', { host: `127.0.0.1:${port}` })).status).toBe(404);
     expect((await raw('/..%2f..%2fpackage.json', { host: `127.0.0.1:${port}` })).status).toBe(404);
@@ -470,7 +470,7 @@ describe('dashboard server: actions', () => {
     }
   });
 
-  it('shows a failure Shadowlap answered with (--fail-at) as injected, not as a live call', async () => {
+  it('shows a failure shadowlap answered with (--fail-at) as injected, not as a live call', async () => {
     const replay = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' } });
     const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'd'.repeat(64), occurrence: 1 };
     store.appendCallStart({ runId: replay.runId, callNo: 1, ...id, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'm', messages: [{ role: 'user', content: 'hi' }] }), meta: { provider: 'anthropic' }, at: 1 });

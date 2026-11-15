@@ -96,7 +96,7 @@ describe('agents of a run with scopes or a trace', () => {
     expect(agents.of(a1)).toEqual({ agent: 'agent', spawnedBy: null });
     // Its scope names it; the tool that started it is still found.
     expect(agents.of(p1)).toEqual({ agent: 'agent/policy-checker', spawnedBy: a1 });
-    // The judge's calls are Shadowlap's: never anyone's sub-agent.
+    // The judge's calls are shadowlap's: never anyone's sub-agent.
     expect(agents.of(j)).toEqual({ agent: 'shadowlap:judge', spawnedBy: null });
     store.close();
   });

@@ -10,7 +10,7 @@ agentLoopTests({
   client: 'OpenAICompletion',
   // CrewAI shows the model each tool under a name of its own making: "Search the web" is search_the_web.
   tools: ['search_the_web', 'send_email'],
-  // CrewAI reports what it does to its own service unless told not to: a connection outside Shadowlap.
+  // CrewAI reports what it does to its own service unless told not to: a connection outside shadowlap.
   env: { CREWAI_DISABLE_TELEMETRY: 'true', CREWAI_DISABLE_TRACKING: 'true', CREWAI_TRACING_ENABLED: 'false', OTEL_SDK_DISABLED: 'true' },
   // CrewAI hands the model a tool's error as its result.
   refused: (value, read) => assert.match(JSON.stringify(read), /Error executing tool: write tool send_email blocked after divergence/),

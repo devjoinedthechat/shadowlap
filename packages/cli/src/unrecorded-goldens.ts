@@ -43,7 +43,7 @@ export function unrecordedInGoldens(goldens: ReadonlyArray<{ dir: string; name: 
     refused: [
       `${goldensRefused === 1 ? 'a golden holds' : `${goldensRefused} goldens hold`} model calls of ${list.length === 1 ? 'a tool' : 'tools'} shadowlap never recorded, which ${refusedActs([...names.values()])}: a replay would run ${list.length === 1 ? 'it' : 'them'} again for real, so no golden was run.`,
       ...refused,
-      `  So Shadowlap records ${list.length === 1 ? 'it' : 'each'} and a replay serves it, ${howToRecord(names.get(first)!) ?? 'record it'}, and record the golden again; or, if running it again is safe, declare it a read in shadowlap.config.json: "tools": { "unrecorded": { ${JSON.stringify(first)}: "read" } }`,
+      `  So shadowlap records ${list.length === 1 ? 'it' : 'each'} and a replay serves it, ${howToRecord(names.get(first)!) ?? 'record it'}, and record the golden again; or, if running it again is safe, declare it a read in shadowlap.config.json: "tools": { "unrecorded": { ${JSON.stringify(first)}: "read" } }`,
       `  Or let the test run ${list.length === 1 ? 'it' : 'them'}: --allow-unrecorded ${list.join(',')}`,
     ].join('\n'),
     warnings,

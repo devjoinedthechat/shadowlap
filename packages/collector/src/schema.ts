@@ -74,7 +74,7 @@ function listOf<T extends string>(v: unknown, set: readonly T[], name: string): 
   return v.map((x) => oneOf(x, set, name));
 }
 
-/** The earliest time an event or a batch may carry, 2025-01-01: no Shadowlap sent one before. */
+/** The earliest time an event or a batch may carry, 2025-01-01: no shadowlap sent one before. */
 export const EARLIEST_MS = Date.UTC(2025, 0, 1);
 /**
  * How far ahead of the collector's clock a time may be: a client's clock may run fast, but never by

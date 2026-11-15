@@ -1,5 +1,5 @@
 /**
- * Recordings as an eval or fine-tuning dataset. Shadowlap doesn't score model output; eval tools do.
+ * Recordings as an eval or fine-tuning dataset. shadowlap doesn't score model output; eval tools do.
  * What it has is every conversation exactly as the model saw it and what the model said back, with
  * what people know about the run (labels, notes, check results). Exported rows carry all of that in
  * the shapes eval tools import.

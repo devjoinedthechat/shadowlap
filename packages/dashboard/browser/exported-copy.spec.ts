@@ -143,7 +143,7 @@ test('an exported copy names itself in the sidebar and the status bar, and says 
   const status = page.locator('footer.status');
   await expect(status.locator('span.st-runs')).toHaveText('2 runs in this copy');
   await expect(status.locator('span.st-sync')).toHaveText(/^exported( .+)? · read-only$/);
-  await expect(page.locator('.top .brand')).toHaveAttribute('aria-label', 'Shadowlap exported copy, the run it opens on');
+  await expect(page.locator('.top .brand')).toHaveAttribute('aria-label', 'shadowlap exported copy, the run it opens on');
   // A run it doesn't hold: a page that says so, the crumbs naming only the section.
   await page.evaluate(() => void (location.hash = '#/run/ZZZZZZZZZZZZ'));
   await expect(page.locator('main#view h1')).toHaveText('Nothing here');

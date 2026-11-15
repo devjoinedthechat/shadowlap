@@ -118,7 +118,7 @@ export function recordEvents(opts: GlobalOpts, events: Array<Omit<RecordEventInp
       store.close();
     }
   } catch {
-    // a store from a newer Shadowlap, or one this user can't write: the activity line is lost, not the edit
+    // a store from a newer shadowlap, or one this user can't write: the activity line is lost, not the edit
   }
 }
 

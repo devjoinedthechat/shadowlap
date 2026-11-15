@@ -20,7 +20,7 @@ async function until(ok: () => boolean, ms: number, what: string): Promise<void>
 
 describe('--watch ignores', () => {
   it('skips generated, hidden and vendored paths', () => {
-    // Shadowlap writes its own store while replaying; watching it would loop forever.
+    // shadowlap writes its own store while replaying; watching it would loop forever.
     for (const path of [
       '.shadowlap/shadowlap.db',
       '.shadowlap/shadowlap.db-wal',

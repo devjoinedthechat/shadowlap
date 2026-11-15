@@ -18,7 +18,7 @@ import type { MetaView } from './views.js';
 /**
  * A run as one HTML file: the dashboard's own UI with the answers it would have asked the server
  * for built in, and nothing to run. It opens from a file, an artifact store or a pull request
- * comment, on a machine that has neither Shadowlap nor the recording.
+ * comment, on a machine that has neither shadowlap nor the recording.
  *
  * It is a copy of recorded data, so the redaction rules in shadowlap.config.json apply by default,
  * as they do to `shadowlap pack`, and to the run's command line, labels and notes too; as a pack,
@@ -239,7 +239,7 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
 </head>
 <body>
 <div id="root"></div>
-<noscript>This exported Shadowlap run needs JavaScript to draw itself.</noscript>
+<noscript>This exported shadowlap run needs JavaScript to draw itself.</noscript>
 <script type="application/json" id="shadowlap-data">${jsonInScript(data)}</script>
 <script type="module">${inScript(js)}</script>
 </body>

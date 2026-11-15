@@ -14,7 +14,7 @@ import { ONE_STORE, homeAsTilde } from './projects.js';
  * `--db` named for it read again. The current project stays current, so the page stays where the
  * removal left it. A project removed with its recordings, or one back already, is refused (404),
  * and so is one whose folder is gone (400): the remove's answer says when its toast can offer the
- * Undo (`undo`). A list this Shadowlap can't change (a newer one's, say) refuses it in its own words
+ * Undo (`undo`). A list this shadowlap can't change (a newer one's, say) refuses it in its own words
  * (500), which the toast shows, `~` for the home folder as Remove's answer writes it. Its own module:
  * the projects module's `register` is at its size.
  */

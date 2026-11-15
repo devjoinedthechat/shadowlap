@@ -1,14 +1,14 @@
-// No test writes in the real home folder's Shadowlap files (~/.shadowlap), however it reaches them.
-// Shadowlap keeps this machine's files in SHADOWLAP_HOME, else ~/.shadowlap, and the setup gives
+// No test writes in the real home folder's shadowlap files (~/.shadowlap), however it reaches them.
+// shadowlap keeps this machine's files in SHADOWLAP_HOME, else ~/.shadowlap, and the setup gives
 // each test file a home of its own, a temporary folder (file-home.mjs). This guard, which that setup
 // installs in every test file's process, holds the rest to it:
 //
 // - A write in the real home's .shadowlap is refused, wherever its path leads there from: through a
-//   link, with a trailing slash or `..`, or relative to the working folder. So is one in the Shadowlap
+//   link, with a trailing slash or `..`, or relative to the working folder. So is one in the shadowlap
 //   home a process's environment names while SHADOWLAP_HOME is unset, or set to a relative path,
-//   which Shadowlap ignores. Node's calls that write, make, move or remove a file check their paths
-//   before they run, the test's own and those of the Shadowlap code it runs.
-// - A process a test starts is refused when Shadowlap in it would keep its files in the real home's:
+//   which shadowlap ignores. Node's calls that write, make, move or remove a file check their paths
+//   before they run, the test's own and those of the shadowlap code it runs.
+// - A process a test starts is refused when shadowlap in it would keep its files in the real home's:
 //   its SHADOWLAP_HOME leads there, or it has none and its HOME (USERPROFILE on Windows) is the real
 //   home folder, or unset. One given the run's SHADOWLAP_HOME, which process.env carries, or a HOME
 //   of its own, starts.
@@ -54,37 +54,37 @@ export function canonical(path) {
   }
 }
 
-/** The real home's Shadowlap folders, `homes`' .shadowlap, as the file system finds them. */
+/** The real home's shadowlap folders, `homes`' .shadowlap, as the file system finds them. */
 export function realShadowlapFolders(homes = realHomes()) {
   return [...new Set(homes.map((home) => canonical(join(home, '.shadowlap'))))];
 }
 
 /**
- * Whether SHADOWLAP_HOME in `env` names Shadowlap's folder for this machine's files, with `home` the
+ * Whether SHADOWLAP_HOME in `env` names shadowlap's folder for this machine's files, with `home` the
  * home folder: it is set, to a path the engine takes rather than ignores. The folder itself is the
  * engine's shadowlapHome (projects/paths.ts), the one rule for both.
  */
 const named = (env, home) => Boolean(env.SHADOWLAP_HOME?.trim()) && shadowlapHomeProblem(env, home) === null;
 
-/** SHADOWLAP_HOME as a message names it: unset, or the value Shadowlap ignores. */
+/** SHADOWLAP_HOME as a message names it: unset, or the value shadowlap ignores. */
 const unnamed = (env) => (env.SHADOWLAP_HOME?.trim() ? `set to ${env.SHADOWLAP_HOME}, which isn't an absolute path` : 'unset');
 
 /**
  * Why a write to `path` is refused, in a process with environment `env` and home folder `home`: it
- * is in one of the `real` home's Shadowlap folders, or in the home `env` names while SHADOWLAP_HOME
+ * is in one of the `real` home's shadowlap folders, or in the home `env` names while SHADOWLAP_HOME
  * is unset or ignored. Null when it may go ahead.
  */
 export function writeProblem(path, { env = process.env, home = homedir(), real = realShadowlapFolders() } = {}) {
   const at = canonical(path);
   const hit = real.find((folder) => isWithin(at, folder));
-  if (hit) return `a test wrote in the real home folder's Shadowlap files (${hit}): ${path}. A test keeps them in its file's own SHADOWLAP_HOME, which the setup sets and process.env carries, or in a folder of its own.`;
-  if (!named(env, home) && isWithin(at, canonical(shadowlapHome(env, home)))) return `a test wrote in Shadowlap's home folder with SHADOWLAP_HOME ${unnamed(env)}: ${path}. A test keeps its file's own SHADOWLAP_HOME, which the setup sets, or sets a folder of its own.`;
+  if (hit) return `a test wrote in the real home folder's shadowlap files (${hit}): ${path}. A test keeps them in its file's own SHADOWLAP_HOME, which the setup sets and process.env carries, or in a folder of its own.`;
+  if (!named(env, home) && isWithin(at, canonical(shadowlapHome(env, home)))) return `a test wrote in shadowlap's home folder with SHADOWLAP_HOME ${unnamed(env)}: ${path}. A test keeps its file's own SHADOWLAP_HOME, which the setup sets, or sets a folder of its own.`;
   return null;
 }
 
 /**
- * Why a process `command` with environment `env` is refused: Shadowlap in it would keep this
- * machine's files in one of the `real` home's Shadowlap folders. Its home folder is HOME
+ * Why a process `command` with environment `env` is refused: shadowlap in it would keep this
+ * machine's files in one of the `real` home's shadowlap folders. Its home folder is HOME
  * (USERPROFILE on Windows), else the system's record of it. Null when they would go elsewhere.
  */
 export function childProblem(env, { command = 'a process', real = realShadowlapFolders(), platform = process.platform } = {}) {
@@ -94,7 +94,7 @@ export function childProblem(env, { command = 'a process', real = realShadowlapF
   const hit = real.find((folder) => isWithin(dir, folder));
   if (!hit) return null;
   const given = named(env, home) ? `SHADOWLAP_HOME ${env.SHADOWLAP_HOME}` : `${name} ${env[name] || 'unset'} and SHADOWLAP_HOME ${unnamed(env)}`;
-  return `a test started ${command} with ${given}, so Shadowlap there would keep this machine's files in the real home folder's (${hit}). Pass it the run's SHADOWLAP_HOME, which process.env carries, or a HOME of its own.`;
+  return `a test started ${command} with ${given}, so shadowlap there would keep this machine's files in the real home folder's (${hit}). Pass it the run's SHADOWLAP_HOME, which process.env carries, or a HOME of its own.`;
 }
 
 /**
@@ -164,7 +164,7 @@ function guard(target, name, check, promised = false) {
 
 /**
  * Installs the guard in this process, once: Node's calls that change a file, and those that start a
- * process, refuse what would reach the real home's Shadowlap files. The real home is taken now,
+ * process, refuse what would reach the real home's shadowlap files. The real home is taken now,
  * before a test could change HOME.
  */
 export function guardHome() {

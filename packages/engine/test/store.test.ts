@@ -11,7 +11,7 @@ const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 
 describe('Store', () => {
   it('opens a new store from several processes at once', async () => {
-    // Test workers each start a Shadowlap host on the same store at the same moment. The first to
+    // Test workers each start a shadowlap host on the same store at the same moment. The first to
     // switch the new database to WAL holds a lock; the others must wait for it, not fail.
     const dir = mkdtempSync(join(tmpdir(), 'fp-race-'));
     const db = join(dir, 'store.db');
@@ -439,13 +439,13 @@ describe('store schema version', () => {
     store.close();
   });
 
-  it('refuses a store written by a newer Shadowlap instead of using it', async () => {
+  it('refuses a store written by a newer shadowlap instead of using it', async () => {
     const path = join(freshDir(), 's.db');
     Store.open(path).close();
     await stamp(path, String(SCHEMA_VERSION + 1));
     // Migrations are additive, so without this guard every CREATE IF NOT EXISTS would no-op, the
     // version would be stamped backwards, and the recording would be read under stale assumptions.
-    expect(() => Store.open(path)).toThrow(/written by a newer Shadowlap/);
+    expect(() => Store.open(path)).toThrow(/written by a newer shadowlap/);
   });
 
   it('blames a Node whose SQLite has no full-text search, not the file, and names the Node that has it', () => {

@@ -28,7 +28,7 @@ const isRead = (c: Pick<OpenCall, 'kind'>) => c.kind === 'clock' || c.kind === '
 
 /**
  * A run's first call that failed: a model call answered with an error, a tool that threw. Not a
- * write fenced after a fork (Shadowlap refused it on purpose) nor a failure `--fail-at` played in,
+ * write fenced after a fork (shadowlap refused it on purpose) nor a failure `--fail-at` played in,
  * and never a clock or random read, nor a judge's call. While a long run's pages come, `origins` has
  * every call's origin (`failed` among them), and `judge` the judge's calls by number (the server's
  * `judgeCalls`), so a failure past the calls read is found too. Null when none failed.

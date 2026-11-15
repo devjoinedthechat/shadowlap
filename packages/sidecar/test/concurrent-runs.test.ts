@@ -7,7 +7,7 @@ import { Sidecar } from '../src/index.js';
 /**
  * Several processes recording through one sidecar at once, as `shadowlap replay --repeat
  * --concurrency` does: each process's model calls must land in its own run. The SDKs send no
- * Shadowlap header, so the run is in the base URL.
+ * shadowlap header, so the run is in the base URL.
  */
 let mock: MockServer;
 let store: Store;

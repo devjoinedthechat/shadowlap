@@ -51,7 +51,7 @@ const FILE = [
   '          webhook: ${{ secrets.TEAM_HOOK }}',
   '          webhook-type: incoming-webhook',
   '          payload: |',
-  '            text: "Shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed"',
+  '            text: "shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed"',
   '',
   '      - name: Fail the job',
   "        if: steps.goldens.outputs.failed != '0'",
@@ -126,12 +126,12 @@ describe('readWorkflow', () => {
 
   it.each([
     ['tabs', FILE.replace('        id: goldens', '\t\tid: goldens'), 'indents with tabs, which YAML doesn’t allow'],
-    ['braces', FILE.replace(/ {8}with:\n {10}version: 0\.1\.0/, '        with: { version: 0.1.0 }\n        with2:\n          version: 0.1.0'), 'has a Shadowlap step whose with: is written on one line in braces or brackets'],
-    ['an alias', FILE.replace('          comment: false', '          comment: *off'), 'has a Shadowlap step whose with: comment uses a YAML anchor or alias'],
-    ['an anchor', FILE.replace('          comment: false', '          comment: &off false'), 'has a Shadowlap step whose with: comment uses a YAML anchor or alias'],
-    ['a block of lines', FILE.replace("          recordings: 'goldens/* allow'", '          recordings: |\n            goldens/*'), 'has a Shadowlap step whose with: recordings is a block of lines (| or >)'],
-    ['a value over lines', FILE.replace("          recordings: 'goldens/* allow'", '          recordings: goldens/a\n            goldens/b'), 'has a Shadowlap step whose with: holds a value over several lines'],
-    ['an env in braces', FILE.replace('        env:\n', '        env: {}\n        env2:\n'), 'has a Shadowlap step whose env: is written on one line in braces or brackets'],
+    ['braces', FILE.replace(/ {8}with:\n {10}version: 0\.1\.0/, '        with: { version: 0.1.0 }\n        with2:\n          version: 0.1.0'), 'has a shadowlap step whose with: is written on one line in braces or brackets'],
+    ['an alias', FILE.replace('          comment: false', '          comment: *off'), 'has a shadowlap step whose with: comment uses a YAML anchor or alias'],
+    ['an anchor', FILE.replace('          comment: false', '          comment: &off false'), 'has a shadowlap step whose with: comment uses a YAML anchor or alias'],
+    ['a block of lines', FILE.replace("          recordings: 'goldens/* allow'", '          recordings: |\n            goldens/*'), 'has a shadowlap step whose with: recordings is a block of lines (| or >)'],
+    ['a value over lines', FILE.replace("          recordings: 'goldens/* allow'", '          recordings: goldens/a\n            goldens/b'), 'has a shadowlap step whose with: holds a value over several lines'],
+    ['an env in braces', FILE.replace('        env:\n', '        env: {}\n        env2:\n'), 'has a shadowlap step whose env: is written on one line in braces or brackets'],
   ])('refuses %s, saying why', (_, text, problem) => {
     const read = readWorkflow(text);
     expect(read.problem).toBe(problem);

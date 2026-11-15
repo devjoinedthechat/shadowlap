@@ -7,10 +7,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPreload, refusedPreload } from '../src/agent-node.js';
 
 /**
- * An agent on a Node before 18.18 never starts under Shadowlap: that Node refuses `--import` in
+ * An agent on a Node before 18.18 never starts under shadowlap: that Node refuses `--import` in
  * NODE_OPTIONS, which loads the guard into it, and exits 9 before running any of the agent. Every
  * command that starts an agent says so in one line instead of a bare exit, or a summary that asks
- * whether the agent uses the Shadowlap environment. The Node here is a stand-in that refuses the
+ * whether the agent uses the shadowlap environment. The Node here is a stand-in that refuses the
  * preload in Node 18.17's words and runs anything else on this Node.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));

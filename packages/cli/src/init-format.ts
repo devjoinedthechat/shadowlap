@@ -76,7 +76,7 @@ const CLAUDE_AGENT_PACKAGES: ReadonlySet<string> = new Set(['@anthropic-ai/claud
 export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { globalCli = false }: { globalCli?: boolean } = {}): string {
   const lines: string[] = [];
   const out = (s = '') => lines.push(s);
-  out(`${p.bold('Shadowlap init')}  ${p.dim(r.cwd)}`);
+  out(`${p.bold('shadowlap init')}  ${p.dim(r.cwd)}`);
   out();
   out(p.bold('Found'));
   if (!r.languages.length) {
@@ -139,20 +139,20 @@ function buildLine({ p, out }: InitWriter, build: NonNullable<InitReport['build'
   else out(`    ${p.dim(`if the agent runs what it builds, add "build": ${JSON.stringify(command)} to ${CONFIG_FILE}: repair, fix apply, verify, migrate apply and bisect rebuild it then`)}`);
 }
 
-/** What would keep calls from being recorded, or the CLI from running: a host Shadowlap doesn't know, a model sent where it can't follow, no model SDK, a Node too old. */
+/** What would keep calls from being recorded, or the CLI from running: a host shadowlap doesn't know, a model sent where it can't follow, no model SDK, a Node too old. */
 function warnings(w: InitWriter): void {
   const { r, p, out } = w;
   // A provider's own host is captured in Node and Python processes; another host needs naming.
   const unknownHosts = r.hardcodedBaseUrls.filter((u) => !captured(u.url));
   for (const u of unknownHosts) {
     const id = u.client ?? '<provider>';
-    out(`${p.yellow('!')} ${u.file}:${u.line} sets the model base URL to ${u.url}. Shadowlap doesn't know that host, so calls through that client would not be recorded.`);
+    out(`${p.yellow('!')} ${u.file}:${u.line} sets the model base URL to ${u.url}. shadowlap doesn't know that host, so calls through that client would not be recorded.`);
     out(`  ${p.dim(`Run with SHADOWLAP_UPSTREAM_${id.toUpperCase()}=${u.url.replace(/\/v1\/?$/, '')}, or read the base URL from ${u.client ? PROVIDER_NAMES[u.client][1] : 'the environment'}.`)}`);
   }
   if (unknownHosts.length) out();
   for (const m of r.unrecordedModels) {
-    out(`${p.yellow('!')} ${m.file}:${m.line} names the model ${m.model} through ${m.via === 'mastra' ? "Mastra's model router" : FRAMEWORK_NAMES[m.via]}, which sends it to a host Shadowlap doesn't know, so its calls would not be recorded.`);
-    out(`  ${p.dim(m.via === 'mastra' ? "Shadowlap records the router's anthropic/…, openai/…, google/… and vercel/… models." : "Declare its host in shadowlap.config.json (\"providers\") when it speaks OpenAI's, Anthropic's or Gemini's API, and its calls are recorded.")}`);
+    out(`${p.yellow('!')} ${m.file}:${m.line} names the model ${m.model} through ${m.via === 'mastra' ? "Mastra's model router" : FRAMEWORK_NAMES[m.via]}, which sends it to a host shadowlap doesn't know, so its calls would not be recorded.`);
+    out(`  ${p.dim(m.via === 'mastra' ? "shadowlap records the router's anthropic/…, openai/…, google/… and vercel/… models." : "Declare its host in shadowlap.config.json (\"providers\") when it speaks OpenAI's, Anthropic's or Gemini's API, and its calls are recorded.")}`);
   }
   if (r.unrecordedModels.length) out();
   if (!r.providers.length) {
@@ -242,7 +242,7 @@ function record(w: InitWriter): void {
   out(`     ${p.cyan(`${upstream}${cli} run -- ${r.command ? quoteArgv(r.command.argv) : '<the command that starts your agent>'}`)}`);
   // `mastra dev` and `mastra start` serve agents and wait for requests: a run is a script that asks one.
   if (!r.command && r.frameworks.some((f) => f.id === 'mastra')) out(`     ${p.dim("Mastra's dev server waits for requests: record a script that calls an agent, await mastra.getAgent('…').generate('…'), or a test with @shadowlap/test.")}`);
-  if (r.modelServer) out(`     ${p.dim(w.secret ? 'SHADOWLAP_UPSTREAM_OPENAI is the model server’s address without /v1, credentials included; init doesn’t print them.' : 'SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to Shadowlap.')}`);
+  if (r.modelServer) out(`     ${p.dim(w.secret ? 'SHADOWLAP_UPSTREAM_OPENAI is the model server’s address without /v1, credentials included; init doesn’t print them.' : 'SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to shadowlap.')}`);
   out();
   head(w, 'Replay it, then change something and replay again');
   out(`     ${p.cyan(`${cli} replay <run>`)}   ${p.dim('0 upstream requests when nothing changed')}`);
@@ -272,8 +272,8 @@ export function formatInitJob(json: InitJson, p: Palette): string {
   row('command', s.command ? `${s.command}   from ${s.commandFrom ?? 'the project'}` : 'none found');
   if (json.build) row('build', `${quoteArgv(json.build.argv)}   from ${json.build.from}${json.build.configured ? ` · ${CONFIG_FILE} builds with ${json.build.configured}` : ''}`);
   for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect!}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
-  for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host Shadowlap doesn't know: calls through it aren't recorded`, true);
-  for (const m of json.unrecordedModels) row('model', `${m.file}:${m.line} names ${m.model}: ${m.via === 'mastra' ? 'Mastra' : FRAMEWORK_NAMES[m.via]} sends it to a host Shadowlap doesn't know, so its calls aren't recorded`, true);
+  for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host shadowlap doesn't know: calls through it aren't recorded`, true);
+  for (const m of json.unrecordedModels) row('model', `${m.file}:${m.line} names ${m.model}: ${m.via === 'mastra' ? 'Mastra' : FRAMEWORK_NAMES[m.via]} sends it to a host shadowlap doesn't know, so its calls aren't recorded`, true);
   lines.push(json.config.created ? `${p.green('✓')} wrote ${basename(json.config.path)} (empty)` : `  ${s.config}`);
   return lines.join('\n');
 }
@@ -315,7 +315,7 @@ export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelSe
     config: string;
     /**
      * The Node the project pins (`.nvmrc`, `.node-version`), its minor kept, and whether it is older
-     * than Shadowlap's guard takes (18.18): an agent on it wouldn't start. Null without a pin.
+     * than shadowlap's guard takes (18.18): an agent on it wouldn't start. Null without a pin.
      */
     node: { version: string; from: string; tooOld: boolean } | null;
   };
@@ -351,9 +351,9 @@ function tooOldNode(r: Pick<InitReport, 'cwd' | 'languages'>): { version: string
   return pin && nodePinTooOld(pin.version) ? pin : null;
 }
 
-/** What `init` says of a Node pin the guard can't go into: the agent wouldn't start under Shadowlap. */
+/** What `init` says of a Node pin the guard can't go into: the agent wouldn't start under shadowlap. */
 export function nodePinWords(pin: { version: string; from: string }): string {
-  return `${pin.from} pins Node ${pin.version}, too old for Shadowlap's guard, which needs Node ${AGENT_NODE_MIN} or later: the agent wouldn't start. Pin ${AGENT_NODE_MIN} or later before you record.`;
+  return `${pin.from} pins Node ${pin.version}, too old for shadowlap's guard, which needs Node ${AGENT_NODE_MIN} or later: the agent wouldn't start. Pin ${AGENT_NODE_MIN} or later before you record.`;
 }
 
 const cleanVersion = (v: string) => v.replace(/^[\^~>=<v\s]+/, '').split(/[\s,|]/)[0]!;
@@ -478,7 +478,7 @@ function wrapCode(language: WrapSnippet['language'], tools: FoundTool[], fence: 
       if (via === 'openai-agents-python') blocks.push(['from shadowlap.adapters.openai_agents import function_tool', '', list.map((t) => def([`@function_tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       else if (via === 'langchain-python' || via === 'crewai') blocks.push([`from shadowlap.adapters.${via === 'crewai' ? 'crewai' : 'langchain'} import with_effect`, '', `tools = [${list.map((t) => `with_effect(${t.className ? `${t.className}()` : t.name}, "${t.suggested}")`).join(', ')}]`].join('\n'));
       else if (via === 'pydantic-ai') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@agent.tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
-      // Strands and smolagents keep their own @tool over Shadowlap's.
+      // Strands and smolagents keep their own @tool over shadowlap's.
       else if (via === 'strands' || via === 'smolagents') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       else if (via === 'claude-agent-sdk-python') blocks.push(claudeAgentCode(true, list, fence));
       else blocks.push(['from shadowlap import tool', '', list.map((t) => def([`@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
@@ -571,7 +571,7 @@ export interface InspectedNote {
   id: string | null;
   /** The setup's first step took these findings. */
   noted: boolean;
-  /** Why it didn't, when the folder is a project (the list was busy, or written by a newer Shadowlap) or the list can't be read. */
+  /** Why it didn't, when the folder is a project (the list was busy, or written by a newer shadowlap) or the list can't be read. */
   why: string | null;
 }
 

@@ -213,7 +213,7 @@ describe('a fix in the team store', () => {
     expect((await pull(maya)).fixes.merged).toEqual([fixId]);
     expect(maya.store.getFix(fixId)).toMatchObject({ title: 'Escalate refunds above the policy limit', status: 'applied', appliedAt: 9_000, data: { applied, titleEdited: true } });
 
-    // A copy that says applied, as an older Shadowlap sent it, is verified on the machine that pulls it.
+    // A copy that says applied, as an older shadowlap sent it, is verified on the machine that pulls it.
     const old = JSON.parse(remote.objects.get(fixKey(fixId))!.body.toString('utf8')) as FixDoc;
     old.fix = { ...old.fix, status: 'applied', appliedAt: 8_000, data: { ...old.fix.data, applied } };
     remote.objects.set(fixKey(fixId), { body: Buffer.from(JSON.stringify(old)), version: 'old', contentType: 'application/json' });
@@ -257,7 +257,7 @@ describe('a fix in the team store', () => {
       [ids[0], expect.stringMatching(/fix\.title: must be one line|contains control characters/)],
       [ids[1], expect.stringMatching(/dir: must be \.shadowlap\/repairs\/repair-evil/)],
       [ids[2], expect.stringMatching(/holds another fix/)],
-      [ids[3], expect.stringMatching(/is version 2; this Shadowlap reads version 1/)],
+      [ids[3], expect.stringMatching(/is version 2; this shadowlap reads version 1/)],
       [ids[4], expect.stringMatching(/probes: must be a list/)],
       [ids[5], expect.stringMatching(/fix\.title: must be one line|contains control characters/)],
       [ids[6], expect.stringMatching(/contains control characters|must be one line/)],

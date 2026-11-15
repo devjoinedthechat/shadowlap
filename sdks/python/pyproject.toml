@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shadowlap"
 version = "0.1.0"
-description = "Shadowlap SDK: effect-typed tools and recorded clock/randomness for replayable AI agents."
+description = "shadowlap SDK: effect-typed tools and recorded clock/randomness for replayable AI agents."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.9"

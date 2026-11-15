@@ -141,7 +141,7 @@ describe('no traceback', () => {
     expect(parseTraceback('gave up\n\nNode.js v22.11.0\n(Use `node --trace-warnings ...` to show where the warning was created)\n')!.exception).toBe('gave up');
   });
 
-  it('is null when nothing is left but Shadowlap\'s own lines', () => {
+  it('is null when nothing is left but shadowlap\'s own lines', () => {
     expect(parseTraceback('[shadowlap] replaying run X\n')).toBeNull();
     expect(parseTraceback('')).toBeNull();
     expect(parseTraceback('\n\n  \n[shadowlap] stopped after 30s\n')).toBeNull();

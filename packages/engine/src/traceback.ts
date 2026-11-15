@@ -5,7 +5,7 @@
  * chaos report has always read it.
  *
  * The input is a tail. The store keeps an agent's last 20 lines, each cut at 400 characters and at
- * most 6000 in all, with stdout and stderr interleaved as they arrived and Shadowlap's own
+ * most 6000 in all, with stdout and stderr interleaved as they arrived and shadowlap's own
  * `[shadowlap] …` lines after them. So a traceback can lose its head, and lines can follow it: the
  * parser reads the last traceback in the tail, never just its last line.
  */
@@ -53,7 +53,7 @@ const NODE_HEADER = /^((?:file:\/\/)?(?:\/|[A-Za-z]:\\|node:)\S*):(\d+)$/;
 const ERROR_SHAPED = /^[\w$.]*(Error|Exception|Failure)\w*(?: \[[\w$.]+\])?: \S/;
 /** An exception's line, its type then its message: `KeyError: 'total'`, `TypeError [ERR_X]: …`, a bare `KeyboardInterrupt`. */
 const TYPED = /^([A-Za-z_$][\w$.]*)(?: \[[\w$.]+\])?(?:: (.*))?$/;
-/** Lines that say nothing of what the agent died of: Shadowlap's own, the runtime's version and its hint. */
+/** Lines that say nothing of what the agent died of: shadowlap's own, the runtime's version and its hint. */
 const NOT_SAID = /^(?:\[shadowlap\]|Node\.js v\d|\(Use `node --)/;
 
 export function parseTraceback(output: string): ParsedTraceback | null {

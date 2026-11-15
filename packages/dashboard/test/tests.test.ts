@@ -318,7 +318,7 @@ describe('the Tests screen', () => {
   it('names a connection the network guard blocked in the replay, in the failure and its lines', () => {
     const store = Store.open(':memory:');
     run(store, 'R_LIVE');
-    // The sidecar keeps on the run what the guard saw bypass Shadowlap: a test blocks it, a recording only warns.
+    // The sidecar keeps on the run what the guard saw bypass shadowlap: a test blocks it, a recording only warns.
     store.updateRunMeta('R_LIVE', { notRecorded: { hosts: [{ target: 'hooks.example.com:443', count: 2, action: 'blocked' }, { target: 'metrics.example.com:443', count: 1, action: 'warned' }], tools: [] } });
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: 'R_LIVE', revision: 'abc1234', data: { details: '1/1 calls replayed' } });
@@ -353,7 +353,7 @@ describe('the Tests screen', () => {
     const store = Store.open(':memory:');
     run(store, 'R_DIED');
     const output = [
-      '[shadowlap] blocked an outbound connection to 127.0.0.1:62331: it bypasses Shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=127.0.0.1:62331.',
+      '[shadowlap] blocked an outbound connection to 127.0.0.1:62331: it bypasses shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=127.0.0.1:62331.',
       'TypeError: fetch failed',
       '  [cause]: Error: shadowlap: blocked outbound connection to 127.0.0.1:62331 (SHADOWLAP_GUARD=block)',
       'OSError: [Errno 1] shadowlap: blocked outbound connection to ::1:8443 (SHADOWLAP_GUARD=block)',
@@ -366,7 +366,7 @@ describe('the Tests screen', () => {
     // A warning (a recording lets the connection through) is no live call a test refused.
     const warned = Store.open(':memory:');
     const w = warned.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
-    warned.addTestResult({ sessionId: w.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', revision: 'abc1234', data: { output: '[shadowlap] warning: outbound connection to 127.0.0.1:62331 bypasses Shadowlap and is not recorded' } });
+    warned.addTestResult({ sessionId: w.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', revision: 'abc1234', data: { output: '[shadowlap] warning: outbound connection to 127.0.0.1:62331 bypasses shadowlap and is not recorded' } });
     warned.finishTestSession(w.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
     expect(testsView(warned, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).failures[0].blocked).toBeNull();
     warned.close();
@@ -1290,7 +1290,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     const why = {
       older: "not judged: the recording's verdict was given to an older form of the judge's request, and the test runs offline: record it again with shadowlap test --update",
       material: 'not judged: the recording\'s verdict was given on other material: it read "order 8f3a, and more" where it now reads "order 1b2c, and more", and the test runs offline',
-      unknown: "not judged: Shadowlap can't tell which provider serves my-judge",
+      unknown: "not judged: shadowlap can't tell which provider serves my-judge",
     };
     session(
       s,

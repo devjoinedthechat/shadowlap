@@ -62,7 +62,7 @@ function gitOk(cwd: string, args: string[]): boolean {
   }
 }
 
-/** Paths git prints with -z, relative to the repository's root, without what is Shadowlap's own or git's. */
+/** Paths git prints with -z, relative to the repository's root, without what is shadowlap's own or git's. */
 function listed(root: string, args: string[]): string[] {
   return git(root, args)
     .split('\0')

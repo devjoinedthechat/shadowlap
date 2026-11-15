@@ -155,7 +155,7 @@ describe('classifyRun: the kind of a run', () => {
     expect(classifyRun({ ...other, mode: 'record', parentRunId: null }).attemptOf).toBeNull();
   });
 
-  it('ignores metadata that is not shaped like what Shadowlap writes (a run from a pack)', () => {
+  it('ignores metadata that is not shaped like what shadowlap writes (a run from a pack)', () => {
     const odd = run({ mode: 'replay', parentRunId: 'P', meta: { repeat: 'yes', probe: 3, verify: [], covers: 'api', checks: 'all', blame: 'x' } as Record<string, unknown> });
     expect(classifyRun(odd)).toEqual({ kind: 'clean', attemptOf: null, attemptKind: null });
     expect(checksOf(odd)).toBeNull();

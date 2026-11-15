@@ -148,7 +148,7 @@ export async function checkStore(remote: ObjectStore, options: { now?: () => num
   else if (result.versioning === 'unavailable') result.warnings.push(`This store has no object versioning: a run deleted in the bucket can't be recovered. ${versioningHint(loc)}`);
   const lock = result.objectLock;
   if (lock.state === 'off') result.warnings.push(`Object lock is off${lock.detail ? ` (${lock.detail})` : ''}: anyone allowed to delete in the bucket can remove a run's earlier versions for good. ${objectLockHint(loc)}`);
-  else if (lock.state === 'unavailable' && result.versioning !== 'unavailable') result.notes.push(`This store has no object lock that Shadowlap can read: check the bucket's own retention settings.`);
+  else if (lock.state === 'unavailable' && result.versioning !== 'unavailable') result.notes.push(`This store has no object lock that shadowlap can read: check the bucket's own retention settings.`);
   if (result.ok && !result.encryption) result.warnings.push("The store didn't say it encrypts objects at rest. Check the bucket's encryption settings.");
   return result;
 }

@@ -25,7 +25,7 @@ export abstract class Search extends StorePart {
   /**
    * A run's documents out of the search index, found by the rows that map them (search_rows), not by
    * reading every document. `all` reads every document after all, for a run indexed again from its
-   * start (rare): an earlier Shadowlap may have written some of its documents without their rows.
+   * start (rare): an earlier shadowlap may have written some of its documents without their rows.
    */
   private deleteSearchDocs(runId: string, all = false): void {
     if (all) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);

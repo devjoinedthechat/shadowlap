@@ -44,7 +44,7 @@ const STORE_FILES = ['shadowlap.db', 'shadowlap.db-wal', 'shadowlap.db-shm', 'sh
  * delete follow: a run whose process is alive is recorded however long ago it started, and one
  * whose process was killed is not, however recently. A `shadowlap run` whose process is alive
  * (`.shadowlap/active.json`) counts too, as it starts. A store that can't be opened to look (one
- * held by a long write, or from a newer Shadowlap) can't be said to be idle: that throws rather
+ * held by a long write, or from a newer shadowlap) can't be said to be idle: that throws rather
  * than answering no.
  */
 export function recordingInProgress(folder: string, now: number = Date.now()): boolean {
@@ -63,7 +63,7 @@ export function recordingInProgress(folder: string, now: number = Date.now()): b
     // Read-only: a store about to be deleted isn't migrated first.
     return readStore(db, (store) => store.liveRecordings(now).length > 0);
   } catch (err) {
-    throw new RecordingsError('store', `Shadowlap can’t open the store to check that nothing is recording into it: ${messageOf(err)}`);
+    throw new RecordingsError('store', `shadowlap can’t open the store to check that nothing is recording into it: ${messageOf(err)}`);
   }
 }
 
@@ -77,7 +77,7 @@ export function storeFilesToDelete(folder: string, now: number = Date.now()): st
     return [];
   }
   // Never follow a link a checkout could have planted: the store is a plain folder, or it isn't ours.
-  if (st.isSymbolicLink() || !st.isDirectory()) throw new RecordingsError('store', `${dir} isn’t a plain folder, so Shadowlap won’t delete anything in it. Delete the recordings yourself.`);
+  if (st.isSymbolicLink() || !st.isDirectory()) throw new RecordingsError('store', `${dir} isn’t a plain folder, so shadowlap won’t delete anything in it. Delete the recordings yourself.`);
   const present = (): string[] => {
     const files: string[] = [];
     for (const name of STORE_FILES) {
@@ -87,7 +87,7 @@ export function storeFilesToDelete(folder: string, now: number = Date.now()): st
       } catch {
         continue;
       }
-      if (!f.isFile()) throw new RecordingsError('store', `${join(dir, name)} isn’t a plain file, so Shadowlap won’t delete it. Delete the recordings yourself.`);
+      if (!f.isFile()) throw new RecordingsError('store', `${join(dir, name)} isn’t a plain file, so shadowlap won’t delete it. Delete the recordings yourself.`);
       files.push(`.shadowlap/${name}`);
     }
     return files;
@@ -98,7 +98,7 @@ export function storeFilesToDelete(folder: string, now: number = Date.now()): st
   try {
     accessSync(dir, constants.W_OK);
   } catch (err) {
-    throw new RecordingsError('store', `Shadowlap can’t delete files in ${dir}: ${messageOf(err)}. Delete the recordings yourself.`);
+    throw new RecordingsError('store', `shadowlap can’t delete files in ${dir}: ${messageOf(err)}. Delete the recordings yourself.`);
   }
   if (recordingInProgress(folder, now)) throw new RecordingsError('recording', 'A run is being recorded in this folder. Let it finish or stop it, then delete the recordings.');
   return present();

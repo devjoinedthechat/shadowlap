@@ -9,7 +9,7 @@ import { providers, sdkBasesFromEnvironment, type Provider } from '@shadowlap/si
 
 /**
  * How `shadowlap decisions` sends a recorded request again: through the upstreams the sidecar uses
- * for any live call (SHADOWLAP_UPSTREAM_<PROVIDER>, an SDK base URL from before Shadowlap, else the
+ * for any live call (SHADOWLAP_UPSTREAM_<PROVIDER>, an SDK base URL from before shadowlap, else the
  * provider's own host; a Bedrock or Vertex AI host from the Region the call names), with the
  * credentials this machine has, and read the way the sidecar reads a live answer: usage, stop reason
  * and model through the provider's module. Nothing is stored here and no key is ever kept: a key
@@ -249,7 +249,7 @@ export class ModelSender {
   /** Why requests to this provider can't be sent from here, or null: for refusing before anything is spent. */
   problem(providerId: string, path: string): string | null {
     const provider = providerById(providerId);
-    if (!provider) return `${providerId} is not a provider Shadowlap sends to`;
+    if (!provider) return `${providerId} is not a provider shadowlap sends to`;
     const up = upstreamOf(provider, path, this.o);
     if ('error' in up) return up.error;
     return missingCredentials(provider, up.official, this.env);
@@ -259,7 +259,7 @@ export class ModelSender {
     const provider = providerById(req.provider);
     const started = Date.now();
     const none = (error: string): ModelAnswer => ({ status: 0, contentType: undefined, bytes: Buffer.alloc(0), usage: null, stopReason: null, model: null, latencyMs: 0, error, attempts: 0 });
-    if (!provider) return none(`${req.provider} is not a provider Shadowlap sends to`);
+    if (!provider) return none(`${req.provider} is not a provider shadowlap sends to`);
     const up = upstreamOf(provider, req.path, this.o);
     if ('error' in up) return none(up.error);
     const missing = missingCredentials(provider, up.official, this.env);

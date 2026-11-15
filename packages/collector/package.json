@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/collector",
   "version": "0.1.0",
-  "description": "The self-hostable telemetry collector for Shadowlap: a strict allowlist, SQLite, aggregate stats and a dashboard.",
+  "description": "The self-hostable telemetry collector for shadowlap: a strict allowlist, SQLite, aggregate stats and a dashboard.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

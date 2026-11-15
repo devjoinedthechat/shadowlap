@@ -29,7 +29,7 @@ import { load } from './load.js';
  *   reads, `stub` runs the stand-in and answers with `onFork`'s output, and `allow` runs it,
  *   recorded.
  *
- * Without Shadowlap (no SHADOWLAP_URL) every hook answers `{}`, and Claude Code runs as it would.
+ * Without shadowlap (no SHADOWLAP_URL) every hook answers `{}`, and Claude Code runs as it would.
  * Claude Code checks a call's input against the files on disk before any hook runs, so a replay
  * forks, safely, at a call that depends on a file an earlier, fenced write would have changed: see
  * docs/frameworks.md for this and the other limits.
@@ -112,9 +112,9 @@ export interface FenceOptions {
    */
   settings?: SettingsPlaces;
   /**
-   * The query's options that decide what the Claude Code CLI connects to besides Shadowlap
+   * The query's options that decide what the Claude Code CLI connects to besides shadowlap
    * (withFence passes them): `tools`, `disallowedTools`, `mcpServers`, `strictMcpConfig`, `agents`,
-   * `extraArgs` and `plugins`. The fence says what they leave open when it tells Shadowlap the CLI
+   * `extraArgs` and `plugins`. The fence says what they leave open when it tells shadowlap the CLI
    * runs: a run whose CLI reaches nothing the guard can't watch passes `--guard block`. Without them
    * nobody knows, and it fails.
    */
@@ -255,7 +255,7 @@ class Fence {
   }
 
   /**
-   * The Claude Code CLI the SDK runs is a native program, which Shadowlap's preloads can't load
+   * The Claude Code CLI the SDK runs is a native program, which shadowlap's preloads can't load
    * into, so the network guard can't watch the connections it makes itself. The fence says so for
    * it, once, as a preload says it loaded, with what the query leaves the CLI to reach (claudeReach):
    * the run's summary names each, and `--guard block` fails the run unless there are none. From this
@@ -268,7 +268,7 @@ class Fence {
         return undefined;
       })
       .then((paths) => sayHello({ runtime: 'claude-code', pid: process.pid, ppid: process.ppid, guard: 'off', capture: false, ...(paths ? { reach: paths } : {}) }))
-      .catch((err: unknown) => this.log(`could not tell Shadowlap that the Claude Code CLI runs unguarded: ${message(err)}`)));
+      .catch((err: unknown) => this.log(`could not tell shadowlap that the Claude Code CLI runs unguarded: ${message(err)}`)));
   }
 
   /** What the query leaves the CLI to reach, as the sidecar keeps it; nothing without the query's options. */
@@ -340,7 +340,7 @@ class Fence {
   private async standInOrRefuse(name: string, agentType: string, stand: Record<string, unknown>, why: string): Promise<FenceOutput> {
     const beside = await this.besides(name, agentType);
     if (!beside) return allow(stand, why);
-    const reason = `shadowlap: ${name} was not run again: ${where(beside)} runs beside Shadowlap's, and Claude Code takes the input from whichever hook answers last, so it could run the recorded ${name} again for real. The replay forks here. Give that hook to the query in its hooks option, where withFence runs it inside the fence, or leave its file out for this agent (its settingSources entry, or the plugin that holds it).`;
+    const reason = `shadowlap: ${name} was not run again: ${where(beside)} runs beside shadowlap's, and Claude Code takes the input from whichever hook answers last, so it could run the recorded ${name} again for real. The replay forks here. Give that hook to the query in its hooks option, where withFence runs it inside the fence, or leave its file out for this agent (its settingSources entry, or the plugin that holds it).`;
     this.once(`beside:${name}`, reason);
     return deny(reason);
   }
@@ -356,7 +356,7 @@ class Fence {
       // A hook that throws lets the tool run unchanged, so nothing may escape: a write that can't be
       // recorded is refused (this could be a replay), and a read runs unrecorded.
       this.log(`could not record ${name}: ${message(err)}`);
-      return c.effect === 'write' ? deny(`shadowlap: ${name} was not run: it is a write, and it could not be recorded (${message(err)}). A write never runs unrecorded under Shadowlap, since this may be a replay.`) : {};
+      return c.effect === 'write' ? deny(`shadowlap: ${name} was not run: it is a write, and it could not be recorded (${message(err)}). A write never runs unrecorded under shadowlap, since this may be a replay.`) : {};
     }
   }
 
@@ -382,7 +382,7 @@ class Fence {
     // Recorded as it runs; a replay of it will meet the same hook beside the fence, and refuse it.
     if (c.effect === 'write') {
       const beside = await this.besides(c.name, c.agentType);
-      if (beside) this.once(`record:${c.name}`, `${where(beside)} runs beside Shadowlap's for ${c.name}: a replay of this run refuses ${c.name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where withFence runs it inside the fence.`);
+      if (beside) this.once(`record:${c.name}`, `${where(beside)} runs beside shadowlap's for ${c.name}: a replay of this run refuses ${c.name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where withFence runs it inside the fence.`);
     }
     return {};
   }
@@ -460,7 +460,7 @@ class Fence {
   private async lost(p: Exclude<Pending, { kind: 'live' }>, ran: unknown): Promise<FenceOutput> {
     const field = ACTS_ON[p.name];
     const what = field && isObject(ran) ? ` (${field}: ${JSON.stringify(ran[field])})` : '';
-    const line = `shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave ${p.name}, so Claude Code ran the call itself${what}: on a replay, that is the recorded call run again for real. The session stops here. A hook the fence doesn't run did it, one in a settings file, a plugin or managed settings: see Claude Agent SDK in docs/frameworks.md.`;
+    const line = `shadowlap: another PreToolUse hook replaced the stand-in shadowlap gave ${p.name}, so Claude Code ran the call itself${what}: on a replay, that is the recorded call run again for real. The session stops here. A hook the fence doesn't run did it, one in a settings file, a plugin or managed settings: see Claude Agent SDK in docs/frameworks.md.`;
     this.log(line);
     if (p.kind === 'stubbed') await completeToolCall(p.callNo, { outcome: 'error', error: { name: 'ShadowlapFenceLost', message: line } }).catch((err: unknown) => this.log(`could not record that ${p.name} ran: ${message(err)}`));
     return { continue: false, stopReason: line, systemMessage: line };
@@ -565,10 +565,10 @@ interface QueryOptionsLike extends ReachOptions {
 /**
  * The query's options with the fence's hooks in them: `query({ prompt, options: withFence(options) })`.
  * The query's own PreToolUse and PostToolUse hooks run inside the fence's, first; its other hooks
- * stay where they are, beside the fence's. Under Shadowlap, the CLI runs with
+ * stay where they are, beside the fence's. Under shadowlap, the CLI runs with
  * CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, set in the query's `env` or else the process's, unless
  * it is set there already: its updates, telemetry and error reports are connections the guard can't
- * watch. Without Shadowlap the hooks answer as the query's own would and no environment is touched,
+ * watch. Without shadowlap the hooks answer as the query's own would and no environment is touched,
  * so the same options serve production.
  */
 export function withFence<T extends object>(options: T, fence: FenceOptions = {}): T & { hooks: Record<string, unknown[]> } {

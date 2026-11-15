@@ -85,7 +85,7 @@ describe('UDP, in Node', () => {
     const r = await guarded([process.execPath, '--input-type=module', '-e', NODE_UDP], 'warn');
     expect(r.out).toEqual({ first: 'sent', second: 'sent', third: 'sent', dns: 'sent', connect: 'connected' });
     expect(datagrams - before).toBe(3);
-    expect(r.stderr.match(/a UDP datagram to 127\.0\.0\.1:\d+ bypasses Shadowlap/g)).toHaveLength(1);
+    expect(r.stderr.match(/a UDP datagram to 127\.0\.0\.1:\d+ bypasses shadowlap/g)).toHaveLength(1);
     expect(r.unguarded).toEqual([{ target: `udp://127.0.0.1:${udpPort}`, count: 1, action: 'warned' }]);
   });
 
@@ -179,7 +179,7 @@ describe.skipIf(!PYTHON)('UDP and asyncio, in Python', () => {
     await settle();
     expect(datagrams - before).toBeGreaterThanOrEqual(5);
     expect(r.unguarded.find((u) => u.target === `udp://127.0.0.1:${udpPort}`)).toEqual({ target: `udp://127.0.0.1:${udpPort}`, count: 1, action: 'warned' });
-    expect(r.stderr.match(/a UDP datagram to 127\.0\.0\.1:\d+ bypasses Shadowlap/g)).toHaveLength(1);
+    expect(r.stderr.match(/a UDP datagram to 127\.0\.0\.1:\d+ bypasses shadowlap/g)).toHaveLength(1);
   });
 
   // The proactor loop is Windows' default and connects through overlapped I/O, past socket.connect():

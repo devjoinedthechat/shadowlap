@@ -67,7 +67,7 @@ describe.skipIf(process.platform === 'win32')("the Action's install step", () =>
     expect(install(RELEASE, false).out).not.toContain('::warning');
     const other = install('0.0.9', false);
     expect(other.code, other.out).toBe(0);
-    expect(other.out).toContain(`::warning title=Shadowlap::this action is v${RELEASE} but installs shadowlap 0.0.9; set version: ${RELEASE}, or leave it out\n`);
+    expect(other.out).toContain(`::warning title=shadowlap::this action is v${RELEASE} but installs shadowlap 0.0.9; set version: ${RELEASE}, or leave it out\n`);
     expect(other.asked).toContain('shadowlap@0.0.9');
   });
 

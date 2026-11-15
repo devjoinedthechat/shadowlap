@@ -44,7 +44,7 @@ describe('the judge scope', () => {
       const run = sidecar.startRun({ mode: 'record', command });
       const forged = await agentCall(sidecar, run.runId, 'x', { 'x-shadowlap-scope': JUDGE_SCOPE });
       expect(forged.status).toBe(400);
-      expect(((await forged.json()) as { error: { message: string } }).error.message).toContain('reserved for Shadowlap');
+      expect(((await forged.json()) as { error: { message: string } }).error.message).toContain('reserved for shadowlap');
       expect((await ask(sidecar, run.runId, judgeBody('x'), { 'x-shadowlap-judge': 'not-the-token' })).status).toBe(400);
       expect((await ask(sidecar, run.runId, judgeBody('x'), { 'x-shadowlap-scope': 'shadowlap:other' })).status).toBe(400);
       const tool = await fetch(`${sidecar.url}/v1/calls/resolve`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shadowlap-run': run.runId, 'x-shadowlap-scope': JUDGE_SCOPE, 'x-shadowlap-judge': sidecar.judgeToken }, body: JSON.stringify({ kind: 'tool', name: 'send_email', effect: 'write', args: {} }) });

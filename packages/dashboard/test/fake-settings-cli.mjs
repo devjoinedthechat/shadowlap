@@ -37,7 +37,7 @@ if (cmd === 'calibrate') {
   const olderThan = at('--older-than');
   const before = at('--before');
   const count = Number(process.env.FAKE_GC_COUNT ?? 2);
-  // A dry run from a gc that names neither a cutoff nor --keep (an older Shadowlap's report).
+  // A dry run from a gc that names neither a cutoff nor --keep (an older shadowlap's report).
   const cutoff = process.env.FAKE_GC_NO_CUTOFF === '1' ? null : before !== undefined ? Number(before) : 1_757_000_000_000;
   const bytes = Number(process.env.FAKE_GC_BYTES ?? 2048);
   const report = { dryRun, olderThanDays: olderThan !== undefined ? Number(olderThan) : null, keep: null, cutoff, total: 9, count, runs: [], expect: `${count}-0123456789abcdef`, blobs: bytes ? 3 : 0, bytes, recording: [], recordingCount: Number(process.env.FAKE_GC_RECORDING ?? 0), abandoned: [], abandonedCount: 0, deferred: false, store: { path: 'x.db', before: 4096, free: Number(process.env.FAKE_GC_FREE ?? 0), after: dryRun ? null : 2048 } };

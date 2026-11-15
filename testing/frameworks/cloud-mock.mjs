@@ -1,4 +1,4 @@
-// A scripted stand-in for the cloud model APIs Shadowlap captures in-process: Amazon Bedrock
+// A scripted stand-in for the cloud model APIs shadowlap captures in-process: Amazon Bedrock
 // (InvokeModel, InvokeModelWithResponseStream, Converse, ConverseStream, with AWS event streams),
 // Vertex AI (Anthropic rawPredict/streamRawPredict, Gemini generateContent) and Azure OpenAI (chat
 // completions, JSON and SSE). Replies echo the last user message, so a changed prompt changes the answer,

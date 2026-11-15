@@ -382,7 +382,7 @@ describe('the pull request comment', () => {
     const body = commentBody({ report, marker, base, baseRef: 'main', fixes: [{ name: 'refund|flow', golden: 'goldens/refund|flow', outcome: 'opened', pr: 'https://github.test/northwind/agent/pull/13', title: 'Escalate refunds above the policy limit', why: null, spent: 1 }], runUrl: 'https://github.test/northwind/agent/actions/runs/7' });
     expect(body.split('\n')).toEqual([
       marker,
-      '### Shadowlap: 2 of 3 goldens passed · 1 failed',
+      '### shadowlap: 2 of 3 goldens passed · 1 failed',
       '',
       '| | Golden | Verdict | On `main` |',
       '|---|---|---|---|',
@@ -749,7 +749,7 @@ describe("what the Action writes to the job's log", () => {
     expect(logLine('a :: b ##[ c')).toBe('a :: b %23#[ c');
     expect(logLine('mid ##[error]legacy ##[warning]twice')).toBe('mid %23#[error]legacy %23#[warning]twice');
     // The action's own annotations: its title, what they say as their data.
-    expect(annotation('warning', `refund-flow: ${planted}`)).toBe('::warning title=Shadowlap::refund-flow: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
+    expect(annotation('warning', `refund-flow: ${planted}`)).toBe('::warning title=shadowlap::refund-flow: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
     expect(pushLine('refund-flow', { state: 'off', why: planted, pr: null })).toBe('the fix was not sent to the team store: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
   });
 

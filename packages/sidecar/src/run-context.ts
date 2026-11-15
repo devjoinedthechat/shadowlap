@@ -225,7 +225,7 @@ export class RunContext {
   }
 }
 
-/** How a decision is stored: a planted result as overridden, a failure Shadowlap answered as live (with `injected` on its end). */
+/** How a decision is stored: a planted result as overridden, a failure shadowlap answered as live (with `injected` on its end). */
 export function storedOrigin(kind: CallKind, decision: Decision): Origin {
   if (decision.origin === 'planted') return 'overridden';
   if (decision.origin === 'injected') return 'live';

@@ -10,7 +10,7 @@ import { proxyFolder, registerProxy, runOf } from '../src/mcp-proxies.js';
 import { startFakeMcpHttpServer, type FakeMcpHttpServer } from './fake-mcp-http-server.js';
 
 /**
- * Shadowlap keeps every file of this machine's in one folder, SHADOWLAP_HOME, else ~/.shadowlap: the
+ * shadowlap keeps every file of this machine's in one folder, SHADOWLAP_HOME, else ~/.shadowlap: the
  * dashboard's project list, the agents a command registers while they run (agent-registry.ts), and
  * the `mcp --listen` proxies registered while they serve (mcp-proxies.ts). So processes that share
  * an environment find each other's files, and a run given a home of its own, as the test suites
@@ -30,7 +30,7 @@ const fresh = (prefix: string): string => {
 };
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })));
 
-describe("Shadowlap's home folder", () => {
+describe("shadowlap's home folder", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it('is SHADOWLAP_HOME when it is an absolute path or one from the home folder, and ~/.shadowlap otherwise', () => {
@@ -76,7 +76,7 @@ describe("Shadowlap's home folder", () => {
 
 describe('commands and proxies given the same SHADOWLAP_HOME', () => {
   let server: FakeMcpHttpServer;
-  /** HOME (USERPROFILE on Windows): where Shadowlap's files would go without SHADOWLAP_HOME. */
+  /** HOME (USERPROFILE on Windows): where shadowlap's files would go without SHADOWLAP_HOME. */
   let home: string;
   let own: string;
   let cwd: string;
@@ -127,13 +127,13 @@ describe('commands and proxies given the same SHADOWLAP_HOME', () => {
     expect(shared.code, shared.out).toBe(0);
     expect(shared.out).toContain(`registry: ${join(own, 'mcp')}`);
     expect(shared.out).toMatch(/reached: \d+/);
-    expect(shared.out).not.toMatch(/outbound connection|bypassed Shadowlap/);
-    // A command given another home doesn't see it: the agent's connection bypasses Shadowlap, as far as its guard can tell.
+    expect(shared.out).not.toMatch(/outbound connection|bypassed shadowlap/);
+    // A command given another home doesn't see it: the agent's connection bypasses shadowlap, as far as its guard can tell.
     const elsewhere = fresh('sl-home-apart-');
     const apart = await run(elsewhere);
     expect(apart.code, apart.out).toBe(0);
     expect(apart.out).toContain(`registry: ${join(elsewhere, 'mcp')}`);
-    expect(apart.out).toContain(`warning: an outbound connection to 127.0.0.1:${port} bypasses Shadowlap`);
+    expect(apart.out).toContain(`warning: an outbound connection to 127.0.0.1:${port} bypasses shadowlap`);
 
     const code = new Promise<number | null>((resolve) => started.once('exit', resolve));
     started.kill('SIGTERM');
@@ -153,7 +153,7 @@ describe('commands and proxies given the same SHADOWLAP_HOME', () => {
     const before = server.calls.length;
     const stripped = await shadowlap(['run', '--', process.execPath, MCP_AGENT, CLI, server.url], env(own));
     expect(stripped.out).toMatch(/send_note -> refused: shadowlap: send_note was not sent/);
-    expect(stripped.out).toContain(`no run is registered for it in ${join(home, '.shadowlap', 'agents')}; if Shadowlap runs with SHADOWLAP_HOME set, pass it on to this server too`);
+    expect(stripped.out).toContain(`no run is registered for it in ${join(home, '.shadowlap', 'agents')}; if shadowlap runs with SHADOWLAP_HOME set, pass it on to this server too`);
     expect(server.calls.slice(before).map((c) => c.name)).toEqual(['read_note']);
 
     // Each agent's registration went when the agent did, and nothing went in the home folder.

@@ -122,7 +122,7 @@ describe('the run page: conversations', () => {
     store.close();
   });
 
-  it('says what a top agent was asked in a run of several, never a sub-agent nor Shadowlap’s own scope', () => {
+  it('says what a top agent was asked in a run of several, never a sub-agent nor shadowlap’s own scope', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);
     const c1 = b.model({ messages: [user('Start.')] }, [text('Refund please.')], { scope: 'customer' });
@@ -139,7 +139,7 @@ describe('the run page: conversations', () => {
       [j1, null],
       [quiet, null],
     ]);
-    // The judge's call says it is Shadowlap's own, so the page never makes its questions a batch's items.
+    // The judge's call says it is shadowlap's own, so the page never makes its questions a batch's items.
     expect(d.calls.filter((c) => c.reserved).map((c) => c.callNo)).toEqual([j1]);
     // A sub-agent started by a tool is no top agent either.
     const r = subagentRun(store);
@@ -357,7 +357,7 @@ describe('the run page: header and banners', () => {
     b.tool('lookup_order', {}, { amount: 240 }, { scope: 'agent' });
     b.model({ messages: [user('Refund please.'), assistant([toolUse('lookup_order', {}, 't1')]), user([toolResult('t1', 'x')])] }, [toolUse('issue_refund', {}, 't2')], { scope: 'agent' });
     b.model({ messages: [user('Start.'), assistant([text('Refund please.')]), user('Done.')] }, [text('Thanks.')], { scope: 'customer' });
-    // A call of Shadowlap's own: none of blame's steps.
+    // A call of shadowlap's own: none of blame's steps.
     b.model({ messages: [user('Probe.')] }, [text('Probed.')], { scope: 'shadowlap:probe' });
     b.end();
     const rescued = RunBuilder.start(store, { parent: b.runId });
@@ -625,7 +625,7 @@ describe('the run endpoint', () => {
     const store = Store.open(':memory:');
     const { runId, byTicket } = batchRun(store, 3);
     const uiDir = mkdtempSync(join(tmpdir(), 'sl-run-page-ui-'));
-    writeFileSync(join(uiDir, 'index.html'), '<!doctype html><title>Shadowlap</title>');
+    writeFileSync(join(uiDir, 'index.html'), '<!doctype html><title>shadowlap</title>');
     const dash = await startDashboard({ store, uiDir });
     try {
       const get = async (path: string) => (await fetch(`${dash.url}/api/${path}`, { headers: { 'x-shadowlap-token': dash.token } })).json() as Promise<Record<string, unknown>>;

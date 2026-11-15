@@ -19,7 +19,7 @@ export function register(program: Command): void {
     .command('run')
     .description('Record a run: shadowlap run -- <command> [args...]')
     .argument('<command...>', 'the agent command to run')
-    .option('--guard <mode>', 'network guard: warn about outbound connections that bypass Shadowlap, or off', parseChoice<GuardMode>(['warn', 'off']), 'warn')
+    .option('--guard <mode>', 'network guard: warn about outbound connections that bypass shadowlap, or off', parseChoice<GuardMode>(['warn', 'off']), 'warn')
     .option('--summary-json <file>', 'also write the run\'s summary as JSON to <file> (for scripts and coding agents)')
     .passThroughOptions()
     .action(async (argv: string[], flags: { guard: GuardMode; summaryJson?: string }) => {
@@ -60,7 +60,7 @@ export function register(program: Command): void {
     .option('--inject-as <role>', 'how to inject: user (part of the user turn the request ends with, on every provider) or system (a system message after the conversation; not on Gemini or Bedrock Converse)', parseChoice(['system', 'user'] as const), 'user')
     .option('--set <call:key=value>', 'set a request field from model call <call> on, where the provider keeps it: 15:max_tokens=2048, 15:temperature=0 (repeatable; value is JSON or a string; a dotted key is a path)', collect)
     .option('--model <call:model>', 'switch the model from model call <call> on, in the body or, on Gemini, Vertex, Bedrock and Azure, the path: 15:claude-opus-5')
-    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'network guard for connections that bypass shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
@@ -91,7 +91,7 @@ export function register(program: Command): void {
 
   program
     .command('mcp')
-    .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>, or shadowlap mcp --url <server> for one over Streamable HTTP, served over stdio or, with --listen, over HTTP. tools/call is recorded and replayed; everything else passes through')
+    .description('Run an MCP server behind shadowlap: shadowlap mcp -- <server command>, or shadowlap mcp --url <server> for one over Streamable HTTP, served over stdio or, with --listen, over HTTP. tools/call is recorded and replayed; everything else passes through')
     .argument('[command...]', 'the MCP server command, as the client would start it')
     .option('--url <server>', "a remote MCP server's endpoint, reached over Streamable HTTP")
     .option('--header <header>', "a header for every request to the --url server, such as 'Authorization: Bearer $TOKEN' (repeatable; $VAR or ${VAR} is read from the proxy's environment, and $$ is a $)", collect)

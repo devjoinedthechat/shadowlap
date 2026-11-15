@@ -19,7 +19,7 @@ createRoot(document.getElementById('root')!).render(
         <Shell pages={CopyPages} />
       </AppProvider>
     ) : (
-      <p className="empty tall">This exported Shadowlap run carries no data it can read. Export it again with shadowlap export html.</p>
+      <p className="empty tall">This exported shadowlap run carries no data it can read. Export it again with shadowlap export html.</p>
     )}
   </StrictMode>,
 );

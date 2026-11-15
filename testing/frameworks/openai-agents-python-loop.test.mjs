@@ -9,7 +9,7 @@ agentLoopTests({
   script: 'openai_agents_loop.py',
   client: 'default',
   tools: ['search_web', 'send_email'],
-  // The SDK exports traces to api.openai.com as the process exits: a connection outside Shadowlap.
+  // The SDK exports traces to api.openai.com as the process exits: a connection outside shadowlap.
   env: { OPENAI_AGENTS_DISABLE_TRACING: '1' },
   // The SDK hands the model a tool's error as its output.
   refused: (value) => assert.ok(value.results.some((r) => r.tool === 'send_email' && /blocked/.test(r.result)), JSON.stringify(value.results)),

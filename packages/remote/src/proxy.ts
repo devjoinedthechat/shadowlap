@@ -9,7 +9,7 @@ import type { FetchLike } from './http.js';
  * A company network that reaches the internet only through a proxy: the proxy named by
  * HTTPS_PROXY (or HTTP_PROXY) and bypassed for the hosts NO_PROXY lists, as curl, the clouds' own
  * CLIs and Node's fetch with NODE_USE_ENV_PROXY read them. Node's fetch ignores these variables on
- * the Node versions Shadowlap supports, so requests that should go through a proxy go through this
+ * the Node versions shadowlap supports, so requests that should go through a proxy go through this
  * client instead: https through a tunnel (CONNECT) with TLS end to end, plain http as a request to
  * the proxy. This machine (loopback) and the link-local metadata services never go through one.
  */

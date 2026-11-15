@@ -163,7 +163,7 @@ export class Sidecar {
     return closeForJudge(this.core, runId);
   }
 
-  /** Says the CLI starts this run's agent with Shadowlap's preloads, under `guard` (lifecycle.ts). */
+  /** Says the CLI starts this run's agent with shadowlap's preloads, under `guard` (lifecycle.ts). */
   expectPreloads(runId: string, guard: GuardMode, accept: readonly string[] = []): void {
     expectPreloads(this.core, runId, guard, accept);
   }
@@ -304,7 +304,7 @@ export class Sidecar {
       }
       const requested = this.core.requestedUpstream(req, provider, ctx, true);
       const upstream = (this.core.upstreams[provider.id] || requested || provider.upstream).replace(/\/$/, '');
-      if (!upstream) throw new HttpError(400, `no upstream for ${provider.id}: set SHADOWLAP_UPSTREAM_${provider.id.toUpperCase()}, or let Shadowlap capture the connection in the agent's process`);
+      if (!upstream) throw new HttpError(400, `no upstream for ${provider.id}: set SHADOWLAP_UPSTREAM_${provider.id.toUpperCase()}, or let shadowlap capture the connection in the agent's process`);
       const headers = lowerHeaders(req.headers);
       if (carriesPlaceholder(headers, url.search)) throw new HttpError(401, placeholderRefusal(provider.keys?.set ?? `a key for ${provider.id}`, `the WebSocket ${target}`));
       const forward = forwardedHeaders(headers, true);

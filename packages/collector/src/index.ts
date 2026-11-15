@@ -1,6 +1,6 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-// A request's body, whole or not at all, as Shadowlap's other servers read one: the engine's alone.
+// A request's body, whole or not at all, as shadowlap's other servers read one: the engine's alone.
 import { messageOf } from '@shadowlap/engine';
 import { BodyTooLarge, readBody } from '@shadowlap/engine/body';
 import { MAX_BODY_BYTES, ValidationError, validateBatch } from './schema.js';

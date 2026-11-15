@@ -1,5 +1,5 @@
 // An agent that sets environment variables of its own, one of them already set, as npm and npx do
-// as they start: in-process capture must leave process.env working as it does without Shadowlap.
+// as they start: in-process capture must leave process.env working as it does without shadowlap.
 import Anthropic from '@anthropic-ai/sdk';
 
 process.env.HOME = process.env.HOME ?? '';

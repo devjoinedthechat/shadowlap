@@ -25,7 +25,7 @@ const model = new OpenAIChatCompletionsModel(client, process.env.MODEL ?? 'qwen2
 // The SDK would otherwise upload traces to OpenAI.
 setTracingDisabled(true);
 
-// Effects tell Shadowlap what a tool does: `read` tools can run again after a fork, `write` tools
+// Effects tell shadowlap what a tool does: `read` tools can run again after a fork, `write` tools
 // are blocked, so exploring a different prompt never opens real tickets twice.
 const listAlerts = tool(
   withEffect(
@@ -77,7 +77,7 @@ const openTicket = tool(
       },
     },
     // Under `shadowlap replay --writes stub`, the model gets this instead and no file is written.
-    { effect: 'write', onFork: (ticket) => `Opened INC-DRYRUN (${ticket.severity}, not filed: a Shadowlap replay)` },
+    { effect: 'write', onFork: (ticket) => `Opened INC-DRYRUN (${ticket.severity}, not filed: a shadowlap replay)` },
   ),
 );
 

@@ -18,10 +18,10 @@ import { startFakeMcpHttpServer, type FakeMcpHttpServer } from './fake-mcp-http-
 
 /**
  * A `shadowlap mcp --listen` records the tool calls of the agents it serves, so their network guard
- * lets them reach it. It registers its address and a key, owner-only, in Shadowlap's home folder
- * (`~/.shadowlap`, or SHADOWLAP_HOME) while it runs, and the guard of every agent a Shadowlap command
+ * lets them reach it. It registers its address and a key, owner-only, in shadowlap's home folder
+ * (`~/.shadowlap`, or SHADOWLAP_HOME) while it runs, and the guard of every agent a shadowlap command
  * starts reads the folder when the agent connects: it lets the connection through, `shadowlap test`'s
- * block included, with no warning that it bypasses Shadowlap, once what answers there proves it holds
+ * block included, with no warning that it bypasses shadowlap, once what answers there proves it holds
  * that key. A proxy started on its own lets every agent through, one started under a command only
  * that command's. A registration that is stale, not this user's alone, anything but a proxy on this
  * machine, or one whose process id another process has lets nothing through.
@@ -117,7 +117,7 @@ describe('the MCP proxies a command lets its agents reach', () => {
    * The registrations the review crafted that it found refused, each refused by both guards still:
    * every field but the one crafted is a running proxy's, at 127.0.0.1:9001. The ones it found let
    * through are a process that isn't the proxy (no proof answers: below), a hard link to a file of
-   * this user's, a process of another user's (EPERM counts as running), and a Shadowlap home folder
+   * this user's, a process of another user's (EPERM counts as running), and a shadowlap home folder
    * (`~/.shadowlap`, or SHADOWLAP_HOME) others can read, or a link: its `mcp` is what holds to the rules.
    */
   it.skipIf(!POSIX)('finds nothing for any registration the review crafted', () => {
@@ -248,7 +248,7 @@ except OSError as err:
 
   /**
    * What a Node agent, and a Python one where there is Python, got from the proxy (or `target`) under
-   * block, and what the run says bypassed Shadowlap; `register` first registers the proxy as the test
+   * block, and what the run says bypassed shadowlap; `register` first registers the proxy as the test
    * needs, for the run the agents belong to.
    */
   async function reach(register: (run: SidecarTarget) => void, target = `http://127.0.0.1:${port}/`): Promise<{ node: string; python: string | null; unguarded: unknown[] }> {
@@ -325,7 +325,7 @@ console.log(JSON.stringify({ read: read.result.content[0].text, sent: sent.resul
 
 /**
  * A folder for the commands of a test, with a home folder (HOME, and on Windows USERPROFILE) and a
- * Shadowlap home folder (SHADOWLAP_HOME, `slhome`: proxies register in its `mcp`, and every command
+ * shadowlap home folder (SHADOWLAP_HOME, `slhome`: proxies register in its `mcp`, and every command
  * reads it) of its own, a project, and CLIENT in client.mjs; `shadowlap` runs the CLI in the project.
  */
 function sandbox(prefix: string) {
@@ -375,7 +375,7 @@ describe('shadowlap mcp --listen started on its own, beside run, pack and test',
   const env = () => box.env({});
   const shadowlap = (args: string[]) => box.shadowlap(args);
 
-  it("records through it with no warning that it bypasses Shadowlap, and its golden passes under test's block", async () => {
+  it("records through it with no warning that it bypasses shadowlap, and its golden passes under test's block", async () => {
     const started = spawn(process.execPath, [CLI, 'mcp', '--url', server.url, '--listen', '127.0.0.1:0'], { cwd, env: env(), stdio: ['ignore', 'ignore', 'pipe'] });
     proxy = started;
     let said = '';
@@ -392,8 +392,8 @@ describe('shadowlap mcp --listen started on its own, beside run, pack and test',
     const rec = await shadowlap(['run', '--', process.execPath, client, endpoint]);
     expect(rec.code, rec.out).toBe(0);
     expect(rec.out).toContain('{"read":"read_note:{\\"id\\":1}:1","sent":"send_note:{\\"to\\":\\"y\\"}:2"}');
-    // The guard's warning, and the summary's list of what bypassed Shadowlap: neither names the proxy.
-    expect(rec.out).not.toMatch(/outbound connection|bypassed Shadowlap/);
+    // The guard's warning, and the summary's list of what bypassed shadowlap: neither names the proxy.
+    expect(rec.out).not.toMatch(/outbound connection|bypassed shadowlap/);
     expect(server.calls.map((c) => c.name)).toEqual(['read_note', 'send_note']);
     const runId = /recording run (\w{26})/.exec(rec.out)![1];
 
@@ -401,7 +401,7 @@ describe('shadowlap mcp --listen started on its own, beside run, pack and test',
     const test = await shadowlap(['test', 'goldens/g']);
     expect(test.code, test.out).toBe(0);
     expect(test.out).toMatch(/1 passed, 0 failed/);
-    expect(test.out).not.toMatch(/outbound connection|bypassed Shadowlap|blocked/);
+    expect(test.out).not.toMatch(/outbound connection|bypassed shadowlap|blocked/);
     // The recording answered both calls: the server saw neither again.
     expect(server.calls).toHaveLength(2);
 
@@ -459,20 +459,20 @@ try {
     box.remove();
   });
 
-  it("records through it with no warning that it bypasses Shadowlap, and its golden passes under test's block", async () => {
+  it("records through it with no warning that it bypasses shadowlap, and its golden passes under test's block", async () => {
     const command = ['--', process.execPath, agent, CLI, server.url, box.client];
     const rec = await box.shadowlap(['run', ...command]);
     expect(rec.code, rec.out).toBe(0);
     expect(rec.out).toContain('{"read":"read_note:{\\"id\\":1}:1","sent":"send_note:{\\"to\\":\\"y\\"}:2"}');
     expect(rec.out).toMatch(/Recorded \w+: 2 calls \(0 api, 2 tool\)/);
-    expect(rec.out).not.toMatch(/outbound connection|bypassed Shadowlap/);
+    expect(rec.out).not.toMatch(/outbound connection|bypassed shadowlap/);
     const runId = /recording run (\w{26})/.exec(rec.out)![1];
 
     expect((await box.shadowlap(['pack', runId, 'goldens/g'])).code).toBe(0);
     const test = await box.shadowlap(['test', 'goldens/g']);
     expect(test.code, test.out).toBe(0);
     expect(test.out).toMatch(/1 passed, 0 failed/);
-    expect(test.out).not.toMatch(/outbound connection|bypassed Shadowlap|blocked/);
+    expect(test.out).not.toMatch(/outbound connection|bypassed shadowlap|blocked/);
     expect(server.calls).toHaveLength(2);
     // Each proxy, stopped, took its registration with it.
     expect(readdirSync(join(box.slhome, 'mcp'))).toEqual([]);
@@ -514,7 +514,7 @@ describe('a registration whose process id another process has', () => {
     const env = { TARGET: `http://127.0.0.1:${(target.address() as AddressInfo).port}/agent` };
     const rec = await box.shadowlap(['run', '--', process.execPath, 'agent.mjs'], env);
     expect(rec.code, rec.out).toBe(0);
-    expect(rec.out).toMatch(/warning: an outbound connection to 127\.0\.0\.1:\d+ bypasses Shadowlap/);
+    expect(rec.out).toMatch(/warning: an outbound connection to 127\.0\.0\.1:\d+ bypasses shadowlap/);
     expect(paths.filter((p) => p === '/agent')).toHaveLength(1);
     const runId = /recording run (\w{26})/.exec(rec.out)![1];
 

@@ -21,7 +21,7 @@ import { resignSigV4 } from '../src/sigv4.js';
  * answer, identical requests retried at once, the agent leaving before its answer came, the store
  * locked by another process, a signed request, a WebSocket, and telemetry. In every case the
  * recording holds what the agent saw, and the agent sees what it would have seen without
- * Shadowlap. Real SDKs where one makes the request.
+ * shadowlap. Real SDKs where one makes the request.
  */
 
 const command = { argv: ['agent'], cwd: '/' };
@@ -89,7 +89,7 @@ describe('an upstream that fails part way through a streamed answer', () => {
       const seen = await streamOnce(run.runId);
       // The SDK passes no ping on.
       expect(seen.types).toEqual(['message_start', 'content_block_start', 'content_block_delta']);
-      // Without Shadowlap the SDK would have raised a network error here, not ended the stream quietly.
+      // Without shadowlap the SDK would have raised a network error here, not ended the stream quietly.
       expect(seen.error).toBeInstanceOf(Error);
       sidecar.endRun(run.runId, 'failed');
       const [call] = store.getCalls(run.runId);

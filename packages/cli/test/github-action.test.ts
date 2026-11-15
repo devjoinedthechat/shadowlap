@@ -45,7 +45,7 @@ describe('the GitHub Action', () => {
     expect(r.outputs).toMatchObject({ passed: '1', failed: '0', diverged: '0', 'checks-failed': '0', fixes: '0', 'fix-prs': '' });
     expect(r.outputs.session).toMatch(/^\w{26}$/);
     expect(readFileSync(r.outputs['report-json'], 'utf8')).toContain('"passed": 1');
-    expect(r.summary).toContain('### Shadowlap: 1 of 1 golden passed');
+    expect(r.summary).toContain('### shadowlap: 1 of 1 golden passed');
     expect(r.summary).toMatch(/✅ \| `reference-agent` \| clean \| 30\/30/);
     expect(r.out).not.toContain('::error');
   });
@@ -54,8 +54,8 @@ describe('the GitHub Action', () => {
     const r = action({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GUARD: 'off' }, { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
     expect(r.code).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '1', 'checks-failed': '0' });
-    expect(r.out).toContain('::error file=testing/golden/reference-agent/run.json,title=Shadowlap%3A reference-agent::diverged at call 3');
-    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 failed');
+    expect(r.out).toContain('::error file=testing/golden/reference-agent/run.json,title=shadowlap%3A reference-agent::diverged at call 3');
+    expect(r.summary).toContain('### shadowlap: 0 of 1 golden passed · 1 failed');
     expect(r.summary).toContain('+ "You are a research agent. Use the tools, then email a summary. Be brief."');
     expect(r.summary).toContain('update the golden: `shadowlap test testing/golden/reference-agent --update`');
   });
@@ -101,10 +101,10 @@ describe('the GitHub Action', () => {
     expect(typo.code).toBe(1);
     expect(typo.outputs).toMatchObject({ passed: '1', failed: '1' });
     expect(typo.out).toContain('shadowlap test testing/golden/reference-agent testing/golden/reference-agnet');
-    expect(typo.out).toContain('testing/golden/reference-agnet is not a Shadowlap pack (no run.json)');
+    expect(typo.out).toContain('testing/golden/reference-agnet is not a shadowlap pack (no run.json)');
     // Its annotation and its part of the summary say that once: the failure's message is all there is to it.
-    expect(typo.out).toMatch(/^::error file=testing\/golden\/reference-agnet\/run\.json,title=Shadowlap%3A reference-agnet::testing\/golden\/reference-agnet is not a Shadowlap pack \(no run\.json\)$/m);
-    expect(typo.summary.split('reference-agnet is not a Shadowlap pack')).toHaveLength(3);
+    expect(typo.out).toMatch(/^::error file=testing\/golden\/reference-agnet\/run\.json,title=shadowlap%3A reference-agnet::testing\/golden\/reference-agnet is not a shadowlap pack \(no run\.json\)$/m);
+    expect(typo.summary.split('reference-agnet is not a shadowlap pack')).toHaveLength(3);
     // A pattern beside one that matches, which matches nothing: the step fails before anything runs.
     const empty = action({ RECORDINGS: 'testing/golden/* testing/golden/refund-*', WORKING_DIRECTORY: ROOT, GUARD: 'off' });
     expect(empty.code).toBe(1);
@@ -123,7 +123,7 @@ describe('the GitHub Action', () => {
     const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project, GUARD: 'off' });
     expect(r.code, r.out).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '0', inconclusive: '1' });
-    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 inconclusive');
+    expect(r.summary).toContain('### shadowlap: 0 of 1 golden passed · 1 inconclusive');
     expect(r.summary).toContain('| 🟡 | `reference-agent` |');
   });
 
@@ -132,7 +132,7 @@ describe('the GitHub Action', () => {
     expect(r.code).toBe(0);
     expect(r.outputs).toMatchObject({ failed: '1', diverged: '1', fixes: '0' });
     expect(r.out).toContain('reference-agent: no fix pull request: diverged: never fixed automatically, because most divergences are intended');
-    expect(r.summary).toContain('### Shadowlap: no fix pull request opened');
+    expect(r.summary).toContain('### shadowlap: no fix pull request opened');
   });
 });
 
@@ -154,7 +154,7 @@ describe('the GitHub Action and inconclusive goldens', () => {
         "const warn = at('--inconclusive') === 'warn';",
         "const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'fork', ok: warn, verdict: 'inconclusive', failure: 'inconclusive', message: 'inconclusive · 64 of 80 · rate 0.70 to 0.87 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', details: null, output: null, checks: null };",
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: '01K5CQ4N7G8M2XWQH6V3T9RB1D', revision: null, passed: warn ? 1 : 0, failed: warn ? 0 : 1, inconclusive: 1, interrupted: false, results: [result] }));",
-        "appendFileSync(at('--markdown'), '### Shadowlap: 0 of 1 golden passed · 1 inconclusive\\n');",
+        "appendFileSync(at('--markdown'), '### shadowlap: 0 of 1 golden passed · 1 inconclusive\\n');",
         'process.exit(warn ? 0 : 1);',
       ].join('\n'),
     );
@@ -359,7 +359,7 @@ describe('test reports', () => {
     const passed = gated('passed', true, 12, 12);
     const unsure = gated('inconclusive', false, 16, 20);
     const md = markdownReport(testReport([passed, unsure, failed]));
-    expect(md).toContain('### Shadowlap: 1 of 3 goldens passed · 1 failed, 1 inconclusive');
+    expect(md).toContain('### shadowlap: 1 of 3 goldens passed · 1 failed, 1 inconclusive');
     // The verdict word, the tally, the bound and the rule, stated once; never a claimed rate.
     expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1.2k |');
     expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1.2k |');
@@ -370,11 +370,11 @@ describe('test reports', () => {
     expect(markdownReport(testReport([passed, unsure, failed]), 'fail')).toContain('This run fails on each of them (`--inconclusive fail`).');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.
     const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]), 'warn');
-    expect(warned).toContain('### Shadowlap: 1 of 2 goldens passed · 1 inconclusive');
+    expect(warned).toContain('### shadowlap: 1 of 2 goldens passed · 1 inconclusive');
     expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
     expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
     expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
-      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%25) · gate: tells 90%25+ from 70%25- at <= 5%25 risk, up to 20 attempts%0A%0Apass^5 0.28',
+      '::warning file=goldens/refund-inconclusive/run.json,title=shadowlap%3A refund-inconclusive::inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%25) · gate: tells 90%25+ from 70%25- at <= 5%25 risk, up to 20 attempts%0A%0Apass^5 0.28',
     );
   });
 
@@ -412,7 +412,7 @@ describe('test reports', () => {
   });
 
   it('escapes GitHub annotation properties and data', () => {
-    expect(githubAnnotations(testReport([clean, failed]))).toBe('::error file=goldens/summarize/run.json,title=Shadowlap%3A summarize|thread::diverged at call 3 (api POST /v1/messages)%0A%0Aa ``` fence%0A50%25 of it: here, there');
+    expect(githubAnnotations(testReport([clean, failed]))).toBe('::error file=goldens/summarize/run.json,title=shadowlap%3A summarize|thread::diverged at call 3 (api POST /v1/messages)%0A%0Aa ``` fence%0A50%25 of it: here, there');
   });
 });
 
@@ -519,7 +519,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
     expect(first.out).toContain('the pull request comment is posted: https://github.test/northwind/agent/pull/12#issuecomment-1');
     expect(comments).toHaveLength(1);
     const body = comments[0].body;
-    expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### Shadowlap: 1 of 1 golden passed\n/);
+    expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### shadowlap: 1 of 1 golden passed\n/);
     expect(body).toContain('| | Golden | Verdict | On `main` |');
     expect(body).toContain('| ✅ | `testing/golden/reference-agent` | passed · replayed clean | ❌ failed |');
     expect(body).toContain('Compared with `main` as the test history last tested it, at `e5f6a7b`.');
@@ -563,7 +563,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
         "const at = (flag) => args[args.indexOf(flag) + 1];",
         `writeFileSync(${JSON.stringify(join(dir, 'env.json'))}, JSON.stringify({ input: process.env.INPUT_GITHUB_TOKEN ?? null, job: process.env.SHADOWLAP_JOB_TOKEN ?? null }));`,
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, results: [{ name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'replay', ok: true, verdict: 'passed', failure: null, message: null, runs: [] }] }));",
-        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
+        "writeFileSync(at('--markdown'), '### shadowlap: 1 of 1 golden passed\\n');",
       ].join('\n'),
     );
     const r = await onPullRequest({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GITHUB_TOKEN: 'github_pat_secret' }, 'northwind/agent', { SHADOWLAP_CLI: cli });
@@ -594,7 +594,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
           `appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');`,
           `if (args.includes('decisions')) { ${asked} }`,
           `writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S-PR', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, costPerRun: { before: 0.041, after: 0.043 }, results: [${JSON.stringify(result)}] }));`,
-          "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
+          "writeFileSync(at('--markdown'), '### shadowlap: 1 of 1 golden passed\\n');",
         ].join('\n'),
       );
     fakeCli(`process.stdout.write(JSON.stringify(${JSON.stringify(decided)})); process.exit(0);`);
@@ -665,7 +665,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
         "if (args.includes('repair')) { process.stdout.write(JSON.stringify({ outcome: 'not-fixed', why: 'the gate accepted none of the 1 candidate tried', cost: { blame: 0.1, repairer: 0.01, verify: 0.2 }, candidates: [], output: {} })); process.exit(1); }",
         "const result = { name: 'refund-flow', dir: 'goldens/refund-flow', golden: 'goldens/refund-flow', mode: 'replay', ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time', expect: { tools: { issue_refund: 0 } }, checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }], runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', runs: [{ runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', ok: false, verdict: 'failed' }] };",
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 0, failed: 1, inconclusive: 0, interrupted: false, results: [result] }));",
-        "writeFileSync(at('--markdown'), '### Shadowlap: 0 of 1 golden passed · 1 failed\\n');",
+        "writeFileSync(at('--markdown'), '### shadowlap: 0 of 1 golden passed · 1 failed\\n');",
         'process.exit(1);',
       ].join('\n'),
     );
@@ -744,7 +744,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     const fake = fakeCli(dir);
     const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), FIX_ON_FAILURE: fix }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: event });
     expect(r.code).toBe(1);
-    expect(r.out).toContain(`::error title=Shadowlap::the action does not run on ${event}, which ${why}`);
+    expect(r.out).toContain(`::error title=shadowlap::the action does not run on ${event}, which ${why}`);
     expect(() => fake.seen()).toThrow();
   });
 
@@ -758,7 +758,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), FIX_ON_FAILURE: 'true' }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: event });
     expect(r.code).toBe(1);
     const on = "it runs on pull_request for a pull request's code, and on push, schedule, workflow_dispatch or merge_group for a branch of this repository";
-    expect(r.out).toContain(event ? `::error title=Shadowlap::the action does not run on ${event}: ${on}` : `::error title=Shadowlap::the job names no event (GITHUB_EVENT_NAME), so the action can't tell whose code it would run: ${on}`);
+    expect(r.out).toContain(event ? `::error title=shadowlap::the action does not run on ${event}: ${on}` : `::error title=shadowlap::the job names no event (GITHUB_EVENT_NAME), so the action can't tell whose code it would run: ${on}`);
     expect(() => fake.seen()).toThrow();
   });
 

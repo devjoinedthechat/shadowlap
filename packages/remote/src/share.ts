@@ -5,7 +5,7 @@ import type { ObjectStore, SignedLink } from './object-store.js';
 /**
  * Share links: a redacted HTML report written to the bucket, behind a presigned link that expires
  * after 7 days. Anyone with the link can open it, without an account; nothing is hosted by
- * Shadowlap. Each share is a new object, so an older link keeps working until it expires. The
+ * shadowlap. Each share is a new object, so an older link keeps working until it expires. The
  * link is signed before the report is written: credentials that can't sign one (a SAS token, a
  * Google user sign-in) leave nothing behind in the bucket.
  */

@@ -15,7 +15,7 @@
 //   AGENT_SYSTEM=…    replaces the system prompt
 //   AGENT_OUTBOX=…    file the write tools append to, so a test can see what really executed
 //   AGENT_BASE_URL=…  a base URL fixed in the client, as a local model server often is: its calls
-//                     reach Shadowlap only if Shadowlap is told that host is a model server
+//                     reach shadowlap only if shadowlap is told that host is a model server
 import { appendFileSync } from 'node:fs';
 import { scope, tool } from '@shadowlap/sdk';
 
@@ -42,7 +42,7 @@ const tools = [
 ];
 
 // The Messages API with fetch, as the Anthropic SDK sends it with its retries off: the retry count
-// tells Shadowlap that no request is the retry of one that failed. Loading the SDK took 40% of the agent's
+// tells shadowlap that no request is the retry of one that failed. Loading the SDK took 40% of the agent's
 // CPU, and blame, verify and repair start the agent once for every attempt.
 const baseURL = (process.env.AGENT_BASE_URL || process.env.ANTHROPIC_BASE_URL || 'http://127.0.0.1:9').replace(/\/$/, '');
 const client = {

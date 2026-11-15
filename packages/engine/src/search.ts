@@ -157,7 +157,7 @@ function progressOf(state: SearchState): Progress | null {
  */
 function standing(run: SearchIndexRun, state: SearchState | undefined | null): 'behind' | 'open' | 'none' {
   if (!state) return 'behind';
-  // A row that covers its run whole, as an earlier Shadowlap wrote every row.
+  // A row that covers its run whole, as an earlier shadowlap wrote every row.
   if (state.progress === null) return state.calls === run.calls && state.status === run.status ? 'none' : 'behind';
   if (run.status !== 'running' || state.status !== run.status || state.calls < run.calls) return 'behind';
   return progressOf(state)?.open.length ? 'open' : 'none';
@@ -186,7 +186,7 @@ function indexBatch(store: StoreOf<'recording' | 'search'>, run: SearchIndexRun,
     }
   }
   if (!p) {
-    // Indexed whole before it ended (an earlier Shadowlap), or by a row this one can't read: again from its start.
+    // Indexed whole before it ended (an earlier shadowlap), or by a row this one can't read: again from its start.
     p = { last: 0, scopes: {}, open: [] };
     fresh = true;
     indexed = 0;

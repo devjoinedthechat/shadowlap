@@ -32,7 +32,7 @@ describe('userInput', () => {
     store.close();
   });
 
-  it('is the read function itself outside Shadowlap', async () => {
+  it('is the read function itself outside shadowlap', async () => {
     delete process.env.SHADOWLAP_URL;
     expect(await userInput('Order? ', (prompt) => `asked ${prompt}`)).toBe('asked Order? ');
   });

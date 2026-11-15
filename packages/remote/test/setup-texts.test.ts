@@ -269,7 +269,7 @@ describe('the CI step', () => {
     expect(gitlab.notes.join(' ')).toMatch(/masked, protected CI\/CD variables/);
   });
 
-  it("gives GitLab CI an ID token that Shadowlap's own credential chain exchanges, and a merge request its own role", () => {
+  it("gives GitLab CI an ID token that shadowlap's own credential chain exchanges, and a merge request its own role", () => {
     const s3 = ciStep('gitlab', parseStoreUrl('s3://northwind-agent-runs'), { version: V });
     expect(s3.text).toContain('aud: sts.amazonaws.com');
     expect(s3.text).toContain('export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/aws-web-identity-token');

@@ -1,6 +1,6 @@
 // The worked example in docs/recording-format.md, made the way the page tells a producer to make one:
-// with no Shadowlap code, only SHA-256 and canonical JSON. The test checks that the page shows exactly
-// these files, that Shadowlap's engine computes the same fingerprints, and that the pack replays.
+// with no shadowlap code, only SHA-256 and canonical JSON. The test checks that the page shows exactly
+// these files, that shadowlap's engine computes the same fingerprints, and that the pack replays.
 import { createHash } from 'node:crypto';
 
 const sha256 = (bytes: string) => createHash('sha256').update(bytes, 'utf8').digest('hex');

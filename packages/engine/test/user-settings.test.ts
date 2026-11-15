@@ -6,7 +6,7 @@ import { shadowlapHomeProblem } from '../src/projects/paths.js';
 import { readSpending, USER_SETTINGS_FILE, userSettingsFile, UserSettingsError, writeSpending } from '../src/user-settings.js';
 
 /**
- * Spending is each person's own, on their machine: settings.json in Shadowlap's folder for this
+ * Spending is each person's own, on their machine: settings.json in shadowlap's folder for this
  * machine's files (SHADOWLAP_HOME, else ~/.shadowlap), never shadowlap.config.json. Every test here
  * gives that folder, and the home folder it falls back to, a temporary folder of its own.
  */
@@ -47,7 +47,7 @@ describe('Spending, kept in this machine’s settings', () => {
     if (process.platform !== 'win32') expect(statSync(join(own, 'settings.json')).mode & 0o777).toBe(0o600);
   });
 
-  it('keeps what it doesn’t know of the file, a newer Shadowlap’s settings among them', () => {
+  it('keeps what it doesn’t know of the file, a newer shadowlap’s settings among them', () => {
     const { own, o } = place();
     writeFileSync(join(own, 'settings.json'), JSON.stringify({ version: 1, theme: 'dark', spending: { askAbove: 2, note: 'kept' } }));
     writeSpending(0.5, o);
@@ -64,8 +64,8 @@ describe('Spending, kept in this machine’s settings', () => {
     expect(() => writeSpending(2, o)).toThrow(`${join(own, 'settings.json')} isn’t valid JSON: fix or remove it, and change Spending again`);
     expect(readFileSync(join(own, 'settings.json'), 'utf8')).toBe('{ not json');
     writeFileSync(join(own, 'settings.json'), JSON.stringify({ version: 2, spending: { askAbove: 2 } }));
-    expect(() => writeSpending(0.5, o)).toThrow('was written by a newer Shadowlap: update this one to change its settings');
-    // A newer Shadowlap's file is still read.
+    expect(() => writeSpending(0.5, o)).toThrow('was written by a newer shadowlap: update this one to change its settings');
+    // A newer shadowlap's file is still read.
     expect(readSpending(o).askAbove).toBe(2);
   });
 

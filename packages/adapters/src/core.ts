@@ -26,7 +26,7 @@ const isAsyncGeneratorFunction = (fn: unknown): boolean => Object.prototype.toSt
 
 /**
  * Wraps a multi-argument implementation. The first argument is the recorded input; the rest are
- * passed through untouched. A fresh Shadowlap wrapper is created per call so trailing arguments
+ * passed through untouched. A fresh shadowlap wrapper is created per call so trailing arguments
  * stay bound to that call under concurrency; its implementation hash is the user's function's.
  * An async generator function (a streaming tool) stays one: see `tool()`.
  *

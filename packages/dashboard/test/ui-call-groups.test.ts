@@ -133,7 +133,7 @@ describe('the trace: a batch’s items', () => {
     expect(rows(embedded)).toEqual(['g:i1:0', '1:1', '2:1', '3:2', '4:1', '5:1', 'g:i2:0', '6:1', '7:1', '8:2', '9:1']);
   });
 
-  it('leaves a call of Shadowlap’s own and one not read yet at the top, and a sub-agent’s conversations no item', () => {
+  it('leaves a call of shadowlap’s own and one not read yet at the top, and a sub-agent’s conversations no item', () => {
     const judge = m(9, { scope: 'shadowlap:judge', conversation: 3, reserved: true });
     expect(rows([...ticket(1, 1), ...ticket(2, 5).slice(0, 2), { callNo: 7, pending: true }, ...ticket(2, 5).slice(3), judge])).toEqual(['g:i1:0', '1:1', '2:1', '3:2', '4:1', 'g:i2:0', '5:1', '6:1', '7:0', 'g:i2@8:0', '8:1', '9:0']);
     const spawned = [m(1, { agent: 'a', conversation: 1, asks: ['Task'] }), m(2, { agent: 'a/b', conversation: 2, spawnedBy: 1 }), m(3, { agent: 'a/b', conversation: 3, spawnedBy: 1 })];

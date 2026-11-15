@@ -3,7 +3,7 @@ import { palette as p, safe } from './ui.js';
 import { declaredUnrecorded, howToRecord, refusedEffect, unrecordedOf } from './unrecorded.js';
 
 /**
- * What an attempt ran without Shadowlap recording it. The recording's own unrecorded writes are
+ * What an attempt ran without shadowlap recording it. The recording's own unrecorded writes are
  * refused before any attempt starts (refuseUnrecorded), but a fork's model answers live, and can ask
  * for a tool the agent runs unwrapped: that call runs for real, and nothing stubs it, however the
  * command fences the writes it records. So each attempt (blame's, verify's, repair's, `replay

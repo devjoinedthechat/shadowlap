@@ -59,7 +59,7 @@ describe('what a command throws, as an exit status', () => {
   });
 
   it('reads a message written for the person as usage, and a bug as an internal error', () => {
-    // Shadowlap raises what a person has to fix as an Error with a message for them.
+    // shadowlap raises what a person has to fix as an Error with a message for them.
     expect(exitCodeOf(new Error('no run matches "x" (see: shadowlap ls)'))).toBe(2);
     expect(exitCodeOf(Object.assign(new Error("ENOENT: no such file or directory, open 'checks.json'"), { code: 'ENOENT', syscall: 'open' }))).toBe(2);
     expect(exitCodeOf(new SyntaxError('Unexpected token } in JSON at position 4'))).toBe(2);
@@ -82,7 +82,7 @@ describe('what a command throws, as an exit status', () => {
   it('says an internal error is a bug, how to see where it happened and where to report it', () => {
     let said = '';
     expect(reportError(new TypeError('boom'), (t) => (said += t))).toBe(70);
-    expect(said).toBe('shadowlap: internal error: boom\nThis is a bug in Shadowlap: run the command again with SHADOWLAP_DEBUG=1 to see where it happened, and report it at https://github.com/devjoinedthechat/shadowlap/issues\n');
+    expect(said).toBe('shadowlap: internal error: boom\nThis is a bug in shadowlap: run the command again with SHADOWLAP_DEBUG=1 to see where it happened, and report it at https://github.com/devjoinedthechat/shadowlap/issues\n');
     said = '';
     expect(reportError(new Error('no run matches "x"'), (t) => (said += t))).toBe(2);
     expect(said).toBe('shadowlap: no run matches "x"\n');
@@ -134,7 +134,7 @@ describe('the built CLI', () => {
     // A golden path that names no pack is a typo to fix: 2, the golden failed in the report all the same.
     const missing = shadowlap(project, ['test', 'goldens/missing']);
     expect(missing.code, missing.out).toBe(2);
-    expect(missing.out).toContain('goldens/missing is not a Shadowlap pack');
+    expect(missing.out).toContain('goldens/missing is not a shadowlap pack');
   });
 
   it('3: inconclusive, and 0 when --inconclusive warn lets it through', () => {
@@ -161,7 +161,7 @@ describe('the built CLI', () => {
     const recorded = shadowlap(broken, ['--db', db, 'run', '--', process.execPath, '-e', '0']);
     expect(recorded.code, recorded.out).toBe(0);
     const id = /Recorded (\w{26})/.exec(recorded.out)![1];
-    // A run whose command the store lost: reading it hits a null where Shadowlap never writes one.
+    // A run whose command the store lost: reading it hits a null where shadowlap never writes one.
     const sqlite = new DatabaseSync(db);
     sqlite.exec(`UPDATE runs SET command = 'null'`);
     sqlite.close();

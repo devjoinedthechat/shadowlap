@@ -1,4 +1,4 @@
-// Shadowlap against the real providers: every claim the other tests make against fakes, checked where
+// shadowlap against the real providers: every claim the other tests make against fakes, checked where
 // it matters. For each provider with credentials in the environment, a tiny agent makes a call that
 // must use a tool and a streamed call. The recording must have usage, model, stop reason and stream
 // timing for every call, the engine must parse the tool call and the text out of what was stored, and
@@ -10,7 +10,7 @@
 //   LIVE_BEDROCK_MODEL with AWS credentials and AWS_REGION
 //   LIVE_<PROVIDER>_MODEL overrides the default model.
 //
-// LIVE_SELFTEST=1 runs the Anthropic, OpenAI and Gemini cases against Shadowlap's scripted fakes instead,
+// LIVE_SELFTEST=1 runs the Anthropic, OpenAI and Gemini cases against shadowlap's scripted fakes instead,
 // to test this harness without keys.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';

@@ -60,7 +60,7 @@ const STEP: Record<string, FlagRule> = {
 
 /** The flags each command is run again with, beyond what its report and record hold. */
 const RERUN_FLAGS: Readonly<Record<RerunKind, Readonly<Record<string, FlagRule>>>> = {
-  // A pulled blame probes at most its default 2 calls past the boundary: one yes spends no more than Shadowlap would.
+  // A pulled blame probes at most its default 2 calls past the boundary: one yes spends no more than shadowlap would.
   blame: { ...STEP, '--scan': { value: /^\d{1,3}$/, pulledMax: 2 } },
   verify: {
     ...STEP,
@@ -123,7 +123,7 @@ export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined,
       if (!left.includes(flag)) left.push(flag);
       continue;
     }
-    // A pulled record's figure held to the most it may give (one yes spends no more than Shadowlap would).
+    // A pulled record's figure held to the most it may give (one yes spends no more than shadowlap would).
     const held = value !== null && o.pulled && rule.pulledMax !== undefined && Number(value) > rule.pulledMax ? String(rule.pulledMax) : value;
     flags.push(flag, ...(held === null ? [] : [held]));
   }

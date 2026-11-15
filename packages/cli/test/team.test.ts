@@ -239,7 +239,7 @@ describe('push and pull through the bucket', () => {
       expect(await teamPull(maya, [])).toBe(0);
       const { out, err } = maya.take();
       expect(out).toContain('1 fix pulled: "Refunds above the limit issued without approval"');
-      expect(`${out}${err}`).toContain(`! couldn't write .shadowlap/repairs/repair-munzln2i: .shadowlap/repairs in ${maya.cwd} is a link, which Shadowlap never writes through`);
+      expect(`${out}${err}`).toContain(`! couldn't write .shadowlap/repairs/repair-munzln2i: .shadowlap/repairs in ${maya.cwd} is a link, which shadowlap never writes through`);
       expect(readdirSync(elsewhere)).toEqual([]);
     } finally {
       rmSync(elsewhere, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-"""Shadowlap in-process capture for Python agents, loaded by the sitecustomize next to it.
+"""shadowlap in-process capture for Python agents, loaded by the sitecustomize next to it.
 
 Most model clients read a base URL from the environment, and `shadowlap run` points those at the
 sidecar. Bedrock clients sign each request for its host, Azure and Vertex clients often take their
@@ -114,7 +114,7 @@ def _provider_for(url: str) -> Optional[str]:
 
 
 def _rewrite(url: str) -> Optional[tuple[str, str, str]]:
-    """(sidecar URL, upstream origin, provider), or None when the URL is not a host Shadowlap captures."""
+    """(sidecar URL, upstream origin, provider), or None when the URL is not a host shadowlap captures."""
     if not active:
         return None
     provider = _provider_for(url)

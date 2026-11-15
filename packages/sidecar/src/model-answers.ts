@@ -116,8 +116,8 @@ export function serveReplayed(core: SidecarCore, ctx: RunContext, res: ServerRes
 }
 
 /**
- * Answers a model call with a failure Shadowlap produced, for `--fail-at`. Nothing leaves the
- * machine. The body names Shadowlap as the source and the call is stored with `injected`, so
+ * Answers a model call with a failure shadowlap produced, for `--fail-at`. Nothing leaves the
+ * machine. The body names shadowlap as the source and the call is stored with `injected`, so
  * neither the agent's error nor the recording can be mistaken for something the provider did.
  */
 export function serveInjectedFailure(core: SidecarCore, ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, status: number, target: number): void {

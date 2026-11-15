@@ -203,7 +203,7 @@ export interface CacheMissView {
 
 /** What the run did that was not recorded, so a replay runs it for real. */
 export interface NotRecordedView {
-  /** Hosts reached without Shadowlap: how often, and whether the guard let them through. */
+  /** Hosts reached without shadowlap: how often, and whether the guard let them through. */
   hosts: Array<{ target: string; count: number | null; action: 'warned' | 'blocked' | null }>;
   /** Tools with no declared effect, which the run did not record. */
   tools: string[];

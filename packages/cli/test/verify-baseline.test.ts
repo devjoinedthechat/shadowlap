@@ -242,10 +242,10 @@ describe('shadowlap verify against a baseline', () => {
     expect(report.cost.attempts).toBe(1);
   });
 
-  it('pairs no baseline with a replay that went around Shadowlap: its gate fails the run, as before', async () => {
+  it('pairs no baseline with a replay that went around shadowlap: its gate fails the run, as before', async () => {
     const good = await record('B-7');
     writeFileSync(join(work, 'prompt.txt'), `${GOOD_FIX}\n`);
-    // The client fixes its base URL, and nothing tells Shadowlap that host is a model server: the agent
+    // The client fixes its base URL, and nothing tells shadowlap that host is a model server: the agent
     // reaches the model directly. Such an attempt holds nothing the recording does, and forks nowhere.
     const around = { SHADOWLAP_UPSTREAM_ANTHROPIC: '', SHADOWLAP_CAPTURE: 'off', AGENT_BASE_URL: mock.url };
     const r = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, '--json'], around);
@@ -254,7 +254,7 @@ describe('shadowlap verify against a baseline', () => {
     expect(report.runs[0]).toMatchObject({ outcome: 'broken', deterministic: false, attempts: 3 });
     expect(report.runs[0].baseline).toBeUndefined();
     expect(report.runs[0].baselineRuns).toBeUndefined();
-    expect(report.warnings.join(' ')).toContain('the replay made no calls through Shadowlap');
+    expect(report.warnings.join(' ')).toContain('the replay made no calls through shadowlap');
   });
 
   it('says a good run with no test history was judged on its own under --baseline history', async () => {

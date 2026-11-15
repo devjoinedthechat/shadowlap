@@ -29,11 +29,11 @@ export function redirectPage(url: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
-<title>Shadowlap</title>
+<title>shadowlap</title>
 <script>location.replace(${js});</script>
 </head>
 <body>
-<a href="${attr(url)}">Open the Shadowlap dashboard</a>
+<a href="${attr(url)}">Open the shadowlap dashboard</a>
 </body>
 </html>
 `;

@@ -1,7 +1,7 @@
-// Shadowlap network guard for Node agents. Preloaded by `shadowlap run` / `replay` / `test` through
+// shadowlap network guard for Node agents. Preloaded by `shadowlap run` / `replay` / `test` through
 // NODE_OPTIONS=--import so it needs no code change and no dependency. It intercepts every outbound
 // TCP connection the agent process makes, and every UDP datagram it sends: the sidecar is allowed,
-// everything else is a side effect Shadowlap cannot replay, so it is reported (SHADOWLAP_GUARD=warn)
+// everything else is a side effect shadowlap cannot replay, so it is reported (SHADOWLAP_GUARD=warn)
 // or refused (=block). A DNS query (UDP to port 53) is left alone: a name lookup reads nothing of the
 // agent's and changes nothing, and Node's dns.lookup never comes here at all.
 //
@@ -38,7 +38,7 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
   const registry = process.env.SHADOWLAP_MCP_REGISTRY;
   const run = runOf(url, process.env.SHADOWLAP_RUN_ID ?? '');
   // `shadowlap mcp --url` talks to its server for the agent and records the tool calls itself, so
-  // its connections are not traffic that bypasses Shadowlap: that process alone may allow its
+  // its connections are not traffic that bypasses shadowlap: that process alone may allow its
   // server's host:port. No other process gets the hook, so an agent's code can't lift the guard.
   if (isShadowlapMcp()) shared[Symbol.for('shadowlap.guard.allow')] = (/** @type {unknown} */ key) => allowed.add(String(key));
   /** @type {Map<string, number>} */
@@ -88,7 +88,7 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
 
   /**
    * Whether the agent may reach host:port: a connection, or with `datagram` a UDP datagram, that
-   * bypasses Shadowlap is reported, and under block refused (false). A datagram is reported once per
+   * bypasses shadowlap is reported, and under block refused (false). A datagram is reported once per
    * target: a client that sends one per metric would otherwise report every one.
    * @param {string} host
    * @param {number} port
@@ -105,8 +105,8 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
     if (n === 1) {
       process.stderr.write(
         mode === 'block'
-          ? `[shadowlap] blocked ${what} to ${key}: it bypasses Shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=${key}.\n`
-          : `[shadowlap] warning: ${what} to ${key} bypasses Shadowlap and is not recorded; it will run again on every replay. Wrap the call as a tool.\n`,
+          ? `[shadowlap] blocked ${what} to ${key}: it bypasses shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=${key}.\n`
+          : `[shadowlap] warning: ${what} to ${key} bypasses shadowlap and is not recorded; it will run again on every replay. Wrap the call as a tool.\n`,
       );
     }
     if (!datagram || n === 1) report(reported, mode === 'block' ? 'blocked' : 'warned');
@@ -243,7 +243,7 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
   );
 }
 
-/** Whether this process is the Shadowlap CLI running `shadowlap mcp`. */
+/** Whether this process is the shadowlap CLI running `shadowlap mcp`. */
 function isShadowlapMcp() {
   try {
     const script = process.argv[1];

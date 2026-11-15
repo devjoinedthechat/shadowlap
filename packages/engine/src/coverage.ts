@@ -58,7 +58,7 @@ const TOKEN_LIMIT = new Set(['max_tokens', 'length', 'MAX_TOKENS', 'max_output_t
 
 function agentModelCalls(calls: readonly CallRecord[]): CallRecord[] {
   return [...calls]
-    // Shadowlap's own calls (its judge's) are never the agent's behaviour.
+    // shadowlap's own calls (its judge's) are never the agent's behaviour.
     .filter((c) => c.kind === 'api' && !isReservedScope(c.meta.scope))
     .sort((a, b) => a.callNo - b.callNo);
 }

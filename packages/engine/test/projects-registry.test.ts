@@ -24,7 +24,7 @@ function files(root: string, tree: Record<string, string>): string {
   return root;
 }
 
-/** A home folder, Shadowlap's folder inside it (as SHADOWLAP_HOME would name it), and a registry over both. */
+/** A home folder, shadowlap's folder inside it (as SHADOWLAP_HOME would name it), and a registry over both. */
 function setup(options: { now?: () => number } = {}) {
   const home = tempDir('sl-reg-home-');
   const shadowlapDir = join(home, 'shadowlap-home');
@@ -183,7 +183,7 @@ describe('ProjectRegistry: adding', () => {
     expect(other.list().map((p) => p.id)).toEqual(['two-agent']);
   });
 
-  it('counts a folder as set up when Shadowlap is already in use there, whether the dashboard starts in it or it is picked', () => {
+  it('counts a folder as set up when shadowlap is already in use there, whether the dashboard starts in it or it is picked', () => {
     const { registry, agent } = setup();
     const used = agent('used-agent');
     record(used);
@@ -626,14 +626,14 @@ describe('ProjectRegistry: the file', () => {
 
     writeFileSync(registry.file, JSON.stringify({ version: 2, projects: [] }));
     expect(registry.list()).toEqual([]);
-    expect(() => registry.add('~/triage-bot')).toThrow(/written by a newer Shadowlap/);
+    expect(() => registry.add('~/triage-bot')).toThrow(/written by a newer shadowlap/);
   });
 
   it('ignores a relative SHADOWLAP_HOME, which would name another folder in every directory, and says so', () => {
     const home = tempDir('sl-reg-relhome-');
     const registry = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: 'state' } });
     expect(registry.dir).toBe(join(home, '.shadowlap'));
-    expect(registry.warnings).toEqual([`SHADOWLAP_HOME is state, which isn’t an absolute path, so it is ignored: the folder for all the files Shadowlap keeps for this machine is ${join(home, '.shadowlap')} instead.`]);
+    expect(registry.warnings).toEqual([`SHADOWLAP_HOME is state, which isn’t an absolute path, so it is ignored: the folder for all the files shadowlap keeps for this machine is ${join(home, '.shadowlap')} instead.`]);
     expect(new ProjectRegistry({ home, env: { SHADOWLAP_HOME: '~/sl' } })).toMatchObject({ dir: join(home, 'sl'), warnings: [] });
     expect(new ProjectRegistry({ home, env: { SHADOWLAP_HOME: join(home, 'abs') } })).toMatchObject({ dir: join(home, 'abs'), warnings: [] });
   });
@@ -693,7 +693,7 @@ describe('ProjectRegistry: the file', () => {
 
     // Held by a process that is running (this one, standing in for another): wait, then give up.
     writeFileSync(lock, String(process.pid));
-    expect(() => busy.add('~/triage-bot')).toThrow(/held by another Shadowlap process/);
+    expect(() => busy.add('~/triage-bot')).toThrow(/held by another shadowlap process/);
     expect(existsSync(lock)).toBe(true);
 
     // Held by a process that is gone: taken over at once. No process has this id: past macOS's ids, at
@@ -712,7 +712,7 @@ describe('ProjectRegistry: the file', () => {
 
     // A lock that doesn't say who holds it is waited for like a live one.
     writeFileSync(lock, '');
-    expect(() => busy.add('~/research-agent')).toThrow(/held by another Shadowlap process/);
+    expect(() => busy.add('~/research-agent')).toThrow(/held by another shadowlap process/);
     rmSync(lock);
     expect(busy.add('~/research-agent').project.id).toBe('research-agent');
   });

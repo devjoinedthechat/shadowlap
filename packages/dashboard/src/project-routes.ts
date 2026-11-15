@@ -101,7 +101,7 @@ export class ProjectStores {
     try {
       return pc.store();
     } catch (err) {
-      const why = err instanceof ProjectError ? err.message : `Shadowlap can’t open ${pc.name}’s store: ${messageOf(err)}`;
+      const why = err instanceof ProjectError ? err.message : `shadowlap can’t open ${pc.name}’s store: ${messageOf(err)}`;
       throw new HttpError(err instanceof ProjectError ? err.status : 409, why.split(pc.path).join(tildePath(pc.path, this.host.registry.realHome)));
     }
   }
@@ -169,7 +169,7 @@ interface Served {
   kinds: Map<string, JobKind>;
   /**
    * Why the project's store can't be opened (its folder is gone, even one that went away while it
-   * was served, or the store is from a newer Shadowlap): its pages show an empty stand-in until it
+   * was served, or the store is from a newer shadowlap): its pages show an empty stand-in until it
    * can, so the switcher and the Remove dialog still work, and its jobs and uploads are refused with
    * this reason. Asked again on every request.
    */

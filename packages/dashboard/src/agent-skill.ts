@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * The instructions docs/agents.md gives coding agents to paste, packaged as skills in the Agent
- * Skills format: `setup-agent`, which sets Shadowlap up for an agent, and `debug-agent`, which debugs
+ * Skills format: `setup-agent`, which sets shadowlap up for an agent, and `debug-agent`, which debugs
  * it and checks every change to it. They live in the repository's coding-agents/ folder as a Claude
  * Code plugin, versioned with the CLI, and a copy ships with it (in this package's
  * dist/coding-agents, beside the docs Settings reads). `shadowlap skill install` puts that copy into
@@ -32,11 +32,11 @@ export const SKILL_PLUGIN = 'shadowlap@shadowlap';
 /** The prefix the skills take in a folder every coding agent's skills share, so that ours can't collide with another tool's. */
 const SHARED_PREFIX = 'shadowlap-';
 /**
- * The plugin's skills, the one that sets Shadowlap up first: each one's command in Claude Code (the
+ * The plugin's skills, the one that sets shadowlap up first: each one's command in Claude Code (the
  * plugin's name, then the skill's), and its name in a folder other agents share.
  */
 export const SKILLS = [
-  { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: `${SHARED_PREFIX}setup-agent`, does: 'sets Shadowlap up for an agent' },
+  { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: `${SHARED_PREFIX}setup-agent`, does: 'sets shadowlap up for an agent' },
   { name: 'debug-agent', command: '/shadowlap:debug-agent', shared: `${SHARED_PREFIX}debug-agent`, does: 'debugs it and checks every change to it' },
 ] as const;
 /** The Claude Code plugin: where it is in the repository, and where `shadowlap skill install` puts it in a project. */
@@ -71,7 +71,7 @@ export function codingAgent(name: string): CodingAgent | null {
  * What a project has where the install goes, against this version's copy:
  * - `missing`: nothing there;
  * - `current`: this version's copy, file for file;
- * - `other-version`: the plugin or the skills, as another version of Shadowlap wrote them;
+ * - `other-version`: the plugin or the skills, as another version of shadowlap wrote them;
  * - `changed`: something else, such as a copy edited here.
  */
 export type InstallState = 'missing' | 'current' | 'other-version' | 'changed';
@@ -245,7 +245,7 @@ function readOurs(path: string): Buffer | null {
   }
 }
 
-/** The version a plugin.json gives the plugin, when it is Shadowlap's. */
+/** The version a plugin.json gives the plugin, when it is shadowlap's. */
 function pluginVersion(bytes: Buffer | null): string | null {
   if (!bytes) return null;
   try {
@@ -256,7 +256,7 @@ function pluginVersion(bytes: Buffer | null): string | null {
   }
 }
 
-/** The version a skill in a shared folder says it is (its frontmatter's `metadata.version`), when it is Shadowlap's. */
+/** The version a skill in a shared folder says it is (its frontmatter's `metadata.version`), when it is shadowlap's. */
 function skillVersion(bytes: Buffer | null): string | null {
   const head = bytes && /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(bytes.toString('utf8'))?.[1];
   if (!head || !new RegExp(`^name: ${SHARED_PREFIX}`, 'm').test(head)) return null;
@@ -282,8 +282,8 @@ function ownEntries(dir: string, agent: CodingAgent): ReturnType<typeof walk> {
   return out;
 }
 
-/** What an install puts in a place, in words: the Claude Code plugin, or Shadowlap's skills. */
-const what = (agent: CodingAgent) => (TARGETS[agent].kind === 'plugin' ? 'the plugin' : 'Shadowlap’s skills');
+/** What an install puts in a place, in words: the Claude Code plugin, or shadowlap's skills. */
+const what = (agent: CodingAgent) => (TARGETS[agent].kind === 'plugin' ? 'the plugin' : 'shadowlap’s skills');
 
 /**
  * What the project at `cwd` has where `agent`'s install goes, against the copy in `shipped`. On the
@@ -374,10 +374,10 @@ export function installCodingAgent(cwd: string, agent: CodingAgent, options: { r
     const plugin = TARGETS[agent].kind === 'plugin';
     const reason =
       copy.state === 'other-version'
-        ? `${copy.path} holds ${plugin ? 'the Claude Code plugin' : 'Shadowlap’s skills'} ${copy.installedVersion!}, not ${version}`
+        ? `${copy.path} holds ${plugin ? 'the Claude Code plugin' : 'shadowlap’s skills'} ${copy.installedVersion!}, not ${version}`
         : plugin
           ? `${copy.path} isn’t ${version}’s copy of the plugin (edited here, or from somewhere else)`
-          : `Shadowlap’s skills in ${copy.path} aren’t ${version}’s copy (edited here, or from somewhere else)`;
+          : `shadowlap’s skills in ${copy.path} aren’t ${version}’s copy (edited here, or from somewhere else)`;
     return result('refused', left, `${reason}: --force replaces ${plugin ? 'it' : 'them'} with ${version}’s`);
   }
 
@@ -492,7 +492,7 @@ export interface AgentOffer {
   blocked: string | null;
   /** What Install does here, or null when there is nothing it can do: the copy is current, the way is blocked, or (Claude Code) the plugin isn't published yet. */
   install: AgentInstall | null;
-  /** The version of what is there, when it is Shadowlap's (InstalledCopy.installedVersion). */
+  /** The version of what is there, when it is shadowlap's (InstalledCopy.installedVersion). */
   installedVersion: string | null;
 }
 

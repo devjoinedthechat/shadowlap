@@ -22,7 +22,7 @@ no wrapper reaches them, so they are recorded and fenced through the SDK's hooks
   reads, ``stub`` runs the stand-in and answers with ``on_fork``'s output, and ``allow`` runs it,
   recorded.
 
-Without Shadowlap (no SHADOWLAP_URL) every hook answers ``{}``. Claude Code checks a call's input
+Without shadowlap (no SHADOWLAP_URL) every hook answers ``{}``. Claude Code checks a call's input
 against the files on disk before any hook runs, so a replay forks, safely, at a call that depends on
 a file an earlier, fenced write would have changed: docs/frameworks.md has this and the other limits.
 
@@ -202,10 +202,10 @@ def fence_hooks(
     ``managed_file``, ``add_dirs``, ``plugins``; with_fence passes the query's). A PreToolUse hook in
     them, or in a skill, subagent or plugin they load, runs beside the fence, where nothing can run it
     inside: a recorded write it could rewrite is refused on replay rather than handed a stand-in.
-    ``query``: the query's options that decide what the Claude Code CLI connects to besides Shadowlap
+    ``query``: the query's options that decide what the Claude Code CLI connects to besides shadowlap
     (``tools``, ``disallowed_tools``, ``mcp_servers``, ``strict_mcp_config``, ``agents``,
     ``extra_args``, ``plugins``; with_fence passes them). The fence says what they leave open when it
-    tells Shadowlap the CLI runs: a run whose CLI reaches nothing the guard can't watch passes
+    tells shadowlap the CLI runs: a run whose CLI reaches nothing the guard can't watch passes
     ``--guard block``. Without them nobody knows, and it fails."""
     table: dict[str, str] = {**BUILT_IN_EFFECTS, **(effects or {})}
     for name, effect in table.items():
@@ -294,7 +294,7 @@ class _Fence:
         self.query = query
 
     async def greet(self) -> None:
-        """The Claude Code CLI the SDK runs is a native program, which Shadowlap's preloads can't load
+        """The Claude Code CLI the SDK runs is a native program, which shadowlap's preloads can't load
         into, so the network guard can't watch the connections it makes itself. The fence says so for
         it, once, as a preload says it loaded, with what the query leaves the CLI to reach
         (claude_reach): the run's summary names each, and ``--guard block`` fails the run unless there
@@ -313,7 +313,7 @@ class _Fence:
         try:
             await _finish(_say_hello, body)
         except Exception as err:
-            self.say(f"could not tell Shadowlap that the Claude Code CLI runs unguarded: {err}")
+            self.say(f"could not tell shadowlap that the Claude Code CLI runs unguarded: {err}")
 
     def once(self, key: str, line: str) -> None:
         if key not in self.said:
@@ -362,7 +362,7 @@ class _Fence:
         if beside is None:
             return _allow(stand, why)
         reason = (
-            f"shadowlap: {name} was not run again: {_where(beside)} runs beside Shadowlap's, and Claude Code takes the input from whichever hook answers last, "
+            f"shadowlap: {name} was not run again: {_where(beside)} runs beside shadowlap's, and Claude Code takes the input from whichever hook answers last, "
             f"so it could run the recorded {name} again for real. The replay forks here. Give that hook to the query in its hooks option, where with_fence runs "
             "it inside the fence, or leave its file out for this agent (its setting_sources entry, or the plugin that holds it)."
         )
@@ -381,7 +381,7 @@ class _Fence:
             # can't be recorded is refused (this could be a replay), and a read runs unrecorded.
             self.say(f"could not record {name}: {err}")
             if c.effect == "write":
-                return _deny(f"shadowlap: {name} was not run: it is a write, and it could not be recorded ({err}). A write never runs unrecorded under Shadowlap, since this may be a replay.")
+                return _deny(f"shadowlap: {name} was not run: it is a write, and it could not be recorded ({err}). A write never runs unrecorded under shadowlap, since this may be a replay.")
             return {}
 
     async def answer(self, c: _Asked, r: dict[str, Any]) -> dict[str, Any]:
@@ -404,7 +404,7 @@ class _Fence:
         if c.effect == "write":
             beside = self.besides(c.name, c.agent_type)
             if beside is not None:
-                self.once("record:" + c.name, f"{_where(beside)} runs beside Shadowlap's for {c.name}: a replay of this run refuses {c.name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where with_fence runs it inside the fence.")
+                self.once("record:" + c.name, f"{_where(beside)} runs beside shadowlap's for {c.name}: a replay of this run refuses {c.name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where with_fence runs it inside the fence.")
         return {}
 
     async def stubbed(self, c: _Asked, r: dict[str, Any]) -> dict[str, Any]:
@@ -485,7 +485,7 @@ class _Fence:
         field = _ACTS_ON.get(p["name"])
         what = " (%s: %s)" % (field, json.dumps(ran.get(field))) if field and isinstance(ran, dict) else ""
         line = (
-            f"shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave {p['name']}, so Claude Code ran the call itself{what}: on a replay, that is the "
+            f"shadowlap: another PreToolUse hook replaced the stand-in shadowlap gave {p['name']}, so Claude Code ran the call itself{what}: on a replay, that is the "
             "recorded call run again for real. The session stops here. A hook the fence doesn't run did it, one in a settings file, a plugin or managed settings: "
             "see Claude Agent SDK in docs/frameworks.md."
         )
@@ -586,9 +586,9 @@ def with_fence(options: Opts, effects: Optional[Mapping[str, str]] = None, **fen
     """``options`` (a ``ClaudeAgentOptions``) with the fence's hooks in them:
     ``query(prompt=..., options=with_fence(options))``. The query's own PreToolUse and PostToolUse
     hooks run inside the fence's, first; its other hooks stay where they are, beside the fence's. Under
-    Shadowlap, the CLI runs with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 unless the query's ``env``
+    shadowlap, the CLI runs with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 unless the query's ``env``
     or this process's sets it: its updates, telemetry and error reports are connections the guard
-    can't watch. Without Shadowlap the hooks answer as the query's own would and the environment is
+    can't watch. Without shadowlap the hooks answer as the query's own would and the environment is
     the query's, so the same options serve production."""
     if not dataclasses.is_dataclass(options) or isinstance(options, type):
         raise TypeError("with_fence: options must be a ClaudeAgentOptions")

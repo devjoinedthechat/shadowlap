@@ -380,7 +380,7 @@ describe('GET /api/ci/workflows', () => {
     expect(ci.configError).toBeNull();
     expect(ci.alerts.failures.map((r) => r.value)).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection', 'inconclusive']);
     expect(ci.alerts.inconclusive).toBe('fail');
-    expect(ci.alerts.message).toEqual({ app: 'GitHub Actions', text: 'Shadowlap: 1 golden(s) failed on main.', link: 'github.com/acme/support-agent/actions/runs/…', at: T0 + 10 });
+    expect(ci.alerts.message).toEqual({ app: 'GitHub Actions', text: 'shadowlap: 1 golden(s) failed on main.', link: 'github.com/acme/support-agent/actions/runs/…', at: T0 + 10 });
   });
 
   it('follows the panels\' options as they change', async () => {
@@ -395,7 +395,7 @@ describe('GET /api/ci/workflows', () => {
     expect(ci.workflow.text).toContain('webhook: ${{ secrets.TEAMALERTShook }}');
     expect(ci.workflow.text).not.toContain('refs/heads/main');
     expect(ci.alerts.needs[1].value).toBe('TEAMALERTShook');
-    expect(ci.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on fix-refund-limit.');
+    expect(ci.alerts.message.text).toBe('shadowlap: 1 golden(s) failed on fix-refund-limit.');
   });
 
   it('refuses options it can\'t use, saying which', async () => {

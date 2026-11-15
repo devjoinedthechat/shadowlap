@@ -207,7 +207,7 @@ export function shortStoreName(loc: StoreLocation): string {
 /**
  * The object key for a path inside the store's folder. A key with a `.` or `..` part is refused,
  * whoever made it: a URL resolves those, so `index/../../other/x.json` would reach an object outside
- * the folder (another team's, read or written with this machine's credentials). Every key Shadowlap
+ * the folder (another team's, read or written with this machine's credentials). Every key shadowlap
  * writes is made of ids and hashes; one listed in the bucket is checked before it is read (sync.ts).
  */
 export function objectKey(loc: StoreLocation, key: string): string {

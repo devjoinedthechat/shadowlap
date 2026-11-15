@@ -128,7 +128,7 @@ describe('a run’s estimates', () => {
     const rec = addRun(store, { startedAt: T0, status: 'failed', calls: 'llll' });
     const whole = await get(`runs/${rec}/estimates`);
     expect(whole.blame).toEqual(plain(blameEstimate(priced(rec))));
-    // A recording repeats from itself, free; only a replay Shadowlap made has a Replay with writes stubbed that bills.
+    // A recording repeats from itself, free; only a replay shadowlap made has a Replay with writes stubbed that bills.
     // Run error-path presets… bills each preset that hits a call once, a run no golden repeats.
     expect(whole.actions).toEqual({ e: plain(repeatEstimate(store.getRun(rec)!, store.getCalls(rec))), c: plain(presetsEstimate(priced(rec), chaosTargets(store.getCalls(rec)), { repeat: 1 })) });
     expect(whole.actions.e).toMatchObject({ usd: 0 });
@@ -137,7 +137,7 @@ describe('a run’s estimates', () => {
     expect(Object.keys(at.actions).sort()).toEqual(['a', 'c', 'e', 'f', 'g', 'i', 'm']);
     expect(at.actions.a).toEqual(plain(forkEstimate(priced(rec), { at: 2 })));
     expect(at.actions.a.usd).toBeGreaterThan(0);
-    // Fail with HTTP status: Shadowlap answers #2 itself, so it runs live from #3.
+    // Fail with HTTP status: shadowlap answers #2 itself, so it runs live from #3.
     expect(at.actions.f).toEqual(plain(forkEstimate(priced(rec), { at: 2, answered: true })));
     expect(at.actions.f.usd).toBeLessThan(at.actions.a.usd!);
     // Switch model as recorded until a model is named, then at that model's price.

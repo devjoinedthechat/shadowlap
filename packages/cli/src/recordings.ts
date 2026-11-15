@@ -198,7 +198,7 @@ export class RecordingHost {
 
     if (a.mode === 'record') {
       if (!passed) return { ...base, ok: true, mode: 'record', saved: false, message: 'the test failed, so its recording was not saved', report: null };
-      if (summary.total === 0) return { ...base, ok: true, mode: 'record', saved: false, message: 'nothing was recorded: no model or tool call reached Shadowlap during the test', report: null };
+      if (summary.total === 0) return { ...base, ok: true, mode: 'record', saved: false, message: 'nothing was recorded: no model or tool call reached shadowlap during the test', report: null };
       // Written beside the old recording and swapped in, so an interrupted write never leaves half a pack.
       mkdirSync(dirname(a.dir), { recursive: true });
       const tmp = mkdtempSync(join(dirname(a.dir), `.${basename(a.dir)}.tmp-`));

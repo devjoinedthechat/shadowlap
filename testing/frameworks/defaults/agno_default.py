@@ -1,6 +1,6 @@
 """An Agno agent on Agno's default model, as a user writes it: an Agent given no model, so it builds
 OpenAIResponses, which calls OpenAI's Responses API and continues each turn from the last with
-previous_response_id. Nothing here names Shadowlap's address: under shadowlap run the client reads
+previous_response_id. Nothing here names shadowlap's address: under shadowlap run the client reads
 OPENAI_BASE_URL. Tools are plain functions wrapped by shadowlap.tool. QUERY is the user's request.
 Prints a JSON summary."""
 

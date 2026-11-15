@@ -1,7 +1,7 @@
 # How the GitHub Marketplace lists the action: a name no other listing, user or organization has, a
 # description of at most 125 characters, and a badge (a Feather icon GitHub supports, and one of its
 # nine colors).
-name: Shadowlap test
+name: shadowlap test
 description: "Change safety for agents: replay committed agent runs offline, and fail the check when a request changes or a check fails."
 author: devjoinedthechat
 branding:
@@ -25,7 +25,7 @@ inputs:
     description: What write tools do after a divergence (block, stub or allow).
     default: block
   guard:
-    description: The network guard for connections that bypass Shadowlap (block, warn or off).
+    description: The network guard for connections that bypass shadowlap (block, warn or off).
     default: block
   guard-accept:
     description: What guard block accepts unwatched, as guard.accept in shadowlap.config.json does. claude-code, the only one, takes the Claude Code CLI the Claude Agent SDK runs as it is, which no preload loads into, so the connections it can make that the guard can't watch are named and fail nothing; Node and Python processes keep block. Empty accepts nothing more than the config does.
@@ -123,7 +123,7 @@ runs:
     - name: Check Node.js
       shell: bash
       run: |
-        node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (!((a === 22 && b >= 16) || a >= 24)) { console.log("::error title=Shadowlap::Shadowlap needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this job has " + process.version + ". Add actions/setup-node with node-version: 22 before this step."); process.exit(1); }'
+        node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (!((a === 22 && b >= 16) || a >= 24)) { console.log("::error title=shadowlap::shadowlap needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this job has " + process.version + ". Add actions/setup-node with node-version: 22 before this step."); process.exit(1); }'
 
     - name: Install shadowlap ${{ inputs.version }}
       id: install
@@ -137,7 +137,7 @@ runs:
         # `version` name one release, and an update that moves only the tag would have this action
         # drive another CLI than its own.
         action=$(node -p "require(process.env.GITHUB_ACTION_PATH + '/packages/cli/package.json').version")
-        if [ -z "$VERSION" ]; then VERSION="$action"; elif [ "$VERSION" != "$action" ]; then echo "::warning title=Shadowlap::this action is v$action but installs shadowlap $VERSION; set version: $action, or leave it out"; fi
+        if [ -z "$VERSION" ]; then VERSION="$action"; elif [ "$VERSION" != "$action" ]; then echo "::warning title=shadowlap::this action is v$action but installs shadowlap $VERSION; set version: $action, or leave it out"; fi
         # fix-on-failure may ask Claude for the fix through the Anthropic SDK, which the CLI imports from
         # where it is installed and names as neither dependency nor peer: it goes in beside it, at the
         # version this release was tested with, never whatever is newest, in a job that holds the job's

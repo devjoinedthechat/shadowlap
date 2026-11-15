@@ -88,13 +88,13 @@ export function summarizeRun(run: RunRecord, allCalls: CallRecord[], notReached:
   for (const c of calls) {
     byOrigin[c.origin] = (byOrigin[c.origin] ?? 0) + 1;
     byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
-    // Model calls and tool calls alike: Shadowlap answered them itself (--fail-at), though they count as live.
+    // Model calls and tool calls alike: shadowlap answered them itself (--fail-at), though they count as live.
     if (c.end?.meta.injected) injected++;
     // Answered with the reason it could not be sent (an intervention it could not take, a placeholder key), instead of being sent.
     else if (c.end?.meta.refused) refused++;
     if (c.kind !== 'api') continue;
     // Offline refusals (`shadowlap test`) never reached the provider, and neither did an injected
-    // failure or a refused call, which Shadowlap answered itself; an imported run's calls were made
+    // failure or a refused call, which shadowlap answered itself; an imported run's calls were made
     // somewhere else.
     if (c.origin === 'live' && !imported) upstreamRequests += [c.end, ...c.attempts].filter((e) => e && !e.meta.offline && !e.meta.injected && !e.meta.refused).length;
     const u = c.end?.meta.usage;
@@ -181,7 +181,7 @@ export function formatSummary(s: RunSummary, p: Palette = plain, options: { unwa
   const lines: string[] = [];
   const kinds = `${s.byKind.api} api, ${s.byKind.tool} tool` + (s.byKind.clock + s.byKind.random ? `, ${s.byKind.clock + s.byKind.random} clock/random` : '');
   if (s.total === 0) {
-    lines.push(`${p.yellow('⚠')} ${s.mode === 'record' ? 'Recorded' : 'Replayed'} ${p.bold(s.runId)}: no calls were made. Did the agent start, and does it use the Shadowlap environment?`);
+    lines.push(`${p.yellow('⚠')} ${s.mode === 'record' ? 'Recorded' : 'Replayed'} ${p.bold(s.runId)}: no calls were made. Did the agent start, and does it use the shadowlap environment?`);
   } else if (s.mode === 'record') {
     lines.push(`${p.green('●')} Recorded ${p.bold(s.runId)}: ${s.total} calls (${kinds}), ${s.upstreamRequests} upstream requests${s.cost.spent ? `, ≈${formatUsd(s.cost.spent)}` : ''}`);
   } else if (s.divergence?.type === 'ended_early') {
@@ -196,7 +196,7 @@ export function formatSummary(s: RunSummary, p: Palette = plain, options: { unwa
     );
   } else {
     const d = s.divergence;
-    // An injected failure is stored as live but was answered by Shadowlap (--fail-at), and so was a
+    // An injected failure is stored as live but was answered by shadowlap (--fail-at), and so was a
     // call an intervention could not be applied to: each is named apart.
     const refused = s.refused ?? 0;
     const live = s.byOrigin.live - s.injected - refused;

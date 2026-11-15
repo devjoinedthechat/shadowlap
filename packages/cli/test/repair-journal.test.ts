@@ -10,7 +10,7 @@ import { recoverWorkingTree } from '../src/repair-journal.js';
 
 /**
  * Where a repair starts: the folder's repair lock, the worktrees a repair that died left, and the
- * journal of an older Shadowlap, which tried candidates in the working tree, that such a repair left.
+ * journal of an older shadowlap, which tried candidates in the working tree, that such a repair left.
  * A git repository of its own, in a folder of the temporary folder with room beside it for a file
  * outside the repository.
  */
@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 /**
- * A journal as an older Shadowlap, which tried candidates in the working tree, wrote it: its
+ * A journal as an older shadowlap, which tried candidates in the working tree, wrote it: its
  * process, and the file it edited, named by the repository's root as git gives it joined to the
  * file's path, with the file's text before and after the candidate, in base64. In `at`, the
  * project's .shadowlap folder unless said otherwise. Returns its path.
@@ -52,7 +52,7 @@ function journal(files: Array<{ path: string; original: string; patched: string 
   return path;
 }
 
-/** The repository's root as git names it, as an older Shadowlap joined a file's path to it. */
+/** The repository's root as git names it, as an older shadowlap joined a file's path to it. */
 const gitTop = () => sh(project, 'git', ['rev-parse', '--show-toplevel']).trim();
 
 /** Starts a repair in the project and ends it, as one that stops at once would. */
@@ -88,7 +88,7 @@ describe('a journal planted in the repository', () => {
         ...(LINKS ? [{ path: join(root, 'docs', 'escape.txt'), patched: 'KNOWN\n' }] : []),
         { path: join(root, 'docs', 'hard.txt'), patched: 'KNOWN\n' },
       ];
-      // One at a time, as an older Shadowlap journaled one file, then all at once.
+      // One at a time, as an older shadowlap journaled one file, then all at once.
       const ignored: Array<string | null> = [];
       for (const files of [...planted.map((p) => [p]), planted]) {
         journal(files.map((p) => ({ path: p.path, original: 'PLANTED\n', patched: p.patched })));
@@ -99,7 +99,7 @@ describe('a journal planted in the repository', () => {
       // A path out of the repository is no repair's of it: none of the journal is taken. The hard link
       // is the repository's by its path, and is left as it is: it is a file outside too.
       const outOf = 'it names a file outside the repository, which no repair of it edited';
-      const byRel = isAbsolute(rel) ? outOf : 'it names a file by a relative path, which no Shadowlap writes';
+      const byRel = isAbsolute(rel) ? outOf : 'it names a file by a relative path, which no shadowlap writes';
       expect(ignored).toEqual([byRel, outOf, outOf, ...(LINKS ? [outOf] : []), null, byRel]);
       for (const f of [empty, beside]) expect(readFileSync(f, 'utf8'), f).toBe('');
       for (const f of [known, linked, hard]) expect(readFileSync(f, 'utf8'), f).toBe('KNOWN\n');
@@ -133,7 +133,7 @@ describe('a journal planted in the repository', () => {
     sh(project, 'git', ['commit', '-qm', 'a journal, committed']);
     expect(startAndEnd()).toMatchObject({ restored: [], ignored: 'git tracks it, so it came with the repository' });
     expect(readFileSync(join(project, 'prompts', 'policy.md'), 'utf8')).toBe('Escalate refunds above the limit.\n');
-    // Left where it is: a tracked file is the repository's, not Shadowlap's to delete.
+    // Left where it is: a tracked file is the repository's, not shadowlap's to delete.
     expect(existsSync(planted)).toBe(true);
     expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
   });
@@ -163,7 +163,7 @@ describe('a journal planted in the repository', () => {
 });
 
 describe('recoverWorkingTree', () => {
-  it('puts back the edit an interrupted repair left, as an older Shadowlap journaled it, and leaves a file someone changed since alone', () => {
+  it('puts back the edit an interrupted repair left, as an older shadowlap journaled it, and leaves a file someone changed since alone', () => {
     mkdirSync(join(project, 'prompts'));
     writeFileSync(join(project, 'prompts', 'policy.md'), 'candidate');
     writeFileSync(join(project, 'prompts', 'notes.md'), 'edited by hand');

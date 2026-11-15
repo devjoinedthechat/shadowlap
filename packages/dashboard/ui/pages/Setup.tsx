@@ -121,7 +121,7 @@ function SetupWaiting({ failed, retry }: { failed: Error | null; retry: () => vo
 
 /**
  * A project whose store can't be opened (its folder is gone, or the store is from a newer
- * Shadowlap): what is wrong, in place of a setup it couldn't run, and Remove. The switcher still
+ * shadowlap): what is wrong, in place of a setup it couldn't run, and Remove. The switcher still
  * works, and once the folder is back the project's pages come back with it.
  */
 function ProjectProblem({ id, name, problem }: { id: string; name: string; problem: string }) {
@@ -133,7 +133,7 @@ function ProjectProblem({ id, name, problem }: { id: string; name: string; probl
 }
 
 /**
- * Why a project can't be opened (its folder is gone, its store is a newer Shadowlap's), as the
+ * Why a project can't be opened (its folder is gone, its store is a newer shadowlap's), as the
  * page's header, with Remove project…: on its setup in place of every page, and on Settings
  * above its tabs, which it can still show.
  */

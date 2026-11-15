@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/sidecar",
   "version": "0.1.0",
-  "description": "Shadowlap sidecar: record/replay proxy for model APIs and the call resolution API for SDKs.",
+  "description": "shadowlap sidecar: record/replay proxy for model APIs and the call resolution API for SDKs.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

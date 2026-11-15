@@ -141,7 +141,7 @@ elif step == "scope-record":
     out({"a": a, "b": b})
 
 elif step in ("scope-names-record", "scope-names-replay"):
-    # Any name a scope can have outside Shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
+    # Any name a scope can have outside shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
     names = ["東京の天気", "Kraków-łódź", "50% off"]
     got = {}
     for name in reversed(names) if step == "scope-names-replay" else names:

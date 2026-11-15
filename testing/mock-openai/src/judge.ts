@@ -1,7 +1,7 @@
 import type { ChatRequest, Script, ScriptContext, ScriptResult, Turn } from './index.js';
 
 /**
- * A scripted judge for Chat Completions: Shadowlap's judge checks send a system message with the
+ * A scripted judge for Chat Completions: shadowlap's judge checks send a system message with the
  * judge's instructions and one user message that holds a question and, between <material> tags,
  * what the judge reads. `withJudge` answers those with the verdict `decide` gives, as the JSON
  * object the request's schema asks for, and hands every other request to the agent's script.

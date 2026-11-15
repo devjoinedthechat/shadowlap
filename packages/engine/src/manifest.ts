@@ -161,7 +161,7 @@ export function loadApiRequest(store: StoreOf<'recording'>, manifestRef: string,
     setOwn(body, m.list, m.runs.flatMap((run) => runItems(store, run)).map((h) => required(store, h, json)));
     return opts.exact ? exactFields(store, manifestRef, body, m.list, Object.keys(m.parts)) : body;
   }
-  if (manifest.v !== 1) throw new Error(`request manifest ${manifestRef} is version ${JSON.stringify((manifest as { v?: unknown }).v)}, which this Shadowlap doesn't read`);
+  if (manifest.v !== 1) throw new Error(`request manifest ${manifestRef} is version ${JSON.stringify((manifest as { v?: unknown }).v)}, which this shadowlap doesn't read`);
   if (manifest.kind === 'whole') {
     const bytes = store.getBlob(manifest.blob);
     if (!bytes) throw new Error(`missing blob ${manifest.blob}`);

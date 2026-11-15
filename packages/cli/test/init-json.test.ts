@@ -242,7 +242,7 @@ describe('a Node pin', () => {
     const dir = project({ ...NODE18, '.nvmrc': '18.17\n' });
     const text = spawnSync(process.execPath, [CLI, 'init'], { cwd: dir, encoding: 'utf8', env: cliEnv(tempDir('sl-initjson-node-')) });
     expect(text.status).toBe(0);
-    expect(text.stdout).toContain("! .nvmrc pins Node 18.17, too old for Shadowlap's guard, which needs Node 18.18 or later: the agent wouldn't start. Pin 18.18 or later before you record.");
+    expect(text.stdout).toContain("! .nvmrc pins Node 18.17, too old for shadowlap's guard, which needs Node 18.18 or later: the agent wouldn't start. Pin 18.18 or later before you record.");
     expect(text.stdout.indexOf('.nvmrc pins')).toBeLessThan(text.stdout.indexOf('1. Install'));
   });
 });
@@ -263,7 +263,7 @@ describe('shadowlap init as a dashboard job', () => {
     expect(lines).toContain('  tool         search_filings  read');
     // A tool that isn't wrapped is flagged, with what it suggests and why.
     expect(lines.filter((l) => l.startsWith('! tool')).map((l) => l.replace(/ \(.*\)$/, ''))).toEqual(['! tool         save_report  not wrapped · suggest write', '! tool         notify_slack  not wrapped · suggest write']);
-    expect(lines.find((l) => l.startsWith('! node'))).toBe("! node         .nvmrc pins Node 18.17, too old for Shadowlap's guard, which needs Node 18.18 or later: the agent wouldn't start. Pin 18.18 or later before you record.");
+    expect(lines.find((l) => l.startsWith('! node'))).toBe("! node         .nvmrc pins Node 18.17, too old for shadowlap's guard, which needs Node 18.18 or later: the agent wouldn't start. Pin 18.18 or later before you record.");
     // It ends on the config, and leaves out the steps a terminal gets: the setup's own buttons are those.
     expect(lines.at(-1)).toBe('✓ wrote shadowlap.config.json (empty)');
     const text = lines.join('\n');
@@ -380,15 +380,15 @@ describe('shadowlap init in a dashboard project', () => {
     const { home, dir } = homeProject(RESEARCH);
     const registry = new ProjectRegistry({ home, dir: slHome, actor: () => null });
     const id = registry.add(dir).project.id;
-    // A newer Shadowlap wrote the list since: this one can read it, not change it.
+    // A newer shadowlap wrote the list since: this one can read it, not change it.
     const file = join(slHome, 'projects.json');
     writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), version: 99 }));
     const out = spawnSync(process.execPath, [CLI, 'init', '--json'], { cwd: dir, encoding: 'utf8', env: env(slHome) });
     expect(out.status).toBe(0);
-    expect((JSON.parse(out.stdout) as InitJson).project).toEqual({ id, noted: false, why: expect.stringMatching(/written by a newer Shadowlap/) });
+    expect((JSON.parse(out.stdout) as InitJson).project).toEqual({ id, noted: false, why: expect.stringMatching(/written by a newer shadowlap/) });
     const text = spawnSync(process.execPath, [CLI, 'init'], { cwd: dir, encoding: 'utf8', env: env(slHome) });
     expect(text.status).toBe(0);
-    expect(text.stderr).toMatch(new RegExp(`! The dashboard’s setup of ${id} didn’t take this in: .*written by a newer Shadowlap`));
+    expect(text.stderr).toMatch(new RegExp(`! The dashboard’s setup of ${id} didn’t take this in: .*written by a newer shadowlap`));
     // A folder that isn't a project says nothing of it.
     const other = project(RESEARCH);
     const none = spawnSync(process.execPath, [CLI, 'init'], { cwd: other, encoding: 'utf8', env: env(slHome) });
@@ -410,7 +410,7 @@ describe('noteInspected', () => {
     const lock = join(slHome, 'projects.json.lock');
     writeFileSync(lock, String(process.pid));
     try {
-      expect(noteInspected(dir, j, env, { lockTimeoutMs: 50 })).toEqual({ id, noted: false, why: expect.stringMatching(/is held by another Shadowlap process/) });
+      expect(noteInspected(dir, j, env, { lockTimeoutMs: 50 })).toEqual({ id, noted: false, why: expect.stringMatching(/is held by another shadowlap process/) });
     } finally {
       rmSync(lock, { force: true });
     }

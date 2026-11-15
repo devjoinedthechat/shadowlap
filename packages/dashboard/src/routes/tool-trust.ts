@@ -24,7 +24,7 @@ const NAME_MAX = 200;
 
 function toolOf(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > NAME_MAX) throw new HttpError(400, `tool is the tool's name, at most ${NAME_MAX} characters`);
-  if (value === 'unrecorded') throw new HttpError(400, 'tools.unrecorded declares the tools Shadowlap doesn’t record: it is no tool to mark');
+  if (value === 'unrecorded') throw new HttpError(400, 'tools.unrecorded declares the tools shadowlap doesn’t record: it is no tool to mark');
   return value;
 }
 

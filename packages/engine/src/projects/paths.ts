@@ -3,12 +3,12 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
- * Paths for projects: where Shadowlap keeps its own files on this machine, `~` in what people type,
+ * Paths for projects: where shadowlap keeps its own files on this machine, `~` in what people type,
  * and how a folder is shown. Shared by the registry, folder suggestions and the dashboard's read model.
  */
 
 /**
- * Shadowlap's folder for this machine's files: `SHADOWLAP_HOME`, else `~/.shadowlap`. It holds the
+ * shadowlap's folder for this machine's files: `SHADOWLAP_HOME`, else `~/.shadowlap`. It holds the
  * project list (`projects.json`), and the registrations of the agents commands start (`agents/`) and
  * of the `mcp --listen` proxies (`mcp/`) while they run, so processes that share an environment find
  * each other's. Only an absolute path (or one starting with `~/`) counts: a relative one would name
@@ -25,7 +25,7 @@ export function shadowlapHome(env: NodeJS.ProcessEnv = process.env, home: string
 export function shadowlapHomeProblem(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string | null {
   const explicit = env.SHADOWLAP_HOME?.trim();
   if (!explicit || isAbsolute(expandHome(explicit, home))) return null;
-  return `SHADOWLAP_HOME is ${explicit}, which isn’t an absolute path, so it is ignored: the folder for all the files Shadowlap keeps for this machine is ${join(home, '.shadowlap')} instead.`;
+  return `SHADOWLAP_HOME is ${explicit}, which isn’t an absolute path, so it is ignored: the folder for all the files shadowlap keeps for this machine is ${join(home, '.shadowlap')} instead.`;
 }
 
 /** `~` and `~/x` (or `~\x`) become the home folder; anything else is returned as given. */

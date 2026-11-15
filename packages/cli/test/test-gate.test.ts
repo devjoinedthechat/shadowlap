@@ -132,7 +132,7 @@ describe('shadowlap test with a gate', () => {
     expect(r.out).toContain('✗ reference-agent: failed · 0 of 3 · rate <= 0.71 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts. Attempt 1: check failed: send_email called 0 times, but called 1 time');
     expect(r.out).toContain('0 of 3 passed · rate <= 0.71 (95%)');
     expect(r.report.results[0]).toMatchObject({ ok: false, verdict: 'failed', failure: 'check', gate: { decision: 'fail', attempts: 3, max: 80, outcomes: [false, false, false] } });
-    expect(r.markdown).toContain('### Shadowlap: 0 of 1 golden passed · 1 failed');
+    expect(r.markdown).toContain('### shadowlap: 0 of 1 golden passed · 1 failed');
   }, 120_000);
 
   it('settles a replay that forks nowhere with its one attempt, which would come out the same every time', async () => {
@@ -157,7 +157,7 @@ describe('shadowlap test with a gate', () => {
       expect(failing.junit).toContain('<failure message="inconclusive · 2 of 4 · rate 0.14 to 0.86 (80%) · gate: tells 60%+ from 40%- at &lt;= 20% risk');
       // Its max of 4 can't keep it within the session's 5%: the session keeps it, and says so before it runs.
       expect(failing.out).toMatch(/goldens\/reference-agent: its max of 4 leaves \d+% of attempts at its good rate inconclusive, more than its 5% share of the suite's risk/);
-      expect(failing.markdown).toContain('### Shadowlap: 0 of 1 golden passed · 1 inconclusive');
+      expect(failing.markdown).toContain('### shadowlap: 0 of 1 golden passed · 1 inconclusive');
       expect(failing.markdown).toContain(`| 🟡 | \`reference-agent\` | ${unsure} |`);
 
       const warned = await shadowlapTest(tests, FIX, { flags: ['--inconclusive', 'warn', '--annotations'] });
@@ -167,7 +167,7 @@ describe('shadowlap test with a gate', () => {
       expect(warned.report.results[0]).toMatchObject({ ok: true, verdict: 'inconclusive' });
       expect(warned.junit).toContain('skipped="1"');
       expect(warned.junit).toContain('<skipped message="inconclusive · 2 of 4');
-      expect(warned.out).toMatch(/::warning file=goldens\/reference-agent\/run\.json,title=Shadowlap%3A reference-agent::inconclusive/);
+      expect(warned.out).toMatch(/::warning file=goldens\/reference-agent\/run\.json,title=shadowlap%3A reference-agent::inconclusive/);
 
       // More attempts for this session only: the gate's limit is raised, its figures kept.
       const more = await shadowlapTest(tests, FIX, { flags: ['--max-attempts', '6'] });

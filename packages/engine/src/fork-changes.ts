@@ -382,7 +382,7 @@ export interface PathCall {
   name: string;
   /** What a tool does, as recorded; null where the call says none. */
   effect: Effect | null;
-  /** Where its answer came from; `injected` for a failure Shadowlap answered (`--fail-at`), which the store keeps as live. */
+  /** Where its answer came from; `injected` for a failure shadowlap answered (`--fail-at`), which the store keeps as live. */
   origin: Origin | 'injected';
   /** A person's answer (`user_input`), not the agent's call. */
   input: boolean;
@@ -411,7 +411,7 @@ export interface PathRow {
 /** The rows Compare draws at most; past them, it counts the rest. */
 export const PATH_ROWS = 200;
 
-/** Who refused a model call that failed: Shadowlap's flag, an offline replay, or the provider. */
+/** Who refused a model call that failed: shadowlap's flag, an offline replay, or the provider. */
 function refusedBy(c: CallRecord): NonNullable<PathCall['failure']>['by'] {
   const meta = c.end?.meta;
   if (meta?.injected) return 'injected';

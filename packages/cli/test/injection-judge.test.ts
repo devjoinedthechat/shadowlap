@@ -140,7 +140,7 @@ describe('what failed in a replay', () => {
     expect(failureOf(store, exited, { status: 'failed' })).toBeNull();
     expect(failureOf(store, exited, { status: 'completed' })).toEqual({ why: 'the agent exited with code 1', callNo: null });
     expect(failureOf(store, { ...ok, failures: ['timed out after 30s'] }, { status: 'completed' })).toEqual({ why: 'the agent timed out after 30s', callNo: null });
-    expect(failureOf(store, { ...ok, bypassed: true }, { status: 'completed' })?.why).toMatch(/^the replay made no calls through Shadowlap/);
+    expect(failureOf(store, { ...ok, bypassed: true }, { status: 'completed' })?.why).toMatch(/^the replay made no calls through shadowlap/);
     // No model call and a non-zero exit: the agent crashed first, which is what it says.
     expect(failureOf(store, { ...ok, bypassed: true, code: 1 }, { status: 'completed' })).toEqual({ why: 'the agent exited with code 1 before it made a model call', callNo: null });
     const overloaded = attempt(store, [{ kind: 'api', body: conversation('x'), status: 529, error: 'Overloaded' }]);

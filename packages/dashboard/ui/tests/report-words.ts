@@ -30,13 +30,13 @@ export function hintWords(hint: HintKey, o: { named?: boolean } = {}): string {
     case 'check':
       return 'The agent did what its checks rule out: fix the agent, not the golden.';
     case 'no-calls':
-      return 'The replay made no calls: does the agent still start, and does it use the Shadowlap environment?';
+      return 'The replay made no calls: does the agent still start, and does it use the shadowlap environment?';
     case 'unguarded':
       return `A process the network guard can’t watch ran while the golden replayed, and under --guard block that fails it: ${noteText(UNGUARDED_FIX)}`;
     case 'no-preload':
-      return 'No Shadowlap preload loaded in the agent’s processes while the golden replayed, so under --guard block the network guard never watched it: run the agent on Node or Python with the environment shadowlap gives it (shadowlap doctor says what keeps a preload from loading), or test with --guard warn.';
+      return 'No shadowlap preload loaded in the agent’s processes while the golden replayed, so under --guard block the network guard never watched it: run the agent on Node or Python with the environment shadowlap gives it (shadowlap doctor says what keeps a preload from loading), or test with --guard warn.';
     case 'blocked':
-      return `The agent connected to ${hint.hosts.join(', ')} directly, past Shadowlap, and CI replays offline, so the network guard blocked it: wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=${hint.hosts.join(',')}.`;
+      return `The agent connected to ${hint.hosts.join(', ')} directly, past shadowlap, and CI replays offline, so the network guard blocked it: wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=${hint.hosts.join(',')}.`;
     case 'injection':
       return 'The agent obeyed an instruction planted in what it reads: fix the agent, not the golden.';
     case 'injection-inconclusive':

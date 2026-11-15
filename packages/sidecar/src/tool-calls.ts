@@ -150,7 +150,7 @@ function serveToolCall(core: SidecarCore, call: ToolCall, placed: PlacedToolCall
 }
 
 /**
- * A failure `--fail-at` asks for: the tool does not run. Its error is stored as Shadowlap's, and the
+ * A failure `--fail-at` asks for: the tool does not run. Its error is stored as shadowlap's, and the
  * SDK raises it as the kind of failure asked for; a client that predates this raises it as a
  * replayed error.
  */

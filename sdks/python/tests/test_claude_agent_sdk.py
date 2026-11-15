@@ -272,7 +272,7 @@ class Fence(unittest.TestCase):
         asyncio.run(hooks["UserPromptSubmit"][0].hooks[0]({"hook_event_name": "UserPromptSubmit", "prompt": "go", "cwd": ROOT}, None, {}))
         asyncio.run(agent(session(hooks), [("Bash", {"command": "true"})]))
         self.assertEqual(sidecar.hellos, [{"runtimeVersion": "", "ppid": os.getppid(), "runtime": "claude-code", "pid": os.getpid(), "guard": "off", "capture": False}])
-        # Outside Shadowlap it says nothing.
+        # Outside shadowlap it says nothing.
         os.environ.pop("SHADOWLAP_URL", None)
         quiet = Sidecar()
         shadowlap._post = quiet
@@ -413,7 +413,7 @@ class BesideOtherHooks(unittest.TestCase):
         out = asyncio.run(agent(cc, self.BASH))
         self.assertEqual(cc.ran, [])
         self.assertTrue(out["results"][0]["is_error"])
-        self.assertIn(f'shadowlap: Bash was not run again: a PreToolUse hook in {settings_file} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
+        self.assertIn(f'shadowlap: Bash was not run again: a PreToolUse hook in {settings_file} (matcher "Bash") runs beside shadowlap\'s', out["results"][0]["content"])
         self.assertIn(settings_file, "\n".join(said))
 
     BASH_HOOK = "hooks:\n  PreToolUse:\n    - matcher: Bash\n      hooks:\n        - type: command\n          command: ./mark.sh\n"
@@ -434,7 +434,7 @@ class BesideOtherHooks(unittest.TestCase):
         cc = session(fenced(settings={"sources": ["project"], "cwd": folder, "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking("last")]})
         out = asyncio.run(agent(cc, self.BASH))
         self.assertEqual(cc.ran, [])
-        self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "skills", "guard", "SKILL.md")} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
+        self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "skills", "guard", "SKILL.md")} (matcher "Bash") runs beside shadowlap\'s', out["results"][0]["content"])
 
     def test_refuses_a_recorded_write_a_hook_in_the_repository_root_s_local_settings_could_rewrite(self) -> None:
         # Claude Code reads that file at the root from a subfolder, and the main checkout's from a linked worktree.
@@ -445,7 +445,7 @@ class BesideOtherHooks(unittest.TestCase):
         cc = session(fenced(settings={"sources": ["local"], "cwd": os.path.join(folder, "sub"), "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking("last")]})
         out = asyncio.run(agent(cc, self.BASH))
         self.assertEqual(cc.ran, [])
-        self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "settings.local.json")} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
+        self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "settings.local.json")} (matcher "Bash") runs beside shadowlap\'s', out["results"][0]["content"])
 
     def test_refuses_a_recorded_write_a_subagent_s_own_hook_could_rewrite_in_its_calls_alone(self) -> None:
         recorded, _ = self.recorded(fenced())
@@ -474,7 +474,7 @@ class BesideOtherHooks(unittest.TestCase):
         # The write ran, which the fence could not stop; the model reads what it did, not the recording, and nothing runs after it.
         self.assertEqual(cc.ran, ["echo hi > out.txt # checked"])
         self.assertEqual(out["results"][0], {"content": "ran: echo hi > out.txt # checked", "is_error": False})
-        self.assertRegex(cc.stop_reason or "", r'^shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave Bash, so Claude Code ran the call itself \(command: "echo hi > out.txt # checked"\)')
+        self.assertRegex(cc.stop_reason or "", r'^shadowlap: another PreToolUse hook replaced the stand-in shadowlap gave Bash, so Claude Code ran the call itself \(command: "echo hi > out.txt # checked"\)')
         self.assertEqual(out["results"][1], {"content": "the session was stopped: " + str(cc.stop_reason), "is_error": True})
         self.assertIn("another PreToolUse hook replaced the stand-in", "\n".join(said))
 

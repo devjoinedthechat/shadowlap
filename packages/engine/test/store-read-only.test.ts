@@ -47,14 +47,14 @@ describe('a connection that only reads', () => {
     }
   });
 
-  it('refuses a store from a newer Shadowlap, as open does', () => {
+  it('refuses a store from a newer shadowlap, as open does', () => {
     const writer = Store.open(path);
     writer.close();
     const raw = Store.open(path);
     // Stamped as a version far ahead of this build's.
     (raw as unknown as { db: { exec(sql: string): void } }).db.exec(`UPDATE meta SET value = '999' WHERE key = 'schema_version'`);
     raw.close();
-    expect(() => Store.openReadOnly(path)).toThrow(/newer Shadowlap/);
+    expect(() => Store.openReadOnly(path)).toThrow(/newer shadowlap/);
   });
 
   // The files this process has open, where the system lists them.

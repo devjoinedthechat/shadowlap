@@ -1,5 +1,5 @@
 """A CrewAI crew as a user writes it: one Agent on an LLM named by its model, which CrewAI builds on
-the OpenAI SDK's client, and one Task, run by Crew.kickoff. Nothing here names Shadowlap's address:
+the OpenAI SDK's client, and one Task, run by Crew.kickoff. Nothing here names shadowlap's address:
 under shadowlap run CrewAI's OpenAI client reads OPENAI_BASE_URL. Tools are CrewAI @tool functions,
 named as CrewAI's docs name them, wrapped with shadowlap.adapters.crewai.with_effect. QUERY is the
 user's request. Prints a JSON summary, with each tool's result as the model read it."""

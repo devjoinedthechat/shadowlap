@@ -306,7 +306,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   if (blocked) warnings.push(notVerifiedWarning(blocked));
   if (mentions === 'no-git') notes.push('The project is not a git repository, so its files were not searched for the model it switches from.');
   else if ((mentions === null || !mentions.files.length) && from.length) notes.push(`No string in the project's code or config names ${from.join(' or ')}: set ${s.to} where your agent reads its model (an environment variable, a deployment setting).`);
-  if (mentions && mentions !== 'no-git' && mentions.review.length) notes.push(`${mentions.review.length} other mention${mentions.review.length === 1 ? '' : 's'} of ${from.join(' or ')} (prose, history, tests, object keys, Shadowlap's config) ${mentions.review.length === 1 ? 'is' : 'are'} left as ${mentions.review.length === 1 ? 'it is' : 'they are'}, for review.`);
+  if (mentions && mentions !== 'no-git' && mentions.review.length) notes.push(`${mentions.review.length} other mention${mentions.review.length === 1 ? '' : 's'} of ${from.join(' or ')} (prose, history, tests, object keys, shadowlap's config) ${mentions.review.length === 1 ? 'is' : 'are'} left as ${mentions.review.length === 1 ? 'it is' : 'they are'}, for review.`);
   const base: Omit<MigrateReport, 'pullRequest' | 'files'> = {
     migrateId: null,
     kind: 'migrate',

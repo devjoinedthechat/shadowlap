@@ -22,7 +22,7 @@ const use = (inputTokens: number, outputTokens: number, cacheReadInputTokens = 0
 export interface ApiOptions {
   scope?: string;
   origin?: Origin;
-  /** How it ended: answered, failed, answered by Shadowlap (`injected`), or not at all (`open`). */
+  /** How it ended: answered, failed, answered by shadowlap (`injected`), or not at all (`open`). */
   ended?: 'ok' | 'error' | 'injected' | 'open';
   provider?: string;
   /** Its request was kept, as a recording keeps it (an import may not). */

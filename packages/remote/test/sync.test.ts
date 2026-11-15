@@ -388,7 +388,7 @@ describe('a run queued while it recorded', () => {
     const a = machine(remote, 'dana@northwind.example');
     const live = record(a.store, 'live', { running: true });
     expect((await push(a, { all: true })).queued).toEqual([live.runId]);
-    // An older Shadowlap deleted the run and kept its row: nothing records it, nothing sends it.
+    // An older shadowlap deleted the run and kept its row: nothing records it, nothing sends it.
     a.store.endRun(live.runId, 'completed');
     a.store.deleteRun(live.runId);
     a.store.setTeamRun(loc.url, { runId: live.runId, state: 'queued', at: 1, base: null, baseHash: null, remoteHash: null, entry: null });
@@ -1022,15 +1022,15 @@ describe('the index', () => {
   it('tries a segment it could not read again on the next pull, instead of forgetting it', async () => {
     const remote = new MemoryStore(loc);
     const a = machine(remote, 'dana@northwind.example');
-    const r = record(a.store, 'from a newer Shadowlap');
+    const r = record(a.store, 'from a newer shadowlap');
     await push(a, { all: true });
     const key = remote.keysUnder('index/')[0];
     const body = remote.objects.get(key)!.body;
-    // As a newer Shadowlap would write it.
+    // As a newer shadowlap would write it.
     remote.objects.get(key)!.body = Buffer.from(JSON.stringify({ ...JSON.parse(body.toString()), version: 2 }));
     const b = machine(remote, 'maya@northwind.example');
     const first = await pull(b);
-    expect(first.skippedSegments).toEqual([{ key, reason: expect.stringMatching(/version 2.*Update Shadowlap/) }]);
+    expect(first.skippedSegments).toEqual([{ key, reason: expect.stringMatching(/version 2.*Update shadowlap/) }]);
     expect(first.pulled).toEqual([]);
     expect((await pull(b)).skippedSegments.map((x) => x.key)).toEqual([key]);
     // Once it can be read (here: written again as this version reads it), the run comes.

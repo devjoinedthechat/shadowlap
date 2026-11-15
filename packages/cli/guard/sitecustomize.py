@@ -1,8 +1,8 @@
-"""Shadowlap network guard for Python agents.
+"""shadowlap network guard for Python agents.
 
 Loaded by `shadowlap run` / `replay` / `test` through PYTHONPATH, so it needs no code change and
 no dependency. It intercepts every outbound connection the agent process makes, and every UDP
-datagram it sends: the sidecar is allowed, everything else is a side effect Shadowlap cannot
+datagram it sends: the sidecar is allowed, everything else is a side effect shadowlap cannot
 replay, so it is reported (SHADOWLAP_GUARD=warn) or refused (=block). SHADOWLAP_GUARD=off disables
 it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets. SHADOWLAP_MCP_REGISTRY names the
 folder the `shadowlap mcp --listen` proxies of this user's register in: they record the tool calls
@@ -106,7 +106,7 @@ def _post(path: str, payload: dict[str, Any]) -> None:
 
 
 def _flush() -> None:
-    # The run lists what bypassed Shadowlap from these reports, and counts the preloads that loaded:
+    # The run lists what bypassed shadowlap from these reports, and counts the preloads that loaded:
     # one still on its way when the agent exits would be left out, so the agent waits for them,
     # 2 seconds at most in all.
     deadline = time.monotonic() + 2
@@ -188,7 +188,7 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     setattr(socket, "getaddrinfo", _getaddrinfo)
 
     def _bypass(host: Any, port: Any, datagram: bool = False) -> None:
-        """Reports a connection to host:port, or a datagram sent there, that bypasses Shadowlap, and
+        """Reports a connection to host:port, or a datagram sent there, that bypasses shadowlap, and
         refuses it under block. `host` is an address or, where a loop resolves the name itself
         (uvloop), the name the agent gave."""
         if getattr(_reporting, "active", False):
@@ -218,9 +218,9 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         what = "a UDP datagram" if datagram else "an outbound connection"
         if n == 1:
             if _mode == "block":
-                sys.stderr.write("[shadowlap] blocked %s to %s: it bypasses Shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=%s.\n" % (what, key, allow))
+                sys.stderr.write("[shadowlap] blocked %s to %s: it bypasses shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=%s.\n" % (what, key, allow))
             else:
-                sys.stderr.write("[shadowlap] warning: %s to %s bypasses Shadowlap and is not recorded; it will run again on every replay. Wrap the call as a tool.\n" % (what, key))
+                sys.stderr.write("[shadowlap] warning: %s to %s bypasses shadowlap and is not recorded; it will run again on every replay. Wrap the call as a tool.\n" % (what, key))
         # A client that sends a datagram per metric is reported once per target, not per datagram.
         if not datagram or n == 1:
             _report(reported, action)

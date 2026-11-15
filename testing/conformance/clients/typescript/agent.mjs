@@ -115,7 +115,7 @@ switch (step) {
   }
   case 'scope-names-record':
   case 'scope-names-replay': {
-    // Any name a scope can have outside Shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
+    // Any name a scope can have outside shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
     const names = ['東京の天気', 'Kraków-łódź', '50% off'];
     const order = step === 'scope-names-replay' ? [...names].reverse() : names;
     const got = {};

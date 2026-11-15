@@ -20,13 +20,13 @@ import type { CallRecord } from './types.js';
  * What counts is what the call records hold, the final answer of each of the agent's live model calls
  * (a call its SDK retried and that then succeeded is fine): HTTP 408, 409, 429 or any 5xx from the
  * provider (529 "overloaded" included, and 504 or 524, a timeout on the provider's side), or the
- * connection failing (an upstream Shadowlap could not reach, which leaves the call no status, or a
+ * connection failing (an upstream shadowlap could not reach, which leaves the call no status, or a
  * stream cut short: either way the agent's connection is broken, and a replay breaks it again), or an
  * answer from the provider that could not be passed on to the agent at all. These are told by the
  * error the call recorded, whatever status it holds.
  * The agent's own timeout is not the provider's: an agent that hung up on a call (its client's
  * timeout, or an abort) or that a test's time limit stopped failed by its own clock. Failures
- * Shadowlap plays in on purpose (`--fail-at`, `test --chaos`) and calls it refused itself (offline, a
+ * shadowlap plays in on purpose (`--fail-at`, `test --chaos`) and calls it refused itself (offline, a
  * placeholder key) are no provider's either, and neither are a judge check's calls, which the judge
  * retries by itself.
  */

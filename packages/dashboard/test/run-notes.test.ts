@@ -65,14 +65,14 @@ describe('the notes under a run’s banner', () => {
   });
 
   it('says a run no preload loaded in, in red where --guard block failed it, and nothing when one did', () => {
-    const missing = "No Shadowlap preload loaded in the agent's processes, though the run made 3 model calls: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails.";
+    const missing = "No shadowlap preload loaded in the agent's processes, though the run made 3 model calls: under --guard block nothing stopped a connection that bypassed shadowlap, so the run fails.";
     expect(notesSaid({ unrecorded: null, preloads: { guard: 'block', hellos: {}, missing }, mode: 'record' })).toMatchObject([{ kind: 'preload', which: 'missing', tone: 'err', label: 'no preload', more: false, parts: [missing] }]);
-    expect(notesSaid({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded …' }, mode: 'record' })[0].tone).toBe('warn');
+    expect(notesSaid({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No shadowlap preload loaded …' }, mode: 'record' })[0].tone).toBe('warn');
     expect(notesSaid({ unrecorded: null, preloads: { guard: 'block', hellos: { node: 2 } }, mode: 'record' })).toEqual([]);
   });
 
   it('says a process the guard could not watch, in the words the run kept, with what doctor says to do', () => {
-    const unguarded = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. A connection one of them made that bypassed Shadowlap went unseen.';
+    const unguarded = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. A connection one of them made that bypassed shadowlap went unseen.';
     const [n] = notesSaid({ unrecorded: null, preloads: { guard: 'warn', hellos: { node: 1, 'claude-code': 1 }, unguarded }, mode: 'record' });
     expect(n).toMatchObject({ kind: 'preload', tone: 'warn', label: 'unguarded', parts: [unguarded] });
     // What to do, in doctor's words: the same fix shadowlap doctor gives, with the page's apostrophes.
@@ -81,7 +81,7 @@ describe('the notes under a run’s banner', () => {
     // Under --guard block the run failed for it: red.
     expect(notesSaid({ unrecorded: null, preloads: { guard: 'block', hellos: { 'claude-code': 1 }, unguarded }, mode: 'record' })[0].tone).toBe('err');
     // Beside a preload that never loaded, each says its own.
-    expect(notesSaid({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded …', unguarded }, mode: 'record' }).map((x) => x.label)).toEqual(['no preload', 'unguarded']);
+    expect(notesSaid({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No shadowlap preload loaded …', unguarded }, mode: 'record' }).map((x) => x.label)).toEqual(['no preload', 'unguarded']);
     // Kept by the run, read back checked; and the guard's row says it on hover.
     expect(preloadsOf({ preloads: { guard: 'warn', hellos: { 'claude-code': 1 }, unguarded } })).toEqual({ guard: 'warn', hellos: { 'claude-code': 1 }, missing: null, unguarded });
     expect(preloadsOf({ preloads: { guard: 'warn', hellos: {}, unguarded: 7 } })?.unguarded).toBeNull();
@@ -100,7 +100,7 @@ describe('the notes under a run’s banner', () => {
 
   it('lists a replay’s extra reads, each opening its call, after what is more pressing', () => {
     const extra = [1, 4, 6, 9].map((callNo) => ({ callNo, kind: 'clock', name: 'now' }));
-    const notes = notesSaid({ unrecorded: { tools: [SEARCH], partial: false }, extraReads: extra, preloads: { guard: 'block', hellos: {}, missing: 'No Shadowlap preload loaded.' }, mode: 'replay' });
+    const notes = notesSaid({ unrecorded: { tools: [SEARCH], partial: false }, extraReads: extra, preloads: { guard: 'block', hellos: {}, missing: 'No shadowlap preload loaded.' }, mode: 'replay' });
     expect(notes.map((n) => n.kind)).toEqual(['preload', 'unrecorded', 'extra']);
     const e = notes[2];
     expect(e.parts.filter((p) => typeof p === 'object' && 'call' in p)).toEqual([{ call: 1 }, { call: 4 }, { call: 6 }]);
@@ -108,7 +108,7 @@ describe('the notes under a run’s banner', () => {
   });
 
   it('decides a run’s notes, their weight, label and what is under them, apart from their words: what its findings bar sorts and lists them by', () => {
-    const i = { unrecorded: { tools: [SEARCH], partial: false }, extraReads: [{ callNo: 1, kind: 'clock', name: 'now' }], preloads: { guard: 'block', hellos: {}, missing: 'No Shadowlap preload loaded.', unguarded: 'The network guard could not watch every process of the agent.' }, websockets: [{ target: 'openai /v1/realtime', count: 1, action: 'refused' as const }], mode: 'replay' };
+    const i = { unrecorded: { tools: [SEARCH], partial: false }, extraReads: [{ callNo: 1, kind: 'clock', name: 'now' }], preloads: { guard: 'block', hellos: {}, missing: 'No shadowlap preload loaded.', unguarded: 'The network guard could not watch every process of the agent.' }, websockets: [{ target: 'openai /v1/realtime', count: 1, action: 'refused' as const }], mode: 'replay' };
     const notes = runNotes(i);
     expect(notes.map((n) => [n.kind, n.which ?? null, n.tone, n.label, n.more])).toEqual([
       ['preload', 'missing', 'err', 'no preload', false],
@@ -215,17 +215,17 @@ describe('what a run never recorded, from the server', () => {
 
 describe('a golden the guard never watched, on Tests', () => {
   it('says so in a few words and what to do, never that it couldn’t run', () => {
-    const r = { ok: false, failure: 'guard', reason: "No Shadowlap preload loaded in the agent's processes, though the run made 2 model calls: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails.", data: {} } as unknown as Parameters<typeof shortReason>[0];
+    const r = { ok: false, failure: 'guard', reason: "No shadowlap preload loaded in the agent's processes, though the run made 2 model calls: under --guard block nothing stopped a connection that bypassed shadowlap, so the run fails.", data: {} } as unknown as Parameters<typeof shortReason>[0];
     expect(shortReason(r)).toBe('no preload loaded: the network guard never watched it');
     // Its report's hint (the server keys it no-preload: test/golden-report.test.ts, "the guard").
     const hint = hintWords({ key: 'no-preload' });
-    expect(hint).toContain('No Shadowlap preload loaded in the agent’s processes while the golden replayed');
+    expect(hint).toContain('No shadowlap preload loaded in the agent’s processes while the golden replayed');
     expect(hint).toContain('--guard warn');
     expect(hint).not.toBe(hintWords({ key: 'error' }));
   });
 
   it('says a golden failed for a process the guard can’t watch, as that, with doctor’s fix, never as no preload', () => {
-    const reason = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can\'t watch.';
+    const reason = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can\'t watch.';
     const r = { ok: false, failure: 'guard', reason, data: {} } as unknown as Parameters<typeof shortReason>[0];
     expect(shortReason(r)).toBe('unguarded: a process the network guard can’t watch ran');
     // Its report's hint (keyed unguarded on the server, never no-preload), with doctor's fix in doctor's words.

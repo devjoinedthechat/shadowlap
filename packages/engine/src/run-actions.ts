@@ -330,7 +330,7 @@ function recordedFlags(run: RunRecord): RunIntervention[] | undefined {
 
 /**
  * The flags that made a replay, to make it again from its parent (Repeat and Stub in the fork menu),
- * or null when the run is no replay Shadowlap made and recorded here. Only what this store recorded is
+ * or null when the run is no replay shadowlap made and recorded here. Only what this store recorded is
  * trusted, never a pack's say, and only known flags with values of their shape: a stored record never
  * becomes a command of its own, an `@file` or anything after `--`. The checks the replay was judged by
  * with `--expect` come along, so the attempts are judged the same way. A replay that changed nothing
@@ -403,7 +403,7 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
   const actions: Action[] = [{ key: 'r', label: ACTIONS.replay.label, flag: 'replay', hint: 'Replays the run as recorded: clean if nothing changed, else it names the call where a request first differed.', args: ['replay', id], opensRun: true }];
   if (call) actions.push(...callActions(id, call, context));
 
-  // The whole run. A replay Shadowlap made is made again from its parent with the flags that made it
+  // The whole run. A replay shadowlap made is made again from its parent with the flags that made it
   // (and its own command, when it had one), so every attempt forks where it did; anything else is
   // replayed as it is.
   const again = forkArgs(run);

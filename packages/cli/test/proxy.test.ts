@@ -11,7 +11,7 @@ import { agentEnv, noProxyEnv } from '../src/run-agent.js';
 import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
- * Behind a proxy (HTTP_PROXY set, as corporate networks set it), traffic to Shadowlap's loopback
+ * Behind a proxy (HTTP_PROXY set, as corporate networks set it), traffic to shadowlap's loopback
  * sidecar must never go through the proxy: a model call to the sidecar carries the API key, the
  * prompt and the session token in clear text, and the proxy can't reach the machine's loopback
  * anyway, so nothing would be recorded. A stand-in proxy logs whatever reaches it and answers 502.
@@ -175,7 +175,7 @@ describe('behind a proxy', () => {
     expect(rec.out).toContain('tool: cust-1');
     expect(rec.out).toContain('model: refund noted (1)');
     expect(rec.out).toContain('you said: refund it');
-    expect(rec.out).toMatch(/outbound connection to 127\.0\.0\.1:\d+ bypasses Shadowlap/);
+    expect(rec.out).toMatch(/outbound connection to 127\.0\.0\.1:\d+ bypasses shadowlap/);
     expect(rec.out).toMatch(/Recorded \w+: 3 calls \(1 api, 2 tool\)/);
     expect(proxied).toEqual([]);
   });
@@ -198,7 +198,7 @@ describe('behind a proxy', () => {
     expect(rec.out).toContain('search: {"hits":2}');
     expect(rec.out).toContain('clock: number');
     expect(rec.out).toContain('you said: refund it');
-    expect(rec.out).toMatch(/outbound connection to 127\.0\.0\.1:\d+ bypasses Shadowlap/);
+    expect(rec.out).toMatch(/outbound connection to 127\.0\.0\.1:\d+ bypasses shadowlap/);
     expect(rec.out).toMatch(/Recorded \w+: 4 calls \(0 api, 3 tool, 1 clock\/random\)/);
     expect(rec.out).not.toContain('PROXIED');
     expect(proxied).toEqual([]);

@@ -96,7 +96,7 @@ describe('what a run page says of the whole run, read in SQL', () => {
     const r = rnd(5);
     for (let i = 0; i < 12; i++) {
       const scope = pick(r, [null, 'agent', 'other']);
-      // A scope of Shadowlap's own beside its judge's: none of blame's steps, in SQL as in the engine's blameSteps.
+      // A scope of shadowlap's own beside its judge's: none of blame's steps, in SQL as in the engine's blameSteps.
       const run = buildRun(store, 100 + i, {}, 'record', [...SCOPES, 'shadowlap:probe']);
       const calls = store.getCalls(run.runId);
       const callNo = pick(r, calls).callNo;

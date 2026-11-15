@@ -49,7 +49,7 @@ export interface EndRunResult {
   providers: string[];
   /** SDK languages seen on the call resolution API, from the SDK header each sends (else a user agent): typescript | python | mcp | other. */
   sdks: string[];
-  /** Outbound connections the network guard saw bypassing Shadowlap, by host:port. */
+  /** Outbound connections the network guard saw bypassing shadowlap, by host:port. */
   unguarded: Array<{ target: string; count: number; action: 'warned' | 'blocked' }>;
   /** WebSockets under a provider, by provider and path: tunnelled live and never recorded, or refused (an offline replay). */
   websockets: WebSocketUse[];
@@ -69,7 +69,7 @@ export interface WebSocketUse {
 
 /**
  * The environment for a process whose calls belong to `runId`. The run id is in the provider base
- * URLs because model SDKs send no Shadowlap header, and several processes can record or replay
+ * URLs because model SDKs send no shadowlap header, and several processes can record or replay
  * through one sidecar at once (`shadowlap replay --repeat --concurrency`). Without a run id, calls
  * go to whichever run started last, for hosts that start runs after creating their clients.
  */
@@ -300,7 +300,7 @@ export function closeForJudge(core: SidecarCore, runId: string): JudgeSummary | 
 }
 
 /**
- * Says the CLI starts this run's agent with Shadowlap's preloads, under `guard`: each of its Node
+ * Says the CLI starts this run's agent with shadowlap's preloads, under `guard`: each of its Node
  * and Python processes then says it loaded (`POST /v1/hello`), and a run that made model or tool
  * calls with none loaded is one the guard never watched, which endRun says, and fails under block.
  */
@@ -428,7 +428,7 @@ export function endRun(core: SidecarCore, runId: string, status: Exclude<RunStat
 
 /**
  * What a run's summary warns of as it ends: what went wrong along the way, the preloads that never
- * loaded, the connections that went around Shadowlap, interventions and failures a flag asked for
+ * loaded, the connections that went around shadowlap, interventions and failures a flag asked for
  * that never took effect, WebSockets, and a recording that holds no model call.
  */
 function endWarnings(ctx: RunContext, calls: readonly CallRecord[], preloads: PreloadReport | null, unguarded: ReadonlyArray<{ target: string; count: number; action: 'warned' | 'blocked' }>, websockets: readonly WebSocketUse[]): string[] {
@@ -441,10 +441,10 @@ function endWarnings(ctx: RunContext, calls: readonly CallRecord[], preloads: Pr
     const blocked = unguarded.some((u) => u.action === 'blocked');
     warnings.push(
       blocked
-        ? `${unguarded.length} outbound connection target${unguarded.length === 1 ? '' : 's'} bypassed Shadowlap and ${unguarded.length === 1 ? 'was' : 'were'} blocked: ${list}. Wrap these calls as tools, or allow them with SHADOWLAP_GUARD_ALLOW.`
+        ? `${unguarded.length} outbound connection target${unguarded.length === 1 ? '' : 's'} bypassed shadowlap and ${unguarded.length === 1 ? 'was' : 'were'} blocked: ${list}. Wrap these calls as tools, or allow them with SHADOWLAP_GUARD_ALLOW.`
         : run.mode === 'replay'
-          ? `${unguarded.length} outbound connection target${unguarded.length === 1 ? '' : 's'} bypassed Shadowlap during the replay: ${list}. They ran live and will run on every replay; wrap them as tools, or replay with --guard block.`
-          : `${unguarded.length} outbound connection target${unguarded.length === 1 ? '' : 's'} bypassed Shadowlap during the recording: ${list}. They were not recorded and will run again on replay; wrap them as tools.`,
+          ? `${unguarded.length} outbound connection target${unguarded.length === 1 ? '' : 's'} bypassed shadowlap during the replay: ${list}. They ran live and will run on every replay; wrap them as tools, or replay with --guard block.`
+          : `${unguarded.length} outbound connection target${unguarded.length === 1 ? '' : 's'} bypassed shadowlap during the recording: ${list}. They were not recorded and will run again on replay; wrap them as tools.`,
     );
   }
   // An intervention that never took effect leaves a run that looks like an answer to a question nobody asked.
@@ -455,8 +455,8 @@ function endWarnings(ctx: RunContext, calls: readonly CallRecord[], preloads: Pr
   if (run.mode === 'record' && !calls.some((c) => c.kind === 'api') && !websockets.some((u) => u.action === 'tunnelled')) {
     warnings.push(
       calls.length === 0
-        ? 'Nothing was recorded: no model API call or SDK call reached Shadowlap. In Node and Python agents, calls to Anthropic, OpenAI, Gemini, Azure OpenAI, Vertex AI and Bedrock are captured in the process; other runtimes need their SDK to read ANTHROPIC_BASE_URL, OPENAI_BASE_URL or GOOGLE_GEMINI_BASE_URL, which shadowlap run sets. A client with a base URL on another host (set SHADOWLAP_UPSTREAM_<PROVIDER> to it), SHADOWLAP_CAPTURE=off, or an agent that failed before its first call all look like this.'
-        : `${calls.length} ${calls.every((c) => c.meta.http) ? 'HTTP' : 'SDK'} call${calls.length === 1 ? '' : 's'} recorded but no model API calls. If the agent calls a model, its client is not going through Shadowlap (a client configured with its own base URL bypasses the ANTHROPIC_BASE_URL / OPENAI_BASE_URL / GOOGLE_GEMINI_BASE_URL that shadowlap run sets).`,
+        ? 'Nothing was recorded: no model API call or SDK call reached shadowlap. In Node and Python agents, calls to Anthropic, OpenAI, Gemini, Azure OpenAI, Vertex AI and Bedrock are captured in the process; other runtimes need their SDK to read ANTHROPIC_BASE_URL, OPENAI_BASE_URL or GOOGLE_GEMINI_BASE_URL, which shadowlap run sets. A client with a base URL on another host (set SHADOWLAP_UPSTREAM_<PROVIDER> to it), SHADOWLAP_CAPTURE=off, or an agent that failed before its first call all look like this.'
+        : `${calls.length} ${calls.every((c) => c.meta.http) ? 'HTTP' : 'SDK'} call${calls.length === 1 ? '' : 's'} recorded but no model API calls. If the agent calls a model, its client is not going through shadowlap (a client configured with its own base URL bypasses the ANTHROPIC_BASE_URL / OPENAI_BASE_URL / GOOGLE_GEMINI_BASE_URL that shadowlap run sets).`,
     );
   }
   return warnings;

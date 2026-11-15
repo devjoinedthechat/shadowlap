@@ -1,5 +1,5 @@
 /**
- * node:sqlite, as every store of Shadowlap's opens it (the engine's, the telemetry collector's), and
+ * node:sqlite, as every store of shadowlap's opens it (the engine's, the telemetry collector's), and
  * the rollback a failed write needs. Its own module, with nothing else of the engine's, so the
  * collector loads it alone (`@shadowlap/engine/sqlite`).
  */

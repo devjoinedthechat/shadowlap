@@ -7,7 +7,7 @@ import { callArguments, inCommentAt, kwarg, lineOf, positional, pyCalls, pyDecor
  * The tools `shadowlap init` finds in a project, as each framework defines them (a decorator, a class,
  * a list handed to an agent), with the effect each declares or the one its name suggests, whether a
  * Claude Agent SDK query runs through the fence, and the model clients whose base URL is written
- * into the code, which bypass Shadowlap.
+ * into the code, which bypass shadowlap.
  */
 
 /** The decorators each Python framework makes a tool with, by the module they come from. */
@@ -86,10 +86,10 @@ function pyTools(text: string, push: PushTool): void {
   }
 }
 
-/** A decorated function as a tool, by its decorators: Shadowlap's own, an adapter's, or a framework's. */
+/** A decorated function as a tool, by its decorators: shadowlap's own, an adapter's, or a framework's. */
 function decoratedTool(text: string, imports: PyImports, d: { index: number; name: string; decorators: string[] }, framework: PyFramework, push: PushTool): void {
   const all = d.decorators.join('\n');
-  // Shadowlap's own: `@tool(effect="read")`, imported from shadowlap or (in a snippet) from nowhere.
+  // shadowlap's own: `@tool(effect="read")`, imported from shadowlap or (in a snippet) from nowhere.
   const declared = d.decorators
     .map((x) => {
       const o = pyOrigin(imports, /^@([\w.]+)/.exec(x)![1]!);
@@ -105,7 +105,7 @@ function decoratedTool(text: string, imports: PyImports, d: { index: number; nam
     const named = /^@[\w.]+\(\s*["']([\w.-]+)["']/.exec(own.x);
     if (named) push(named[1]!, d.index, own.via, null);
   }
-  // Strands and smolagents keep their own @tool over Shadowlap's: the wrap names the one found.
+  // Strands and smolagents keep their own @tool over shadowlap's: the wrap names the one found.
   else if (own) push(d.name, d.index, own.via!, null, own.via === 'strands' || own.via === 'smolagents' ? { decorator: own.x.split('(')[0] ?? own.x } : {});
   // Pydantic AI: `@agent.tool` passes a RunContext first, `@agent.tool_plain` doesn't; the wrap keeps the one found.
   else if (text.includes('pydantic_ai') && /@\w+\.tool(?:_plain)?\b/.test(all)) {
@@ -116,7 +116,7 @@ function decoratedTool(text: string, imports: PyImports, d: { index: number; nam
   else if (/@(?:tool|langchain_core\.tools\.tool)\b/.test(all) && /langchain|crewai/.test(text)) push(d.name, d.index, /crewai/.test(text) ? 'crewai' : 'langchain-python', null);
 }
 
-/** JavaScript's and TypeScript's tools: the Shadowlap SDK's, and each framework's, with the effect an adapter declares for one it wraps. */
+/** JavaScript's and TypeScript's tools: the shadowlap SDK's, and each framework's, with the effect an adapter declares for one it wraps. */
 function jsTools(text: string, push: PushTool): void {
   const inComment = (index: number) => inCommentAt(text, index, false);
   // @shadowlap/sdk: tool('name', { effect: 'read' }, impl)
@@ -268,7 +268,7 @@ const FENCE_CALL = {
 
 /**
  * Each Claude Agent SDK the project uses, and where a query of its runs through the fence: a call of
- * withFence (with_fence in Python), or of its hooks, in a file that imports Shadowlap's adapters, not
+ * withFence (with_fence in Python), or of its hooks, in a file that imports shadowlap's adapters, not
  * in a comment. The SDK's built-in tools run inside Claude Code, where no wrapper reaches them.
  */
 export function scanFences(frameworks: readonly Framework[], languages: readonly Language[], texts: ReadonlyArray<readonly [string, string]>, cwd: string): Fence[] {

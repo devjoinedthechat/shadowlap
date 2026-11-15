@@ -1,4 +1,4 @@
-// docs/recording-format.md specifies packs for producers that write them without Shadowlap, and the
+// docs/recording-format.md specifies packs for producers that write them without shadowlap, and the
 // recordings protocol a test runner records through. Nothing generates the page from the code, so
 // these checks hold it to the code: the version and the limits it states, the values it lists for
 // each field (each accepted, and nothing else), the fingerprint headers per provider, its worked

@@ -16,7 +16,7 @@ export const GOOD_ORDER = 'A-1120';
 const AGENT = `// The support team's refund agent: it looks an order up, reads the refund policy, then refunds or
 // escalates, and emails the customer. Its model is whatever ANTHROPIC_BASE_URL serves, in Anthropic's
 // Messages API: shadowlap run points it at its sidecar. Its tools are wrapped with tool(), so
-// Shadowlap records what they do and a replay serves it.
+// shadowlap records what they do and a replay serves it.
 //
 //   node agent.mjs <order>
 import { tool } from './shadowlap-tool.mjs';
@@ -109,7 +109,7 @@ const failure = (e) => Object.assign(new Error(e.message), { name: e.name });
 
 export function tool(name, { effect, onFork }, impl) {
   return async (args) => {
-    // Outside Shadowlap the tool simply runs.
+    // Outside shadowlap the tool simply runs.
     if (!base) return impl(args);
     const r = await post('/v1/calls/resolve', { kind: 'tool', name, effect, args: args ?? null });
     if (r.origin === 'replayed') {

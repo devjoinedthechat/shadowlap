@@ -71,7 +71,7 @@ for (const c of CASES) {
       const signedBefore = mock.stats.signaturesOk;
       const r = await shadowlap(db, ['run', '--', ...c.argv], { [upstream]: mock.url, PROMPT: 'hello' });
       assert.equal(r.code, 0, r.out);
-      assert.doesNotMatch(r.out, /bypasses Shadowlap/);
+      assert.doesNotMatch(r.out, /bypasses shadowlap/);
       recordedTexts = texts(r.stdout);
       assert.match(recordedTexts[0], /^echo: hello/);
       recordedRun = /recording run (\w{26})/.exec(r.out)[1];

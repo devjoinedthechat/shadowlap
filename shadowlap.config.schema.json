@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/devjoinedthechat/shadowlap/main/shadowlap.config.schema.json",
   "title": "shadowlap.config.json",
-  "description": "Project configuration for Shadowlap. Every key is optional; an empty object is valid. Add \"$schema\" pointing at this file for completion and validation in an editor.",
+  "description": "Project configuration for shadowlap. Every key is optional; an empty object is valid. Add \"$schema\" pointing at this file for completion and validation in an editor.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -123,7 +123,7 @@
       "type": "object",
       "properties": {
         "unrecorded": {
-          "$comment": "Unrecorded tools: the effect of tools the agent runs without Shadowlap recording them (replay and test refuse to run an unrecorded write again).",
+          "$comment": "Unrecorded tools: the effect of tools the agent runs without shadowlap recording them (replay and test refuse to run an unrecorded write again).",
           "description": "The effect of each tool the model calls that shadowlap does not record (a built-in such as Bash, a framework's tool, an MCP server reached without shadowlap mcp). A replay runs such a tool again for real, so `replay` and `test` refuse while one of them writes: a declared `write` is refused, a declared `read` only warned about. `--allow-unrecorded <names>` lets a replay run them anyway.",
           "type": "object",
           "additionalProperties": {

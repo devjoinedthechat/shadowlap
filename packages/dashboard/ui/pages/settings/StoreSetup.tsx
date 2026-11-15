@@ -22,7 +22,7 @@ import { ActionButton } from '../../components/ActionButton.js';
 import { PushFromCiStep } from './StoreSetupCi.js';
 
 /**
- * The team store's setup, free like the rest of Shadowlap, on a page of its own (`#/setup/store`)
+ * The team store's setup, free like the rest of shadowlap, on a page of its own (`#/setup/store`)
  * as the design's setup is: four steps, each unlocking the next, with the command beside it.
  * Connect your bucket (the provider, the bucket and folder checked against its scheme, the
  * credentials this machine would use, the access to ask the cloud admin for, then `store set
@@ -38,7 +38,7 @@ type Provider = SetupProvider['provider'];
 /** The four steps' titles, the page's and its loading shape's. */
 const STEP_TITLES = ['Connect your bucket', 'Push your runs', 'Push from CI', 'Bring your team'] as const;
 /** What the first step says before it is done. */
-const CONNECT_LEAD = 'Runs go to object storage you own. The CLI uses the credentials already on this machine, so Shadowlap never sees the bucket, the runs or the keys.';
+const CONNECT_LEAD = 'Runs go to object storage you own. The CLI uses the credentials already on this machine, so shadowlap never sees the bucket, the runs or the keys.';
 
 function Step({ n, state, title, cli, children }: { n: number; state: SetupStepState; title: string; cli?: string | null; children: ReactNode }) {
   return (

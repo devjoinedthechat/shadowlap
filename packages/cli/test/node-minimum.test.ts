@@ -46,7 +46,7 @@ describe('the Node the CLI starts on', () => {
     for (const version of ['22.13.0', '22.15.1', '23.11.1', '20.19.0']) {
       const r = nodeAs(version, ['-e', actionCheck]);
       expect(r.code).toBe(1);
-      expect(r.stdout).toBe(`::error title=Shadowlap::Shadowlap needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this job has v${version}. Add actions/setup-node with node-version: 22 before this step.\n`);
+      expect(r.stdout).toBe(`::error title=shadowlap::shadowlap needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this job has v${version}. Add actions/setup-node with node-version: 22 before this step.\n`);
     }
     for (const version of ['22.16.0', '24.0.0', '26.1.0']) expect(nodeAs(version, ['-e', actionCheck])).toMatchObject({ code: 0, stdout: '' });
   });

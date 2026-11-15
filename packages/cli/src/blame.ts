@@ -188,7 +188,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const baseline = await runner.attempt(target, { meta: { repeat: { group: `${group}-as-recorded`, attempt: 1, of: 1 } } }, false);
     store.deleteRun(baseline.run.runId);
     if (runner.interrupted) throw new BlameError('interrupted before the first probe', 'interrupted');
-    if (baseline.bypassed) throw new BlameError(`${shortId(parent.runId)} did not replay through Shadowlap: ${BYPASSED}`, 'bypassed');
+    if (baseline.bypassed) throw new BlameError(`${shortId(parent.runId)} did not replay through shadowlap: ${BYPASSED}`, 'bypassed');
     if (baseline.summary.divergence) {
       throw new BlameError(
         `${shortId(parent.runId)} does not replay as recorded, so a probe could not tell a changed answer from a changed prefix:\n\n${formatDivergence(baseline.summary.divergence)}\n\nMake the replay clean first: shadowlap calibrate ${shortId(parent.runId)}`,
@@ -497,7 +497,7 @@ export function describeAttempt(a: Pick<Attempt, 'passed' | 'verdict' | 'failure
   const cost = a.summary.cost.spent ? ` · ≈${formatUsd(a.summary.cost.spent)}` : '';
   const mark = a.verdict === 'inconclusive' ? p.yellow('?') : p.red('✗');
   const verdict = a.passed ? p.green('✓ passed') : `${mark} ${a.failures[0] ?? a.verdict}${a.failures.length > 1 ? p.dim(` (+${a.failures.length - 1} more)`) : ''}`;
-  // A write the attempt's model called that nothing recorded ran for real, whatever the writes Shadowlap fences do.
+  // A write the attempt's model called that nothing recorded ran for real, whatever the writes shadowlap fences do.
   return `${verdict}${p.dim(` · ${a.summary.byOrigin.live} live${cost} · ${formatDuration(a.ms)} · ${shortId(a.run.runId)}`)}${unrecordedNote(a.unrecorded)}`;
 }
 

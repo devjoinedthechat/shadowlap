@@ -1,4 +1,4 @@
-"""Shadowlap's recorded user input for Python agents, loaded by the sitecustomize next to it.
+"""shadowlap's recorded user input for Python agents, loaded by the sitecustomize next to it.
 
 What a person types is input from outside, like a tool's result: each ``input()`` and each read of
 ``sys.stdin`` (``readline``, ``read``, ``readlines``, iterating over it) is recorded as a
@@ -8,7 +8,7 @@ answer is its result, ``{"text": ...}``. A replay serves the answers from the re
 interactive agents too. When the input ended (Ctrl-D, an empty pipe), that is recorded as well, and
 replays as ``EOFError`` from ``input()`` and an empty string from a read.
 
-Only the input Shadowlap gave the agent counts: a terminal, the null device (stdin ignored), or the
+Only the input shadowlap gave the agent counts: a terminal, the null device (stdin ignored), or the
 very pipe or file ``shadowlap`` itself was given (``SHADOWLAP_STDIN`` names it). A child process that
 talks to its parent over a pipe, an MCP server for one, is left alone; so is ``sys.stdin.buffer``.
 

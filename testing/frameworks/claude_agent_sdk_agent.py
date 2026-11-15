@@ -1,4 +1,4 @@
-"""A Claude Agent SDK agent with Shadowlap's fence: query() runs Claude Code (the CLI the SDK bundles)
+"""A Claude Agent SDK agent with shadowlap's fence: query() runs Claude Code (the CLI the SDK bundles)
 in PROJECT, its model calls going to whatever ANTHROPIC_BASE_URL names (the sidecar, in front of a
 scripted Anthropic API), its built-in tools recorded and fenced through the hooks with_fence adds.
 PROMPT is what the user asks, so a replay with another forks at the first model call. Prints a JSON

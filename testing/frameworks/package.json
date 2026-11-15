@@ -2,7 +2,7 @@
   "name": "@shadowlap-testing/frameworks",
   "version": "0.1.0",
   "private": true,
-  "description": "The Shadowlap framework adapters against the real frameworks. Not a workspace: its dependencies are large and pinned here, installed only by the frameworks CI job.",
+  "description": "The shadowlap framework adapters against the real frameworks. Not a workspace: its dependencies are large and pinned here, installed only by the frameworks CI job.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {

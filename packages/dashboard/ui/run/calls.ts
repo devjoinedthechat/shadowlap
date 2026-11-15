@@ -78,15 +78,15 @@ export function refusedOffline(c: Pick<CallLike, 'status' | 'error'>): boolean {
   return c.status === 503 && /\boffline\b/i.test(c.error ?? '');
 }
 
-/** Who answered a failed model call: Shadowlap (`--fail-at`), an offline replay that refused it, or the provider. */
+/** Who answered a failed model call: shadowlap (`--fail-at`), an offline replay that refused it, or the provider. */
 export type FailedBy = 'injected' | 'offline' | 'provider';
 
-/** Who answered a failed model call, by its detail: one Shadowlap answered keeps `injected` as its origin. */
+/** Who answered a failed model call, by its detail: one shadowlap answered keeps `injected` as its origin. */
 export const failedBy = (c: Pick<CallLike, 'origin' | 'status' | 'error'>): FailedBy => (c.origin === 'injected' ? 'injected' : refusedOffline(c) ? 'offline' : 'provider');
 
 /**
  * A failed model call's note, as the inspector leads with it (CallNote, which then says what its
- * view shows) and Compare's opened row says it: its word, then why, in parts, the flag Shadowlap
+ * view shows) and Compare's opened row says it: its word, then why, in parts, the flag shadowlap
  * answered with as code (`--fail-at 19=529` where the fork's flag is one) and the attempts it took;
  * an error-path preset's attempt, the preset that played in (`played`).
  */
@@ -94,7 +94,7 @@ export function failureNote(c: Pick<CallLike, 'status' | 'error' | 'attempts'>, 
   const tries = c.attempts ? `, ${c.attempts + 1} attempts` : '';
   // An error-path preset's attempt names its preset, in place of the flag.
   if (by === 'injected' && played) return { word: 'Never sent.', why: [`The ${played} preset answered with HTTP ${c.status ?? '?'}${tries}.`] };
-  if (by === 'injected') return { word: 'Never sent.', why: [`Shadowlap answered with HTTP ${c.status ?? '?'} (`, { code: flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at' }, `)${tries}.`] };
+  if (by === 'injected') return { word: 'Never sent.', why: [`shadowlap answered with HTTP ${c.status ?? '?'} (`, { code: flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at' }, `)${tries}.`] };
   if (by === 'offline') return { word: 'Refused.', why: [`The replay is offline and this request is not in the recording, so it got HTTP ${c.status ?? '?'}.`] };
   return { word: 'Failed.', why: [failedWhy(c)] };
 }
@@ -149,7 +149,7 @@ export function callDetail(c: CallLike, asked?: string | null): { text: string; 
 export function resultLine(c: CallLike): { text: string; err: boolean; blocked?: true } | null {
   if (c.kind === 'api') return c.outcome !== 'error' && c.resultShort && !c.asks?.length ? { text: c.resultShort, err: false } : null;
   if (c.kind !== 'tool') return null;
-  // Shadowlap's fence, not a failure: drawn in the blocked grey, never the red of what failed.
+  // shadowlap's fence, not a failure: drawn in the blocked grey, never the red of what failed.
   if (c.origin === 'blocked') return { text: 'blocked', err: false, blocked: true };
   // The server's line already says `stubbed …` for a write its stand-in answered.
   if (c.resultShort) return { text: c.resultShort, err: false };

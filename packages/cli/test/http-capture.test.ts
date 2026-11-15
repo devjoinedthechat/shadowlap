@@ -66,7 +66,7 @@ describe('HTTP hosts recorded as tools', () => {
   it('records the calls, replays them without touching the services, and fences the write after a fork', async () => {
     const recorded = await shadowlap(['run', '--guard', 'warn', '--', process.execPath, AGENT]);
     expect(recorded.code, recorded.out).toBe(0);
-    expect(recorded.out).not.toMatch(/bypassed Shadowlap/);
+    expect(recorded.out).not.toMatch(/bypassed shadowlap/);
     expect(agentLine(recorded.stdout)).toEqual({ hits: 2, answer: 'answered', notify: 200 });
     expect(hits).toEqual({ search: 1, webhook: 1 });
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];

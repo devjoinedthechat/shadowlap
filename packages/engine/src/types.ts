@@ -93,7 +93,7 @@ export interface CallMeta {
   trust?: 'untrusted' | 'trusted';
   trustFrom?: 'config' | 'sdk' | 'mcp';
   /**
-   * A call Shadowlap's judge made (scope `shadowlap:judge`): the check it answered, by its name in
+   * A call shadowlap's judge made (scope `shadowlap:judge`): the check it answered, by its name in
    * the config; `ask`, a digest of the check's question, what it reads and its model (judgeAskId);
    * and `v`, the version of the request it sent (JUDGE_REQUEST_VERSION), absent before it was kept.
    */
@@ -357,7 +357,7 @@ export interface RunMeta {
   notRecorded?: NotRecorded;
   // ---- the preloads in the agent's processes (the network guard and in-process capture) ----
   /**
-   * For a run whose agent the CLI started with Shadowlap's preloads: the guard it ran under, the
+   * For a run whose agent the CLI started with shadowlap's preloads: the guard it ran under, the
    * processes whose preload said it loaded (`POST /v1/hello`), by runtime (`{ node: 2, python: 1 }`),
    * and, when the run made model or tool calls with none loaded, why (`missing`, the line its
    * summary carries): the network guard never watched it. `unguarded`: the processes that said
@@ -423,7 +423,7 @@ export interface RunIntervention {
 }
 
 export interface NotRecorded {
-  /** Outbound connections the network guard saw bypass Shadowlap (`host:port`), with how often and whether they were let through. */
+  /** Outbound connections the network guard saw bypass shadowlap (`host:port`), with how often and whether they were let through. */
   hosts: Array<{ target: string; count: number; action: 'warned' | 'blocked' }>;
   /** Tools `shadowlap init` finds in the project with no declared effect, which the run did not record. */
   tools: string[];
@@ -522,7 +522,7 @@ export interface RunSummary {
   byKind: Record<CallKind, number>;
   /** Live API calls, i.e. requests that reached the upstream provider. */
   upstreamRequests: number;
-  /** Live calls Shadowlap answered itself with `--fail-at`: model calls that reached no provider, tools that did not run. */
+  /** Live calls shadowlap answered itself with `--fail-at`: model calls that reached no provider, tools that did not run. */
   injected: number;
   /**
    * Calls answered with the reason they could not be sent, instead of being sent: an intervention that

@@ -124,7 +124,7 @@ export function openObjectStore(location: StoreLocation, options: OpenOptions = 
           ? googleTokenProvider(awsEnv)
           : (): Promise<never> =>
               Promise.reject(
-                new StoreError('credentials', `${endpoint} isn't Google's: Shadowlap doesn't send your Google sign-in there. Use Cloud Storage's own address (https://storage.googleapis.com, or a *.googleapis.com private endpoint); for an emulator, set STORAGE_EMULATOR_HOST instead, which is sent no credentials.`),
+                new StoreError('credentials', `${endpoint} isn't Google's: shadowlap doesn't send your Google sign-in there. Use Cloud Storage's own address (https://storage.googleapis.com, or a *.googleapis.com private endpoint); for an emulator, set STORAGE_EMULATOR_HOST instead, which is sent no credentials.`),
               );
         return new GcsStore({ location, endpoint: endpoint.replace(/\/+$/, ''), token, ...common });
       }
@@ -152,7 +152,7 @@ export function openObjectStore(location: StoreLocation, options: OpenOptions = 
             Promise.reject(
               new StoreError(
                 'credentials',
-                `${where} isn't an Azure Storage address, and the store URL comes from a committed file: Shadowlap doesn't send requests made with your Azure credentials there. Use the account's own endpoint (https://${account}.blob.core.windows.net). For Azurite or Azure Stack at another address, give it on this machine instead: AZURE_STORAGE_CONNECTION_STRING with BlobEndpoint=…, and the store URL without ?endpoint=.`,
+                `${where} isn't an Azure Storage address, and the store URL comes from a committed file: shadowlap doesn't send requests made with your Azure credentials there. Use the account's own endpoint (https://${account}.blob.core.windows.net). For Azurite or Azure Stack at another address, give it on this machine instead: AZURE_STORAGE_CONNECTION_STRING with BlobEndpoint=…, and the store URL without ?endpoint=.`,
               ),
             ),
         };

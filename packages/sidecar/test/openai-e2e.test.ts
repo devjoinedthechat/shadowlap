@@ -38,7 +38,7 @@ interface AgentResult {
 async function runAgent(system: string): Promise<AgentResult> {
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: 'system', content: system },
-    { role: 'user', content: 'Research Shadowlap and email the team.' },
+    { role: 'user', content: 'Research shadowlap and email the team.' },
   ];
   const tools: OpenAI.ChatCompletionTool[] = [
     { type: 'function', function: { name: 'search_web', parameters: { type: 'object', properties: { query: { type: 'string' } } } } },

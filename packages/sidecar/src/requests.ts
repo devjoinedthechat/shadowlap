@@ -1,6 +1,6 @@
 /**
  * A request as the sidecar reads it: its body, whole or not at all, and as JSON; its headers, lower
- * case, as they go upstream, and the few Shadowlap reads (a scope, a percent-encoded value); and the
+ * case, as they go upstream, and the few shadowlap reads (a scope, a percent-encoded value); and the
  * host it names.
  */
 import type { IncomingMessage } from 'node:http';
@@ -36,7 +36,7 @@ export function lowerHeaders(h: IncomingMessage['headers']): Record<string, stri
 
 /**
  * A request's headers as they go upstream: without its hop-by-hop headers (a WebSocket handshake
- * keeps `connection` and `upgrade`), pseudo-headers, the host and length, and Shadowlap's own.
+ * keeps `connection` and `upgrade`), pseudo-headers, the host and length, and shadowlap's own.
  * Everything else goes as the agent sent it: a signed request (AWS SigV4) signs what it carries.
  */
 export function forwardedHeaders(headers: Readonly<Record<string, string>>, handshake = false): Record<string, string> {

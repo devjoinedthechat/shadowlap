@@ -5,7 +5,7 @@ import type { Router } from '../router.js';
 /**
  * Settings that are the person's own on this machine, whatever project is open (engine
  * user-settings.ts): Spending, the threshold above which a billed job asks before it starts. They are
- * kept in settings.json in Shadowlap's folder for this machine's files (shadowlapHome), never in
+ * kept in settings.json in shadowlap's folder for this machine's files (shadowlapHome), never in
  * shadowlap.config.json, so CI and teammates never take them on, and nothing in the CLI reads them.
  *
  * `GET /api/user/spending` says the threshold (`askAbove`: dollars, 0 for Always ask, null for Never
@@ -33,7 +33,7 @@ export function register(router: Router): void {
       try {
         kept = writeSpending(body.askAbove, { lockTimeoutMs: LOCK_WAIT_MS });
       } catch (err) {
-        // A file it would lose something of, a newer Shadowlap's, or one another process holds: kept as it was, and why.
+        // A file it would lose something of, a newer shadowlap's, or one another process holds: kept as it was, and why.
         throw new HttpError(409, messageOf(err));
       }
       r.json({ ...shown(kept), was: kept.was });

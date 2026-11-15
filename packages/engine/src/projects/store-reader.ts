@@ -8,12 +8,12 @@ import { emptyStoreFacts, storeFacts, type FactsSource, type GoldenTestFact, typ
 
 /**
  * Reading another project's store without changing it. `Store.open` creates what is missing and
- * brings an older store up to this version's schema, which a project pinned to an older Shadowlap
+ * brings an older store up to this version's schema, which a project pinned to an older shadowlap
  * would then refuse; listing projects in the switcher, or looking at one before adding it, must do
  * neither, nor keep a connection per project open. This opens a read-only SQLite connection, reads
  * what the setup and the counts need, and closes it. Nothing is created or migrated: an older store
  * is read as it is (a table it doesn't have yet reads as empty), and one written by a newer
- * Shadowlap is refused, as `Store.open` refuses it.
+ * shadowlap is refused, as `Store.open` refuses it.
  */
 
 const require = createRequire(import.meta.url);
@@ -127,7 +127,7 @@ function cantWriteBeside(err: unknown): boolean {
  * this process can't write to (a shared checkout, another user's project) is read as the file it
  * is on disk, unchanging: nobody can be writing there, though what a crashed writer left in its
  * write-ahead log isn't seen. Throws when the file can't be opened, isn't a database, or was
- * written by a newer Shadowlap.
+ * written by a newer shadowlap.
  */
 export function readStore<T>(path: string, read: (store: StoreReader) => T): T {
   const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options: { readOnly: boolean }) => ReadOnlyDatabase };
@@ -142,7 +142,7 @@ export function readStore<T>(path: string, read: (store: StoreReader) => T): T {
           .map((r) => String(r.name)),
       );
       const version = tables.has('meta') ? Number(db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get()?.value) : Number.NaN;
-      if (Number.isInteger(version) && version > SCHEMA_VERSION) throw new Error(`${path} was written by a newer Shadowlap (store schema v${version}; this build understands v${SCHEMA_VERSION}). Upgrade Shadowlap to read it.`);
+      if (Number.isInteger(version) && version > SCHEMA_VERSION) throw new Error(`${path} was written by a newer shadowlap (store schema v${version}; this build understands v${SCHEMA_VERSION}). Upgrade shadowlap to read it.`);
       return read(new StoreReader(db, tables));
     } finally {
       db.close();

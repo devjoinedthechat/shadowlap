@@ -80,7 +80,7 @@ describe('Runs’ header actions', () => {
     const push = r.all('button')[3];
     expect(push.className).toBe('btn lime');
     expect(push.getAttribute('data-tip')).toBe(PUSH_TIP);
-    expect(JSON.parse(PUSH_TIP)).toEqual({ t: 'Push local runs', s: 'Copies them to the store with your credentials; nothing passes through Shadowlap', rows: [], cmd: '$ shadowlap push --all' });
+    expect(JSON.parse(PUSH_TIP)).toEqual({ t: 'Push local runs', s: 'Copies them to the store with your credentials; nothing passes through shadowlap', rows: [], cmd: '$ shadowlap push --all' });
     expect(JSON.parse(r.all('button')[0].getAttribute('data-tip')!)).toEqual(JSON.parse(PULL_TIP));
     expect(JSON.parse(PULL_TIP)).toMatchObject({ t: 'Pull', s: 'Teammates’ runs from the store', cmd: '$ shadowlap pull' });
     await r.click(push);

@@ -79,7 +79,7 @@ A recording often holds model calls that aren't the agent's decisions: a simulat
 | Made with the model the runs use most, or with the models `--from` names | Changed |
 | Made with another model | Left as recorded and counted *untouched*; the report names whose calls stayed |
 | Any call, with `--set` alone and no `--from` | Changed |
-| Shadowlap's own, in a `shadowlap:` scope such as its judge's | No step of the agent's at all |
+| shadowlap's own, in a `shadowlap:` scope such as its judge's | No step of the agent's at all |
 
 An alias such as `claude-sonnet-4-5` names its dated snapshots.
 
@@ -162,7 +162,7 @@ A text-only change, the same actions in other words, is counted, not judged, unl
 | The final answer (`"of": "answer"`) | The run's last model call                |
 | The run (`"of": "run"`)             | The last model call of a conversation    |
 
-**How it is asked.** The judge is asked about the recorded words and the changed ones, as a test asks it: through Shadowlap's sidecar in the judge's own scope, `shadowlap:judge`, at temperature 0 where the model takes one, for a structured verdict. It reads what it reads with the project's redaction rules applied. A judge of the run reads the run as recorded, with the changed answer in its place.
+**How it is asked.** The judge is asked about the recorded words and the changed ones, as a test asks it: through shadowlap's sidecar in the judge's own scope, `shadowlap:judge`, at temperature 0 where the model takes one, for a structured verdict. It reads what it reads with the project's redaction rules applied. A judge of the run reads the run as recorded, with the changed answer in its place.
 
 **A check that comes out otherwise ranks the step 2**, beside a changed stop, so the run is flagged: `--then-verify` verifies it, `--strict` fails on it, and `migrate` lists it under what changes.
 
@@ -300,7 +300,7 @@ What a judge check reads goes to its model, so it is masked the same way before 
 
 `--from-code` previews the prompt and tools in your working tree before you run anything:
 
-1. Shadowlap replays each run offline under your code, its model calls matched without their system prompt and tool definitions, the way [`--prompt-from`](./interventions.md#apply-a-changed-prompt-from-a-later-call) matches them.
+1. shadowlap replays each run offline under your code, its model calls matched without their system prompt and tool definitions, the way [`--prompt-from`](./interventions.md#apply-a-changed-prompt-from-a-later-call) matches them.
 2. Each model request your agent sends is captured, with its changed prompt, and answered from the recording. Every tool call is served as recorded, nothing reaches a provider, and the replay is not kept.
 3. Each recorded request is asked again with the prompt your code sends at that step.
 
@@ -374,7 +374,7 @@ When the change is only the model, the reasoning is sent as recorded, as your ag
 
 ## Where requests go
 
-Requests go where a live call goes: `SHADOWLAP_UPSTREAM_<PROVIDER>` (a mock, a gateway, a local server), an SDK base URL you set before Shadowlap, or the provider's own host. Three providers' hosts come from the call:
+Requests go where a live call goes: `SHADOWLAP_UPSTREAM_<PROVIDER>` (a mock, a gateway, a local server), an SDK base URL you set before shadowlap, or the provider's own host. Three providers' hosts come from the call:
 
 | Provider  | Host                                                     |
 | --------- | -------------------------------------------------------- |
@@ -596,7 +596,7 @@ The old model's behavior can only be measured before it retires. So migrate befo
 
 `decisions` and `migrate` warn when a model the runs use, or the one they switch to, retires.
 
-The dates come from a table that ships with Shadowlap as data, `packages/engine/data/model-retirements.json` in the repository. It is read from each provider's own pages on the date its `version` names, each row with its page. Nothing calls home, and a newer release ships a newer table. The same file keeps the request fields newer models stop accepting, which `migrate` changes.
+The dates come from a table that ships with shadowlap as data, `packages/engine/data/model-retirements.json` in the repository. It is read from each provider's own pages on the date its `version` names, each row with its page. Nothing calls home, and a newer release ships a newer table. The same file keeps the request fields newer models stop accepting, which `migrate` changes.
 
 | Platform | Page | What the table keeps |
 |---|---|---|

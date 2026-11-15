@@ -24,7 +24,7 @@ export const BLAME_SCAN = 2;
 
 /**
  * Whether blame probes a model call made in `callScope`, as `blame --scope` and `repair --scope` read
- * it: never one of Shadowlap's own (its judge's), whose answers are none of the agent's; with a scope,
+ * it: never one of shadowlap's own (its judge's), whose answers are none of the agent's; with a scope,
  * one made in it or in a scope nested in it (`agent/planner` is in `agent`); without one, any other.
  */
 export function probedInScope(callScope: unknown, scope: string | null | undefined): boolean {

@@ -48,10 +48,10 @@ describe('providerUnavailable', () => {
     expect(providerUnavailable([call({ status: 200, error: { name: 'UpstreamResponseError', message: 'Invalid character in header content' } })])).toMatchObject({ error: 'UpstreamResponseError', reason: expect.stringMatching(/^an answer that could not be passed on from anthropic/) });
   });
 
-  it("leaves out the agent's own timeout, what Shadowlap played in or refused, a judge's calls, and calls that ended well", () => {
+  it("leaves out the agent's own timeout, what shadowlap played in or refused, a judge's calls, and calls that ended well", () => {
     // The agent hung up: its client's timeout, or an abort.
     expect(providerUnavailable([call({ status: 529, error: { name: 'ClientDisconnected', message: 'the client closed the connection' } })])).toBeNull();
-    // `--fail-at` and test --chaos play failures in on purpose; offline and placeholder refusals are Shadowlap's.
+    // `--fail-at` and test --chaos play failures in on purpose; offline and placeholder refusals are shadowlap's.
     expect(providerUnavailable([call({ status: 429, injected: true })])).toBeNull();
     expect(providerUnavailable([call({ status: 503, offline: true })])).toBeNull();
     expect(providerUnavailable([call({ status: 401, refused: true })])).toBeNull();
@@ -115,7 +115,7 @@ describe('providerRefused', () => {
     expect(providerRefused([ok(), first, call({ status: 400 })])).toMatch(new RegExp(`^HTTP 404.* at call #${first.callNo}$`));
   });
 
-  it('leaves out what coming back later could change, and what Shadowlap did itself', () => {
+  it('leaves out what coming back later could change, and what shadowlap did itself', () => {
     for (const status of [408, 409, 429, 500, 503]) expect(providerRefused([call({ status })])).toBeNull();
     for (const said of [{ injected: true }, { offline: true }, { refused: true }]) expect(providerRefused([call({ status: 404, ...said })])).toBeNull();
     expect(providerRefused([call({ status: 404 }, { origin: 'replayed' })])).toBeNull();

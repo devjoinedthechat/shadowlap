@@ -2,7 +2,7 @@
 
 The team store keeps your team's runs in a bucket you own. Teammates and CI open each other's recordings, CI keeps its test history there, and anyone can open a share link for up to 7 days: a report masked by your redaction rules.
 
-It is part of the open-source Shadowlap, free under Apache-2.0 like everything else, with nothing to buy or add first. Nothing is hosted by Shadowlap and nothing calls home. The bucket is yours, every machine reaches it with its own credentials, and there are no accounts: who may read and write the store is whoever your cloud admin gives access to, which [`shadowlap store policy`](#access) prints.
+It is part of the open-source shadowlap, free under Apache-2.0 like everything else, with nothing to buy or add first. Nothing is hosted by shadowlap and nothing calls home. The bucket is yours, every machine reaches it with its own credentials, and there are no accounts: who may read and write the store is whoever your cloud admin gives access to, which [`shadowlap store policy`](#access) prints.
 
 - [Set it up](#set-it-up)
 - [The store](#the-store)
@@ -202,7 +202,7 @@ Each part of a run syncs its own way:
 - **Queued.** A run still recording is queued, and goes to the store when the command that recorded it ends it. `run`, `replay` (with `--repeat` too), `serve`, `blame` and `verify` push what was queued as they finish.
 - **Ended by anything else**, a run waits for the next push, and counts as only on this machine until then. A queued run you delete goes nowhere.
 - **A run whose recorder is gone** (killed, or out of memory) never ends by itself. A push ends it as interrupted, as `gc` does, and sends it; it counts as only on this machine until then.
-- **A short copy in the store.** A run the store holds as interrupted with fewer calls than your copy, which ended since, goes up whole again with the next push, and a pull then brings all of it. An import an older Shadowlap pushed while it was still writing is one.
+- **A short copy in the store.** A run the store holds as interrupted with fewer calls than your copy, which ended since, goes up whole again with the next push, and a pull then brings all of it. An import an older shadowlap pushed while it was still writing is one.
 - **A machine that pulled the short copy** gets the whole one by deleting its copy and pulling the run by name.
 
 ### Fixes
@@ -233,7 +233,7 @@ A run you delete here stays deleted: a pull doesn't bring it back unless you nam
 ### When a push or pull goes wrong
 
 - **A run a pull would refuse** never goes up: `push` checks each run with the same rules and leaves one that fails here, saying why.
-- **A run in the store that can't be read** (changed there by hand, or written by a newer Shadowlap) is skipped with its forks, and the other runs come. The next pull tries it again.
+- **A run in the store that can't be read** (changed there by hand, or written by a newer shadowlap) is skipped with its forks, and the other runs come. The next pull tries it again.
 - **A push cut short** (a dropped connection, a laptop closed) leaves nothing half done. A run is listed for the team once its index entry is written, and the next push lists what went up without one.
 - **A run you name** is checked against the bucket itself, so one a retention rule or a person removed goes up again. So do its calls or blobs if the bucket lost only those; a pull that meets such a run says so, and names the push that mends it.
 - **`push --all`** trusts this machine's record, and leaves such a run out.
@@ -258,7 +258,7 @@ No request is ever made for a key with a `.` or `..` part, so `index/../../other
 
 ## A teammate's runs and fixes
 
-What a pull brings is someone else's work. Shadowlap checks it as strictly as a pack, marks what it brings, and runs a teammate's command or code only once you have seen it.
+What a pull brings is someone else's work. shadowlap checks it as strictly as a pack, marks what it brings, and runs a teammate's command or code only once you have seen it.
 
 ### A pulled run
 
@@ -275,10 +275,10 @@ What a pull brings is someone else's work. Shadowlap checks it as strictly as a 
 
 A teammate's blame or verdict is run again only from what was checked. A pull marks every blame and verdict it brings as pulled, on this machine only.
 
-- **Run blame again**, **Run more attempts** and **Verify again** build their command from the report and the flags kept beside it: each a flag Shadowlap allows, with a value of its shape.
+- **Run blame again**, **Run more attempts** and **Verify again** build their command from the report and the flags kept beside it: each a flag shadowlap allows, with a value of its shape.
 - **Never the fix's command line.** They never build it from the command line the fix carries, nor with a value holding a control or format character.
 - **None of the teammate's commands.** A pulled one runs without the teammate's `--build`, `--base` and command after `--`, which ran on their machine.
-- **A bounded budget.** It spends at most twice what Shadowlap runs by itself, as the table below gives.
+- **A bounded budget.** It spends at most twice what shadowlap runs by itself, as the table below gives.
 - **Only after you confirm.** It runs only once you confirm the exact command line, which the question shows. Its page offers the command made here to copy, not theirs.
 
 | Pulled step | At most |
@@ -365,7 +365,7 @@ A pull request's CI job runs what the pull request says, and anyone who can open
 
 ### Its own folder
 
-A pull request's job writes only to its own folder, `pr/<number>/` under the store's folder, and sends no fixes. `push`, `test --push`, `share` and `store check` all write there. Shadowlap recognises the job by the CI's own variables:
+A pull request's job writes only to its own folder, `pr/<number>/` under the store's folder, and sends no fixes. `push`, `test --push`, `share` and `store check` all write there. shadowlap recognises the job by the CI's own variables:
 
 | CI | A pull request's job |
 |---|---|
@@ -431,4 +431,4 @@ A report stays in `shares/` after its link expires. To clear them, ask your clou
 - The CLI reference for [`push` and `pull`](./cli.md#push-pull), [`share`](./cli.md#share) and [`store`](./cli.md#store): every flag.
 - [CI](./ci.md): the workflow that pushes from CI, and fixes in the team store.
 - [Normalizers and redaction](./normalizers-and-redaction.md): the rules a share link applies, and the credentials every copy masks.
-- [Security](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md): the team store's checks, with the rest of Shadowlap's.
+- [Security](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md): the team store's checks, with the rest of shadowlap's.

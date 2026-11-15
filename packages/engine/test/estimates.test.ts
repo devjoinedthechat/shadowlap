@@ -112,7 +112,7 @@ describe('a recording priced as asked live', () => {
     expect(spentLive(replay).usd).toBeCloseTo(ALL - COST[1], 10);
   });
 
-  it('counts a call Shadowlap answered as nothing spent, and one that failed upstream as unknown', () => {
+  it('counts a call shadowlap answered as nothing spent, and one that failed upstream as unknown', () => {
     const failedAt: CallRecord[] = [...recording().filter((c) => c.callNo < 5), api(5, 'claude-sonnet-5', null, { ended: 'injected' })];
     expect(spentLive(failedAt).usd).toBeCloseTo(COST[1] + COST[3], 10);
     const failed: CallRecord[] = [...recording().filter((c) => c.callNo < 5), api(5, 'claude-sonnet-5', null, { ended: 'error' })];
@@ -273,7 +273,7 @@ describe('a fork', () => {
     expect(costLine(forkEstimate(gpt, { at: 2, model: 'gpt-5-nano' }))).toEqual(['<$0.001, 0.04 times as recorded', 'live from #2, writes fenced']);
   });
 
-  it('is Free where Shadowlap answers the last model call, or none comes after the change', () => {
+  it('is Free where shadowlap answers the last model call, or none comes after the change', () => {
     expect(forkEstimate(calls(), { at: 6, answered: true })).toEqual({ kind: 'fork', usd: 0, ceiling: false, parts: ['nothing upstream at #6'] });
     expect(forkEstimate(calls(), { at: 7 })).toEqual({ kind: 'fork', usd: 0, ceiling: false, parts: ['no model call comes after #7'] });
     // A status at #5 is written here: what bills is what follows it.
@@ -317,7 +317,7 @@ describe('the fork menu’s whole-run jobs', () => {
     expect(repeatEstimate(fork(), forked(), 2).usd).toBeCloseTo(2 * (COST[3] + COST[5] + COST[6]), 10);
   });
 
-  it('repeats a fork whose change Shadowlap answered at no cost there, as its flags answer it again', () => {
+  it('repeats a fork whose change shadowlap answered at no cost there, as its flags answer it again', () => {
     const failedAt: CallRecord[] = forked().map((c) => (c.callNo === 3 ? api(3, 'claude-sonnet-5', null, { ended: 'injected' }) : c));
     expect(repeatEstimate(fork(), failedAt).usd).toBeCloseTo(5 * (COST[5] + COST[6]), 10);
   });

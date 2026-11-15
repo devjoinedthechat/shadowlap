@@ -65,7 +65,7 @@ export interface CallRow extends CallFacts {
   /**
    * Where the answer came from. `injected` is a display origin: the store keeps such a call as live,
    * because it did not come from the recording, but it did not come from the provider either —
-   * Shadowlap answered it with `--fail-at` — and every view that colours a call by origin says so.
+   * shadowlap answered it with `--fail-at` — and every view that colours a call by origin says so.
    */
   origin: CallRecord['origin'] | 'injected';
   effect: CallRecord['effect'];
@@ -103,7 +103,7 @@ export interface CallRow extends CallFacts {
   resultShort: string | null;
   /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
   input?: true;
-  /** A call made in one of Shadowlap's own scopes, such as its judge's (`shadowlap:judge`): none of the agent's. */
+  /** A call made in one of shadowlap's own scopes, such as its judge's (`shadowlap:judge`): none of the agent's. */
   reserved?: true;
   /** A judge's call: the check it answered, by its name in the config, and the verdict the run's check kept of it (null where none was kept). */
   judge?: JudgeRow;
@@ -157,7 +157,7 @@ export interface RunDetail extends Omit<RunPageFacts, 'cache' | 'notWaitedMs'> {
    */
   kinds?: string;
   /**
-   * Beside `origins`, the numbers of the judge's calls, Shadowlap's own and none of the agent's, which
+   * Beside `origins`, the numbers of the judge's calls, shadowlap's own and none of the agent's, which
    * the page keeps out of All and every total before their pages have come. Absent where the run has
    * none, and when `calls` holds every call.
    */

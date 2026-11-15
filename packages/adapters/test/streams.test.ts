@@ -6,7 +6,7 @@ import { withEffects } from '../src/ai-sdk.js';
 
 /**
  * An AI SDK streaming tool (`async *execute`) wrapped by withEffects still streams, in production
- * and under Shadowlap, which records every value it yields, and replays them in order: the AI SDK
+ * and under shadowlap, which records every value it yields, and replays them in order: the AI SDK
  * takes the last for the tool's output, as it did live.
  */
 
@@ -60,7 +60,7 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     },
   };
 
-  it('streams as it does bare when Shadowlap is inactive', async () => {
+  it('streams as it does bare when shadowlap is inactive', async () => {
     deactivate();
     const bare = await execute(weather, { city: 'Oslo' });
     const wrapped = await execute(withEffects({ weather }, { weather: 'read' }).weather, { city: 'Oslo' });

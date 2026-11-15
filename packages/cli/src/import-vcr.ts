@@ -6,7 +6,7 @@ import { headerMap, importCaptured, parseBody, type Captured, type CapturedCall,
  * {@link ../import-capture.js} turns these into a recording.
  *
  * VCR.py writes YAML by default and JSON on request (`vcr.VCR(serializer='json')`, or
- * `--record-mode` with a JSON cassette library). Shadowlap reads the JSON form, so that no YAML
+ * `--record-mode` with a JSON cassette library). shadowlap reads the JSON form, so that no YAML
  * parser has to be trusted with a cassette from anywhere; converting an existing YAML cassette is a
  * one-liner with any YAML tool.
  *

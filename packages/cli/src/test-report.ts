@@ -236,7 +236,7 @@ function takesOutLines(r: PackResult): string[] {
 export function markdownReport(report: TestReport, given: 'fail' | 'warn' | null = null): string {
   const lines: string[] = [];
   // Counting what passed, inconclusive ones apart whether they fail the run or only warn, as the pull request comment heads.
-  lines.push(`### Shadowlap: ${commentHead(report.results)}`, '');
+  lines.push(`### shadowlap: ${commentHead(report.results)}`, '');
   // The session's one risk, when gated goldens shared it.
   // A golden that can't keep within its share makes the plan's own chance the bound, never the risk given.
   if (report.suite && report.suite.goldens > 1) lines.push(`Suite risk ${riskPercent(report.suite.risk)}, split across ${report.suite.goldens} gated goldens (${riskPercent(report.suite.perGoldenRisk)} each), ${suiteRed(report.suite, report.suite.inconclusive === 'warn' ? 'fails a golden for nothing' : 'goes red for nothing')}.`, '');
@@ -329,7 +329,7 @@ export function githubAnnotations(report: TestReport): string {
       const passK = r.gate ? formatPassK(r.gate) : null;
       const evidence = passK && !details?.includes(passK) ? ['', passK] : [];
       const text = [body, ...evidence].join('\n');
-      return `::${r.ok ? 'warning' : 'error'} file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(text)}`;
+      return `::${r.ok ? 'warning' : 'error'} file=${escapeProperty(file)},title=${escapeProperty(`shadowlap: ${safeText(r.name)}`)}::${escapeData(text)}`;
     })
     .join('\n');
 }

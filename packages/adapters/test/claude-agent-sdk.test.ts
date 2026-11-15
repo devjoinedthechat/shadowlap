@@ -44,7 +44,7 @@ function session(hooks: Hooks, beside: Hooks = {}): FakeClaudeCode {
 
 /** A home folder of the tests' own: no file of this machine's Claude Code is read. */
 const HOME = mkdtempSync(join(tmpdir(), 'shadowlap-fence-home-'));
-/** The CLI's environment in these tests: that home, and the model API where Shadowlap would send it. */
+/** The CLI's environment in these tests: that home, and the model API where shadowlap would send it. */
 const HOME_ENV = { HOME, CLAUDE_CONFIG_DIR: join(HOME, '.claude'), ...(process.env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL } : {}) };
 
 /** The query's hooks with the fence's in them. No settings file of this machine is read: only those the query names. */
@@ -194,7 +194,7 @@ describe('the Claude Agent SDK fence', () => {
   });
 
   it('refuses a write it can\'t record, where a hook that failed would have let it run', async () => {
-    // Started under Shadowlap, but the sidecar is gone: this could be a replay, so no write runs.
+    // Started under shadowlap, but the sidecar is gone: this could be a replay, so no write runs.
     process.env.SHADOWLAP_URL = 'http://127.0.0.1:9/gone';
     process.env.SHADOWLAP_RUN_ID = 'run-gone';
     const cc = session(fenced());
@@ -205,7 +205,7 @@ describe('the Claude Agent SDK fence', () => {
     expect(read).toEqual({ content: 'old line\nmore\n', is_error: false });
   });
 
-  it('changes nothing outside Shadowlap', async () => {
+  it('changes nothing outside shadowlap', async () => {
     const cc = session(fenced());
     const { results } = await agent(cc);
     expect(cc.ran).toEqual(['echo hi > out.txt', 'cd sub', 'fail 3 tests failed']);
@@ -285,7 +285,7 @@ describe('the Claude Agent SDK fence', () => {
     const ended = sidecar.endRun(run.runId, 'completed');
     expect(ended.preloads).toMatchObject({ guard: 'block', hellos: { 'claude-code': 1 }, failed: true });
     // What the query leaves the CLI to reach: WebFetch, and the claude.ai connectors with no API key.
-    expect(ended.preloads!.unguarded).toContain('the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can\'t watch WebFetch, which fetches each page itself; and claude.ai connectors, which a claude.ai login brings.');
+    expect(ended.preloads!.unguarded).toContain('the Claude Code CLI the Claude Agent SDK runs, which loads no shadowlap preload, so the guard can\'t watch WebFetch, which fetches each page itself; and claude.ai connectors, which a claude.ai login brings.');
     expect(ended.run.status).toBe('failed');
   });
 
@@ -315,7 +315,7 @@ describe('the Claude Agent SDK fence', () => {
     expect(o.preloads!.unguarded).toContain('so the guard can\'t watch the MCP server "docs" (http). Under --guard block nothing stops such a connection, so the run fails.');
   });
 
-  it('turns the CLI\'s nonessential traffic off under Shadowlap, unless the query\'s env sets it, and leaves the env alone outside it', () => {
+  it('turns the CLI\'s nonessential traffic off under shadowlap, unless the query\'s env sets it, and leaves the env alone outside it', () => {
     const run = sidecar.startRun({ mode: 'record', command });
     within(run);
     const before = process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
@@ -436,7 +436,7 @@ describe('the fence beside other hooks', () => {
       sidecar.endRun(replay.runId, 'completed');
       expect(cc.ran).toEqual([]);
       expect(results[0].is_error).toBe(true);
-      expect(results[0].content).toContain(`shadowlap: Bash was not run again: a PreToolUse hook in ${file} (matcher "Bash") runs beside Shadowlap's`);
+      expect(results[0].content).toContain(`shadowlap: Bash was not run again: a PreToolUse hook in ${file} (matcher "Bash") runs beside shadowlap's`);
       expect(said.join('\n')).toContain(file);
     } finally {
       rmSync(project, { recursive: true, force: true });
@@ -469,7 +469,7 @@ describe('the fence beside other hooks', () => {
         const { results } = await agent(cc, SCRIPT_BASH);
         sidecar.endRun(replay.runId, 'completed');
         expect(cc.ran, where).toEqual([]);
-        expect(results[0].content).toContain(`shadowlap: Bash was not run again: a PreToolUse hook in ${join(dir, where)} (matcher "Bash") runs beside Shadowlap's`);
+        expect(results[0].content).toContain(`shadowlap: Bash was not run again: a PreToolUse hook in ${join(dir, where)} (matcher "Bash") runs beside shadowlap's`);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -487,7 +487,7 @@ describe('the fence beside other hooks', () => {
       const { results } = await agent(cc, SCRIPT_BASH);
       sidecar.endRun(replay.runId, 'completed');
       expect(cc.ran).toEqual([]);
-      expect(results[0].content).toContain(`a PreToolUse hook in ${join(dir, '.claude', 'settings.local.json')} (matcher "Bash") runs beside Shadowlap's`);
+      expect(results[0].content).toContain(`a PreToolUse hook in ${join(dir, '.claude', 'settings.local.json')} (matcher "Bash") runs beside shadowlap's`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -531,7 +531,7 @@ describe('the fence beside other hooks', () => {
     // The write ran, which the fence could not stop; the model reads what it did, not the recording, and nothing runs after it.
     expect(cc.ran).toEqual(['echo hi > out.txt # checked']);
     expect(results[0]).toEqual({ content: 'ran: echo hi > out.txt # checked', is_error: false });
-    expect(cc.stopReason).toMatch(/^shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave Bash, so Claude Code ran the call itself \(command: "echo hi > out.txt # checked"\)/);
+    expect(cc.stopReason).toMatch(/^shadowlap: another PreToolUse hook replaced the stand-in shadowlap gave Bash, so Claude Code ran the call itself \(command: "echo hi > out.txt # checked"\)/);
     expect(results[1]).toEqual({ content: `the session was stopped: ${cc.stopReason}`, is_error: true });
     expect(said.join('\n')).toContain('another PreToolUse hook replaced the stand-in');
   });

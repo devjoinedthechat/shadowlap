@@ -2,7 +2,7 @@
   "name": "@shadowlap-testing/mock-anthropic",
   "version": "0.1.0",
   "private": true,
-  "description": "A scripted fake of the Anthropic Messages API (JSON and SSE) for Shadowlap tests.",
+  "description": "A scripted fake of the Anthropic Messages API (JSON and SSE) for shadowlap tests.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

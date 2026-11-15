@@ -1,4 +1,4 @@
-// Checks Shadowlap end to end against a real model server: records the triage agent through Ollama,
+// Checks shadowlap end to end against a real model server: records the triage agent through Ollama,
 // replays it with the server unreachable, forks it at its last model call, and runs the recording as
 // a CI golden. The model's answers can differ from run to run; every check here holds whatever it says.
 //
@@ -43,7 +43,7 @@ function shadowlap(args, env = {}) {
   return { code: r.status, out: `${r.stdout}${r.stderr}`, stdout: r.stdout };
 }
 
-/** What the agent printed, without Shadowlap's own lines. */
+/** What the agent printed, without shadowlap's own lines. */
 const agentOutput = (stdout) => stdout.split('\n').filter((l) => !/^(\[shadowlap\]|[●✓⑂✗] | {2}shadowlap show| {2}\d+ recorded call)/.test(l)).join('\n').trim();
 const ticketFiles = () => (existsSync(tickets) ? readdirSync(tickets).sort() : []);
 

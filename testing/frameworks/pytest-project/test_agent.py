@@ -1,5 +1,5 @@
 """A test suite for an agent, as a user would write it: the model client is created at import, before
-Shadowlap starts, and one tool goes through the Shadowlap SDK. Run by pytest-plugin.test.mjs."""
+shadowlap starts, and one tool goes through the shadowlap SDK. Run by pytest-plugin.test.mjs."""
 
 import os
 

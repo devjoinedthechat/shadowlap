@@ -570,7 +570,7 @@ export function readVerdict(bytes: Buffer | null, contentType: string | undefine
   try {
     r = normalizeResponse(bytes, contentType, [], provider);
   } catch {
-    return { error: 'the judge sent back no response Shadowlap can read' };
+    return { error: 'the judge sent back no response shadowlap can read' };
   }
   const stopped = r.stopReason && !/^(end_turn|stop|STOP|completed|stop_sequence)$/.test(r.stopReason) ? ` (it stopped: ${r.stopReason})` : '';
   if (r.stopReason === 'refusal') return { error: 'the judge declined to answer' };

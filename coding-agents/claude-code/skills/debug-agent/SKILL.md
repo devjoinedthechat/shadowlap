@@ -1,6 +1,6 @@
 ---
 name: debug-agent
-description: Debug an AI agent whose runs Shadowlap records, and check every change to it against what it actually did (the shadowlap CLI; shadowlap.config.json or a .shadowlap folder in the project). Use it whenever you change the agent's prompt, tools, model or code, before calling the change done, and to find a failing run, read where it went wrong, find the model call or the commit that lost it, switch the agent to another model, and verify a fix.
+description: Debug an AI agent whose runs shadowlap records, and check every change to it against what it actually did (the shadowlap CLI; shadowlap.config.json or a .shadowlap folder in the project). Use it whenever you change the agent's prompt, tools, model or code, before calling the change done, and to find a failing run, read where it went wrong, find the model call or the commit that lost it, switch the agent to another model, and verify a fix.
 license: Apache-2.0
 compatibility: Needs the shadowlap CLI on the PATH (Node.js 22.16 or later, not 23), run in the agent's project.
 allowed-tools: Bash(shadowlap ls *) Bash(shadowlap show *) Bash(shadowlap search *) Bash(shadowlap diff *) Bash(shadowlap fix ls *) Bash(shadowlap fix show *)
@@ -8,11 +8,11 @@ metadata:
   version: 0.1.0
 ---
 
-# Debugging an agent with Shadowlap
+# Debugging an agent with shadowlap
 
-This project records its agent's runs with Shadowlap: `shadowlap run -- <command>` records every model and tool call, and a replay re-runs the agent's real code against the recording. Calls that didn't change are served from it at no cost; the run forks at the first request that changed, runs live from there, and blocks write tools (emails, tickets, payments). Read the JSON of the commands below that give it (`--json`, or `--summary-json` for a replay) rather than their text. A run id can be shortened to any unique prefix.
+This project records its agent's runs with shadowlap: `shadowlap run -- <command>` records every model and tool call, and a replay re-runs the agent's real code against the recording. Calls that didn't change are served from it at no cost; the run forks at the first request that changed, runs live from there, and blocks write tools (emails, tickets, payments). Read the JSON of the commands below that give it (`--json`, or `--summary-json` for a replay) rather than their text. A run id can be shortened to any unique prefix.
 
-Whenever you change the agent's prompt, tools, model or code, check the change here before calling it done, whether or not you were asked to debug anything. A project with no `shadowlap.config.json` and no `.shadowlap` folder records nothing yet: set it up first, which Shadowlap's setup skill walks through.
+Whenever you change the agent's prompt, tools, model or code, check the change here before calling it done, whether or not you were asked to debug anything. A project with no `shadowlap.config.json` and no `.shadowlap` folder records nothing yet: set it up first, which shadowlap's setup skill walks through.
 
 ## Find the run
 
@@ -22,7 +22,7 @@ Whenever you change the agent's prompt, tools, model or code, check the change h
 
 ## Check a change
 
-1. Change the code, then run `shadowlap replay <run> --summary-json <file>`. The agent's output mixes with Shadowlap's on the terminal, so read the file: `summary.divergence` is `null` when every request matched, and otherwise names the first call whose request changed and how, or where the replay ended early.
+1. Change the code, then run `shadowlap replay <run> --summary-json <file>`. The agent's output mixes with shadowlap's on the terminal, so read the file: `summary.divergence` is `null` when every request matched, and otherwise names the first call whose request changed and how, or where the replay ended early.
 2. A changed system prompt or tool list changes every request, so the replay forks at the first model call. To apply it from a later model call instead: `shadowlap replay <run> --prompt-from <call> --summary-json <file>`.
 3. To see what a prompt or tool change decides differently before running anything: `shadowlap decisions goldens/* --from-code --json` asks each model call the goldens recorded again, with the system prompt and tools the working tree sends, and gives each changed decision a `rank`: 1 for a write tool added, removed or called with other arguments, 2 for a change in when the agent stops or hands over, or in its words where a judge check reads them otherwise. No tool runs, so nothing reaches the world; later steps are judged in the recorded run's state, so verify what it flags.
 4. A fix inside a tool changes no request, so its old result would replay: `shadowlap replay <run> --live-tool <tool> --summary-json <file>` runs that tool live.

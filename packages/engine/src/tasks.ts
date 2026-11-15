@@ -104,7 +104,7 @@ export function isPack(dir: string): boolean {
  */
 export function readGolden(dir: string, path = dir): Golden {
   const root = resolve(dir);
-  if (!isPack(root)) throw new PackError(`${path} is not a Shadowlap pack (no run.json)`);
+  if (!isPack(root)) throw new PackError(`${path} is not a shadowlap pack (no run.json)`);
   let manifest: { format?: unknown; version?: unknown; runs?: unknown };
   try {
     manifest = JSON.parse(readPackFile(join(root, 'run.json'), PACK_LIMITS.manifestBytes, 'run.json').toString('utf8')) as typeof manifest;

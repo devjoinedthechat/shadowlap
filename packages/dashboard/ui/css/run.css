@@ -226,7 +226,7 @@ table.calls .det { font: 12.5px var(--mono); font-weight: 400; color: var(--fain
 /* a tool's result sits under its call: the request on one line, what came back on the next */
 table.calls .res { display: block; margin: 1px 0 0 37px; font: 11px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
 table.calls .res.err { color: var(--err); }
-/* a blocked write's result in the blocked grey, as its origin is: the fence is Shadowlap working, never the red of what failed */
+/* a blocked write's result in the blocked grey, as its origin is: the fence is shadowlap working, never the red of what failed */
 table.calls .res.blk { color: var(--o-block); }
 /* The trace, lightly grouped: a call a step in under the model call that asked for it, a sub-agent's and a batch item's calls
    under a row that names them. A group folds at its caret, which hangs in the step before the kind, so a level's kinds stand

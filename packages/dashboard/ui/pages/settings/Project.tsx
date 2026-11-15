@@ -15,7 +15,7 @@ import { BuildRow } from './BuildRow.js';
 import { HealthRow } from './Health.js';
 
 /**
- * Project: what Shadowlap is here (its version, its licence, no account), then the project's name,
+ * Project: what shadowlap is here (its version, its licence, no account), then the project's name,
  * store, runs and attempts, the store's size and the dashboard's address, what is data as code, and
  * what the server ignored of this machine's settings and why (MachineRow); Spending, when a billed
  * job asks before it starts (SpendingRow); Build, the command that builds the agent (BuildRow);
@@ -41,7 +41,7 @@ export function ProjectTab() {
   return (
     <Section className="set" title="Project">
       <dl className="kvs">
-        <dt>Shadowlap</dt>
+        <dt>shadowlap</dt>
         <dd>
           {version ? `${version}\u00a0· ` : null}
           <small>

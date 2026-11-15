@@ -4,7 +4,7 @@ import { validateRun } from '../src/pack-schema.js';
 import { quoteArgv, safeLine, safeText } from '../src/text.js';
 
 /**
- * A character that disguises what a line shows is shown as its escape wherever Shadowlap prints
+ * A character that disguises what a line shows is shown as its escape wherever shadowlap prints
  * recorded text or a command a person is asked to say yes to: a right-to-left override, which
  * reverses the text after it, a zero-width space, the line and paragraph separators, besides the
  * C0 and C1 controls. A command line from a pack or a pull holding one is refused.

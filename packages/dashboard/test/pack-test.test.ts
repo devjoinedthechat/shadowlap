@@ -64,7 +64,7 @@ describe('pack-test for a run the request names', () => {
     expect(await build({ runId: id, golden: '' })).toEqual({ error: 'Give the golden a folder, such as goldens/first-run.', status: 400 });
     const other = addRun(store, { startedAt: T0 + 30, calls: 'll' });
     packRun(store, other, join(project, 'goldens', 'taken'));
-    expect(await build({ runId: id, golden: 'goldens/taken' })).toEqual({ error: 'goldens/taken already holds a golden. Give this one another name: Shadowlap never packs over a golden.', status: 409 });
+    expect(await build({ runId: id, golden: 'goldens/taken' })).toEqual({ error: 'goldens/taken already holds a golden. Give this one another name: shadowlap never packs over a golden.', status: 409 });
     mkdirSync(join(project, 'goldens', 'notes'), { recursive: true });
     writeFileSync(join(project, 'goldens', 'notes', 'todo.txt'), 'x');
     expect(await build({ runId: id, golden: 'goldens/notes' })).toMatchObject({ status: 409, error: 'goldens/notes isn’t empty. Give the golden a folder of its own.' });

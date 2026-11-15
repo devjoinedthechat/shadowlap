@@ -447,7 +447,7 @@ function readAll(res: IncomingMessage): Promise<{ bytes: Buffer; cut: string | n
 /**
  * The run a session of a listener started on its own belongs to, found when the session starts: the
  * run registered for the client's process or one of its ancestors (agent-registry.ts), which every
- * agent a Shadowlap command starts has, whichever folder it runs in and however many run at once.
+ * agent a shadowlap command starts has, whichever folder it runs in and however many run at once.
  * Where the system won't say which process connected, the one run active for this user decides: the
  * runs registered for agents running now, and the folder's `.shadowlap/active.json`. `none` when no
  * run is found for the session, and `unusable` when several could be its own.
@@ -463,7 +463,7 @@ export function sessionRun(client: ClientEnd, cwd: string, skip: DiscoverySkip =
   if (active && !runs.has(active.runId)) runs.set(active.runId, { target: active, from: join(cwd, '.shadowlap', 'active.json') });
   const all = [...runs.values()];
   if (all.length === 1) return { kind: 'sidecar', target: all[0]!.target, from: all[0]!.from };
-  if (all.length > 1) return { kind: 'unusable', reason: `${all.length} Shadowlap runs are active (${all.map((r) => r.target.runId.slice(0, 10)).join(', ')}), and which one this session's client belongs to can't be told` };
+  if (all.length > 1) return { kind: 'unusable', reason: `${all.length} shadowlap runs are active (${all.map((r) => r.target.runId.slice(0, 10)).join(', ')}), and which one this session's client belongs to can't be told` };
   return { kind: 'none' };
 }
 
@@ -478,14 +478,14 @@ export function sessionSidecar(client: ClientEnd, cwd: string, log: (line: strin
     log(`a session started: recording into run ${run.target.runId}`);
     return run.target;
   }
-  const why = run.kind === 'unusable' ? run.reason : 'no Shadowlap run is active for it';
+  const why = run.kind === 'unusable' ? run.reason : 'no shadowlap run is active for it';
   log(`a session started that can't be recorded (${why}): write tools are refused, read tools pass through unrecorded`);
   return { unusable: why };
 }
 
 /**
  * `shadowlap mcp --url <server> --listen <address>`: the server, served over Streamable HTTP for
- * agents whose MCP client speaks HTTP, until the proxy is stopped. Started by a Shadowlap command
+ * agents whose MCP client speaks HTTP, until the proxy is stopped. Started by a shadowlap command
  * (or under one), every session records into that command's run. Started on its own, it serves one
  * run after another: each session records into the run its client belongs to (sessionRun). A
  * session with no run found, or one it can't tell among several, can't be recorded, and this could
@@ -499,13 +499,13 @@ export function sessionSidecar(client: ClientEnd, cwd: string, log: (line: strin
 export async function listen(url: URL, at: { host: string; port: number }, headers: Record<string, string>, effects: Record<string, Effect>, found: SidecarLookup, log: (line: string) => void): Promise<number> {
   const cwd = process.cwd();
   const sidecar = (client: ClientEnd): ProxySidecar => (found.kind === 'sidecar' ? found.target : found.kind === 'unusable' ? { unusable: found.reason } : sessionSidecar(client, cwd, log));
-  if (found.kind === 'none') log('started on its own: each session records into the run of the Shadowlap command its client belongs to, and refuses writes when it has none');
+  if (found.kind === 'none') log('started on its own: each session records into the run of the shadowlap command its client belongs to, and refuses writes when it has none');
   const key = proxyKey();
   const listener = await startMcpListener({ host: at.host, port: at.port, url: url.href, headers, sidecar, effects, proofKey: key, log });
   const port = Number(new URL(listener.url).port);
   const registered = found.kind === 'unusable' ? null : registerProxy({ host: at.host, port }, { key, run: found.kind === 'sidecar' ? found.target : null });
   log(`serving ${url.host} at ${listener.url}`);
-  if (registered && !registered.file) log(`could not register it in Shadowlap's home folder (~/.shadowlap, or SHADOWLAP_HOME), so the network guard of the agents Shadowlap commands start refuses it under block (shadowlap test's default): run them with SHADOWLAP_GUARD_ALLOW=${at.host}:${port}`);
+  if (registered && !registered.file) log(`could not register it in shadowlap's home folder (~/.shadowlap, or SHADOWLAP_HOME), so the network guard of the agents shadowlap commands start refuses it under block (shadowlap test's default): run them with SHADOWLAP_GUARD_ALLOW=${at.host}:${port}`);
   return new Promise((resolve) => {
     const stop = (signal: NodeJS.Signals) =>
       void listener.close().then(() => {

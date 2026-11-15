@@ -4,7 +4,7 @@ import { skillOffer, type SkillOffer } from './agent-skill.js';
 import { READ_LIMIT, type SettingsContext } from './settings-shared.js';
 import { agentsSection, readShippedDoc } from './settings-docs.js';
 
-/** Settings' Coding agents tab: the instructions files coding agents read here, and whether each mentions Shadowlap. */
+/** Settings' Coding agents tab: the instructions files coding agents read here, and whether each mentions shadowlap. */
 
 export interface AgentFile {
   /** As the project has it, relative to its folder. */
@@ -14,7 +14,7 @@ export interface AgentFile {
   found: boolean;
   /** `.agents/skills` is a folder of skills, `.cursor/rules` a folder of rule files or one file. Null when not found. */
   type: 'file' | 'folder' | null;
-  /** It, or a file in the folder, already mentions Shadowlap. */
+  /** It, or a file in the folder, already mentions shadowlap. */
   mentions: boolean;
 }
 
@@ -56,7 +56,7 @@ function mentionsIn(file: string): boolean {
   }
 }
 
-/** Whether any file in a rules folder mentions Shadowlap. Links inside it aren't followed, and the walk stops early on a folder far bigger than a rules folder. */
+/** Whether any file in a rules folder mentions shadowlap. Links inside it aren't followed, and the walk stops early on a folder far bigger than a rules folder. */
 function folderMentions(dir: string): boolean {
   const stack: Array<[string, number]> = [[dir, 0]];
   const deadline = Date.now() + FOLDER_MS;
@@ -88,7 +88,7 @@ const inside = (path: string, root: string) => {
 
 /**
  * The Coding agents tab: which instruction files the project has and whether each mentions
- * Shadowlap yet, the section to paste, and the plugin and the skills that package it: what the
+ * shadowlap yet, the section to paste, and the plugin and the skills that package it: what the
  * project has of each, and their install. Only a yes or no leaves each file, never its text. A
  * folder (`.agents/skills`, `.cursor/rules`) that is a link to somewhere outside the project is not
  * looked through.

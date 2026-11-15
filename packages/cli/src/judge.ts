@@ -124,12 +124,12 @@ export interface PreparedJudge {
 
 /**
  * The request a judge check sends about `material`, read from `store` with the project's rules (its
- * redactions, then what matching masks), or why there is none: its model has no provider Shadowlap
+ * redactions, then what matching masks), or why there is none: its model has no provider shadowlap
  * knows, a rule can't be applied (nothing is sent unmasked), or the run holds nothing it reads.
  */
 export function prepareJudge(store: Store, j: JudgeCheck, material: JudgeMaterialSource, o: { redact?: readonly Normalizer[] | undefined; normalize?: readonly Normalizer[] | undefined }): PreparedJudge | { why: string } {
   const target = judgeTarget(j.model);
-  if (!target) return { why: `Shadowlap can't tell which provider serves ${j.model}` };
+  if (!target) return { why: `shadowlap can't tell which provider serves ${j.model}` };
   let m: ReturnType<typeof judgeMaterialFor>;
   try {
     m = judgeMaterialFor(store, j, material, o);

@@ -1,5 +1,5 @@
 """The reference agent in Python: the same 30-call research scenario as the TypeScript one, driven
-by the real `anthropic` SDK (streaming, parallel tool calls) and the Shadowlap Python SDK.
+by the real `anthropic` SDK (streaming, parallel tool calls) and the shadowlap Python SDK.
 
     pip install anthropic
     shadowlap run -- python testing/reference-agent/python/agent.py        # against the real API, or

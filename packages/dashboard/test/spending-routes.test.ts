@@ -91,11 +91,11 @@ describe('Spending', () => {
   });
 
   it('refuses a change it would lose something of, or one another process holds the file for, saying why', async () => {
-    // A newer Shadowlap's file is read, never written over.
+    // A newer shadowlap's file is read, never written over.
     writeFileSync(join(home, USER_SETTINGS_FILE), JSON.stringify({ version: 99, spending: { askAbove: 2 }, theirs: true }));
     const newer = await put(1);
     expect(newer.status).toBe(409);
-    expect(newer.body.error).toContain('was written by a newer Shadowlap');
+    expect(newer.body.error).toContain('was written by a newer shadowlap');
     expect(kept()).toEqual({ version: 99, spending: { askAbove: 2 }, theirs: true });
     // A file that is no settings: fix or remove it.
     writeFileSync(join(home, USER_SETTINGS_FILE), 'not json');
@@ -110,7 +110,7 @@ describe('Spending', () => {
       const started = Date.now();
       const busy = await put(1);
       expect(busy.status).toBe(409);
-      expect(busy.body.error).toContain('is held by another Shadowlap process');
+      expect(busy.body.error).toContain('is held by another shadowlap process');
       expect(Date.now() - started).toBeLessThan(5000);
     } finally {
       releaseLock(held);

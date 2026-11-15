@@ -77,7 +77,7 @@ describe('the pull request a fix opens', () => {
     // The panel's budget is the one it shows, whatever the preview was made with.
     const view = ciWorkflows({ ...CI_DEFAULTS, budget: '5.00' }, { preview: pr, failing: 0, at: null, repository: null, branch: null });
     expect(view.fixOnFailure.preview.spent).toMatch(/ of \$5\.00$/);
-    expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on main.');
+    expect(view.alerts.message.text).toBe('shadowlap: 1 golden(s) failed on main.');
     expect(view.alerts.message.link).toBe('github.com/owner/repo/actions/runs/…');
     // What fails a golden in red; a gate, judge or injection test that can't decide in amber, never red.
     expect(view.alerts.failures.map((r) => [r.value, r.tone])).toEqual([
@@ -395,10 +395,10 @@ describe('the project\'s git facts', () => {
     expect(view.workflow.text).toContain("&& github.ref == 'refs/heads/master'");
     // The push trigger names it too.
     expect(view.workflow.text).toContain('  push:\n    branches: [master]\n');
-    expect(view.alerts.message.text).toBe('Shadowlap: 2 golden(s) failed on master.');
+    expect(view.alerts.message.text).toBe('shadowlap: 2 golden(s) failed on master.');
     expect(view.fixOnFailure.preview.base).toBe('master');
     // Off: the branch checked out, unless it is the default one.
-    expect(ciWorkflows({ ...CI_DEFAULTS, onlyMain: false }, { preview: null, failing: 0, at: null, repository: null, branch: 'feature', defaultBranch: 'master' }).alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on feature.');
+    expect(ciWorkflows({ ...CI_DEFAULTS, onlyMain: false }, { preview: null, failing: 0, at: null, repository: null, branch: 'feature', defaultBranch: 'master' }).alerts.message.text).toBe('shadowlap: 1 golden(s) failed on feature.');
     // Unknown: main, as before.
     expect(ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null }).alerts.branch).toBe('main');
   });

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { FileLockBusyError, isObject, shadowlapHome, withFileLock, writeFileAtomic } from '@shadowlap/engine';
 
 /**
- * When each golden's checks were last seen to change, kept for this machine in Shadowlap's folder
+ * When each golden's checks were last seen to change, kept for this machine in shadowlap's folder
  * (shadowlapHome): a run recorded before then is judged by today's checks (run-outcome.ts). The
  * config file's time says when it was last written, not whose checks the write changed, so the
  * dashboard keeps a key for each golden's `expect` as it read it, and when it saw the key change: by
@@ -16,7 +16,7 @@ import { FileLockBusyError, isObject, shadowlapHome, withFileLock, writeFileAtom
  * changed. A write never waits, and never writes over what it couldn't read: while another process
  * holds the lock, while the file can't be read, or when the write fails, it is skipped, and the next
  * request makes it (outcome-work.ts). A read that fails answers with what was read of the file last,
- * and nothing is kept from it. A file that is no JSON is as none, and one a newer Shadowlap wrote is
+ * and nothing is kept from it. A file that is no JSON is as none, and one a newer shadowlap wrote is
  * read as none and never written over; where the folder can't be written, the times are kept for as
  * long as the process runs.
  */
@@ -41,7 +41,7 @@ export interface Seen {
 
 type Projects = Map<string, Map<string, SeenChecks>>;
 const empty = (): Projects => new Map();
-/** A file a newer Shadowlap wrote, in a format this one doesn't know: read as none, and never written over. */
+/** A file a newer shadowlap wrote, in a format this one doesn't know: read as none, and never written over. */
 const NEWER = Symbol('newer');
 /** A write: made; for a later call to make, as nothing was written; or never to be made, so kept in this process alone. */
 type Kept = 'written' | 'later' | 'never';
@@ -130,7 +130,7 @@ export function seenChecks(dir: string, env: NodeJS.ProcessEnv = process.env): S
   return { seen: projects.get(dir) ?? new Map(), current };
 }
 
-/** Under the file's lock: the project's entry written into the file as read afresh, but never over one it couldn't read, nor a newer Shadowlap's. */
+/** Under the file's lock: the project's entry written into the file as read afresh, but never over one it couldn't read, nor a newer shadowlap's. */
 function writeEntry(file: string, dir: string, entry: Map<string, SeenChecks>): Kept {
   // Read afresh, never the copy kept for reads: every other project's entry stays as it was written.
   const projects = parse(file);
@@ -158,7 +158,7 @@ const UNWRITABLE = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOTDIR', 'EEXIST']);
  * Keeps each golden's checks as seen now in the project, the goldens no longer there left out: the
  * project's entry alone, written into the file as it is then. False when nothing was written, for a
  * later call to write it: another process held the file, it couldn't be read, or the write failed.
- * Where it can't be written at all, in a folder that can't be or over a newer Shadowlap's file, the
+ * Where it can't be written at all, in a folder that can't be or over a newer shadowlap's file, the
  * entry is kept for as long as this process runs.
  */
 export function keepSeenChecks(dir: string, seen: ReadonlyMap<string, SeenChecks>, env: NodeJS.ProcessEnv = process.env): boolean {

@@ -30,13 +30,13 @@ export const commandText = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, 
 export const logLine = (s) => unmarked(commandText(s));
 
 /**
- * An annotation of the action's own (`notice`, `warning`, `error`), its title Shadowlap's, with what
+ * An annotation of the action's own (`notice`, `warning`, `error`), its title shadowlap's, with what
  * it says as the command's data.
  * @param {'notice' | 'warning' | 'error'} kind
  * @param {unknown} s
  * @returns {string}
  */
-export const annotation = (kind, s) => `::${kind} title=Shadowlap::${commandText(s)}`;
+export const annotation = (kind, s) => `::${kind} title=shadowlap::${commandText(s)}`;
 
 /**
  * What another program printed, passed on to the log as it is, line for line, but each line that

@@ -128,7 +128,7 @@ export interface PricedCall {
   /** The provider it was made through, as the sidecar kept it: what a model's retirement is looked up by. */
   provider: string | null;
   scope: string | null;
-  /** A call of Shadowlap's judge, which no `--model` switches. */
+  /** A call of shadowlap's judge, which no `--model` switches. */
   judge: boolean;
   /** It ended, so blame can probe it. */
   ended: boolean;
@@ -136,12 +136,12 @@ export interface PricedCall {
   request: boolean;
   /** Its provider answered it, and the answer was kept, which a preview compares with. */
   answered: boolean;
-  /** Shadowlap answered it itself (`--fail-at`, offline, a refusal), so nothing went upstream. */
+  /** shadowlap answered it itself (`--fail-at`, offline, a refusal), so nothing went upstream. */
   own: boolean;
   usage: Usage | null;
   /**
    * USD asked live, at its own model's price. Null when that is unknown: its model has no price, it
-   * kept no token counts, or it got no answer when recorded (it failed, never ended, or Shadowlap
+   * kept no token counts, or it got no answer when recorded (it failed, never ended, or shadowlap
    * answered it), so what asking it costs was never seen.
    */
   usd: number | null;
@@ -178,7 +178,7 @@ export interface LiveCost {
   unpriced: string[];
   /** Calls among them, by number, that ended with an answer but kept no token counts. */
   uncounted: number[];
-  /** Calls among them, by number, that got no answer when recorded: they failed, never ended, or Shadowlap answered them. */
+  /** Calls among them, by number, that got no answer when recorded: they failed, never ended, or shadowlap answered them. */
   unanswered: number[];
 }
 
@@ -242,7 +242,7 @@ export function liveSums(calls: readonly PricedCall[]): (from: number) => LiveCo
 
 /**
  * What a run's live model calls cost, the judge's among them: what an attempt that made them spent.
- * One Shadowlap answered itself cost nothing, and costs nothing when the same flags make it again.
+ * One shadowlap answered itself cost nothing, and costs nothing when the same flags make it again.
  */
 export function spentLive(calls: readonly CallRecord[], o: PriceOptions = {}): LiveCost {
   const live = new Set(calls.filter((c) => c.kind === 'api' && c.origin === 'live').map((c) => c.callNo));

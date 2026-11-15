@@ -108,7 +108,7 @@ describe('Skip to content', () => {
         'div',
         null,
         createElement(SkipLink),
-        createElement('header', null, createElement('a', { href: '#/' }, 'Shadowlap'), createElement('button', { type: 'button' }, 'Keyboard shortcuts')),
+        createElement('header', null, createElement('a', { href: '#/' }, 'shadowlap'), createElement('button', { type: 'button' }, 'Keyboard shortcuts')),
         createElement('nav', null, createElement('a', { href: '#/runs' }, 'Runs')),
         createElement('main', { id: 'view', tabIndex: -1 }, createElement('div', { className: 'page', tabIndex: -1 }, createElement('button', { type: 'button' }, 'Replay'))),
       ),

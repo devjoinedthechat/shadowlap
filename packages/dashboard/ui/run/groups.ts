@@ -14,8 +14,8 @@ import { num } from '../format.js';
  *   stretch, and so does each of its conversations a tool started. Its calls are grouped again with
  *   it as the base.
  * - A batch, a top agent with two or more conversations of its own (none a sub-agent's, none in
- *   one of Shadowlap's own scopes), has a row for each stretch of each conversation, its calls under
- *   it; the calls before its first item, a call not read yet and a call of Shadowlap's own stand at
+ *   one of shadowlap's own scopes), has a row for each stretch of each conversation, its calls under
+ *   it; the calls before its first item, a call not read yet and a call of shadowlap's own stand at
  *   the top. So do calls with no conversation number that no later call of the item follows: a page
  *   read before the run's conversations were numbered, a recording's call that waits for the model
  *   call it feeds. Items past their agent's third are folded until opened.
@@ -286,7 +286,7 @@ class TraceBuilder<C extends TraceCall> {
     return out;
   }
 
-  /** The first call from `i` that has a conversation number, or is not read yet, or is one of Shadowlap's own; the calls' length when none is. */
+  /** The first call from `i` that has a conversation number, or is not read yet, or is one of shadowlap's own; the calls' length when none is. */
   numberedFrom(i: number): number {
     let j = i;
     while (j < this.calls.length && unnumbered(this.calls[j]!)) j++;

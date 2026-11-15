@@ -1,5 +1,5 @@
 /**
- * Jest `globalSetup`: starts one Shadowlap host for the whole run, before Jest starts its workers,
+ * Jest `globalSetup`: starts one shadowlap host for the whole run, before Jest starts its workers,
  * which inherit its address through the environment. Pair it with
  * `@shadowlap/test/jest/global-teardown`, which stops it, and `@shadowlap/test/jest/environment` as
  * the test environment.

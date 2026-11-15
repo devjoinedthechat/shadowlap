@@ -506,7 +506,7 @@ const ANTHROPIC_ERROR_TYPES: Record<number, string> = { 400: 'invalid_request_er
 const GOOGLE_STATUS: Record<number, string> = { 400: 'INVALID_ARGUMENT', 401: 'UNAUTHENTICATED', 403: 'PERMISSION_DENIED', 404: 'NOT_FOUND', 429: 'RESOURCE_EXHAUSTED', 501: 'UNIMPLEMENTED', 503: 'UNAVAILABLE', 504: 'DEADLINE_EXCEEDED' };
 /**
  * The error type Bedrock answers a status with, as its clients name the exception they raise. A 401
- * of Shadowlap's is a key that isn't a real one (a placeholder, or one a takeover's server refused):
+ * of shadowlap's is a key that isn't a real one (a placeholder, or one a takeover's server refused):
  * AWS names that UnrecognizedClientException ("The X.509 certificate or AWS access key ID you
  * provided doesn't exist in our records", among Bedrock's common errors). A 403 is a caller it knows
  * but won't let through, AccessDeniedException. The others are InvokeModel's documented errors by

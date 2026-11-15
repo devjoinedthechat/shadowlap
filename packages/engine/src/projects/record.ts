@@ -40,7 +40,7 @@ const EXPANDS = /[A-Za-z0-9_@#!$*?{(-]/;
 const PATH_CHAR = /[\p{L}\p{N}._-]/u;
 
 const refuse = (error: string): ParsedCommand => ({ ok: false, error });
-const NO_SHELL = 'Shadowlap runs the command without a shell, so';
+const NO_SHELL = 'shadowlap runs the command without a shell, so';
 
 /**
  * Splits the agent's command into arguments as a terminal on macOS or Linux would, so the line it
@@ -140,7 +140,7 @@ export function parseAgentCommand(line: string): ParsedCommand {
   if (args[lead] === 'shadowlap' && args[lead + 1] === 'run' && args[lead + 2] === '--') args.splice(0, lead + 3);
   if (!args.length) return refuse('Give the command that starts your agent.');
   if (!args[0]) return refuse('The command starts with an empty argument: give the program that starts your agent first.');
-  if (args[0] === 'shadowlap' || (args[0] === 'npx' && args[1] === 'shadowlap')) return refuse('Give the command that starts your agent: Shadowlap runs it with shadowlap run.');
+  if (args[0] === 'shadowlap' || (args[0] === 'npx' && args[1] === 'shadowlap')) return refuse('Give the command that starts your agent: shadowlap runs it with shadowlap run.');
   // The step's command for a project on its own model server starts with the upstream; the dashboard sets that itself.
   const upstream = /^(SHADOWLAP_UPSTREAM_[A-Z0-9_]+)=/.exec(args[0]);
   if (upstream) return refuse(`Leave out ${upstream[1]!}=…: the dashboard records through the model server init finds in the project. To record through another one, use a terminal.`);
@@ -275,7 +275,7 @@ export function planRecording(
   if (!parsed.ok) return parsed;
   const server = options.modelServer ?? null;
   // Without the upstream, the calls meant for that server would go to the provider's API.
-  if (server && !server.upstream) return { ok: false, error: `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.` };
+  if (server && !server.upstream) return { ok: false, error: `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.` };
   const argv = parsed.argv;
   const env: Record<string, string> = server?.upstream ? { [UPSTREAM_ENV]: server.upstream } : {};
   const display = `${server?.upstream ? `${upstreamAssignment(server.upstream)} ` : ''}shadowlap run -- ${quoteArgv(argv)}`;
@@ -340,15 +340,15 @@ export function goldenPath(input: string, options: { folder?: string; runId?: st
       }
       // A link that leads nowhere yet could lead anywhere by the time pack runs.
       const real = realpathOrNull(here);
-      if (!real || !isWithin(real, root)) return { ok: false, error: `${segments.slice(0, i).join('/')} ${link && !real ? 'is a link to nowhere' : 'leads out of the project'}, so Shadowlap won’t pack there.` };
+      if (!real || !isWithin(real, root)) return { ok: false, error: `${segments.slice(0, i).join('/')} ${link && !real ? 'is a link to nowhere' : 'leads out of the project'}, so shadowlap won’t pack there.` };
     }
     const target = join(options.folder, ...segments);
     const there = realpathOrNull(target);
     if (there) {
-      if (!statSync(there).isDirectory()) return { ok: false, taken: true, error: `${clean} is a file, so Shadowlap won’t pack there.` };
+      if (!statSync(there).isDirectory()) return { ok: false, taken: true, error: `${clean} is a file, so shadowlap won’t pack there.` };
       const held = readPack(there);
       if (held) {
-        if (!options.runId || !held.includes(options.runId)) return { ok: false, taken: true, error: `${clean} already holds a golden. Give this one another name: Shadowlap never packs over a golden.` };
+        if (!options.runId || !held.includes(options.runId)) return { ok: false, taken: true, error: `${clean} already holds a golden. Give this one another name: shadowlap never packs over a golden.` };
       } else if (readdirSync(there).length) {
         return { ok: false, taken: true, error: `${clean} isn’t empty. Give the golden a folder of its own.` };
       }

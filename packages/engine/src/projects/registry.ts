@@ -15,7 +15,7 @@ import { readStoreFacts } from './store-reader.js';
 import { isObject } from '../is-object.js';
 
 /**
- * The projects opened in the dashboard on this machine: `projects.json` in Shadowlap's home folder
+ * The projects opened in the dashboard on this machine: `projects.json` in shadowlap's home folder
  * (`~/.shadowlap`, or `SHADOWLAP_HOME`). Each project is a folder with its own store in it, so the
  * list holds only what the folder doesn't: where the project is, how far its setup got, and the
  * commands confirmed for recording there. Removing a project takes it off the list and remembers
@@ -239,7 +239,7 @@ function toEntry(raw: unknown): ProjectEntry | null {
   };
 }
 
-const newerList = (file: string) => `${file} was written by a newer Shadowlap. Upgrade Shadowlap to change the project list.`;
+const newerList = (file: string) => `${file} was written by a newer shadowlap. Upgrade shadowlap to change the project list.`;
 
 /**
  * The name typed in the Remove dialog confirms deleting a project's recordings once it is the
@@ -382,7 +382,7 @@ export class ProjectRegistry {
 
   /**
    * Why the list can't be read or changed right now, or null when it can: it isn't valid JSON, or a
-   * newer Shadowlap wrote it. The dashboard shows it, as every change would fail with it.
+   * newer shadowlap wrote it. The dashboard shows it, as every change would fail with it.
    */
   problem(): string | null {
     try {
@@ -433,7 +433,7 @@ export class ProjectRegistry {
    * the home folder or a configured root, not hidden or a system folder ({@link checkFolder}). A
    * folder that was a project before comes back with its runs, and with its setup finished if it
    * was. One whose store already holds runs (made in a terminal) counts as set up, as it does when
-   * `shadowlap dashboard` starts there: Shadowlap is in use there, so its Overview shows its runs.
+   * `shadowlap dashboard` starts there: shadowlap is in use there, so its Overview shows its runs.
    */
   add(folder: string): AddedProject {
     const check = checkFolder(folder, { home: this.home, roots: this.configuredRoots(), requireProjectFiles: true });
@@ -444,7 +444,7 @@ export class ProjectRegistry {
   /**
    * The project for a folder the user chose outside the dashboard (`shadowlap dashboard` started
    * there): added if it isn't in the list yet, without the dashboard's limits on where it may be.
-   * Runs already in its store mean Shadowlap is in use there, so it counts as set up. `dbPath` is
+   * Runs already in its store mean shadowlap is in use there, so it counts as set up. `dbPath` is
    * the store `--db` named, when the dashboard reads another one than the folder's.
    */
   ensure(folder: string, options: { dbPath?: string } = {}): ProjectEntry {
@@ -751,7 +751,7 @@ export class ProjectRegistry {
     try {
       raw = JSON.parse(text);
     } catch {
-      throw new ProjectError('registry', `${this.file} isn’t valid JSON. Fix it, or move it away to start a new list; Shadowlap won’t overwrite it.`);
+      throw new ProjectError('registry', `${this.file} isn’t valid JSON. Fix it, or move it away to start a new list; shadowlap won’t overwrite it.`);
     }
     if (!isObject(raw)) throw new ProjectError('registry', `${this.file} isn’t a project list. Fix it, or move it away to start a new list.`);
     const projects: ProjectEntry[] = [];

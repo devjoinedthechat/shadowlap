@@ -169,7 +169,7 @@ export function register(program: Command): void {
     .option('--concurrency <n>', 'attempts running at once', parseIntArg, 1)
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long', parseIntArg)
-    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: block | warn | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option('--guard <mode>', 'network guard for connections that bypass shadowlap: block | warn | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', "run the recorded command of an imported run, or of a golden from a pack this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON (progress still goes to stderr)')

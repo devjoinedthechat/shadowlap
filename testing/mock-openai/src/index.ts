@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
  * (`previous_response_id`) or a conversation (`conversation`, made with `POST /v1/conversations`),
  * and one that names a response this server never made, or made with `store: false`, is refused as
  * OpenAI refuses it. And it answers embeddings, so an agent that mixes them can be recorded, and lists
- * its models as the Models API does. It knows nothing about Shadowlap.
+ * its models as the Models API does. It knows nothing about shadowlap.
  */
 
 export interface ToolCall {
@@ -287,5 +287,5 @@ export async function startMockOpenAI(opts: { script: Script; responses?: Respon
   };
 }
 
-// A scripted judge, for Shadowlap's judge checks (judge.ts).
+// A scripted judge, for shadowlap's judge checks (judge.ts).
 export { judgeQuestion, judgeTurn, withJudge, type JudgeDecision, type JudgeQuestion } from './judge.js';

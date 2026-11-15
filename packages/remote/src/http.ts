@@ -84,7 +84,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const throughProxy = new Map<string, FetchLike>();
 
-/** Node's fetch, or through the proxy the environment names for this URL: for any request Shadowlap makes to a service. */
+/** Node's fetch, or through the proxy the environment names for this URL: for any request shadowlap makes to a service. */
 export function envFetch(input: string, init: RequestInit): Promise<Response> {
   const proxy = proxyFor(input);
   if (!proxy) return fetch(input, init);

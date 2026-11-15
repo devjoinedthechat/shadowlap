@@ -42,7 +42,7 @@ export interface PreloadReport {
   missing: string | null;
   /** The processes that said they run with no guard, when the run has one (unguardedLine); else null. */
   unguarded: string | null;
-  /** The run failed for it: under `--guard block`, nothing stopped a connection that bypassed Shadowlap. */
+  /** The run failed for it: under `--guard block`, nothing stopped a connection that bypassed shadowlap. */
   failed: boolean;
   /**
    * With `failed`: the agent itself exited 0, so the run fails for the guard alone, and its summary
@@ -91,12 +91,12 @@ export function unguardedReport(hellos: Iterable<Hello>, guard: GuardMode, accep
   const accepted = accept.has(CLAUDE_CODE_RUNTIME);
   const paths = reached === null ? 'what it connects to itself, which its fence did not say (WebFetch, an MCP server over the network, its own traffic)' : listed(reached);
   const parts = [
-    ...(claudeOpen ? [`the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can't watch ${paths}${accepted ? ' (accepted by guard.accept)' : ''}`] : []),
+    ...(claudeOpen ? [`the Claude Code CLI the Claude Agent SDK runs, which loads no shadowlap preload, so the guard can't watch ${paths}${accepted ? ' (accepted by guard.accept)' : ''}`] : []),
     ...Object.entries(others).map(([runtime, n]) => `${n} ${runtime === 'node' ? 'Node' : runtime === 'python' ? 'Python' : runtime} process${n === 1 ? '' : 'es'} whose preload loaded with the guard off`),
   ];
   const what = parts.join('; and ');
   const failed = guard === 'block' && ((claudeOpen && !accepted) || Object.keys(others).length > 0);
-  if (!failed) return { line: `The network guard could not watch every process of the agent: ${what}. A connection one of them made that bypassed Shadowlap could have gone unseen.`, failed: false };
+  if (!failed) return { line: `The network guard could not watch every process of the agent: ${what}. A connection one of them made that bypassed shadowlap could have gone unseen.`, failed: false };
   // What to do: close what the CLI reaches, or accept the CLI alone; else the whole run under warn.
   const ways = [
     ...(claudeOpen && !accepted
@@ -196,8 +196,8 @@ export function shownCause(command: readonly string[]): string | null {
   if (words.some((w) => w === 'bun' || w === 'bunx')) return 'The command runs Bun, which loads no Node preload';
   if (words.includes('deno')) return 'The command runs Deno, which loads no Node preload';
   const skip = pythonSkips(argv);
-  if (skip === '-I') return 'The command runs Python with -I, which leaves out PYTHONPATH, where Shadowlap puts its sitecustomize';
-  if (skip === '-E') return 'The command runs Python with -E, which ignores PYTHONPATH, where Shadowlap puts its sitecustomize';
+  if (skip === '-I') return 'The command runs Python with -I, which leaves out PYTHONPATH, where shadowlap puts its sitecustomize';
+  if (skip === '-E') return 'The command runs Python with -E, which ignores PYTHONPATH, where shadowlap puts its sitecustomize';
   if (skip === '-S') return 'The command runs Python with -S, which skips the site module that loads sitecustomize';
   if (words.includes('opentelemetry-instrument')) return 'The command runs opentelemetry-instrument, whose own sitecustomize comes first on PYTHONPATH and loads no other';
   const env = words.indexOf('env');
@@ -216,10 +216,10 @@ const LIKELY =
 export function missingPreload(argv: readonly string[], calls: { api: number; tool: number }, guard: GuardMode): string {
   const made = [calls.api ? `${calls.api} model call${calls.api === 1 ? '' : 's'}` : '', calls.tool ? `${calls.tool} tool call${calls.tool === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
   const cause = shownCause(argv) ?? LIKELY;
-  const head = `No Shadowlap preload loaded in the agent's processes, though the run made ${made}`;
+  const head = `No shadowlap preload loaded in the agent's processes, though the run made ${made}`;
   return guard === 'block'
-    ? `${head}: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails. ${cause}. Run the agent on Node or Python with the environment shadowlap gives it, or with --guard warn (the GitHub Action's guard input) to accept a run the guard can't watch; shadowlap doctor says more.`
-    : `${head}: the network guard never watched it, so a connection that bypassed Shadowlap would have gone unseen, and in-process capture never ran. ${cause}. shadowlap doctor says more.`;
+    ? `${head}: under --guard block nothing stopped a connection that bypassed shadowlap, so the run fails. ${cause}. Run the agent on Node or Python with the environment shadowlap gives it, or with --guard warn (the GitHub Action's guard input) to accept a run the guard can't watch; shadowlap doctor says more.`
+    : `${head}: the network guard never watched it, so a connection that bypassed shadowlap would have gone unseen, and in-process capture never ran. ${cause}. shadowlap doctor says more.`;
 }
 
 // ------------------------------------------------------------------------------- SDK versions
@@ -245,5 +245,5 @@ export function sdkMismatch(header: string | undefined, own: string = SIDECAR_VE
   const mine = majorMinor(own);
   const install = sdk.family === 'python' ? `pip install 'shadowlap==${mine}.*'` : sdk.family === 'node' ? `npm install @shadowlap/sdk@${mine}` : null;
   const name = sdk.family === 'python' ? 'Python SDK' : sdk.family === 'node' ? 'Node SDK' : `${sdk.family} SDK`;
-  return `The agent's Shadowlap ${name} is ${sdk.version} and this CLI is ${own}: they work together at the same major.minor version. ${install ? `Install the SDK that matches the CLI (${install}), or the CLI that matches the SDK.` : 'Use the SDK and CLI of the same version.'}`;
+  return `The agent's shadowlap ${name} is ${sdk.version} and this CLI is ${own}: they work together at the same major.minor version. ${install ? `Install the SDK that matches the CLI (${install}), or the CLI that matches the SDK.` : 'Use the SDK and CLI of the same version.'}`;
 }

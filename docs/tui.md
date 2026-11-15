@@ -86,7 +86,7 @@ A run's timeline has one row per call:
 | Kind | `model`, `tool`, `clock`, `rand` |
 | Scope | Its scope, when the run uses [scopes](./sdk.md#scopes) |
 | What the call was | A model call is named by what it did |
-| Origin | `live`, `replayed`, `blocked`, `stubbed`, `overridden`, or `injected` for a failure Shadowlap answered with under [`--fail-at`](./interventions.md#inject-a-failure) |
+| Origin | `live`, `replayed`, `blocked`, `stubbed`, `overridden`, or `injected` for a failure shadowlap answered with under [`--fail-at`](./interventions.md#inject-a-failure) |
 | Outcome | How the call came out |
 | Model and tokens | A model call's (`opus-5 · 1.2k in, 40 out`), or a tool's arguments |
 
@@ -317,7 +317,7 @@ Each origin has a colour of its own, as on the dashboard's [origin strip](./dash
 | Live | Off-white on a dark background, else the terminal's own text colour |
 | Overridden | Violet |
 | Injected | A quieter violet |
-| Blocked | Grey: the word says Shadowlap fenced the write, where the dashboard draws a hatch |
+| Blocked | Grey: the word says shadowlap fenced the write, where the dashboard draws a hatch |
 | Stubbed | Steel blue |
 
 **Where you are** is drawn as the dashboard draws it:

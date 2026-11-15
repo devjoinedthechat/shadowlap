@@ -162,7 +162,7 @@ describe('installing', () => {
     write(cwd, SHARED_FILES[1], `${read(cwd, SHARED_FILES[1])}\nOur own line.\n`);
     const refused = installCodingAgent(cwd, 'agents', { shipped });
     expect(refused).toMatchObject({ before: 'changed', installedVersion: version, outcome: 'refused', files: [{ path: SHARED_FILES[1], action: 'differs' }] });
-    expect(refused.reason).toBe(`Shadowlap’s skills in .agents/skills aren’t ${version}’s copy (edited here, or from somewhere else): --force replaces them with ${version}’s`);
+    expect(refused.reason).toBe(`shadowlap’s skills in .agents/skills aren’t ${version}’s copy (edited here, or from somewhere else): --force replaces them with ${version}’s`);
     expect(installCodingAgent(cwd, 'agents', { shipped, replace: true })).toMatchObject({ outcome: 'updated', files: [{ path: SHARED_FILES[0], action: 'unchanged' }, { path: SHARED_FILES[1], action: 'replaced' }] });
     expect(read(cwd, '.agents/skills/house-style/SKILL.md')).toContain('name: house-style');
     // Kiro's folder takes the same skills.
@@ -185,7 +185,7 @@ describe('installing', () => {
         { path: SHARED_FILES[1], is: 'differs' },
       ],
     });
-    expect(installCodingAgent(cwd, 'agents', { shipped }).reason).toBe(`.agents/skills holds Shadowlap’s skills 0.0.9, not ${version}: --force replaces them with ${version}’s`);
+    expect(installCodingAgent(cwd, 'agents', { shipped }).reason).toBe(`.agents/skills holds shadowlap’s skills 0.0.9, not ${version}: --force replaces them with ${version}’s`);
     const updated = installCodingAgent(cwd, 'agents', { shipped, replace: true });
     expect(updated).toMatchObject({ before: 'other-version', installedVersion: '0.0.9', outcome: 'updated' });
     expect(updated.files).toEqual([

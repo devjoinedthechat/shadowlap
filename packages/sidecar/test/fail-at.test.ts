@@ -6,7 +6,7 @@ import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-t
 import { Sidecar } from '../src/index.js';
 
 /**
- * `--fail-at`: answering a model call with a failure Shadowlap produced. Error handling is the part
+ * `--fail-at`: answering a model call with a failure shadowlap produced. Error handling is the part
  * of an agent a replay exercises for free and the part no recording of a healthy run contains, so
  * this is the only way into it. The mock stays reachable throughout: nothing here should ever ask
  * it anything, which is the point.
@@ -57,7 +57,7 @@ describe('injected failures', () => {
 
     expect(error).toBeInstanceOf(APIError);
     expect((error as APIError).status).toBe(429);
-    // The message names Shadowlap, so it can never be mistaken for something the provider said.
+    // The message names shadowlap, so it can never be mistaken for something the provider said.
     expect(String((error as APIError).message)).toContain('shadowlap --fail-at');
     expect(calls[0].end?.meta.status).toBe(429);
     expect(calls[0].end?.meta.injected).toBe(true);

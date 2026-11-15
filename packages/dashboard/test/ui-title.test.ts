@@ -3,7 +3,7 @@ import { parseRoute } from '../ui/route.js';
 import { docTitle, onOpenRunAbout, openRunAbout, setOpenRunAbout, TAB_ABOUT_MAX } from '../ui/title.js';
 
 /**
- * Every tab read "Shadowlap", whatever it showed: ten tabs of the dashboard couldn't be told apart.
+ * Every tab read "shadowlap", whatever it showed: ten tabs of the dashboard couldn't be told apart.
  * Each route now names its page, as the design's docTitle() does: a run by its id, every other page
  * by what it is, then the product.
  */

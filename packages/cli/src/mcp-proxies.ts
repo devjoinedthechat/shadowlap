@@ -4,11 +4,11 @@ import { publish, safeHome, type SidecarTarget } from './agent-registry.js';
 
 /**
  * The `shadowlap mcp --listen` proxies running for this user, for the network guard of the agents
- * Shadowlap commands start. A proxy records the tool calls it carries, so a connection to one bypasses
+ * shadowlap commands start. A proxy records the tool calls it carries, so a connection to one bypasses
  * nothing; yet the guard lets an agent reach only what it is told, and `shadowlap test` blocks the
- * rest. So a proxy registers its address while it runs, as `<pid>.json` in Shadowlap's home folder's
+ * rest. So a proxy registers its address while it runs, as `<pid>.json` in shadowlap's home folder's
  * `mcp` (`~/.shadowlap/mcp`, or in SHADOWLAP_HOME), owner-only and under the folder's lock as an
- * agent's registration is (agent-registry.ts). Every agent a Shadowlap command starts is told the
+ * agent's registration is (agent-registry.ts). Every agent a shadowlap command starts is told the
  * folder (SHADOWLAP_MCP_REGISTRY), and its guard reads it when the agent connects
  * (guard/node-proxies.mjs, guard/_shadowlap_proxies.py), so a proxy started after the agent, by the
  * agent's own command say, counts too.
@@ -18,11 +18,11 @@ import { publish, safeHome, type SidecarTarget } from './agent-registry.js';
  * key (PROOF_PATH), or when nothing listens there, so the connection fails as it would. So one a killed
  * proxy left lets no connection reach anything, even after its process id is given to another process.
  * A proxy started on its own records each session into its client's run, so it lets every agent
- * through; one started under a Shadowlap command records into that command's run, so it lets only that
+ * through; one started under a shadowlap command records into that command's run, so it lets only that
  * run's agents through (`run`).
  */
 
-const FOLDER = 'mcp'; // in Shadowlap's home folder (safeHome): ~/.shadowlap, or SHADOWLAP_HOME
+const FOLDER = 'mcp'; // in shadowlap's home folder (safeHome): ~/.shadowlap, or SHADOWLAP_HOME
 
 /** Where a proxy answers a guard's challenge with proofOf, `?challenge=<hex>`. */
 export const PROOF_PATH = '/.well-known/shadowlap-proxy';
@@ -40,7 +40,7 @@ interface ProxyRegistration {
   run: string | null;
 }
 
-/** The folder this user's proxies register in: `mcp` in Shadowlap's home folder (safeHome: SHADOWLAP_HOME, else ~/.shadowlap), or null without one. */
+/** The folder this user's proxies register in: `mcp` in shadowlap's home folder (safeHome: SHADOWLAP_HOME, else ~/.shadowlap), or null without one. */
 export function proxyFolder(o: { home?: string | null } = {}): string | null {
   const home = o.home === undefined ? safeHome() : o.home;
   return home ? join(home, FOLDER) : null;

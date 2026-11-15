@@ -108,7 +108,7 @@ export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string
     idRule: '32 hex characters',
     holds: 'tool definitions, and a tool’s output where its instrumentation logged it',
     keys: '`PHOENIX_API_KEY`',
-    keyQuiet: 'where your Phoenix asks for one; nothing passes through Shadowlap',
+    keyQuiet: 'where your Phoenix asks for one; nothing passes through shadowlap',
   },
   logfire: {
     name: 'Logfire',
@@ -259,7 +259,7 @@ function traceWords(o: ImportWordsInput, source: TraceSource): { line: string | 
       ...(many ? [{ label: 'Imports', value: 'each trace a run of its own', quiet: 'newest first; one imported before is skipped' }] : []),
       { label: 'Holds', value: 'messages and model settings', quiet: copy.holds },
       ON_REPLAY,
-      { label: 'Key', value: `${names} on this machine`, quiet: copy.keyQuiet ?? 'nothing passes through Shadowlap' },
+      { label: 'Key', value: `${names} on this machine`, quiet: copy.keyQuiet ?? 'nothing passes through shadowlap' },
     ],
     command: `shadowlap import ${source}${many ? '' : ` ${o.id.trim() ? quoteArg(o.id.trim()) : '<trace-id>'}`}${flags}${host}${project}`,
   };

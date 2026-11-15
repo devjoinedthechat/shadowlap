@@ -1,7 +1,7 @@
 {
   "name": "@shadowlap/adapters",
   "version": "0.1.0",
-  "description": "Framework adapters for Shadowlap: declare tool effects once for the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain/LangGraph and the Anthropic tool runner, and fence the Claude Agent SDK's built-in tools.",
+  "description": "Framework adapters for shadowlap: declare tool effects once for the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain/LangGraph and the Anthropic tool runner, and fence the Claude Agent SDK's built-in tools.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

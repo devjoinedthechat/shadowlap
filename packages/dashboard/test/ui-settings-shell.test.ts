@@ -13,7 +13,7 @@ import { render, type Rendered } from './ui-render.js';
  * Settings as one shell: CI at `#/settings/ci`, with `#/settings/alerts` and `#/settings/plan` kept
  * as typed and opening CI and Project; the header naming the project; the tabs as links under one
  * hairline; a rule's scope in words; Project's facts as code under the line that says what
- * Shadowlap is here.
+ * shadowlap is here.
  */
 
 const g = globalThis as unknown as { location: unknown; history: unknown };
@@ -192,12 +192,12 @@ describe('a rule’s scope', () => {
 });
 
 describe('Settings → Project', () => {
-  it('names Shadowlap first, then the project’s facts with what is data as code, and every count of attempts', async () => {
+  it('names shadowlap first, then the project’s facts with what is data as code, and every count of attempts', async () => {
     addressBar('#/settings/project');
     r = await page('project');
     await r.until('Project', () => r!.all('.settab dl.kvs dt').length > 0);
     const dl = r.one('.settab dl.kvs');
-    expect(dl.querySelectorAll('dt').map((d) => d.textContent)).toEqual(['Shadowlap', 'Name', 'Store', 'Runs', 'Size', 'Dashboard']);
+    expect(dl.querySelectorAll('dt').map((d) => d.textContent)).toEqual(['shadowlap', 'Name', 'Store', 'Runs', 'Size', 'Dashboard']);
     const dd = dl.querySelectorAll('dd');
     expect(dd[0].textContent.replace(/\u00a0/g, ' ')).toBe('0.1.0 · open source, Apache-2.0 · no account, no limits on runs');
     expect(dd.slice(1, 3).map((d) => d.querySelector('code')?.textContent)).toEqual(['research-agent', '~/research-agent/.shadowlap/shadowlap.db']);
@@ -259,7 +259,7 @@ describe('Settings → Project', () => {
     }
   });
 
-  it('says what Shadowlap is here without a version when the dashboard has none', async () => {
+  it('says what shadowlap is here without a version when the dashboard has none', async () => {
     addressBar('#/settings/project');
     r = await page('project', app({ version: null }));
     await r.until('Project', () => r!.all('.settab dl.kvs dd').length > 0);

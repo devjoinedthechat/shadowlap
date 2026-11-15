@@ -1,7 +1,7 @@
 """A Strands agent on Strands' default model, as a user writes it: an Agent given no model, so it builds
 its BedrockModel, which calls Bedrock's ConverseStream through boto3, signed for
 bedrock-runtime.<AWS_REGION>.amazonaws.com with credentials from the environment. Nothing here names
-Shadowlap's address: under shadowlap run the calls are captured in the process. Tools are functions
+shadowlap's address: under shadowlap run the calls are captured in the process. Tools are functions
 wrapped by shadowlap.tool under Strands' @tool. QUERY is the user's request. Prints a JSON summary."""
 
 import json

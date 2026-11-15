@@ -60,7 +60,7 @@ export interface ToolsSettings {
   live: ToolRow[];
   /** Blocked or stubbed after a fork: write tools. */
   fenced: ToolRow[];
-  /** `tools.unrecorded`: each tool the agent runs without Shadowlap recording it, with what the file declares it does; a replay runs a read again and refuses a write. Absent from an older server. */
+  /** `tools.unrecorded`: each tool the agent runs without shadowlap recording it, with what the file declares it does; a replay runs a read again and refuses a write. Absent from an older server. */
   unrecorded?: Array<{ name: string; effect: 'read' | 'write' }>;
   http: HttpHostRow[];
   mcp: {

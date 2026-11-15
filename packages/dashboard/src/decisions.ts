@@ -159,7 +159,7 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
 
 /**
  * The models the project's goldens are recorded on that retire, by the table that ships with
- * Shadowlap: each with the goldens that use it, the soonest first. A golden not in the store yet
+ * shadowlap: each with the goldens that use it, the soonest first. A golden not in the store yet
  * (never tested here) can't be read, and is left out.
  */
 export function retirementsView(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], now = Date.now()): RetirementsView {

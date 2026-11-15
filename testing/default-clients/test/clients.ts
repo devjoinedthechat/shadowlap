@@ -13,7 +13,7 @@ import { providers } from '@shadowlap/sidecar';
 /**
  * What the tests here share: agents that build their model clients the default way, the providers
  * they call as mocks on this machine, each of which logs every request it gets with its headers, and
- * the environment of a CI job without secrets, in which the Shadowlap CLI runs them.
+ * the environment of a CI job without secrets, in which the shadowlap CLI runs them.
  */
 
 export const ROOT = fileURLToPath(new URL('../../../', import.meta.url));

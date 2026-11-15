@@ -2,7 +2,7 @@ import { PR_FOLDER } from './pr.js';
 import { PROVIDER_NAMES, type Provider, type StoreLocation } from './url.js';
 
 /**
- * `shadowlap store policy`: the access to ask the cloud admin for. Shadowlap has no accounts: who
+ * `shadowlap store policy`: the access to ask the cloud admin for. shadowlap has no accounts: who
  * can use the store is whoever the admin gives access to, so that access is the store's security.
  * There are two policies. People, and CI on protected branches, list, read, write and delete under
  * the store's folder. Pull requests' CI jobs run whatever the pull request says, so their own

@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 /**
  * A scripted fake of the Gemini API (Generative Language, v1beta): `models/{model}:generateContent`
  * and `:streamGenerateContent?alt=sse`, close enough to the wire format for `@google/genai`,
- * including function calls and `usageMetadata`. It knows nothing about Shadowlap.
+ * including function calls and `usageMetadata`. It knows nothing about shadowlap.
  */
 
 export interface FunctionCall {
@@ -142,5 +142,5 @@ export async function startMockGemini(opts: { script: Script }): Promise<MockSer
   };
 }
 
-// A scripted judge, for Shadowlap's judge checks (judge.ts).
+// A scripted judge, for shadowlap's judge checks (judge.ts).
 export { judgeQuestion, judgeTurn, withJudge, type JudgeDecision, type JudgeQuestion } from './judge.js';

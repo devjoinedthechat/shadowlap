@@ -62,7 +62,7 @@ describe('Google Cloud Storage, JSON API', () => {
       return new Response(JSON.stringify({ error: { message: 'No such object' } }), { status: 404 });
     };
     const elsewhere = openObjectStore(parseStoreUrl('gs://agent-runs/team?endpoint=https://storage.evil.example'), { env: { GOOGLE_OAUTH_ACCESS_TOKEN: 'ya29.user-token' }, fetch: spy, retryDelayMs: 1 });
-    await expect(elsewhere.get('x')).rejects.toMatchObject({ code: 'credentials', message: expect.stringMatching(/isn't Google's: Shadowlap doesn't send your Google sign-in there/) });
+    await expect(elsewhere.get('x')).rejects.toMatchObject({ code: 'credentials', message: expect.stringMatching(/isn't Google's: shadowlap doesn't send your Google sign-in there/) });
     expect(seen).toEqual([]);
     const emulator = openObjectStore(parseStoreUrl('gs://agent-runs/team'), { env: { STORAGE_EMULATOR_HOST: '127.0.0.1:4443', GOOGLE_OAUTH_ACCESS_TOKEN: 'ya29.user-token' }, fetch: spy, retryDelayMs: 1 });
     expect(await emulator.credentials()).toBe('no credentials (STORAGE_EMULATOR_HOST)');

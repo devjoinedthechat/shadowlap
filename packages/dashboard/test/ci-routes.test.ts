@@ -115,7 +115,7 @@ describe('Write file', () => {
     expect(readFileSync(file(), 'utf8')).toBe('name: mine\n');
     // A file with no action step can't be patched line by line: Copy only, saying why.
     const mine = await view();
-    expect(mine.problem).toBe('.github/workflows/agent.yml has no step that uses the Shadowlap action. Write file leaves it as it is: copy the workflow and change the file yourself.');
+    expect(mine.problem).toBe('.github/workflows/agent.yml has no step that uses the shadowlap action. Write file leaves it as it is: copy the workflow and change the file yourself.');
     expect((await send('PUT', 'ci/workflow', { options: {}, expect: mine.version, shown: mine.workflow.shown })).status).toBe(422);
     rmSync(file());
     const now = await view();

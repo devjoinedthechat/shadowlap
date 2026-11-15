@@ -1,5 +1,5 @@
-"""Every kind of async tool under Shadowlap, not only coroutine functions: an async generator function
-streams as it does outside Shadowlap and records every value it yields, an object with an async __call__
+"""Every kind of async tool under shadowlap, not only coroutine functions: an async generator function
+streams as it does outside shadowlap and records every value it yields, an object with an async __call__
 stays awaitable, and all of them run under trio and anyio as under asyncio. The sidecar is stubbed,
 except where the header the SDK sends is the point."""
 

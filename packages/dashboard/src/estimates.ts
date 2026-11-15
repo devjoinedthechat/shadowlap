@@ -147,7 +147,7 @@ function rowPrice(store: Store, key: string, run: RunRecord, call: CallRecord | 
   const o = { prices: job.prices };
   // Run error-path presets…: every preset at the first read of the recording it runs on, under its golden's gate.
   if (key === 'c') return presetsRowPrice(store, run, job.work ?? null);
-  // Repeat, and Replay with writes stubbed on a replay Shadowlap made: each attempt made again from the parent, live from where it forks.
+  // Repeat, and Replay with writes stubbed on a replay shadowlap made: each attempt made again from the parent, live from where it forks.
   if (key === 'e') return (p) => repeatEstimate(run, p.raw(run.runId), REPEAT_TIMES, o);
   if (key === 's') return forkArgs(run) === null ? null : (p) => repeatEstimate(run, p.raw(run.runId), 1, o);
   if (!call) return null;

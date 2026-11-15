@@ -295,7 +295,7 @@ function notRecordedWhy(nr: NonNullable<BannerInput['notRecorded']>): string {
   if (nr.tools.length) parts.push(`${nr.tools.length === 1 ? '1 tool wasn’t' : `${nr.tools.length} tools weren’t`} wrapped, so their calls aren’t in this recording: ${nr.tools.join(', ')}. A replay would run them for real.`);
   if (nr.hosts.length) {
     const hosts = nr.hosts.map((h) => `${h.target}${h.count !== null || h.action ? ` (${[h.count !== null ? `${num(h.count)}×` : '', h.action ?? ''].filter(Boolean).join(', ')})` : ''}`);
-    parts.push(`${nr.hosts.length === 1 ? '1 host was' : `${nr.hosts.length} hosts were`} reached without Shadowlap: ${hosts.join(', ')}. A replay would reach ${nr.hosts.length === 1 ? 'it' : 'them'} for real.`);
+    parts.push(`${nr.hosts.length === 1 ? '1 host was' : `${nr.hosts.length} hosts were`} reached without shadowlap: ${hosts.join(', ')}. A replay would reach ${nr.hosts.length === 1 ? 'it' : 'them'} for real.`);
   }
   return parts.join(' ');
 }
@@ -612,7 +612,7 @@ function forkedTest(i: Pick<BannerInput, 'type' | 'divergence' | 'outcome'>): bo
 
 /**
  * An error-path preset's attempt says which preset it played in where, in every attempt's grammar:
- * its run alone reads as a healthy fork, the failure being one Shadowlap injected. One that couldn't
+ * its run alone reads as a healthy fork, the failure being one shadowlap injected. One that couldn't
  * say says why at its end.
  */
 function presetBanner(i: BannerInput, p: PresetAttempt): Banner {

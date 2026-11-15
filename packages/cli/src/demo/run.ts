@@ -43,7 +43,7 @@ function keepFolder(raw: string): string {
 /** How the narration counts the orders. */
 const NUMBERS = ['no', 'one', 'two', 'three', 'four', 'five'];
 
-/** Variables of this machine's own setup that would reach the demo's commands and their agent: model keys and endpoints, Shadowlap's own. */
+/** Variables of this machine's own setup that would reach the demo's commands and their agent: model keys and endpoints, shadowlap's own. */
 const LEAKS = /^(ANTHROPIC_|OPENAI_|AZURE_OPENAI_|GEMINI_|GOOGLE_API_KEY$|GOOGLE_GEMINI_BASE_URL$|SHADOWLAP_UPSTREAM_|SHADOWLAP_URL$|SHADOWLAP_RUN_ID$|SHADOWLAP_SCOPE$|SHADOWLAP_EVENTS_FD$)/;
 
 /**
@@ -101,7 +101,7 @@ export async function runDemo(o: DemoOptions): Promise<number> {
   try {
     for (const [name, text] of Object.entries(demoFiles(model.url))) writeFileSync(join(dir, name), text);
     const git = (...args: string[]) => {
-      const r = spawnSync('git', ['-c', 'init.defaultBranch=main', '-c', 'user.name=Shadowlap demo', '-c', 'user.email=demo@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' });
+      const r = spawnSync('git', ['-c', 'init.defaultBranch=main', '-c', 'user.name=shadowlap demo', '-c', 'user.email=demo@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' });
       if (r.status !== 0) throw new CliError(EXIT.failed, `git ${args[0]!} failed in ${dir}: ${(r.stderr || r.error?.message || '').trim()}`);
     };
     git('init', '-q');
@@ -137,7 +137,7 @@ export async function runDemo(o: DemoOptions): Promise<number> {
       }
     };
 
-    say(`${p.bold('Shadowlap demo')}: a support agent refunds $240 orders its policy sends to a manager. Shadowlap records it, replays it for free, finds the model call that lost the run, and has a fix proposed and proven.\n`);
+    say(`${p.bold('shadowlap demo')}: a support agent refunds $240 orders its policy sends to a manager. shadowlap records it, replays it for free, finds the model call that lost the run, and has a fix proposed and proven.\n`);
     say(p.dim(`The model is scripted, not a real one: a small server on ${new URL(model.url).host} answers in Anthropic's Messages API (and the repairer in OpenAI's), so no key is needed and nothing leaves this machine.\n`));
     say(p.dim(`Working in ${whole(dir)}, a git repository ${o.keep ? 'it keeps' : `removed at the end (${whole('--keep <dir>')} keeps it)`}.\n`));
 

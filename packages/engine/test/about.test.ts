@@ -161,7 +161,7 @@ describe('the first thing a recording’s user asked, from the store', () => {
     const a1 = [toolUse('lookup_order', { order_id: 'A-1042' }, 'toolu_1')];
     b.model({ system: SYSTEM, messages: q }, a1, { scope: 'agent' });
     b.tool('lookup_order', { order_id: 'A-1042' }, { amount: 240 }, { scope: 'agent' });
-    // The judge's own calls are Shadowlap's, never the agent's.
+    // The judge's own calls are shadowlap's, never the agent's.
     b.model({ messages: [user('Did the agent escalate?')] }, [text('yes')], { scope: 'shadowlap:judge' });
     const runId = b.end();
     expect(runAsk(store, store.getCalls(runId), { conversations: true })).toEqual({ text: 'Hi, my order A-1042 arrived damaged', agent: true, batch: false });

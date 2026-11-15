@@ -11,7 +11,7 @@ import { startFakeMcpHttpServer, type FakeMcpHttpServer } from './fake-mcp-http-
 
 /**
  * A `shadowlap mcp --listen` started on its own, in a terminal beside the agent, finds the run each
- * session belongs to from the client's own process: the agent a Shadowlap command started, which is
+ * session belongs to from the client's own process: the agent a shadowlap command started, which is
  * registered by its process id. So the attempts of test, blame, verify, repair and replay --repeat,
  * which `run`'s active.json never named, record into their own runs, even several at once, and a
  * session no run is found for refuses writes instead of sending them live.
@@ -69,7 +69,7 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** An agent's MCP client, registered for `run` as a Shadowlap command registers the agents it starts (or not, with null), and what its call got. */
+/** An agent's MCP client, registered for `run` as a shadowlap command registers the agents it starts (or not, with null), and what its call got. */
 async function agent(runId: string | null): Promise<{ text: string; isError: boolean }> {
   const child: ChildProcess = spawn(process.execPath, [CLIENT, listener.url], { stdio: ['pipe', 'pipe', 'inherit'] });
   const registered = runId ? registerAgent(child.pid!, target(runId), { home, cwd: project }) : null;
@@ -117,9 +117,9 @@ describe('a standalone mcp --listen', () => {
   it('refuses the writes of a session no run is found for, as this could be a replay', async () => {
     const got = await agent(null);
     expect(got.isError).toBe(true);
-    expect(got.text).toBe("shadowlap: send_note was not sent. It is a write, and it can't be recorded: no Shadowlap run is active for it. A write is never sent unrecorded under Shadowlap, since this may be a replay.");
+    expect(got.text).toBe("shadowlap: send_note was not sent. It is a write, and it can't be recorded: no shadowlap run is active for it. A write is never sent unrecorded under shadowlap, since this may be a replay.");
     expect(server.calls).toHaveLength(1);
-    expect(said.at(-1)).toBe("a session started that can't be recorded (no Shadowlap run is active for it): write tools are refused, read tools pass through unrecorded");
+    expect(said.at(-1)).toBe("a session started that can't be recorded (no shadowlap run is active for it): write tools are refused, read tools pass through unrecorded");
   }, 60_000);
 
   it("falls back to the one run active for this user where the client's process can't be told", async () => {
@@ -132,7 +132,7 @@ describe('a standalone mcp --listen', () => {
       const one = registerAgent(a.pid!, target('run-a'), { home, cwd: project });
       expect(sessionRun(nowhere, project, () => {}, { home })).toMatchObject({ kind: 'sidecar', target: { runId: 'run-a' } });
       const two = registerAgent(b.pid!, target('run-b'), { home, cwd: project });
-      expect(sessionRun(nowhere, project, () => {}, { home })).toEqual({ kind: 'unusable', reason: "2 Shadowlap runs are active (run-a, run-b), and which one this session's client belongs to can't be told" });
+      expect(sessionRun(nowhere, project, () => {}, { home })).toEqual({ kind: 'unusable', reason: "2 shadowlap runs are active (run-a, run-b), and which one this session's client belongs to can't be told" });
       one.unregister();
       two.unregister();
     } finally {

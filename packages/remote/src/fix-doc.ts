@@ -40,7 +40,7 @@ export interface FixDoc {
   /**
    * Each check the fix has had, the first first, without the place each machine numbers it by
    * (historyOf). A document without them holds one: the fix's check, from when it was opened, by its
-   * opener. A Shadowlap from before they synced reads the document and drops them on its next push.
+   * opener. A shadowlap from before they synced reads the document and drops them on its next push.
    */
   checks?: FixCheckEntry[];
 }
@@ -338,8 +338,8 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
   } catch {
     throw new LayoutError(`${where} isn't JSON`);
   }
-  if (!isObject(raw) || raw.format !== FIX_FORMAT) throw new LayoutError(`${where} isn't a Shadowlap fix`);
-  if (raw.version !== FIX_VERSION) throw new LayoutError(`${where} is version ${String(raw.version)}; this Shadowlap reads version ${FIX_VERSION}. Update Shadowlap.`);
+  if (!isObject(raw) || raw.format !== FIX_FORMAT) throw new LayoutError(`${where} isn't a shadowlap fix`);
+  if (raw.version !== FIX_VERSION) throw new LayoutError(`${where} is version ${String(raw.version)}; this shadowlap reads version ${FIX_VERSION}. Update shadowlap.`);
   checkStrings(raw, where);
   const f = raw.fix;
   obj({
@@ -383,7 +383,7 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
   return {
     format: FIX_FORMAT,
     version: FIX_VERSION,
-    // A copy that says applied (an older Shadowlap sent it) is verified here.
+    // A copy that says applied (an older shadowlap sent it) is verified here.
     fix: sharedFix({ fixId: fix.fixId, title: fix.title, labels: [...fix.labels], check: fix.check, status: fix.status, openedAt: fix.openedAt, verifiedAt: fix.verifiedAt, appliedAt: fix.appliedAt, data: fix.data }),
     links,
     // Where a record came from is this machine's to say: a document never says it for it.

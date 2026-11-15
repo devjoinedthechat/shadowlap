@@ -502,7 +502,7 @@ export function chaosJunit(results: readonly ChaosRecordingResult[], o: { inconc
  */
 export function chaosMarkdown(r: ChaosReport): string {
   const cell = (s: string) => safeLine(s).replace(/\|/g, '\\|');
-  const lines = ['## Shadowlap error-path presets', '', `${r.passed} passed · ${r.failed} failed${r.inconclusive ? ` · ${r.inconclusive} inconclusive` : ''}${r.notApplicable ? ` · ${r.notApplicable} not applicable` : ''}`, '', '| Recording | Preset | Verdict | What came of it |', '|---|---|---|---|'];
+  const lines = ['## shadowlap error-path presets', '', `${r.passed} passed · ${r.failed} failed${r.inconclusive ? ` · ${r.inconclusive} inconclusive` : ''}${r.notApplicable ? ` · ${r.notApplicable} not applicable` : ''}`, '', '| Recording | Preset | Verdict | What came of it |', '|---|---|---|---|'];
   // A recording whose presets couldn't run has no verdict: the Verdict column keeps the four words.
   const apart: string[] = [];
   const rules = new Map<string, string[]>();

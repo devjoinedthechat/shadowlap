@@ -87,7 +87,7 @@ export interface CallFacts {
   spawnedBy: number | null;
   /**
    * The model call that starts a conversation of a top agent (not a sub-agent's, nor one of
-   * Shadowlap's own scopes): the first sentence of what it was asked, its first user message, for a
+   * shadowlap's own scopes): the first sentence of what it was asked, its first user message, for a
    * batch's item to show. Every such start carries it, batch or not, since a recording's page reads
    * each call once and its first ticket starts before the second says it is a batch. Null on every
    * other call, and on one whose request holds no user text.
@@ -393,7 +393,7 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
 
 const ownOf = (c: CallRecord | undefined) => (c ? ownAgent(c) : { agent: null, spawnedBy: null });
 
-/** A call of a top agent: none a sub-agent's (nested by name or started by a tool), none of Shadowlap's own scopes. */
+/** A call of a top agent: none a sub-agent's (nested by name or started by a tool), none of shadowlap's own scopes. */
 function topAgent(c: CallRecord | undefined, who: CallAgent): boolean {
   if (!c || who.spawnedBy !== null || isReservedScope(c.meta.scope)) return false;
   return !(who.agent ?? (typeof c.meta.scope === 'string' ? c.meta.scope : '')).includes('/');
@@ -486,7 +486,7 @@ function valueLineOf(store: StoreOf<'recording'>, c: CallRecord): string | null 
  * What a call row shows that is the call's own: its blobs, its fingerprint, a tool's result in a
  * line, whether it is a person's answer the agent read (`userInput()`, or stdin through the
  * preload), which Calls tags "input" and the fork menu answers differently, and whether it was made
- * in one of Shadowlap's own scopes (its judge's), whose questions are never a batch's items. A
+ * in one of shadowlap's own scopes (its judge's), whose questions are never a batch's items. A
  * judge's call says the check it answered and the verdict the run kept of it (`verdicts`).
  */
 export function ownFacts(store: StoreOf<'recording'>, c: CallRecord, verdicts?: JudgeVerdicts): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true; reserved?: true; judge?: JudgeRow } {
@@ -838,7 +838,7 @@ export interface RunProvenance {
   calls: { model: number; tool: number; other: number; scopes: number };
   /** Requests that reached a provider, and what the live ones cost. */
   upstream: { requests: number; spent: number };
-  /** Calls by origin; `injected` counts calls Shadowlap answered itself (`--fail-at`). */
+  /** Calls by origin; `injected` counts calls shadowlap answered itself (`--fail-at`). */
   origins: Record<string, number>;
   /** The run and the runs it came from, the recording first. */
   lineage: Array<{ runId: string; parentRunId: string | null; mode: RunRecord['mode']; label: string; codeVersion: string | null; startedAt: number }>;

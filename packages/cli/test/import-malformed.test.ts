@@ -74,12 +74,12 @@ describe('a malformed capture', () => {
     const runs = importLitellm(store, lines, { source: 'captures.jsonl' });
     expect(runs.map((r) => r.imported.length)).toEqual([1]);
     expect(runs[0].skipped).toEqual([
-      { url: 'line 2', reason: 'not a Shadowlap capture record' },
-      { url: 'line 3', reason: 'not a Shadowlap capture record' },
-      { url: 'http://127.0.0.1:4410/v1/messages', reason: "not a Shadowlap capture record: responseBody isn't text" },
-      { url: 'line 5', reason: "not a Shadowlap capture record: url isn't text" },
-      { url: 'http://127.0.0.1:4410/v1/messages', reason: "not a Shadowlap capture record: status isn't a number" },
-      { url: 'http://127.0.0.1:4410/v1/messages', reason: "not a Shadowlap capture record: runKey isn't text" },
+      { url: 'line 2', reason: 'not a shadowlap capture record' },
+      { url: 'line 3', reason: 'not a shadowlap capture record' },
+      { url: 'http://127.0.0.1:4410/v1/messages', reason: "not a shadowlap capture record: responseBody isn't text" },
+      { url: 'line 5', reason: "not a shadowlap capture record: url isn't text" },
+      { url: 'http://127.0.0.1:4410/v1/messages', reason: "not a shadowlap capture record: status isn't a number" },
+      { url: 'http://127.0.0.1:4410/v1/messages', reason: "not a shadowlap capture record: runKey isn't text" },
     ]);
     store.close();
   });

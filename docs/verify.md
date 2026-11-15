@@ -91,7 +91,7 @@ When the provider stays unavailable too many attempts in a row (3 within the fir
 
 A replay that forks nowhere settles its run in one attempt. Every call came from the recording, so every attempt would come out the same. That makes verifying a harness fix free, since fixes to parsing, dispatch or stop conditions change no request. It also makes the good runs a change doesn't touch free.
 
-A replay that made no model calls through Shadowlap, where the recording made some, is not one of them. The agent reached its model some other way, and what it did is unrecorded. The attempt fails and the report says why, because counting it would judge a run nobody saw.
+A replay that made no model calls through shadowlap, where the recording made some, is not one of them. The agent reached its model some other way, and what it did is unrecorded. The attempt fails and the report says why, because counting it would judge a run nobody saw.
 
 ### The change is tested as it will ship
 
@@ -103,7 +103,7 @@ The change can also be a request field instead of code: `--model` and `--set key
 
 A fix inside a tool needs `--live-tool <name>`. A tool call whose arguments didn't change is served from the recording, so without the flag the fixed code never runs. The report says so when it happens: *read_policy changed since the recording; pass --live-tool read_policy to run it live*.
 
-The warning reads the tool's own function. A change in code the tool calls, such as a helper or a constant in another file, changes no request and no function Shadowlap sees: every run replays clean, and the change is accepted with no warning. Name the tool with `--live-tool` whenever the change is in what a tool does or reads.
+The warning reads the tool's own function. A change in code the tool calls, such as a helper or a constant in another file, changes no request and no function shadowlap sees: every run replays clean, and the change is accepted with no warning. Name the tool with `--live-tool` whenever the change is in what a tool does or reads.
 
 ## Good runs against their own baseline
 
@@ -253,7 +253,7 @@ The report has these parts:
 
 A good run kept against its baseline shows both tallies and the bound on its drop (`0 of 7 passed, baseline 7 of 7 · drop >= 0.03 (95%)`).
 
-**Warnings.** What the evidence lacks: no held-out or good runs, a good run judged on its own for want of a baseline, a recording that contradicts its role, a tool that changed without `--live-tool`, a connection that bypassed Shadowlap. Also what the attempts got after the fork, below: a good run whose two arms got different answers, and a person's recorded answers served in order.
+**Warnings.** What the evidence lacks: no held-out or good runs, a good run judged on its own for want of a baseline, a recording that contradicts its role, a tool that changed without `--live-tool`, a connection that bypassed shadowlap. Also what the attempts got after the fork, below: a good run whose two arms got different answers, and a person's recorded answers served in order.
 
 **after the fork.** What answered the tool calls the attempts made from their forks on, the change's and the good runs' baselines' apart:
 

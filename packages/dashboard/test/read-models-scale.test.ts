@@ -131,7 +131,7 @@ const ms = (t: { cpu: number; wall: number }) => `${Math.round(t.cpu)} ms CPU, $
 
 /**
  * A measure of this machine, for the reads to be held against: the CPU time of one plain read of
- * every call's rows, through SQLite alone, none of Shadowlap's code in it.
+ * every call's rows, through SQLite alone, none of shadowlap's code in it.
  */
 function plainRead(): number {
   const db = new DatabaseSync(path, { readOnly: true });

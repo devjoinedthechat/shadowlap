@@ -45,7 +45,7 @@ describe('a failed call’s note', () => {
   });
 
   it('says Never sent. for --fail-at, with its flag and attempts, and Refused. for an offline replay', () => {
-    expect(note(INJECTED, '--fail-at 19=529').replace(/\u00a0/g, ' ')).toBe('<div class="inote inj"><b>Never sent.</b> Shadowlap answered with HTTP 529 (<code class="ts-code">--fail-at 19=529</code>), 3 attempts. This is the conversation the agent would have sent.</div>');
+    expect(note(INJECTED, '--fail-at 19=529').replace(/\u00a0/g, ' ')).toBe('<div class="inote inj"><b>Never sent.</b> shadowlap answered with HTTP 529 (<code class="ts-code">--fail-at 19=529</code>), 3 attempts. This is the conversation the agent would have sent.</div>');
     expect(text(note(REFUSED)).replace(/\u00a0/g, ' ')).toBe('Refused. The replay is offline and this request is not in the recording, so it got HTTP 503. This is what the agent sent.');
   });
 
@@ -74,7 +74,7 @@ describe('a tool call’s response, as the fork changed it', () => {
   it('says who wrote a failed model call’s HTTP answer', () => {
     const response = { kind: 'json', raw: '{"error":{"message":"Overloaded"}}' } as unknown as CallDetail['response'];
     expect(text(tab(LIVE, 'response', { response }))).toContain('HTTP 529 · from the provider');
-    expect(text(tab(INJECTED, 'response', { response }))).toContain('HTTP 529 · written by Shadowlap, nothing sent');
+    expect(text(tab(INJECTED, 'response', { response }))).toContain('HTTP 529 · written by shadowlap, nothing sent');
     expect(text(tab(REFUSED, 'response', { response }))).toContain('HTTP 503 · refused offline');
   });
 });
@@ -90,7 +90,7 @@ describe('a failed model call’s details', () => {
     expect(injected).toContain('<dt>Outcome</dt><dd>error · HTTP 529<small> by --fail-at, never sent</small></dd>');
     expect(injected).toContain('<dt>Input tokens</dt><dd>1,200 <small>in the request; nothing was sent</small></dd>');
     expect(injected).toContain('<dt>Cost</dt><dd>$0</dd>');
-    expect(injected).toMatch(/<small> answered by Shadowlap<\/small>/);
+    expect(injected).toMatch(/<small> answered by shadowlap<\/small>/);
     expect(tab(REFUSED, 'details')).toMatch(/<small> refused offline<\/small>[\s\S]*<dt>Cost<\/dt><dd>\$0<\/dd>[\s\S]*<small> refused by the replay<\/small>/);
   });
 
@@ -121,6 +121,6 @@ describe('a preset’s attempt, at the call its preset played in at', () => {
     expect(served).toContain('<dt>Origin</dt><dd>overridden <small>by the malformed JSON preset</small></dd>');
     expect(served).not.toContain('--override');
     // Any other call of the attempt keeps the inspector's own words.
-    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(4, 'tool timeout'))).replace(/\u00a0/g, ' ')).toContain('Shadowlap answered with HTTP 529');
+    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(4, 'tool timeout'))).replace(/\u00a0/g, ' ')).toContain('shadowlap answered with HTTP 529');
   });
 });

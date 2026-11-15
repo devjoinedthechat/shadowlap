@@ -309,7 +309,7 @@ export function unrepairedVerdict(rec: FixRecords): StoredVerdict | null {
 
 /**
  * What one yes may spend running a pulled record again. Its figures came from a teammate's machine,
- * or from anyone who can write the bucket, so they run at most what Shadowlap runs by itself, at
+ * or from anyone who can write the bucket, so they run at most what shadowlap runs by itself, at
  * most twice over: a gate up to twice its default max (blame's 20, verify's 80), a fixed count up to
  * 10 attempts (5 is the default), and blame probing at most its default 2 calls past the boundary
  * (rerun.ts). A record made here runs as it was kept.

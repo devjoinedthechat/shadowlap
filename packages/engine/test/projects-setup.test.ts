@@ -403,7 +403,7 @@ describe('calibrationOutcome', () => {
     expect(calibrationOutcome(already)).toMatchObject({ done: false, proposed: [{ path: '$.metadata.user_id' }] });
     expect(calibrationOutcome(already, { write: true })).toEqual({ done: true, added: [{ path: '$.metadata.user_id', why: null }], proposed: [], stopped: null });
     // Stopped short with --write: what it found is in the config, and the step isn't done.
-    expect(calibrationOutcome(result({ clean: false, normalizers: [uuid], stopped: { why: 'a change Shadowlap cannot tell apart from a real one' } }), { write: true })).toEqual({ done: false, added: [{ path: '$.metadata.user_id', why: null }], proposed: [], stopped: 'a change Shadowlap cannot tell apart from a real one' });
+    expect(calibrationOutcome(result({ clean: false, normalizers: [uuid], stopped: { why: 'a change shadowlap cannot tell apart from a real one' } }), { write: true })).toEqual({ done: false, added: [{ path: '$.metadata.user_id', why: null }], proposed: [], stopped: 'a change shadowlap cannot tell apart from a real one' });
   });
 });
 

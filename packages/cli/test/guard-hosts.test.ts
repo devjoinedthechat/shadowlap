@@ -9,7 +9,7 @@ import { guardEnv } from '../src/index.js';
 import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
- * What the network guard saw bypass Shadowlap is kept on the run, by host name: a Python agent
+ * What the network guard saw bypass shadowlap is kept on the run, by host name: a Python agent
  * connects to the address a name resolved to, and the guard remembers the name. The Python agents
  * here exit right after their last connection: the guard's reports reach the sidecar before they
  * are gone.

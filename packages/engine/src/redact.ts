@@ -157,7 +157,7 @@ function touches(segs: Segment[], place: Place): boolean {
 
 /**
  * The rules that apply to a call's request, and the observer that hears them by their places in
- * `rules`. A judge's request (scope `shadowlap:judge`) is Shadowlap's own: what it reads had the
+ * `rules`. A judge's request (scope `shadowlap:judge`) is shadowlap's own: what it reads had the
  * project's rules applied when it was made, path rules included, and a rule with a path names a
  * place in the agent's requests, never in the judge's (reachesJudgeRequest). Only the rules without
  * a path reach it, so a value it read before a rule was added is still masked.
@@ -870,7 +870,7 @@ export function redactArgv(argv: readonly string[], rules: readonly Normalizer[]
  * A run's own record with the rules without a path applied to what a person or a command line
  * wrote in it, outside its calls: the command line (as one text, redactArgv) and its folder,
  * labels, notes, outcome checks, the file or golden it came from, its author, what blame changed,
- * and the divergence report's values and words. Ids, times and Shadowlap's own words stay as they
+ * and the divergence report's values and words. Ids, times and shadowlap's own words stay as they
  * are.
  */
 export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord {

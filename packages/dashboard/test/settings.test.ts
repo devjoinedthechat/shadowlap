@@ -225,11 +225,11 @@ describe('redactionSettings', () => {
 
 describe('codingAgentsSettings', () => {
   const fileRow = (s: ReturnType<typeof codingAgentsSettings>, path = '.cursor/rules') => s.files.find((f) => f.path === path);
-  it('finds the agent files, whether each mentions Shadowlap, and the section to paste from docs/agents.md', () => {
+  it('finds the agent files, whether each mentions shadowlap, and the section to paste from docs/agents.md', () => {
     put('CLAUDE.md', '# Project\n\nUse shadowlap replay to check a fix.\n');
     put('AGENTS.md', '# Agents\n');
     put('.cursor/rules/general.mdc', 'Be brief.');
-    put('.cursor/rules/nested/debug.mdc', 'Record runs with Shadowlap.');
+    put('.cursor/rules/nested/debug.mdc', 'Record runs with shadowlap.');
     put('.agents/skills/house-style/SKILL.md', '---\nname: house-style\ndescription: Our style.\n---\n');
     const s = codingAgentsSettings({ cwd });
     expect(s.files).toEqual([
@@ -245,15 +245,15 @@ describe('codingAgentsSettings', () => {
     expect(s.section).toMatch(/shadowlap/i);
     expect(s.section).not.toContain('```');
     expect(codingAgentsSettings({ cwd }, { agentsDoc: null }).section).toBeNull();
-    // Shadowlap's own skills there mention it.
-    put('.agents/skills/shadowlap-debug-agent/SKILL.md', '---\nname: shadowlap-debug-agent\ndescription: Debug an AI agent whose runs Shadowlap records.\n---\n');
+    // shadowlap's own skills there mention it.
+    put('.agents/skills/shadowlap-debug-agent/SKILL.md', '---\nname: shadowlap-debug-agent\ndescription: Debug an AI agent whose runs shadowlap records.\n---\n');
     expect(fileRow(codingAgentsSettings({ cwd }), '.agents/skills')).toMatchObject({ found: true, type: 'folder', mentions: true });
   });
 
   it('does not look through a rules folder that links outside the project, and stops early in a huge one', () => {
     const elsewhere = mkdtempSync(join(tmpdir(), 'sl-elsewhere-'));
     try {
-      writeFileSync(join(elsewhere, 'notes.mdc'), 'Record runs with Shadowlap.');
+      writeFileSync(join(elsewhere, 'notes.mdc'), 'Record runs with shadowlap.');
       mkdirSync(join(cwd, '.cursor'), { recursive: true });
       symlinkSync(elsewhere, join(cwd, '.cursor', 'rules'));
       expect(fileRow(codingAgentsSettings({ cwd }))).toEqual({ path: '.cursor/rules', agents: 'Cursor', found: true, type: 'folder', mentions: false });

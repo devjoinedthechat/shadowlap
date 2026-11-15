@@ -223,7 +223,7 @@ describe('the scope the page suggests blaming within', () => {
     expect(scopeHint(scoped, realScopes(scoped), 'agent/summarizer')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
   });
 
-  it("gives Shadowlap's judge no agent's chip and no blame hint: its calls are out of All, under a chip of their own that shows the bar for them alone, and no fork starts at one", () => {
+  it("gives shadowlap's judge no agent's chip and no blame hint: its calls are out of All, under a chip of their own that shows the bar for them alone, and no fork starts at one", () => {
     const judge = { callNo: 9, scope: 'shadowlap:judge', agent: 'shadowlap:judge', kind: 'api' };
     // A judge call beside a scoped one: the chips, and the scopes blame is offered, are the agent's alone.
     const scoped = [{ callNo: 1, scope: 'agent', agent: 'agent', kind: 'api' }, { callNo: 2, scope: 'agent', agent: 'agent', kind: 'tool' }, judge];

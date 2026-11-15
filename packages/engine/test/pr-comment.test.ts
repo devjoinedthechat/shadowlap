@@ -108,7 +108,7 @@ describe('the pull request comment', () => {
   it('is the Markdown the Action posts: the table, then the decisions, the cost per run and the injection gates', () => {
     const results = [result({ golden: 'goldens/refund-over-limit', injection: gate() }), result({ golden: 'goldens/refund-flow', ok: false, verdict: 'failed', message: 'check failed: issue_refund called 0 times, but called 1 time' })];
     expect(commentMarkdown({ results, decisions: sample(), costPerRun: { before: 0.041, after: 0.043 } }).split('\n')).toEqual([
-      '### Shadowlap: 1 of 2 goldens passed · 1 failed',
+      '### shadowlap: 1 of 2 goldens passed · 1 failed',
       '',
       '| | Golden | Verdict |',
       '|---|---|---|',
@@ -135,7 +135,7 @@ describe('the pull request comment', () => {
     // With no flagged golden, the sentence alone; with no part kept, no Decisions; with no gate, no Injection.
     expect(commentMarkdown({ results, decisions: sample(false) })).toContain('#### Decisions\n\n✅ The same decisions at every step asked, under the prompt and tools this pull request sends\n\n#### Injection');
     const bare = commentMarkdown({ results: [result({})] });
-    expect(bare).toBe('### Shadowlap: 1 of 1 golden passed\n\n| | Golden | Verdict |\n|---|---|---|\n| ✅ | `goldens/x` | passed · replayed clean |\n');
+    expect(bare).toBe('### shadowlap: 1 of 1 golden passed\n\n| | Golden | Verdict |\n|---|---|---|\n| ✅ | `goldens/x` | passed · replayed clean |\n');
   });
 
   it("stays within GitHub's limit, dropping rows from the end, which are never failures", () => {

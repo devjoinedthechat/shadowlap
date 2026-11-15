@@ -27,7 +27,7 @@ describe('goldens', () => {
     expect(golden.run.runId).toBe(run.runId);
     expect(golden.calls.map((c) => `${c.callNo}:${c.kind}`)).toEqual(['1:api', '2:tool', '3:api', '4:tool', '5:api', '6:tool', '7:api']);
     expect(golden.lineage).toEqual([]);
-    expect(() => readGolden(root, 'nothing')).toThrow('is not a Shadowlap pack');
+    expect(() => readGolden(root, 'nothing')).toThrow('is not a shadowlap pack');
     store.close();
   });
 
