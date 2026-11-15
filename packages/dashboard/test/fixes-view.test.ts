@@ -209,7 +209,8 @@ describe('the step a fix leads with', () => {
       const { verdict } = recordVerdict(store, { report, expect: f.expect, command: `shadowlap verify --fixes label:${c.tool} --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null }, at: (at += DAY) });
       // What the fix's own Verify step offers for that verdict, and what its row leads with.
       const more = fixDetail(store, f.fixId)!.verify[0].more!;
-      const lead = { key: c.key, label: c.label, command: more.command, use: 'reads', verifyId: verdict.verifyId, max: 80, attempts: 5 };
+      // With the budget its ask keeps where the step keeps one (Stop at $).
+      const lead = { key: c.key, label: c.label, command: more.command, use: 'reads', verifyId: verdict.verifyId, max: 80, attempts: 5, keptBudget: more.keptBudget ?? null };
       expect(more.kind).toBe(c.key);
       expect(fixLead(recOf(f.fixId), actions({ repair }), { repairer: null })).toEqual(lead);
       expect(rowOf(f.fixId).next).toEqual(lead);
