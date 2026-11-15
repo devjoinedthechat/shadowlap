@@ -128,7 +128,7 @@ test('Recent runs folds at its caret, and the browser keeps it folded', async ({
   await expect(caret).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('#side #runs')).toBeHidden();
   await page.reload();
-  await page.waitForSelector('main#view .ov, main#view .ph', { state: 'visible' });
+  await page.waitForSelector('main#view .ovg', { state: 'visible' });
   await expect(page.locator('#side .skt')).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('#side #runs')).toBeHidden();
   await page.locator('#side .skt').click();

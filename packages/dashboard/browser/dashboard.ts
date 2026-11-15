@@ -127,7 +127,8 @@ export const sideways = (page: Page): Promise<number> => page.evaluate(() => doc
 
 /** The selector that says a page has drawn what it shows. */
 const DRAWN: Record<string, string> = {
-  overview: 'main#view .ov, main#view .ph',
+  // The Overview's grid once its week is worked out: its header shows while it loads, its facts and rows only then.
+  overview: 'main#view .ovg',
   runs: 'main#view table.rt tbody tr, main#view .runstable tbody tr, main#view table tbody tr',
   run: 'main#view .rhead .rnm',
   fix: 'main#view .stepper',
