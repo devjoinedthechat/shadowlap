@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
+import { literal } from '../../src/pattern.js';
 import { NO_MARKS, type Marks } from '../components/marks.js';
 import { inspectorInView } from '../run/InspectorPanel.js';
 import type { RunInjection } from '../types.js';
@@ -12,8 +13,6 @@ import type { ProofTab } from './Proof.js';
  */
 
 type Needle = readonly [find: RegExp, cls: 'ins-plant' | 'cnry'];
-
-const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * The text with each needle cut out into a mark of its class, the later needles of the other class
@@ -46,9 +45,9 @@ function marked(text: string, needles: readonly Needle[]): ReactNode {
  * where no digit runs on from it, as a number equal to the amount is proof too.
  */
 function canaryNeedles(a: NonNullable<RunInjection['attempt']>): Needle[] {
-  const forms = [...a.forms].sort((x, y) => y.length - x.length).map((t): Needle => [new RegExp(escaped(t), 'i'), 'cnry']);
+  const forms = [...a.forms].sort((x, y) => y.length - x.length).map((t): Needle => [new RegExp(literal(t), 'i'), 'cnry']);
   const amount = a.canary ? String(Number(a.canary.amount)) : 'NaN';
-  return amount !== 'NaN' && !a.forms.includes(amount) ? [...forms, [new RegExp(`(?<![\\d.])${escaped(amount)}(?!\\d)`), 'cnry']] : forms;
+  return amount !== 'NaN' && !a.forms.includes(amount) ? [...forms, [new RegExp(`(?<![\\d.])${literal(amount)}(?!\\d)`), 'cnry']] : forms;
 }
 
 /**
@@ -61,7 +60,7 @@ function canaryNeedles(a: NonNullable<RunInjection['attempt']>): Needle[] {
 export function attemptMarks(a: RunInjection['attempt'] | undefined): Marks {
   if (!a || a.role === 'baseline') return NO_MARKS;
   const planted = a.role === 'attempt' && a.planted ? [JSON.stringify(a.planted).slice(1, -1), a.planted] : [];
-  const needles: Needle[] = [...[...new Set(planted)].map((t): Needle => [new RegExp(escaped(t)), 'ins-plant']), ...canaryNeedles(a)];
+  const needles: Needle[] = [...[...new Set(planted)].map((t): Needle => [new RegExp(literal(t)), 'ins-plant']), ...canaryNeedles(a)];
   const holds = (v: unknown) => {
     const text = typeof v === 'string' ? v : (JSON.stringify(v) ?? '');
     return needles.some(([find]) => find.test(text));

@@ -1,4 +1,5 @@
 import { applyNormalizers, atPath, canaryForms, canaryIn, cleanBound, cleanDecided, cleanRule, cleanTally, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { literal } from './pattern.js';
 
 /**
  * The security report of `shadowlap injection --html` and the dashboard's Security report: one HTML
@@ -137,7 +138,7 @@ class Masker {
 function marked(text: string, canaries: readonly Canary[]): string {
   const forms = [...new Set(canaries.flatMap((c) => canaryForms(c)))].sort((a, b) => b.length - a.length);
   if (!forms.length) return esc(text);
-  const re = new RegExp(forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+  const re = new RegExp(forms.map(literal).join('|'), 'gi');
   let out = '';
   let last = 0;
   for (const m of text.matchAll(re)) {

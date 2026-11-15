@@ -2,6 +2,7 @@ import { andList, besidesLine, byHandNote, givenField, handOf, leftBehindOf, lef
 import { verifiedOutcome } from './decision-cells.js';
 import { strings } from './fields.js';
 import { applyInputOf, type AppliedState } from './migrate-applied.js';
+import { literal } from './pattern.js';
 import { goldenName } from './needs-look/row.js';
 import type { VerdictTone } from './verdict.js';
 
@@ -128,12 +129,10 @@ function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): Migra
   };
 }
 
-const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** A refused field's reason with each field What to set names, and any `=value` after it, as code. */
 function whyCoded(why: string, names: readonly string[]): string {
   if (!names.length) return why;
-  return why.replace(new RegExp(`(?<![\\w\`.-])(?:${names.map(escaped).join('|')})(?:=[^\\s.,;:)\`]+)?(?![\\w\`-])`, 'g'), tick);
+  return why.replace(new RegExp(`(?<![\\w\`.-])(?:${names.map(literal).join('|')})(?:=[^\\s.,;:)\`]+)?(?![\\w\`-])`, 'g'), tick);
 }
 
 function setOf(k: Kept, to: string): MigrateView['set'] {
