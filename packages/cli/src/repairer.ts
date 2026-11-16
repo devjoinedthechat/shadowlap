@@ -406,7 +406,7 @@ export function claudeCodeCost(report: ClaudeCodeSpend, served: string, usage: U
   if (total !== null) return total;
   const models = modelParts(report);
   const costs = models.map(([, m]) => amount(m.costUSD));
-  if (models.length && costs.every((c) => c !== null)) return costs.reduce<number>((n, c) => n + c!, 0);
+  if (models.length && costs.every((c) => c !== null)) return costs.reduce((n, c) => n + c, 0);
   const counted = models.length > 0 && models.every(([, m]) => amount(m.inputTokens) !== null && amount(m.outputTokens) !== null);
   const parts: (readonly [string, Usage])[] = counted
     ? models.map(([model, m]) => [model, { inputTokens: amount(m.inputTokens)!, outputTokens: amount(m.outputTokens)!, ...(amount(m.cacheReadInputTokens) ? { cacheReadInputTokens: amount(m.cacheReadInputTokens)! } : {}), ...(amount(m.cacheCreationInputTokens) ? { cacheCreationInputTokens: amount(m.cacheCreationInputTokens)! } : {}) }] as const)
