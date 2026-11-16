@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { estimateCost } from '@shadowlap/engine';
 import { repairerMost } from '../src/repair.js';
-import { askRepairer, CLAUDE_CODE_TURNS, claudeCodeArgs, REPAIRER_ANSWER_TOKENS } from '../src/repairer.js';
+import { askRepairer, CLAUDE_CODE_TURNS, claudeCodeArgs, claudeCodeCost, REPAIRER_ANSWER_TOKENS } from '../src/repairer.js';
 
 /**
  * A repair asks the repairer only when what is left of its budget covers the most asking it could
@@ -98,4 +98,61 @@ process.stdin.on('end', () => {
     expect(repairerMost({ provider: 'claude-code', model: '' }, prompt, prices)).toBeCloseTo(estimateCost('claude-opus-5-5', { inputTokens: 2 * promptTokens + REPAIRER_ANSWER_TOKENS, outputTokens: 2 * REPAIRER_ANSWER_TOKENS }, prices)!, 12);
     expect(repairerMost({ provider: 'claude-code', model: '' }, prompt, prices)!).toBeGreaterThan(2 * repairerMost({ provider: 'anthropic', model: 'claude-opus-5-5' }, prompt, prices)!);
   });
+});
+
+/**
+ * What a Claude Code session cost, when its report gives no total: each model's own cost, else its
+ * tokens at its own price, each turn priced as the call it is. Its tokens are summed over its turns,
+ * and each turn sends the prompt again, so the sum must not pick a long-prompt card no turn reached.
+ */
+describe('what a Claude Code session cost', () => {
+  // Haiku 5.5's two cards, given here so the sums below are the test's own.
+  const prices = {
+    'claude-haiku-5-5': { input: 0.1, output: 0.5, above: { tokens: 100_000, input: 0.5, output: 2.5 } },
+    'claude-opus-5-5': { input: 5, output: 25 },
+  };
+  const usage = { inputTokens: 120_000, outputTokens: 2_000 };
+  const short = (120_000 * 0.1 + 2_000 * 0.5) / 1e6;
+  const long = (120_000 * 0.5 + 2_000 * 2.5) / 1e6;
+
+  it("takes Claude Code's own total when it gives one, and else adds up the cost it gives each model", () => {
+    expect(claudeCodeCost({ total_cost_usd: 0.002, num_turns: 2, modelUsage: { 'claude-haiku-5-5': { ...usage, costUSD: 9 } } }, 'claude-haiku-5-5', usage, prices)).toBe(0.002);
+    expect(claudeCodeCost({ modelUsage: { 'claude-opus-5-5': { costUSD: 0.01 }, 'claude-haiku-5-5': { costUSD: 0.002 } } }, 'claude-opus-5-5', usage, prices)).toBeCloseTo(0.012, 12);
+  });
+
+  it('prices two turns of 60,000 tokens on the short card, and one of 120,000 on the long one', () => {
+    expect(claudeCodeCost({ num_turns: 2, modelUsage: { 'claude-haiku-5-5': usage } }, 'claude-haiku-5-5', usage, prices)).toBeCloseTo(short, 12);
+    expect(claudeCodeCost({ num_turns: 1, modelUsage: { 'claude-haiku-5-5': usage } }, 'claude-haiku-5-5', usage, prices)).toBeCloseTo(long, 12);
+    // A report that gives no model's tokens: the session's usage, at the model that served it.
+    expect(claudeCodeCost({ num_turns: 2, modelUsage: { 'claude-haiku-5-5': {} } }, 'claude-haiku-5-5', usage, prices)).toBeCloseTo(short, 12);
+    expect(claudeCodeCost({ num_turns: 'two', modelUsage: { 'claude-haiku-5-5': {} } }, 'claude-haiku-5-5', usage, prices)).toBeCloseTo(long, 12);
+  });
+
+  it('prices each model it used at its own price, and is null when one has no price', () => {
+    const each = { inputTokens: 1_000, outputTokens: 100 };
+    const both = { 'claude-opus-5-5': each, 'claude-haiku-5-5': each };
+    expect(claudeCodeCost({ num_turns: 2, modelUsage: both }, 'claude-opus-5-5', { inputTokens: 2_000, outputTokens: 200 }, prices)).toBeCloseTo((1_000 * 5 + 100 * 25 + 1_000 * 0.1 + 100 * 0.5) / 1e6, 12);
+    expect(claudeCodeCost({ modelUsage: { ...both, 'someone-elses-model': each } }, 'claude-opus-5-5', each, prices)).toBeNull();
+  });
+
+  it("is what a repair's answer costs when Claude Code gives no total", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-repairer-cost-'));
+    dirs.push(dir);
+    const claude = join(dir, 'claude');
+    // A stand-in for the user's Claude Code whose report leaves the total out.
+    writeFileSync(
+      claude,
+      `#!/usr/bin/env node
+process.stdin.resume();
+process.stdin.on('end', () => {
+  process.stdout.write(JSON.stringify({ type: 'result', is_error: false, structured_output: ${JSON.stringify(ANSWER)}, num_turns: 2, modelUsage: { 'claude-haiku-5-5': { inputTokens: 120000, outputTokens: 2000 } }, usage: { input_tokens: 120000, output_tokens: 2000 } }));
+});
+`,
+    );
+    chmodSync(claude, 0o755);
+    process.env.SHADOWLAP_CLAUDE = claude;
+    const answer = await askRepairer({ provider: 'claude-code', model: '' }, prompt, prices, { timeoutMs: 20_000 });
+    expect(answer.served).toBe('claude-haiku-5-5');
+    expect(answer.cost).toBeCloseTo(short, 12);
+  }, 60_000);
 });
