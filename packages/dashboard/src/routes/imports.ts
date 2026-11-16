@@ -241,12 +241,25 @@ function fileJob(format: unknown, req: JobRequest, upload: JobBuildContext['uplo
 const PACK_ARCHIVE = /\.tar$/i;
 
 /**
- * The name a pack's folder takes here: the folder picked (its archive's name less `.tar`) as a file
- * name can carry it (`safeFileName`: never `.` or `..`), else `pack`. `unpack` records the folder's
- * name as where its runs came from, so it reads as the folder picked, as a terminal's unpack of it would.
+ * A folder's name every system can make as it is: letters of any script, digits, spaces and plain
+ * punctuation, up to 100 characters, with no dot or space at either end (Windows drops them) and no
+ * name Windows keeps for a device (`CON`, `nul.txt`, `COM1`).
+ */
+const PLAIN_FOLDER = /^[\p{L}\p{N}_()[\]+,'&@#-](?:[\p{L}\p{M}\p{N} ._()[\]+,'&@#-]{0,98}[\p{L}\p{M}\p{N}_()[\]+,'&@#-])?$/u;
+const WINDOWS_DEVICE = /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i;
+
+/**
+ * The name a pack's folder takes here: the folder picked (its archive's name less `.tar`), kept as
+ * it is where every system can make it ("support refund (2)"), else as a file name can carry it
+ * (`safeFileName`: never `.` or `..`, else `pack`), a device's name led by `pack-`. `unpack`
+ * records the folder's name as where its runs came from, so it reads as the folder picked, as a
+ * terminal's unpack of it would.
  */
 export function packName(archive: string): string {
-  return safeFileName(archive.replace(PACK_ARCHIVE, ''), 'pack');
+  const picked = archive.replace(PACK_ARCHIVE, '').normalize('NFC');
+  if (PLAIN_FOLDER.test(picked) && !WINDOWS_DEVICE.test(picked)) return picked;
+  const safe = safeFileName(picked, 'pack');
+  return WINDOWS_DEVICE.test(safe) ? `pack-${safe}` : safe;
 }
 
 /**

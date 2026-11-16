@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PACK_LIMITS, Store, unpackRun } from '@shadowlap/engine';
 import { extractPack, PackArchiveError } from '../src/pack-archive.js';
+import { packName } from '../src/routes/imports.js';
 import { packArchive, pickedPack } from '../ui/runspage/pack-folder.js';
 import { folderFiles, writePack } from './pack-fixture.js';
 
@@ -160,5 +161,24 @@ describe('an archive no dialog writes', () => {
     await expect(extractPack(archive, into, 'support-refund')).rejects.toThrow(/EEXIST/);
     expect(readdirSync(folder).sort()).toEqual(['support-refund', 'support-refund.tar']);
     expect(readdirSync(into)).toEqual([]);
+  });
+});
+
+describe('the pack’s folder name', () => {
+  it('keeps the folder picked as it is where every system can make it, and makes a safe one of any other', () => {
+    for (const kept of ['support-refund', 'support refund (2)', 'Rückerstattung', 'golden_v2.1', 'A-1103 [replay]']) expect(packName(`${kept}.tar`), kept).toBe(kept);
+    // Written apart in the name a browser sends, the accent is one letter here, as the folder shows it.
+    expect(packName('Rückerstattung.tar')).toBe('Rückerstattung');
+    for (const [sent, safe] of [
+      ['..tar', 'pack'],
+      ['.hidden.tar', 'hidden'],
+      ['trailing..tar', 'trailing'],
+      [' spaced .tar', 'spaced'],
+      ['CON.tar', 'pack-CON'],
+      ['nul.txt.tar', 'pack-nul.txt'],
+      ['a:b*c?.tar', 'a_b_c'],
+      ['line\nbreak.tar', 'line_break'],
+      [`${'x'.repeat(101)}.tar`, 'x'.repeat(100)],
+    ] as const) expect(packName(sent), sent).toBe(safe);
   });
 });

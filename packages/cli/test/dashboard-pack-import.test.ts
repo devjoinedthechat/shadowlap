@@ -61,21 +61,22 @@ async function finished(j: JobView): Promise<JobView & { result?: unknown }> {
 
 describe('Import capture… → Pack', () => {
   it('imports a pack’s folder through shadowlap unpack, its runs from the folder picked, and leaves no upload behind', async () => {
-    const { dir, runIds } = writePack('support-refund', packs);
-    const uploadId = await send(dir, 'support-refund.tar');
+    // A folder's name as people give one, its space and brackets kept: one argument, and the runs' source.
+    const { dir, runIds } = writePack('support refund (2)', packs);
+    const uploadId = await send(dir, 'support refund (2).tar');
     const res = await api('jobs', { method: 'POST', body: JSON.stringify({ kind: 'import', format: 'pack', uploadId }) });
     expect(res.status, await res.clone().text()).toBe(202);
     const job = await finished((await res.json()) as JobView);
-    expect(job, job.lines.join('\n')).toMatchObject({ code: 0, title: 'Importing pack', args: ['unpack', `.shadowlap/uploads/${uploadId}/support-refund`], newRunId: runIds[1] });
+    expect(job, job.lines.join('\n')).toMatchObject({ code: 0, title: 'Importing pack', args: ['unpack', `.shadowlap/uploads/${uploadId}/support refund (2)`], newRunId: runIds[1] });
     expect(job.result).toEqual({ imported: runIds, skipped: [], mismatched: [] });
     expect(job.links).toEqual(runIds.map((id) => ({ label: `Open ${id.slice(0, 10)}`, href: `#/run/${id}` })));
-    for (const id of runIds) expect(store.getRun(id)!.meta?.imported?.from).toBe('support-refund');
+    for (const id of runIds) expect(store.getRun(id)!.meta?.imported?.from).toBe('support refund (2)');
     // The upload and the folder it was unpacked into go with the job.
     for (let i = 0; i < 100 && existsSync(join(project, '.shadowlap', 'uploads', uploadId)); i++) await new Promise((r) => setTimeout(r, 20));
     expect(readdirSync(join(project, '.shadowlap', 'uploads'))).toEqual([]);
 
     // Sent again, it brings nothing: the store holds both runs already.
-    const again = await api('jobs', { method: 'POST', body: JSON.stringify({ kind: 'import', format: 'pack', uploadId: await send(dir, 'support-refund.tar') }) });
+    const again = await api('jobs', { method: 'POST', body: JSON.stringify({ kind: 'import', format: 'pack', uploadId: await send(dir, 'support refund (2).tar') }) });
     expect((await finished((await again.json()) as JobView)).result).toEqual({ imported: [], skipped: runIds, mismatched: [] });
   }, 60_000);
 

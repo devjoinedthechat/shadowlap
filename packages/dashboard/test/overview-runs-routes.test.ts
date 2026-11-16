@@ -604,7 +604,7 @@ describe('importing a pack', () => {
     const res = await post(dash, 'jobs', { kind: 'import', format: 'pack', uploadId });
     expect(res.status, await res.clone().text()).toBe(202);
     const job = (await res.json()) as JobView;
-    expect(job).toMatchObject({ title: 'Importing pack', args: ['unpack', `.shadowlap/uploads/${uploadId}/support_refund`], opensRun: true });
+    expect(job).toMatchObject({ title: 'Importing pack', args: ['unpack', `.shadowlap/uploads/${uploadId}/support refund`], opensRun: true });
     // Until the job ends, the pack is there for unpack to read; then it goes with the upload.
     for (let i = 0; i < 200 && existsSync(join(uploads(), uploadId)); i++) await new Promise((r) => setTimeout(r, 10));
     expect(existsSync(join(uploads(), uploadId))).toBe(false);
