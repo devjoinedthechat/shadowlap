@@ -79,6 +79,8 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
     fixes: keptFixes(kept?.fixes ?? []),
     reasons: r.reasons,
     warnings: [...r.warnings, ...r.replayWarnings],
+    // The change made no difference to any request, as one of `warnings` says: the tool calls whose code never ran. Null otherwise.
+    noDifference: r.noDifference ?? null,
     codeVersion: r.codeVersion,
     oracle: r.oracle,
     attemptsPerRun: r.attemptsPerRun,

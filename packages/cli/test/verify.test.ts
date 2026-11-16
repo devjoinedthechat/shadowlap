@@ -252,6 +252,67 @@ describe('shadowlap verify', () => {
     }
   });
 
+  it('warns when the change made no difference to any request, as a change in a constant a tool reads does, until --live-tool runs the tool', async () => {
+    // The verdict study's case: the policy tool returns a constant from a second module, which no
+    // request and no tool function holds, so changing it changes nothing a replay compares.
+    const folder = tempProject('sl-verify-shop-');
+    const agent = join(folder, 'agent.mjs');
+    const policy = (text: string) => writeFileSync(join(folder, 'shop.mjs'), `export const POLICY = ${JSON.stringify(text)};\n`);
+    policy('Refunds above $100 need a manager: escalate them. Never refund them yourself.');
+    writeFileSync(
+      agent,
+      readFileSync(AGENT, 'utf8')
+        .replace("import { scope, tool } from '@shadowlap/sdk';", "import { scope, tool } from '@shadowlap/sdk';\nimport { POLICY } from './shop.mjs';")
+        .replace("async () => ({ text: 'Refunds above $100 need a manager: escalate them.' })", 'async () => ({ text: POLICY })'),
+    );
+    const WARNING = 'the change made no difference to any request in 1 run: 3 tool calls (lookup_order, read_policy, escalate) were served from the recording, so the code they run never ran under the change; if the change is in a tool or in what one reads, verify again with --live-tool <name>';
+    try {
+      // A good run: the policy says never to refund, so the model escalates the $240 refund.
+      const r0 = await shadowlap(['run', '--', process.execPath, agent]);
+      expect(r0.code, r0.out).toBe(0);
+      const good = /recording run (\w{26})/.exec(r0.out)![1];
+      // The regression: the policy no longer says so. Only the constant changes.
+      policy('Refunds above $100 need a manager: escalate them.');
+
+      const replayed = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE]);
+      // A warning, not a verdict: the clean replay keeps the run, and the change is accepted as before.
+      expect(replayed.code, replayed.out).toBe(0);
+      expect(replayed.stdout).toContain('✓ Accepted: the change keeps 1 of 1 good run');
+      expect(replayed.stdout).toMatch(/good +\w{10} +kept +clean replay/);
+      expect(replayed.stdout).toContain(`  ! ${WARNING}`);
+      // The tool's own function is the same, so the warning of a changed tool has nothing to say.
+      expect(replayed.stdout).not.toContain('changed since the recording');
+
+      const json = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, '--json']);
+      expect(json.code, json.out).toBe(0);
+      const report = JSON.parse(json.stdout) as Json & { noDifference: unknown };
+      expect(report.verdict).toBe('accepted');
+      expect(report.warnings).toContain(WARNING);
+      expect(report.noDifference).toEqual({ runs: 1, toolCalls: 3, tools: [{ name: 'lookup_order', calls: 1 }, { name: 'read_policy', calls: 1 }, { name: 'escalate', calls: 1 }] });
+      expect(report.runs[0].runs[0]).toMatchObject({ forkedAt: null, servedTools: { lookup_order: 1, read_policy: 1, escalate: 1 } });
+
+      // Run live, the tool returns the changed policy, the model refunds, and the good run breaks.
+      const live = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, '--live-tool', 'read_policy', '--attempts', '2', '--json']);
+      expect(live.code, live.out).toBe(1);
+      const liveReport = JSON.parse(live.stdout) as Json & { noDifference: unknown };
+      expect(liveReport.verdict).toBe('rejected');
+      expect(liveReport.runs[0]).toMatchObject({ outcome: 'broken', deterministic: false });
+      expect(liveReport.noDifference).toBeNull();
+      expect(liveReport.warnings.filter((w) => w.includes('no difference'))).toEqual([]);
+
+      // A change to the prompt changes every request: the run forks, runs live, and there is nothing to warn of.
+      writeFileSync(agent, readFileSync(agent, 'utf8').replace("'You are a support agent. Follow the refund policy.'", `'${GOOD_FIX}'`));
+      const prompt = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, '--attempts', '2', '--json']);
+      expect(prompt.code, prompt.out).toBe(0);
+      const promptReport = JSON.parse(prompt.stdout) as Json & { noDifference: unknown };
+      expect(promptReport.runs[0]).toMatchObject({ outcome: 'kept', deterministic: false });
+      expect(promptReport.noDifference).toBeNull();
+      expect(promptReport.warnings.filter((w) => w.includes('no difference'))).toEqual([]);
+    } finally {
+      removeTempProject(folder);
+    }
+  });
+
   it('never takes a replay that went around shadowlap for a clean one', async () => {
     const { good } = await runs();
     // The client fixes its base URL, and nothing tells shadowlap that host is a model server: the

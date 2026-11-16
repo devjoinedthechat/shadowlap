@@ -33,4 +33,4 @@ node testing/verdict-study/report.mjs ~/verdict-study/results.json
 
 - **One subject, one model.** The rates hold for this agent on the model named in the results. Another agent's runs are noisier or steadier, and its verdicts take more attempts or fewer.
 - **A measurement of 20 runs can't tell a small drop from none.** A change whose measured drop falls between 5 and 30 points is left unscored.
-- **A change inside a tool** is seen only with `--live-tool`, so the corpus asks about that one both ways. Its change is in a constant the tool reads, which verify does not warn about ([a fix inside a tool](../../docs/verify.md#a-fix-inside-a-tool)).
+- **A change inside a tool** is seen only with `--live-tool`, so the corpus asks about that one both ways. Its change is in a constant the tool reads: without the flag every run replays clean, and verify warns that the change made no difference to any request ([a fix inside a tool](../../docs/verify.md#a-fix-inside-a-tool)).
