@@ -6,7 +6,7 @@ What each part needs:
 
 | You run | It needs |
 |---|---|
-| The CLI | Node 22.16 or later, not 23 |
+| The CLI | Node 22.17 or later, not 23 |
 | An agent on Node | Node 18.18 or later |
 | The Python SDK | Python 3.9 or later, only if you use it |
 
@@ -188,7 +188,7 @@ With npm and pip, the packages are:
 # Node 18.18+
 npm install @shadowlap/sdk         # wrap tools
 npm install @shadowlap/adapters    # wrap them in your framework
-# Node 22.16+, not 23
+# Node 22.17+, not 23
 npm install -D @shadowlap/test     # record tests in Vitest, Jest or node:test
 # Python 3.9+
 pip install shadowlap              # all three in one package

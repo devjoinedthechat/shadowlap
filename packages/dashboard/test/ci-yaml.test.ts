@@ -28,7 +28,7 @@ describe('the version the steps pin', () => {
   });
 });
 
-/** What every step needs before the action in a job of its own: Node 22.16 or later, and the agent's dependencies. */
+/** What every step needs before the action in a job of its own: Node 22.17 or later, and the agent's dependencies. */
 const SETUP = ['- uses: actions/setup-node@v7', '  with:', '    node-version: 22', '- run: npm ci && npm run build   # whatever your agent needs to run'];
 /** Fix on failure's checkout: a pull request's own branch, which its pull request goes into, from this repository alone; the job's token left off the disk. */
 const BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}', '    persist-credentials: false'];
@@ -73,7 +73,7 @@ describe('the Fix on failure step', () => {
       ['the trigger they start from, under the workflow’s on:', 'workflow_dispatch:'],
       // As handed over, in a job of its own: a branch to open the fix against, and the Node the action needs.
       ['the branch checked out, for the fix to go into', 'ref: head_ref'],
-      ['Node 22.16 or later on the runner, not 23', 'node-version: 22'],
+      ['Node 22.17 or later on the runner, not 23', 'node-version: 22'],
     ]);
     expect(fixOnFailureNever('1.00').map((x) => x[1])).toEqual(['divergence', 'rejected', '$1.00', 'merge']);
   });
@@ -300,7 +300,7 @@ describe('the Alerts steps', () => {
       ['the test step’s outputs, by its id', 'id: goldens'],
       ['2 goldens run live (fork)', 'ANTHROPIC_API_KEY'],
       ['permission to keep the action’s comment on a pull request', 'pull-requests: write'],
-      ['Node 22.16 or later on the runner, not 23', 'node-version: 22'],
+      ['Node 22.17 or later on the runner, not 23', 'node-version: 22'],
     ]);
     expect(alertsNeeds('X', { count: 1, why: ['fork', 'injection gate'], keys: ['OPENAI_API_KEY', 'GEMINI_API_KEY'], unknown: 0 })[3]).toEqual(['1 golden runs live (fork, injection gate)', 'OPENAI_API_KEY, GEMINI_API_KEY']);
     expect(alertsNeeds('X').map((r) => r[1])).toEqual(['Slack app', 'X', 'id: goldens', 'pull-requests: write', 'node-version: 22']);

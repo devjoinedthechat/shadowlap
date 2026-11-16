@@ -71,11 +71,11 @@ class ConsoleScript(unittest.TestCase):
         out = run(["ls"], self.dir)
         self.assertEqual(out.returncode, 2)
         self.assertIn("there is no node on PATH", out.stderr)
-        self.assertIn("Install Node.js 22.16 or later (not 23)", out.stderr)
+        self.assertIn("Install Node.js 22.17 or later (not 23)", out.stderr)
         self.assertIn(shadowlap.__version__, out.stderr)
 
     def test_a_node_too_old_or_23_is_named(self):
-        for version in ("v20.11.1", "v22.12.0", "v23.9.0"):
+        for version in ("v20.11.1", "v22.12.0", "v22.16.0", "v23.9.0"):
             with self.subTest(version=version):
                 self.fake_node(version)
                 self.fake_npx()
@@ -84,10 +84,12 @@ class ConsoleScript(unittest.TestCase):
                 self.assertIn("is %s" % version[1:], out.stderr)
                 self.assertFalse(os.path.exists(self.log), "nothing was run")
 
-    def test_node_24_and_later_run_it(self):
-        self.fake_node("v24.3.0")
-        self.fake_npx()
-        self.assertEqual(run(["--version"], self.dir).returncode, 0)
+    def test_node_22_17_and_24_and_later_run_it(self):
+        for version in ("v22.17.0", "v24.3.0"):
+            with self.subTest(version=version):
+                self.fake_node(version)
+                self.fake_npx()
+                self.assertEqual(run(["--version"], self.dir).returncode, 0)
 
     def test_an_npm_install_of_the_same_version_on_path_runs_without_npx(self):
         self.fake_node()

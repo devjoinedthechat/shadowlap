@@ -40,8 +40,12 @@ export interface DoctorOptions {
   sqlite?: () => string | null;
 }
 
-/** The first Node 22 whose built-in SQLite has full-text search (FTS5), which every store uses; Node 24 and later have it too, Node 23 never. */
-const MIN_NODE = [22, 16] as const;
+/**
+ * The first Node 22 shadowlap runs on. Node's built-in SQLite has the full-text search (FTS5) every
+ * store uses from 22.16 on, and in 24 and later, never in 23; 22.16 itself crashes `shadowlap ui`
+ * when its terminal closes.
+ */
+const MIN_NODE = [22, 17] as const;
 
 /** Why this Node's built-in SQLite can't hold a store, or null: no `node:sqlite`, or no full-text search in it. */
 function defaultSqlite(): string | null {
@@ -130,7 +134,7 @@ export function runDoctor(options: DoctorOptions): Check[] {
   const [maj, min] = parseVersion(nodeVersion);
   const nodeOk = (maj === MIN_NODE[0] && min >= MIN_NODE[1]) || maj >= 24;
   const needs = `Node ${MIN_NODE.join('.')} or later (not 23)`;
-  push('node', nodeOk ? 'ok' : 'fail', `${nodeVersion} (shadowlap ${options.version})`, nodeOk ? undefined : `shadowlap needs ${needs}, whose built-in SQLite has full-text search; install a current Node LTS.`);
+  push('node', nodeOk ? 'ok' : 'fail', `${nodeVersion} (shadowlap ${options.version})`, nodeOk ? undefined : `shadowlap needs Node ${MIN_NODE.join('.')} or later (not 23, whose built-in SQLite has no full-text search); install a current Node LTS.`);
   const sqliteWhy = (options.sqlite ?? defaultSqlite)();
   const sqliteOk = sqliteWhy === null;
   // A Node in range whose SQLite has no full-text search (or none at all) is a build without it,

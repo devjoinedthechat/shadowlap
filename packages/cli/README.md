@@ -10,7 +10,7 @@ shadowlap records your agent's model calls and the tools you wrap, then replays 
 
 See the whole loop first, with no key and nothing to clone: `npx shadowlap demo` records a refund agent breaking its policy, replays it with 0 upstream requests, finds the model call that lost the run, and has a fix proposed, proven and applied, against a scripted model on 127.0.0.1.
 
-Then install the CLI (Node 22.16 or later, not 23), and let it read your project:
+Then install the CLI (Node 22.17 or later, not 23), and let it read your project:
 
 ```sh
 npm install -g shadowlap
@@ -25,7 +25,7 @@ shadowlap init
 npm install @shadowlap/sdk
 # wrap them in your framework (Node 18.18+)
 npm install @shadowlap/adapters
-# record tests in Vitest, Jest or node:test (Node 22.16+, not 23)
+# record tests in Vitest, Jest or node:test (Node 22.17+, not 23)
 npm install -D @shadowlap/test
 # Python 3.9+: all three in one package
 pip install shadowlap

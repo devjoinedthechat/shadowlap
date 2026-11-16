@@ -2,7 +2,7 @@
 name: debug-agent
 description: Debug an AI agent whose runs shadowlap records, and check every change to it against what it actually did (the shadowlap CLI; shadowlap.config.json or a .shadowlap folder in the project). Use it whenever you change the agent's prompt, tools, model or code, before calling the change done, and to find a failing run, read where it went wrong, find the model call or the commit that lost it, switch the agent to another model, and verify a fix.
 license: Apache-2.0
-compatibility: Needs the shadowlap CLI on the PATH (Node.js 22.16 or later, not 23), run in the agent's project.
+compatibility: Needs the shadowlap CLI on the PATH (Node.js 22.17 or later, not 23), run in the agent's project.
 allowed-tools: Bash(shadowlap ls *) Bash(shadowlap show *) Bash(shadowlap search *) Bash(shadowlap diff *) Bash(shadowlap fix ls *) Bash(shadowlap fix show *)
 metadata:
   version: 0.1.0

@@ -122,12 +122,13 @@ jobs:
         os: ${{ fromJSON(needs.scope.outputs.os) }}
         node: [22, 24]
         include:
-          # The oldest Node the packages' engines allow, the first 22 whose built-in SQLite has
-          # full-text search, which every store has. Here the packages are built and the suite, the
-          # golden replay and the smoke below run on it, so an API newer than the minimum fails;
-          # the typecheck and the Python SDK's tests, which no Node changes, run on 22 and 24.
+          # The oldest Node the packages' engines allow: Node's built-in SQLite has the full-text
+          # search every store uses from 22.16 on, but 22.16 crashes `shadowlap ui` when its terminal
+          # closes. Here the packages are built and the suite, the golden replay and the smoke below
+          # run on it, so an API newer than the minimum fails; the typecheck and the Python SDK's
+          # tests, which no Node changes, run on 22 and 24.
           - os: ubuntu-latest
-            node: 22.16.0
+            node: 22.17.0
             minimum: true
     steps:
       - uses: actions/checkout@v7

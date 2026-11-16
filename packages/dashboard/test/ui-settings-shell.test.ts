@@ -222,7 +222,7 @@ describe('Settings → Project', () => {
   it('lists the newest setup check’s checks under Health, summed up as doctor sums them, and checks again with Check setup', async () => {
     // As doctor reports them: a Node it runs on, a guard folder without its files, and no Python.
     const checks: Checked[] = [
-      { name: 'node', verdict: 'ok', detail: 'v22.16.0 (shadowlap 0.1.0)' },
+      { name: 'node', verdict: 'ok', detail: 'v22.17.0 (shadowlap 0.1.0)' },
       { name: 'network guard', verdict: 'fail', detail: 'missing node-guard.mjs, sitecustomize.py in /opt/shadowlap/guard/', fix: 'Reinstall the shadowlap package; the guard directory ships with it.' },
       { name: 'python', verdict: 'warn', detail: 'no python3 or python on PATH', fix: 'Only needed for Python agents; the Python SDK requires Python ≥ 3.9.' },
     ];

@@ -2,7 +2,7 @@
 name: setup-agent
 description: Set up shadowlap for an AI agent, so its runs can be recorded, replayed, debugged and tested (the shadowlap CLI). Use it when a project has an agent that calls a model but no shadowlap.config.json or .shadowlap folder yet, or when asked to record an agent's runs, add replay tests or goldens for it, or check it in CI. It finds the agent and its tools, marks what each tool does to the world, records a first run, makes its replay clean, and keeps good runs as goldens that CI replays offline.
 license: Apache-2.0
-compatibility: Needs the shadowlap CLI on the PATH (Node.js 22.16 or later, not 23), run in the agent's project.
+compatibility: Needs the shadowlap CLI on the PATH (Node.js 22.17 or later, not 23), run in the agent's project.
 allowed-tools: Bash(shadowlap ls *) Bash(shadowlap show *) Bash(shadowlap doctor *)
 metadata:
   version: 0.1.0

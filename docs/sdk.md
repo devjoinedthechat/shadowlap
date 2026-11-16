@@ -27,7 +27,7 @@ Into your agent's project:
 # Node 18.18+
 npm install @shadowlap/sdk         # wrap tools
 npm install @shadowlap/adapters    # wrap them in your framework
-# Node 22.16+, not 23
+# Node 22.17+, not 23
 npm install -D @shadowlap/test     # record tests in Vitest, Jest or node:test
 # Python 3.9+
 pip install shadowlap              # all three in one package
@@ -51,7 +51,7 @@ same protocol:
 - a `shadowlap` of that version installed with npm, when one is on `PATH`;
 - otherwise `npx --yes shadowlap@<version>`, which fetches it once.
 
-The CLI runs on Node.js 22.16 or later (not 23). Without one, the command says so and how to get it,
+The CLI runs on Node.js 22.17 or later (not 23). Without one, the command says so and how to get it,
 and exits 2. `SHADOWLAP_CLI` names another CLI to run instead, as it does for the
 [pytest plugin](./testing.md#pytest).
 

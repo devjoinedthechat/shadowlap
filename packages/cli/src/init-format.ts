@@ -178,7 +178,7 @@ function install(w: InitWriter): void {
   }
   if (w.python) {
     out(`     ${p.cyan(r.packageManager === 'uv' ? 'uv add shadowlap' : r.packageManager === 'poetry' ? 'poetry add shadowlap' : 'pip install shadowlap')}   ${p.dim('the Python SDK')}`);
-    if (!w.ts && !w.globalCli) out(`     ${p.cyan('npm install --global shadowlap')}   ${p.dim('the CLI (Node 22.16 or later, not 23)')}`);
+    if (!w.ts && !w.globalCli) out(`     ${p.cyan('npm install --global shadowlap')}   ${p.dim('the CLI (Node 22.17 or later, not 23)')}`);
   }
   out();
 }

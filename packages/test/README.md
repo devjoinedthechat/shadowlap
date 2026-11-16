@@ -34,6 +34,6 @@ When a change makes the test send a request its recording doesn't have, the test
 
 With Jest, set `globalSetup: '@shadowlap/test/jest/global-setup'`, `globalTeardown: '@shadowlap/test/jest/global-teardown'` and `testEnvironment: '@shadowlap/test/jest/environment'`, and wrap tests in `recorded()` as above. With node:test, run `node --import @shadowlap/test/register --test` and wrap the test's body in `withRecording({ recording: '__recordings__/refund' }, fn)`.
 
-Recordings go to `__recordings__/` beside the test file; commit them. `SHADOWLAP_RECORD=all` records again, and `none`, the default when `CI` is set, only replays. The package brings the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap) it runs, and needs Node 22.16 or later, not 23.
+Recordings go to `__recordings__/` beside the test file; commit them. `SHADOWLAP_RECORD=all` records again, and `none`, the default when `CI` is set, only replays. The package brings the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap) it runs, and needs Node 22.17 or later, not 23.
 
 [Test suites](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/testing.md) covers modes, divergences and the pytest plugin.

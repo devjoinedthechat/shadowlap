@@ -30,7 +30,7 @@ export const FIX_BUDGETS: readonly string[] = ['1.00', '2.00', '5.00'];
 export const REPAIRER = /^(claude-code|anthropic|openai)(:[A-Za-z0-9._\-/]{1,80})?$/;
 
 /**
- * The steps before the action that make it work in a job of its own: the repository, Node 22.16 or
+ * The steps before the action that make it work in a job of its own: the repository, Node 22.17 or
  * later and not 23 (node-version: 22, as the action's own check asks for, saying so on a runner
  * whose Node is older), and the agent's own dependencies, which only the project knows: a
  * placeholder to make its own.
@@ -177,7 +177,7 @@ const BUCKET_COMMENT: Record<BucketCredentials, string> = {
 
 /**
  * The Fix on failure steps, as a job of their own runs them: the branch checked out, so the fix's
- * pull request goes into it; Node 22.16 or later; the agent's own dependencies (a placeholder); then
+ * pull request goes into it; Node 22.17 or later; the agent's own dependencies (a placeholder); then
  * the action. Its job needs contents, pull-requests and actions write permission, which the first
  * comment states, and a `workflow_dispatch:` trigger, which the second says: the action starts the
  * workflow on the fix's branch, as GitHub starts nothing for a push made with the job's own token.
@@ -235,7 +235,7 @@ export const decisionsNeed = (keys: readonly string[]): NeedRow => ['a model key
 const DECISIONS_KEYS_COMMENT = "# and your agent's own provider keys: the decisions part asks its models";
 
 /** The row every step that runs the action needs: the Node it runs on. */
-const NODE_NEED: [string, string] = ['Node 22.16 or later on the runner, not 23', 'node-version: 22'];
+const NODE_NEED: [string, string] = ['Node 22.17 or later on the runner, not 23', 'node-version: 22'];
 
 /** What a needs row says of the config while it can't be read: the value. */
 const UNREADABLE = 'can’t be read';
@@ -323,7 +323,7 @@ function envLines(keys: readonly string[], notes: readonly string[]): string[] {
 }
 
 /**
- * The Alerts steps, as a job of their own runs them: the repository, Node 22.16 or later and the
+ * The Alerts steps, as a job of their own runs them: the repository, Node 22.17 or later and the
  * agent's own dependencies (a placeholder), then the action, which counts the failed goldens without
  * failing the step, with the keys of the providers the goldens that run live call, a comment where
  * one of theirs can't be named (`keysUnknown`) and one while shadowlap.config.json can't be read

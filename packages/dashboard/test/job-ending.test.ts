@@ -402,7 +402,7 @@ describe('a setup check', () => {
     try {
       const plain = { green: (x: string) => x, yellow: (x: string) => x, red: (x: string) => x, dim: (x: string) => x };
       // The checks as doctor makes them: a guard folder without its files fails, a machine without Python warns.
-      const checks = (o: Partial<DoctorOptions>) => runDoctor({ cwd: dir, env: {}, version: '0.0.0', dbPath: join(dir, 'store.db'), nodeVersion: 'v22.16.0', sqlite: () => null, python: () => 'Python 3.12.1', guardDir: dir, ...o });
+      const checks = (o: Partial<DoctorOptions>) => runDoctor({ cwd: dir, env: {}, version: '0.0.0', dbPath: join(dir, 'store.db'), nodeVersion: 'v22.17.0', sqlite: () => null, python: () => 'Python 3.12.1', guardDir: dir, ...o });
       const ended = (o: Partial<DoctorOptions>, code: number) => {
         const c = checks(o);
         const lines = formatDoctor(c, plain).split('\n');
