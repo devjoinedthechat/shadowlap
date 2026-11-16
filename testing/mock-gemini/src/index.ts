@@ -2,9 +2,11 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 /**
- * A scripted fake of the Gemini API (Generative Language, v1beta): `models/{model}:generateContent`
- * and `:streamGenerateContent?alt=sse`, close enough to the wire format for `@google/genai`,
- * including function calls and `usageMetadata`. It knows nothing about shadowlap.
+ * A scripted fake of the Gemini API (Generative Language): `models/{model}:generateContent` and
+ * `:streamGenerateContent?alt=sse`, close enough to the wire format for `@google/genai`, including
+ * function calls and `usageMetadata`. It answers under /v1beta/ and /v1/ alike: `@google/genai` and
+ * google-genai 2.x for Python ask for v1beta, google-genai 3.x for Python for v1. It knows nothing
+ * about shadowlap.
  */
 
 export interface FunctionCall {
@@ -74,7 +76,7 @@ export async function startMockGemini(opts: { script: Script }): Promise<MockSer
   const server: Server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://mock');
-      const m = /^\/v1beta\/models\/([^:/]+):(generateContent|streamGenerateContent)$/.exec(url.pathname);
+      const m = /^\/v1(?:beta)?\/models\/([^:/]+):(generateContent|streamGenerateContent)$/.exec(url.pathname);
       if (req.method !== 'POST' || !m) {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { code: 404, message: `mock: no route ${req.method!} ${url.pathname}`, status: 'NOT_FOUND' } }));
