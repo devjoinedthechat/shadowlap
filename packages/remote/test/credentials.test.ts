@@ -122,12 +122,15 @@ describe('AWS credentials', () => {
   });
 
   it.skipIf(process.platform === 'win32')('names the signal that ended a credential_process which said nothing', async () => {
-    // Ended by a signal, a process has no exit status: the failure said "exit null".
+    // Ended by a signal, a process has no exit status: the failure said "exit null". The command runs
+    // through /bin/sh. macOS's hands the process over, so the signal ends what was spawned and is
+    // named; Debian's dash waits for it, prints "Killed" on stderr itself and exits 137, which is
+    // the message then. Either way it says how the process ended.
     const script = file('bin/killed.mjs', "process.kill(process.pid, 'SIGKILL');\n");
     const h = join(home, 'aws-proc-killed');
     mkdirSync(join(h, '.aws'), { recursive: true });
     writeFileSync(join(h, '.aws', 'config'), `[default]\ncredential_process = "${process.execPath}" "${script}"\n`);
-    await expect(resolveAwsCredentials({ env: {}, home: h })).rejects.toThrow('AWS profile default: credential_process failed: exit SIGKILL');
+    await expect(resolveAwsCredentials({ env: {}, home: h })).rejects.toThrow(/^AWS profile default: credential_process failed: (exit SIGKILL|Killed)$/);
   });
 
   it('uses an IAM Identity Center sign-in from the SSO cache', async () => {
