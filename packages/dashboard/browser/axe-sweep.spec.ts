@@ -111,7 +111,8 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   }], ['Tests · Run tests asks · closed', escape(page)]);
   // Update goldens' dialog, as the palette opens it.
   states.push(['Tests · Update goldens', updateGoldens(page)], ['Tests · Update goldens closed', escape(page)]);
-  states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture…', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · Import capture… · Pack', click(page, `${DIALOG} .impsrc button`, 'Pack', { shows: `${DIALOG} .drop` })], ['Runs · import closed', escape(page)]);
+  // Import capture…'s Pack pane, then File again: a source switched counts as a change its Esc would ask about.
+  states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture…', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · Import capture… · Pack', click(page, `${DIALOG} .impsrc button`, 'Pack', { shows: `${DIALOG} .drop` })], ['Runs · Import capture… · File again', click(page, `${DIALOG} .impsrc button`, 'File', { shows: `${DIALOG} .impsamples` })], ['Runs · import closed', escape(page)]);
   states.push(['Runs · a run ticked', click(page, 'main#view table.runst tbody tr input[type="checkbox"]')]);
   // The palette's hits in what was recorded come from the server: swept once they have come.
   // With the focus in the row, ⌘K opens on the row's actions; ⌫ goes back to everything.
