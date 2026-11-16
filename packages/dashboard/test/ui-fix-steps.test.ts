@@ -1,6 +1,6 @@
 import { act, createElement, useEffect, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { afterForkLines, markFixApplied, plain, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
+import { afterForkLines, decideVerify, markFixApplied, plain, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail, withAbouts } from '../src/fixes.js';
 import { ApiError, JOB_KINDS, type Client } from '../ui/api.js';
@@ -352,6 +352,22 @@ describe('the Verify step', () => {
     expect(r!.all('.fxreceipt .nw').map(text)).toContain('judge checks: 3 upstream requests, ≈$0.0020');
     const order = r!.all('ul.fxwarn, .fxreceipt, .cmdline').map((x) => x.className.split(' ')[0]);
     expect(order).toEqual(['fxwarn', 'fxreceipt', 'fxreceipt', 'fxreceipt', 'cmdline']);
+  });
+
+  it('warns, as verify printed it, when the change made no difference to any request, and names the tools whose code never ran', async () => {
+    const a = blamed();
+    const report = verifyReport([{ runId: a.run, role: 'target', pass: true, deterministic: true }]);
+    report.runs[0].attempts[0].servedTools = { read_policy: 2 };
+    Object.assign(report, decideVerify(report.runs, null));
+    recordVerdict(store, { report, expect: SEND_ONCE, command: 'shadowlap verify --fixes label:double-email', rerun: { flags: [], command: null }, at: (at += DAY) });
+    await open(a.fixId, 'verify');
+    const shown = r!.all('ul.fxwarn li').map(text);
+    expect(shown).toEqual(report.warnings);
+    expect(shown.at(-1)).toBe(
+      'the change made no difference to any request in 1 run: 2 calls of read_policy were served from the recording, so its code never ran under the change; if the change is in read_policy or in what it reads, verify again with --live-tool read_policy',
+    );
+    // A clean replay settled the run: the step's verdict is the verify's, accepted, whatever the warning says.
+    expect(r!.one('.verdict .vw').className).toBe('vw ok');
   });
 });
 
