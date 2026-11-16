@@ -77,6 +77,9 @@ describe('unpack: a pack is untrusted input', () => {
     const other = copyGolden();
     writeManifest(other, { ...manifest(other), format: 'some-other-pack' });
     rejects(other, /unexpected format some-other-pack/);
+    // A run.json that holds no object at all is no pack either, said as one of another format is.
+    writeManifest(other, null);
+    rejects(other, /unexpected format undefined/);
   });
 
   it('keeps a capture without a command: it packs and unpacks, but is not runnable', () => {

@@ -165,19 +165,35 @@ describe('a command started by a dashboard job', () => {
     }
   });
 
-  it('unpack: reports the runs it brought in, the pack\'s own run last, so the job opens it', async () => {
+  it('unpack: reports the runs it brought in, the pack\'s own run last, so the job opens it, and a run the store holds as another recording', async () => {
     const elsewhere = mkdtempSync(join(tmpdir(), 'sl-dash-events-unpack-'));
+    const there = join(elsewhere, 'shadowlap.db');
     try {
       // The fork made above, packed with the recording it came from.
       const fork = withStore((s) => s.childRuns(recordingId).find((r) => !r.meta?.repeat))!.runId;
       expect((await shadowlap(['pack', fork, 'share/lineage', '--lineage'])).code).toBe(0);
-      const r = await shadowlap(['unpack', join(cwd, 'share', 'lineage')], { db: join(elsewhere, 'shadowlap.db') });
+      const r = await shadowlap(['unpack', join(cwd, 'share', 'lineage')], { db: there });
       expect(r.code, r.out).toBe(0);
       expect(r.events.filter((e) => e.type === 'run')).toEqual([
         { type: 'run', runId: recordingId, role: 'imported' },
         { type: 'run', runId: fork, role: 'imported' },
       ]);
-      expect(r.events.find((e) => e.type === 'result')).toEqual({ type: 'result', data: { imported: [recordingId, fork], skipped: [] } });
+      // Two runs: a link to each, as an import's drawer has.
+      expect(r.events.filter((e) => e.type === 'link')).toEqual([
+        { type: 'link', label: `Open ${recordingId.slice(0, 10)}`, href: `#/run/${recordingId}` },
+        { type: 'link', label: `Open ${fork.slice(0, 10)}`, href: `#/run/${fork}` },
+      ]);
+      expect(r.events.find((e) => e.type === 'result')).toEqual({ type: 'result', data: { imported: [recordingId, fork], skipped: [], mismatched: [] } });
+      // That store holds another recording under the fork's id since: kept as it is, and the result says so.
+      const other = Store.open(there);
+      const held = other.getRun(fork)!;
+      other.deleteRun(fork);
+      other.importRun({ ...held, command: { argv: ['node', 'other-agent.js'], cwd: held.command.cwd } });
+      other.close();
+      const again = await shadowlap(['unpack', join(cwd, 'share', 'lineage')], { db: there });
+      expect(again.code, again.out).toBe(0);
+      expect(again.events.filter((e) => e.type !== 'result')).toEqual([]);
+      expect(again.events.find((e) => e.type === 'result')).toEqual({ type: 'result', data: { imported: [], skipped: [recordingId, fork], mismatched: [{ runId: fork, command: { argv: held.command.argv, cwd: held.command.cwd }, calls: true }] } });
     } finally {
       rmSync(elsewhere, { recursive: true, force: true });
     }

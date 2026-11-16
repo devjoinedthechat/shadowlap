@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL } from '../../engine/src/action-words.js';
+import { ACTIONS, confirmWords, forceLiveLabel, IMPORTING_PACK, STRONGER_MODEL } from '../../engine/src/action-words.js';
 import { plural } from './format.js';
 
 /**
@@ -9,7 +9,7 @@ import { plural } from './format.js';
  * and its toast in the past tense. No DOM here: the tests import it.
  */
 
-export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL };
+export { ACTIONS, confirmWords, forceLiveLabel, IMPORTING_PACK, STRONGER_MODEL };
 
 /** Each -ing word a job's title starts with, and its past tense: `Running tests` ends as `Ran tests`. */
 const PAST: Readonly<Record<string, string>> = {

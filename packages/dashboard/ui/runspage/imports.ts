@@ -2,6 +2,7 @@ import type { FactWords } from '../actions.js';
 import { quoteArg } from '../job-title.js';
 import { guessImportFormat, IMPORT_FILE_FORMATS, type ImportFileFormat } from '../../../engine/src/import-format.js';
 import { IMPORT_WINDOW_FLAGS, importWindowFieldProblem, importWindowProblem, type ImportWindow } from '../../../engine/src/import-window.js';
+import { packWords, type PackPreview } from './pack-folder.js';
 import { OTEL_SAMPLE, OTEL_SAMPLE_NAME, type OtlpSpan, type OtlpTrace } from './sample-otel.js';
 
 /**
@@ -216,8 +217,10 @@ export function sampleTrace(now = Date.now()): { name: string; text: string } {
 
 /** What Import capture is told of the source picked, as `importWords` reads it. */
 interface ImportWordsInput {
-  source: 'file' | TraceSource;
+  source: 'file' | 'pack' | TraceSource;
   picked: { files: ReadonlyArray<{ name: string }>; format?: string | null } | null;
+  /** The pack's folder picked, and what its run.json says once read (pack-folder.ts). */
+  pack?: { name: string | null; preview: PackPreview | null } | null | undefined;
   id: string;
   host: string;
   project: string;
@@ -233,6 +236,7 @@ const ON_REPLAY: FactWords = { label: 'On replay', value: 'what it doesn’t hol
 
 /** What Import capture says of the source picked: its amber line, its rows, and the command it runs. */
 export function importWords(o: ImportWordsInput): { line: string | null; rows: FactWords[]; command: string } {
+  if (o.source === 'pack') return packWords(o.pack ?? null, o.uploads);
   if (o.source !== 'file') return traceWords(o, o.source);
   const files = o.picked?.files ?? [];
   return {

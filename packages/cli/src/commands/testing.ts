@@ -17,6 +17,7 @@ import { parseSuiteRisk, testPacks, type TestFlags } from './test-session.js';
 import type { InconclusiveMode } from '../golden-test.js';
 import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
 import { emitJobEvent } from '../job-events.js';
+import { IMPORT_LINKS } from '../import-report.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, noProxyEnv, type GuardMode } from '../run-agent.js';
 import { ancestorsOf, collect, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, readStore, requireEnded, requireRun, telemetry, unredacted, VERSION, type GlobalOpts } from '../shared.js';
@@ -275,8 +276,11 @@ export function register(program: Command): void {
         else process.stdout.write(p.dim(`skipped ${id} (already present)\n`));
       }
       // A dashboard job opens what it brought in: the pack's own run, which comes after its ancestors.
+      // A few runs each get a link, as an import's drawer links them; the result says which runs the
+      // store kept as another recording, for the drawer to say so.
       for (const runId of result.imported) emitJobEvent({ type: 'run', runId, role: 'imported' });
-      emitJobEvent({ type: 'result', data: { imported: result.imported, skipped: result.skipped } });
+      if (result.imported.length > 1 && result.imported.length <= IMPORT_LINKS) for (const runId of result.imported) emitJobEvent({ type: 'link', label: `Open ${runId.slice(0, 10)}`, href: links.run(runId) });
+      emitJobEvent({ type: 'result', data: { imported: result.imported, skipped: result.skipped, mismatched: result.mismatched } });
       if (result.commands.length) {
         process.stdout.write(p.yellow(`\nReplaying an imported run executes the command it was recorded with (shown above), which came from whoever made the pack.\n`) + p.dim(`shadowlap replay asks before running it; give your own command after "--" to run that instead.\n`));
       }

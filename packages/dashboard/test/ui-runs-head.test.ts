@@ -5,6 +5,7 @@ import { RECORD_ASK } from '../ui/page-ask.js';
 import { RunsPage } from '../ui/pages/Runs.js';
 import '../ui/palette-actions.js';
 import { paletteSources, type PaletteContext } from '../ui/palette-sources.js';
+import { matchPalette } from '../ui/palette.js';
 import type { RecordConfirmation, RecordPlanView, SetupView } from '../ui/projects-api.js';
 import { RecordRunAsks } from '../ui/runspage/RecordRun.js';
 import { PULL_TIP, PUSH_TIP, RunsActions } from '../ui/runspage/RunsActions.js';
@@ -270,5 +271,16 @@ describe('Record run… in the palette', () => {
   it('is not offered where the dashboard records nothing, nor in an exported copy', () => {
     expect(rows(ctx({ hasKind: (k: string) => k !== 'record' }))).toEqual([]);
     expect(rows(ctx({ exported: true }))).toEqual([]);
+  });
+
+  it('leaves a pack to Import capture…, which its CLI word finds', () => {
+    const all = paletteSources().flatMap((source) => {
+      try {
+        return source(ctx({}));
+      } catch {
+        return [];
+      }
+    });
+    expect(matchPalette(all, 'unpack').map((x) => x.label)).toEqual(['Import capture…']);
   });
 });

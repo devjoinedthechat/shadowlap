@@ -7,7 +7,8 @@ import { keepingRunCanaries } from './injection.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';
 import { messageOf } from './message-of.js';
-import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
+import { BLOB_NAME, manifestProblem, PACK_FORMAT, PACK_LIMITS, PACK_REFUSALS, PACK_VERSION } from './pack-manifest.js';
+import { PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
 import { carriesCredentials, redactRun } from './redact.js';
 import { Store, type StoreOf } from './store.js';
 import { safeLine } from './text.js';
@@ -20,8 +21,7 @@ import type { CallRecord, Normalizer, RunRecord } from './types.js';
  * beside them keeps git from converting line endings, which would break every blob's hash.
  */
 
-export const PACK_FORMAT = 'shadowlap-pack';
-export const PACK_VERSION = 1;
+export { PACK_FORMAT, PACK_VERSION };
 
 interface PackManifest {
   format: typeof PACK_FORMAT;
@@ -415,7 +415,7 @@ function mismatch(store: StoreOf<'recording' | 'readModels'>, held: RunRecord, p
  * checked before it is opened, and refused when the file opened is not the one checked.
  */
 export function readPackFile(path: string, limit: number, what: string): Buffer {
-  const link = () => new PackError(`${what} is a symbolic link; packs contain only regular files`);
+  const link = () => new PackError(PACK_REFUSALS.link(what));
   const noFollow = constants.O_NOFOLLOW as number | undefined;
   const checked = noFollow === undefined ? lstatSync(path) : null;
   if (checked?.isSymbolicLink()) throw link();
@@ -426,14 +426,14 @@ export function readPackFile(path: string, limit: number, what: string): Buffer 
     const code = (err as NodeJS.ErrnoException).code;
     // ELOOP on Linux and macOS, EMLINK on FreeBSD: the last part of the path is a link.
     if (code === 'ELOOP' || code === 'EMLINK') throw link();
-    if (code === 'ENXIO') throw new PackError(`${what} is not a regular file`);
+    if (code === 'ENXIO') throw new PackError(PACK_REFUSALS.notRegular(what));
     throw err;
   }
   try {
     const st = fstatSync(fd);
-    if (!st.isFile()) throw new PackError(`${what} is not a regular file`);
+    if (!st.isFile()) throw new PackError(PACK_REFUSALS.notRegular(what));
     if (checked && (checked.ino !== st.ino || checked.dev !== st.dev)) throw new PackError(`${what} was replaced while it was read`);
-    if (st.size > limit) throw new PackError(`${what} is ${st.size} bytes, over the ${limit}-byte limit`);
+    if (st.size > limit) throw new PackError(PACK_REFUSALS.tooLarge(what, st.size, limit));
     const bytes = Buffer.alloc(st.size);
     let read = 0;
     while (read < bytes.length) {
@@ -459,18 +459,17 @@ export function readPackFile(path: string, limit: number, what: string): Buffer 
 export function unpackRun(store: StoreOf<'recording' | 'readModels'>, dir: string, o: { madeHere?: boolean } = {}): UnpackResult {
   const root = resolve(dir);
   const manifestPath = join(root, 'run.json');
-  if (!existsSync(manifestPath)) throw new PackError(`${dir} is not a shadowlap pack (no run.json)`);
+  if (!existsSync(manifestPath)) throw new PackError(PACK_REFUSALS.noManifest(dir));
   let manifest: Partial<PackManifest>;
   try {
     manifest = JSON.parse(readPackFile(manifestPath, PACK_LIMITS.manifestBytes, 'run.json').toString('utf8')) as Partial<PackManifest>;
   } catch (err) {
     if (err instanceof PackError) throw err;
-    throw new PackError(`${dir}: run.json is not valid JSON`);
+    throw new PackError(PACK_REFUSALS.notJson(dir));
   }
-  if (manifest.format !== PACK_FORMAT) throw new PackError(`${dir}: unexpected format ${String(manifest.format)}`);
-  if (manifest.version !== PACK_VERSION) throw new PackError(`${dir}: pack version ${String(manifest.version)} is not supported (this build reads ${PACK_VERSION})`);
-  if (!Array.isArray(manifest.runs) || manifest.runs.length === 0 || manifest.runs.length > PACK_LIMITS.runs) throw new PackError(`${dir}: run.json must list between 1 and ${PACK_LIMITS.runs} runs`);
-  const runs = manifest.runs.map((r, i) => validateRun(r, `run.json runs[${i}]`));
+  const problem = manifestProblem(manifest, dir);
+  if (problem) throw new PackError(problem);
+  const runs = manifest.runs!.map((r, i) => validateRun(r, `run.json runs[${i}]`));
   const runIds = new Set(runs.map((r) => r.runId));
   if (runIds.size !== runs.length) throw new PackError(`${dir}: run.json lists a run twice`);
 
@@ -503,10 +502,10 @@ export function unpackRun(store: StoreOf<'recording' | 'readModels'>, dir: strin
   const blobs: Array<{ name: string; bytes: Buffer }> = [];
   if (existsSync(blobDir)) {
     const st = lstatSync(blobDir);
-    if (st.isSymbolicLink() || !st.isDirectory()) throw new PackError(`${dir}: blobs must be a directory`);
+    if (st.isSymbolicLink() || !st.isDirectory()) throw new PackError(PACK_REFUSALS.blobsNotFolder(dir));
     let total = 0;
     for (const name of readdirSync(blobDir)) {
-      if (!/^[0-9a-f]{64}$/.test(name)) throw new PackError(`${dir}: unexpected file blobs/${name}`);
+      if (!BLOB_NAME.test(name)) throw new PackError(PACK_REFUSALS.unexpectedBlob(dir, name));
       let bytes = readPackFile(join(blobDir, name), PACK_LIMITS.blobBytes, `blobs/${name}`);
       if (sha256(bytes) !== name) {
         // A pack committed without its .gitattributes, checked out by a git that converts line

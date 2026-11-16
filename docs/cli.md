@@ -2830,7 +2830,9 @@ shadowlap pack <run> <dir> [--lineage] [--no-redact]
 shadowlap unpack <dir>
 ```
 
-`pack` writes a run as a directory, to commit as a CI golden or to share. `unpack` imports one.
+`pack` writes a run as a directory, to commit as a CI golden or to share. `unpack` imports one. The
+dashboard's **Import capture…** → **Pack** does the same as `unpack`, from a folder you drop or pick
+([Import a capture or a trace](./dashboard.md#import-a-capture-or-a-trace)).
 
 `pack` takes these flags; `unpack` takes none:
 

@@ -3,6 +3,7 @@ import { namedPatterns, parsePath } from './normalize.js';
 import { PATTERN_MAX, patternProblem } from './safe-regex.js';
 import type { CallEndRow, CallRecord, RunRecord } from './types.js';
 import { isObject } from './is-object.js';
+import { PACK_LIMITS } from './pack-manifest.js';
 
 /**
  * Validation for packs, which are untrusted input: someone else's recording, a file attached to an
@@ -13,18 +14,7 @@ import { isObject } from './is-object.js';
 
 export class PackError extends Error {}
 
-export const PACK_LIMITS = {
-  /** Largest single blob. */
-  blobBytes: 256 * 1024 * 1024,
-  /** All blobs together. */
-  totalBytes: 4 * 1024 * 1024 * 1024,
-  manifestBytes: 16 * 1024 * 1024,
-  callsBytes: 1024 * 1024 * 1024,
-  runs: 10_000,
-  calls: 1_000_000,
-  argv: 256,
-  stringBytes: 16 * 1024,
-};
+export { PACK_LIMITS };
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
