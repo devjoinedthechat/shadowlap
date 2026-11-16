@@ -1,4 +1,4 @@
-import { addPair, afterForkOf, attemptsToPass, BASELINE_DEFAULTS, baselineSaysNothing, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptMaxOf, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, verifyTally, verifyTallyLine, type BaselineRule, type GateHistory, type Palette, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole, providerRefused, type BaselineDecision } from '@shadowlap/engine';
+import { addPair, afterForkOf, attemptsToPass, BASELINE_DEFAULTS, baselineSaysNothing, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptMaxOf, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, verifyTally, verifyTallyLine, type BaselineRule, type GateHistory, type Palette, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole, providerRefused, servedToolsOf, type BaselineDecision } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -82,6 +82,7 @@ function goldenOf(store: StoreOf<'recording'>, run: AttemptTarget['parent'], cwd
 function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
   const forkedAt = a.summary.divergence?.callNo ?? null;
   const afterFork = afterForkOf(a.calls, forkedAt);
+  const servedTools = servedToolsOf(a.calls, forkedAt);
   return {
     runId: a.run.runId,
     passed: a.passed,
@@ -95,6 +96,7 @@ function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
     footprint: footprintOf(a.calls, costOf),
     unrecordedTools: a.unrecorded,
     ...(afterFork ? { afterFork } : {}),
+    ...(servedTools ? { servedTools } : {}),
   };
 }
 

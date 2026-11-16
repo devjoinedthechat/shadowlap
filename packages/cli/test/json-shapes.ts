@@ -81,7 +81,7 @@ export const SHAPES = {
   blameContrast: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'recorded', 'rescued', 'rescuedRunId'] },
   blameProbe: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts', 'rescued', 'decision', 'rate', 'undecided', 'unavailable', 'cutShort', 'runs'] },
   blameFix: { page: 'blame.md', section: 'JSON', grows: true, fields: ['fixId', 'title', 'status', 'opened'] },
-  verify: { page: 'verify.md', section: 'JSON', grows: true, fields: ['verdict', 'reasons', 'warnings', 'summary', 'runs', 'oracle', 'attemptsPerRun', 'passesNeeded', 'gate', 'change', 'codeVersion', 'cost', 'judge', 'stopReason', 'verifyId', 'fixes'] },
+  verify: { page: 'verify.md', section: 'JSON', grows: true, fields: ['verdict', 'reasons', 'warnings', 'noDifference', 'summary', 'runs', 'oracle', 'attemptsPerRun', 'passesNeeded', 'gate', 'change', 'codeVersion', 'cost', 'judge', 'stopReason', 'verifyId', 'fixes'] },
   verifyRun: { page: 'verify.md', section: 'JSON', grows: true, fields: ['runId', 'role', 'outcome', 'passes', 'attempts', 'decision', 'rate', 'deterministic', 'recorded', 'undecided', 'unavailable', 'cutShort', 'runs'] },
   verifySummary: { page: 'verify.md', section: 'JSON', grows: true, fields: ['targets', 'holdout', 'good'] },
   repair: { page: 'repair.md', section: 'JSON', grows: true, fields: ['outcome', 'why', 'targets', 'holdout', 'good', 'heldOutAutomatically', 'oracle', 'repairer', 'noRepairer', 'diagnosis', 'anchors', 'candidates', 'accepted', 'patch', 'cost', 'output', 'warnings', 'repairId', 'verifyId', 'fixes'] },

@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { afterForkLines, blameSteps, JUDGE_SCOPE, markFixApplied, plain, probeBound, probeInterval, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type VerifyReport } from '@shadowlap/engine';
+import { afterForkLines, blameSteps, decideVerify, JUDGE_SCOPE, markFixApplied, plain, probeBound, probeInterval, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { CALL_ROW_NAMED } from '../src/fix-blame-step.js';
 import { fixDetail, type FixDetail, withAbouts } from '../src/fixes.js';
@@ -154,6 +154,26 @@ describe('the Verify step’s line on what answered the tool calls after the for
     acceptedByHand([f.run]);
     expect(afterForkLines(store.listVerdicts().at(-1)!.report.runs, plain)).toEqual([]);
     expect(detail(f.fixId).verify[0].afterFork).toBeNull();
+  });
+});
+
+describe('the Verify step’s warning that the change made no difference', () => {
+  it('is among its warnings in the CLI report’s order, before what the replays warned of, and is none when a run forked', () => {
+    const f = blamed();
+    const report = verifyReport([{ runId: f.run, role: 'target', pass: true, deterministic: true }]);
+    report.runs[0].attempts[0].servedTools = { read_policy: 1, lookup_order: 1 };
+    Object.assign(report, decideVerify(report.runs, null), { replayWarnings: ['a connection bypassed shadowlap'] });
+    recordVerdict(store, { report, expect: SEND_ONCE, command: 'shadowlap verify', at: (at += DAY) });
+    const warnings = detail(f.fixId).verify[0].warnings;
+    expect(warnings).toEqual([...report.warnings, 'a connection bypassed shadowlap']);
+    expect(warnings).toContain(
+      'the change made no difference to any request in 1 run: 2 tool calls (read_policy, lookup_order) were served from the recording, so the code they run never ran under the change; if the change is in a tool or in what one reads, verify again with --live-tool <name>',
+    );
+    // The same run forked: a request differed, and there is nothing to warn of.
+    const forked = verifyReport([{ runId: f.run, role: 'target', pass: true }]);
+    Object.assign(forked, decideVerify(forked.runs, null));
+    recordVerdict(store, { report: forked, expect: SEND_ONCE, command: 'shadowlap verify', at: (at += DAY) });
+    expect(detail(f.fixId).verify[0].warnings.filter((w) => w.includes('no difference'))).toEqual([]);
   });
 });
 

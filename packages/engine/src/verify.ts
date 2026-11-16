@@ -1,6 +1,7 @@
 import { afterForkLines, afterForkWarnings, type AfterFork } from './after-fork.js';
 import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
+import { noDifferenceOf, noDifferenceWarning, type NoDifference } from './no-difference.js';
 import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
 import { atLeast, atMost, decideCountUnavailable, decideUnavailable, describeGate, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
@@ -95,6 +96,8 @@ export interface VerifyAttempt {
   unrecordedTools?: UnrecordedTool[];
   /** Where its tool calls from the fork on were answered from (after-fork.ts). Absent when it replayed clean, and from reports made before attempts counted them. */
   afterFork?: AfterFork;
+  /** The tool calls it got from the recording, by tool, when it replayed clean: none of their code ran (no-difference.ts). Absent when it forked, and from reports made before attempts counted them. */
+  servedTools?: Record<string, number>;
 }
 
 export interface VerifiedRun {
@@ -182,8 +185,14 @@ export interface VerifyDecision {
   verdict: VerifyOutcome;
   /** Why it was not accepted, a run at a time. */
   reasons: string[];
-  /** What the evidence lacks: no good runs, no held-out runs, runs whose recording contradicts their role. */
+  /** What the evidence lacks: no good runs, no held-out runs, runs whose recording contradicts their role, a change that made no difference to any request. */
   warnings: string[];
+  /**
+   * The change made no difference to any request: every run replayed clean, and the tool calls named
+   * here came from the recording, so their code never ran (no-difference.ts). `warnings` says so too.
+   * Absent otherwise, and from reports made before verify looked.
+   */
+  noDifference?: NoDifference;
 }
 
 const ROLE: Record<VerifyRole, string> = { target: 'target', holdout: 'held-out', good: 'good' };
@@ -284,10 +293,14 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
   if (!has('good')) warnings.push('no good runs: nothing was checked for regressions (--keeps label:good)');
   if (has('target') && !has('holdout')) warnings.push('no held-out runs: the change was only tried on the runs it was written for (--holdout)');
   warnings.push(...afterForkWarnings(runs));
+  // Every run replayed clean: nothing the change did reached a request, and the tools' code never ran.
+  // A warning, never a verdict: a refactor that changes nothing still passes.
+  const noDifference = noDifferenceOf(runs);
+  if (noDifference) warnings.push(noDifferenceWarning(noDifference));
 
   const failed = runs.some((r) => r.verdict === 'fail');
   const unsettled = runs.some((r) => r.verdict === 'open');
-  return { verdict: failed ? 'rejected' : unsettled ? 'incomplete' : 'accepted', reasons, warnings };
+  return { verdict: failed ? 'rejected' : unsettled ? 'incomplete' : 'accepted', reasons, warnings, ...(noDifference ? { noDifference } : {}) };
 }
 
 export interface VerifyReport extends VerifyDecision {

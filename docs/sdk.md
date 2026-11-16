@@ -254,6 +254,10 @@ hash of `impl`. When `impl` only calls the real code, pass that function as `sou
 `tool(name, { effect, source: realFn }, (a) => realFn(a, ctx))`. The [adapters](./frameworks.md) pass
 the function you gave them.
 
+The hash covers that function alone, not what it reads: a constant in another file can change with no
+warning of a changed tool. When no request differed in any run, verify warns that the change made no
+difference ([a fix inside a tool](./verify.md#a-fix-inside-a-tool)).
+
 ### Failures `--fail-at` injects
 
 A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails throws without running:

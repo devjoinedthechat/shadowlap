@@ -170,6 +170,8 @@ export { repairReuse, reusedBlame, type ReusedBlame } from './blame-reuse.js';
 export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, verifyTally } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.
 export { afterForkLines, afterForkOf, afterForkSentence, afterForkWarnings, type AfterFork } from './after-fork.js';
+// A change that made no difference to any request: the tool calls a clean replay got from the recording, and verify's warning.
+export { noDifferenceOf, noDifferenceWarning, servedToolsOf, type NoDifference } from './no-difference.js';
 // Blame's calibrated search (the risk spent across its probes, the range it reports and its bound),
 // verify's test of a good run against its own baseline, and the isotonic fit both read rates with.
 export { blameSpan, confidenceOf, confidenceWhy, decidePin, pinRisk, pinRule, pinWords, pooledRates, probeClaim, probeGate, probeRisk, unrescuedHead } from './blame.js';

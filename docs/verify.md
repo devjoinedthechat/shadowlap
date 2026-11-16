@@ -91,6 +91,8 @@ When the provider stays unavailable too many attempts in a row (3 within the fir
 
 A replay that forks nowhere settles its run in one attempt. Every call came from the recording, so every attempt would come out the same. That makes verifying a harness fix free, since fixes to parsing, dispatch or stop conditions change no request. It also makes the good runs a change doesn't touch free.
 
+When every run replays clean, the report warns that the change made no difference to any request ([a fix inside a tool](#a-fix-inside-a-tool)). For a harness fix that is expected. The verdict stands either way.
+
 A replay that made no model calls through shadowlap, where the recording made some, is not one of them. The agent reached its model some other way, and what it did is unrecorded. The attempt fails and the report says why, because counting it would judge a run nobody saw.
 
 ### The change is tested as it will ship
@@ -103,7 +105,17 @@ The change can also be a request field instead of code: `--model` and `--set key
 
 A fix inside a tool needs `--live-tool <name>`. A tool call whose arguments didn't change is served from the recording, so without the flag the fixed code never runs. The report says so when it happens: *read_policy changed since the recording; pass --live-tool read_policy to run it live*.
 
-The warning reads the tool's own function. A change in code the tool calls, such as a helper or a constant in another file, changes no request and no function shadowlap sees: every run replays clean, and the change is accepted with no warning. Name the tool with `--live-tool` whenever the change is in what a tool does or reads.
+That warning reads the tool's own function. A change in code the tool calls, such as a helper or a constant in another file, changes no function shadowlap sees and no request: every run replays clean. The report then warns that the change made no difference:
+
+```text
+! the change made no difference to any request in 2 runs: 2 calls of read_policy were served from the recording, so its code never ran under the change; if the change is in read_policy or in what it reads, verify again with --live-tool read_policy
+```
+
+- **When it shows**: every run replayed clean, and at least one tool call came from the recording. A request that differed in any run, as under a prompt edit, `--model` or `--set`, leaves it out, as does a verify where every tool call ran live.
+- **What it names**: the tools served from the recording, up to 5, the most called first, then how many more. With several it ends `--live-tool <name>`.
+- **What it leaves alone**: the verdict and the exit status. A refactor that changes nothing still passes, and a harness fix still settles in one free attempt.
+
+Name the tool with `--live-tool` whenever the change is in what a tool does or reads. Its first call then forks the run, and the warning is gone.
 
 ## Good runs against their own baseline
 
@@ -253,7 +265,15 @@ The report has these parts:
 
 A good run kept against its baseline shows both tallies and the bound on its drop (`0 of 7 passed, baseline 7 of 7 · drop >= 0.03 (95%)`).
 
-**Warnings.** What the evidence lacks: no held-out or good runs, a good run judged on its own for want of a baseline, a recording that contradicts its role, a tool that changed without `--live-tool`, a connection that bypassed shadowlap. Also what the attempts got after the fork, below: a good run whose two arms got different answers, and a person's recorded answers served in order.
+**Warnings.** What the evidence lacks:
+
+- no held-out or good runs;
+- a good run judged on its own for want of a baseline;
+- a recording that contradicts its role;
+- a tool that changed without `--live-tool`, or a change that made no difference to any request ([a fix inside a tool](#a-fix-inside-a-tool));
+- a connection that bypassed shadowlap.
+
+Also what the attempts got after the fork, below: a good run whose two arms got different answers, and a person's recorded answers served in order.
 
 **after the fork.** What answered the tool calls the attempts made from their forks on, the change's and the good runs' baselines' apart:
 
@@ -359,6 +379,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#verify) lists
 | `verdict` | string | `accepted`, `rejected` or `incomplete` |
 | `reasons` | array | Why it was not accepted, run by run |
 | `warnings` | array | What the evidence lacks |
+| `noDifference` | object or null | `{ runs, toolCalls, tools }` when the change made no difference to any request |
 | `summary` | object | `{ targets, holdout, good }`, each `{ passed, inconclusive, total }` |
 | `runs` | array | Each run ([below](#each-run)) |
 | `gate` | object or null | The gate each run was decided by, `{ kind, good, bad, risk, max }` |
@@ -377,6 +398,7 @@ Some fields need more than a line:
 
 - **`summary`** counts an inconclusive run apart, neither passed nor failed.
 - **`gate`** is `null` when a fixed count (`--attempts`, `--passes`) decided.
+- **`noDifference`** is set when every run replayed clean and some tool call came from the recording, as one of `warnings` says in words. `tools` lists those calls as `{ name, calls }`, the most called first. It is `null` otherwise.
 - **`cost.attempts`** counts both arms' attempts, those the provider cut short among them (each run's `cutShort` counts those too). `cost.unavailable` counts those the provider was unavailable for: retried, and never counted.
 - **`judge`** is apart from `cost`, which is the agent's alone. `--budget` counts both.
 - **`fixes[].why`** is `another-check`, `already-passing` or `no-runs`.
@@ -441,13 +463,14 @@ Each entry of a run's `runs`, and of `baselineRuns`:
 | `unavailable` | boolean | `unavailable: true` on the attempt it stopped on, when the provider stayed unavailable |
 | `unrecordedTools` | array | The tools its model called that its run never recorded, which ran for real in it |
 | `afterFork` | object | What answered its tool calls from the fork on: `{ recorded, inOrder, live, stubbed, blocked }`; absent when it replayed clean |
+| `servedTools` | object | When it replayed clean, its tool calls served from the recording, by tool: `{ "read_policy": 1 }`; absent when it forked |
 
 A footprint is `{ inputTokens, outputTokens, cost }`, with `cost` null when a model has no price: the agent's model calls, never a judge check's.
 
 ## Limits
 
 - **Replays run in today's environment.** A replay re-runs a run's recorded command, but in the environment verify runs in, not the one the run was recorded in. If what makes a run *that* run comes from an environment variable (which customer, which ticket), every run replays with today's value. Pass it as an argument instead, where the recorded command keeps it.
-- **A tool's own code runs only with `--live-tool`**: a call whose arguments didn't change is served from the recording ([a fix inside a tool](#a-fix-inside-a-tool)). A change in code the tool calls is not warned about.
+- **A tool's own code runs only with `--live-tool`**: a call whose arguments didn't change is served from the recording ([a fix inside a tool](#a-fix-inside-a-tool)). A change in code the tool calls is warned about only when no request differed in any run. Beside a change that forks a run, such as a prompt edit, it goes unsaid.
 - **A person's answers come in the order given.** After the fork no one is there to type, so each attempt gets a person's recorded answers in order, whatever the agent then asked. Where the change alters the conversation, they may not fit it. The report warns when an attempt got any ([reading the report](#reading-the-report)).
 - **A short history knows little**: against 50 attempts, a run at 90% with no drop is kept 18.9% of the time ([against history](#against-history)).
 
