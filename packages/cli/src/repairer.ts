@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { estimateCost, messageOf, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
+import { bandOf, estimateCost, messageOf, priceBreaks, promptTokens, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
 import { installedGlobally } from './installed.js';
 import { killTree } from './kill-tree.js';
 import { startCommand } from './start-command.js';
@@ -359,7 +359,7 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
     child.stdin!.on('error', () => {});
     child.stdin!.end(prompt.user);
   }).finally(() => rmSync(dir, { recursive: true, force: true }));
-  let d: { is_error?: boolean; result?: string; structured_output?: unknown; modelUsage?: Record<string, unknown>; total_cost_usd?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
+  let d: ClaudeCodeSpend & { is_error?: boolean; result?: string; structured_output?: unknown; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
   try {
     d = JSON.parse(stdout) as typeof d;
   } catch {
@@ -369,11 +369,57 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   }
   if (d.is_error) throw new RepairerError('Claude Code answered with an error', safeLine(String(d.result ?? 'no detail')));
   const out = parsed(d.structured_output ?? jsonIn(d.result ?? ''));
-  const served = Object.keys(d.modelUsage ?? {})[0] ?? (r.model || 'claude-code');
+  const served = modelParts(d)[0]?.[0] ?? (r.model || 'claude-code');
   const u = d.usage ?? {};
   const usage: Usage = { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0, ...(u.cache_read_input_tokens ? { cacheReadInputTokens: u.cache_read_input_tokens } : {}), ...(u.cache_creation_input_tokens ? { cacheCreationInputTokens: u.cache_creation_input_tokens } : {}) };
-  // Claude Code's own estimate, at API prices, whatever it is signed in with.
-  return { ...out, served, usage, cost: typeof d.total_cost_usd === 'number' ? d.total_cost_usd : estimateCost(served, usage, prices) };
+  return { ...out, served, usage, cost: claudeCodeCost(d, served, usage, prices) };
+}
+
+/** What Claude Code's JSON report says a session used and cost: read as given, so each value is checked. */
+export interface ClaudeCodeSpend {
+  total_cost_usd?: unknown;
+  num_turns?: unknown;
+  modelUsage?: unknown;
+}
+
+const amount = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
+
+/** Each model's part of the session, in the order its report gives them (`modelUsage`): none when that isn't an object of them. */
+function modelParts(report: ClaudeCodeSpend): (readonly [string, Record<string, unknown>])[] {
+  const byModel = report.modelUsage;
+  if (!byModel || typeof byModel !== 'object' || Array.isArray(byModel)) return [];
+  return Object.entries(byModel as Record<string, unknown>).map(([model, m]) => [model, (m && typeof m === 'object' ? m : {}) as Record<string, unknown>] as const);
+}
+
+/**
+ * What a Claude Code session cost: its own estimate, at API prices, whatever it is signed in with.
+ * When its report gives no total, the costs it gives each model; failing those, each model's tokens
+ * at that model's price; failing those, the session's `usage` at `served`'s. Tokens are summed over
+ * its turns, and each turn sends the prompt again, so a price with a second card for long prompts
+ * picks it by one turn's share, never by the sum: two turns of 60,000 tokens are two prompts of
+ * 60,000, not one of 120,000. A turn within an answer's length of the line can get the other card.
+ * When it used several models, how its turns split between them isn't told, so each model's tokens
+ * pick a card as one call: a card too high, never too low. Null when a model it used has no price.
+ */
+export function claudeCodeCost(report: ClaudeCodeSpend, served: string, usage: Usage, prices?: Record<string, Price>): number | null {
+  const total = amount(report.total_cost_usd);
+  if (total !== null) return total;
+  const models = modelParts(report);
+  const costs = models.map(([, m]) => amount(m.costUSD));
+  if (models.length && costs.every((c) => c !== null)) return costs.reduce<number>((n, c) => n + c!, 0);
+  const counted = models.length > 0 && models.every(([, m]) => amount(m.inputTokens) !== null && amount(m.outputTokens) !== null);
+  const parts: (readonly [string, Usage])[] = counted
+    ? models.map(([model, m]) => [model, { inputTokens: amount(m.inputTokens)!, outputTokens: amount(m.outputTokens)!, ...(amount(m.cacheReadInputTokens) ? { cacheReadInputTokens: amount(m.cacheReadInputTokens)! } : {}), ...(amount(m.cacheCreationInputTokens) ? { cacheCreationInputTokens: amount(m.cacheCreationInputTokens)! } : {}) }] as const)
+    : [[served, usage]];
+  const turns = parts.length === 1 && Number.isInteger(report.num_turns) && (report.num_turns as number) > 1 ? (report.num_turns as number) : 1;
+  const breaks = priceBreaks(prices);
+  let cost = 0;
+  for (const [model, u] of parts) {
+    const c = estimateCost(model, u, prices, bandOf({ inputTokens: promptTokens(u) / turns, outputTokens: 0 }, breaks));
+    if (c === null) return null;
+    cost += c;
+  }
+  return cost;
 }
 
 // The SDK is imported from where this CLI is installed, so a global CLI needs a global SDK beside it:

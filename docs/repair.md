@@ -338,7 +338,7 @@ The repairer is called once per repair, so even the most capable model costs lit
 - **No line breaks on the command line.** Its system prompt is a file (`--system-prompt-file`) and the request goes on stdin. On Windows, a `claude` npm installed, a batch file, runs through cmd.exe.
 - **Another binary.** `SHADOWLAP_CLAUDE` names the binary when `claude` isn't on the PATH.
 
-The cost reported is Claude Code's own estimate.
+The cost reported is Claude Code's own estimate. When its report gives none, shadowlap adds up the cost it gives each model, or else prices each model's tokens at that model's [price](./cli.md#the-configuration-file), one turn at a time.
 
 ### Its cost and the budget
 
