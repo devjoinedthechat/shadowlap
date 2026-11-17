@@ -38,7 +38,7 @@ afterAll(async () => {
 });
 
 const storeUrl = (folder: string) => `s3://northwind-agent-runs/${folder}?endpoint=${s3.url}`;
-const baseEnv = () => ({ PATH: process.env.PATH ?? '', HOME: noHome, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AWS_EC2_METADATA_DISABLED: 'true' });
+const baseEnv = () => ({ PATH: process.env.PATH ?? '', HOME: noHome, USERPROFILE: noHome, SYSTEMROOT: process.env.SYSTEMROOT, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AWS_EC2_METADATA_DISABLED: 'true' });
 const keys = { AWS_ACCESS_KEY_ID: KEY, AWS_SECRET_ACCESS_KEY: SECRET };
 
 /** Runs the CLI without blocking this process, which serves the fake S3 it talks to. */

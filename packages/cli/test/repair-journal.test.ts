@@ -23,7 +23,7 @@ const sh = (cwd: string, cmd: string, args: string[]) => execFileSync(cmd, args,
 const LINKS = process.platform !== 'win32';
 
 beforeEach(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-start-')));
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-start-')));
   project = join(base, 'project');
   mkdirSync(project);
   writeFileSync(join(project, 'agent.mjs'), "export const system = 'You are a support agent. Follow the refund policy.';\n");
@@ -64,7 +64,7 @@ function startAndEnd(): ReturnType<typeof startRepair> {
 
 describe('a journal planted in the repository', () => {
   it('writes nothing outside the repository: by a path out of it, absolute or relative, or through a link or a hard link out of it', () => {
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'sl-journal-outside-')));
+    const outside = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-journal-outside-')));
     try {
       // Files outside the repository whose text a planted journal can guess: empty ones, and ones it knows.
       const empty = join(outside, 'empty.txt');
@@ -236,7 +236,7 @@ describe('startRepair', () => {
   });
 
   it.skipIf(!LINKS)('refuses a .shadowlap that is a link before it takes the lock: nothing is made through it', () => {
-    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-elsewhere-')));
+    const elsewhere = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-elsewhere-')));
     try {
       // As a repository can ship one, to send what a repair writes somewhere else.
       symlinkSync(elsewhere, join(project, '.shadowlap'));
@@ -248,7 +248,7 @@ describe('startRepair', () => {
   });
 
   it.skipIf(!LINKS)('refuses a link inside a real .shadowlap too, before it takes the lock and again when it writes the report: nothing is made through it', () => {
-    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-elsewhere-')));
+    const elsewhere = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-elsewhere-')));
     const cwd = process.cwd();
     try {
       // A repository can track .shadowlap/repairs as a link while .shadowlap itself is a folder.

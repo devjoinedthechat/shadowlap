@@ -56,11 +56,12 @@ describe('JSON with exact numbers', () => {
   it('reads a request with no such number about as fast as JSON.parse: CPU time against it, on 4 MB', () => {
     const messages = Array.from({ length: 3000 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: 'word '.repeat(200) }, { type: 'tool_result', tool_use_id: `t${i}`, content: JSON.stringify({ id: i, score: i / 7 }) }], meta: { n: i, f: i + 0.5 } }));
     const text = JSON.stringify({ model: 'm', max_tokens: 1024, messages });
+    // Each sample reads it ten times: Windows counts CPU time in steps of about 16 ms, longer than one read.
     const cpu = (read: () => unknown) => {
       let best = Infinity;
       for (let i = 0; i < 5; i++) {
         const c0 = process.cpuUsage();
-        read();
+        for (let j = 0; j < 10; j++) read();
         const c = process.cpuUsage(c0);
         best = Math.min(best, c.user + c.system);
       }

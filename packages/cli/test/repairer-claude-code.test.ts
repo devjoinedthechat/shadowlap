@@ -1,8 +1,9 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { askRepairer, cannotAsk, CLAUDE_CODE_MIN, claudeCodeArgs, managedMcpPath, parseRepairer } from '../src/repairer.js';
+import { writeStandIn } from './stand-in.js';
 
 /**
  * The only input a repair's Claude Code sees is injectable content: a recorded agent's prompts and
@@ -94,10 +95,9 @@ describe('asking the user’s own Claude Code, end to end', () => {
     argvOut = join(dir, 'argv.json');
     // A stand-in for the user's Claude Code: it records the argv it was started with and whether it
     // was given a prompt on stdin, then answers with a Claude Code JSON report, as the real one does.
-    writeFileSync(
+    writeStandIn(
       claude,
-      `#!/usr/bin/env node
-const fs = require('node:fs');
+      `const fs = require('node:fs');
 if (process.argv[2] === '--version') {
   process.stdout.write(process.env.STAND_IN_VERSION ?? '2.1.248 (Claude Code)\\n');
   process.exit(process.env.STAND_IN_VERSION_EXIT ? Number(process.env.STAND_IN_VERSION_EXIT) : 0);
@@ -111,7 +111,6 @@ process.stdin.on('end', () => {
 });
 `,
     );
-    chmodSync(claude, 0o755);
     process.env.SHADOWLAP_CLAUDE = claude;
   });
   afterEach(() => {
@@ -168,16 +167,14 @@ process.stdin.on('end', () => {
 
   it('names an older Claude Code that rejects --restricted as plainly, when it says no version first', async () => {
     // As Claude Code's errors reference says of one from before v2.1.248: it rejects the flag itself.
-    writeFileSync(claude, `#!/usr/bin/env node\nprocess.stdin.resume();\nprocess.stdin.on('end', () => { process.stderr.write("error: unknown option '--restricted'\\n"); process.exit(1); });\n`);
-    chmodSync(claude, 0o755);
+    writeStandIn(claude, `process.stdin.resume();\nprocess.stdin.on('end', () => { process.stderr.write("error: unknown option '--restricted'\\n"); process.exit(1); });\n`);
     const refused = askRepairer({ provider: 'claude-code', model: '' }, { system: 's', user: 'u' }, undefined, { timeoutMs: 20_000 });
     await expect(refused).rejects.toThrow('this Claude Code has no restricted mode: a repair runs it with --restricted, which needs Claude Code 2.1.248 or later: claude update');
   }, 30_000);
 
   it('says plainly when an organization’s managed MCP config stops Claude Code at startup', async () => {
     // As Claude Code's managed-mcp documentation words it for servers a session is given.
-    writeFileSync(claude, `#!/usr/bin/env node\nprocess.stdin.resume();\nprocess.stdin.on('end', () => { process.stderr.write('You cannot dynamically configure MCP servers when an enterprise MCP config is present\\n'); process.exit(1); });\n`);
-    chmodSync(claude, 0o755);
+    writeStandIn(claude, `process.stdin.resume();\nprocess.stdin.on('end', () => { process.stderr.write('You cannot dynamically configure MCP servers when an enterprise MCP config is present\\n'); process.exit(1); });\n`);
     await expect(askRepairer({ provider: 'claude-code', model: '' }, { system: 's', user: 'u' }, undefined, { timeoutMs: 20_000 })).rejects.toThrow(/won't start a repair while your organization's managed-mcp\.json is deployed/);
   }, 30_000);
 });

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { goldenNeedsConsent, goldensNeedingConsent, packHeadRun, packRun, Store, trackedPacks, unpackRun } from '../src/index.js';
 
@@ -20,7 +20,7 @@ const git = (cwd: string, args: string[]) => execFileSync('git', args, { cwd, st
 
 /** Packs `runId` from `from` into `dir` (under the project unless absolute), its command replaced by `argv` when given. */
 function pack(from: Store, runId: string, dir: string, argv?: string[]): string {
-  const abs = dir.startsWith('/') ? dir : join(project, dir);
+  const abs = isAbsolute(dir) ? dir : join(project, dir);
   packRun(from, runId, abs);
   if (argv) {
     const manifest = JSON.parse(readFileSync(join(abs, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };

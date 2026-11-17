@@ -137,7 +137,9 @@ describe('Write file', () => {
       const fix = await view('?fix=on');
       const res = await send('PUT', 'ci/workflow', { options: { fix: true }, expect: fix.version, shown: fix.workflow.shown });
       expect(res.status).toBe(422);
-      expect(((await res.json()) as { error: string }).error).toBe('.github/workflows/agent.yml is read-only (EACCES): make it writable to write it');
+      // In the system's own word for it, which on Windows is EPERM.
+      const code = process.platform === 'win32' ? 'EPERM' : 'EACCES';
+      expect(((await res.json()) as { error: string }).error).toBe(`.github/workflows/agent.yml is read-only (${code}): make it writable to write it`);
       expect(readFileSync(file(), 'utf8')).toBe(text);
       expect(store.listEvents({ kinds: ['ci.workflow'] })).toHaveLength(1);
     } finally {

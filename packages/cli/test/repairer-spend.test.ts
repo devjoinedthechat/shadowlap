@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { estimateCost } from '@shadowlap/engine';
 import { repairerMost } from '../src/repair.js';
 import { askRepairer, CLAUDE_CODE_TURNS, claudeCodeArgs, claudeCodeCost, REPAIRER_ANSWER_TOKENS } from '../src/repairer.js';
+import { writeStandIn } from './stand-in.js';
 
 /**
  * A repair asks the repairer only when what is left of its budget covers the most asking it could
@@ -58,10 +59,9 @@ describe("the repairer's answer, held to the bound the budget counts on", () => 
     const claude = join(dir, 'claude');
     const seen = join(dir, 'seen.json');
     // A stand-in for the user's Claude Code: it records the output limit it was given, then answers.
-    writeFileSync(
+    writeStandIn(
       claude,
-      `#!/usr/bin/env node
-const fs = require('node:fs');
+      `const fs = require('node:fs');
 process.stdin.resume();
 process.stdin.on('end', () => {
   fs.writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ cap: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS ?? null, argv: process.argv.slice(2) }));
@@ -69,7 +69,6 @@ process.stdin.on('end', () => {
 });
 `,
     );
-    chmodSync(claude, 0o755);
     process.env.SHADOWLAP_CLAUDE = claude;
     const read = () => JSON.parse(readFileSync(seen, 'utf8')) as { cap: string | null; argv: string[] };
 
@@ -140,16 +139,14 @@ describe('what a Claude Code session cost', () => {
     dirs.push(dir);
     const claude = join(dir, 'claude');
     // A stand-in for the user's Claude Code whose report leaves the total out.
-    writeFileSync(
+    writeStandIn(
       claude,
-      `#!/usr/bin/env node
-process.stdin.resume();
+      `process.stdin.resume();
 process.stdin.on('end', () => {
   process.stdout.write(JSON.stringify({ type: 'result', is_error: false, structured_output: ${JSON.stringify(ANSWER)}, num_turns: 2, modelUsage: { 'claude-haiku-5-5': { inputTokens: 120000, outputTokens: 2000 } }, usage: { input_tokens: 120000, output_tokens: 2000 } }));
 });
 `,
     );
-    chmodSync(claude, 0o755);
     process.env.SHADOWLAP_CLAUDE = claude;
     const answer = await askRepairer({ provider: 'claude-code', model: '' }, prompt, prices, { timeoutMs: 20_000 });
     expect(answer.served).toBe('claude-haiku-5-5');

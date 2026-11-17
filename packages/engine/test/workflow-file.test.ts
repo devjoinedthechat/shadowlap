@@ -245,7 +245,8 @@ describe('writeWorkflow', () => {
     expect(readFileSync(join(project, AGENT_WORKFLOW), 'utf8')).toBe(FILE);
     expect(version).toBe(workflowVersion(FILE));
     expect(left()).toEqual(['agent.yml']);
-    expect(statSync(join(project, AGENT_WORKFLOW)).mode & 0o777).toBe(0o644);
+    // A file's mode is POSIX's: Windows keeps none but read-only, and every file there reads as 0o666.
+    if (process.platform !== 'win32') expect(statSync(join(project, AGENT_WORKFLOW)).mode & 0o777).toBe(0o644);
   });
 
   it('replaces a file read at its version, keeping its mode, and refuses one changed since', () => {
@@ -253,7 +254,8 @@ describe('writeWorkflow', () => {
     chmodSync(join(project, AGENT_WORKFLOW), 0o664);
     const read = findWorkflow(project);
     writeWorkflow(project, AGENT_WORKFLOW, FILE, { expect: read.version });
-    expect(statSync(join(project, AGENT_WORKFLOW)).mode & 0o777).toBe(0o664);
+    // Windows keeps no mode but read-only (see above).
+    if (process.platform !== 'win32') expect(statSync(join(project, AGENT_WORKFLOW)).mode & 0o777).toBe(0o664);
     // the page still shows the old file: its write changes nothing
     expect(() => writeWorkflow(project, AGENT_WORKFLOW, 'new\n', { expect: read.version })).toThrow(WorkflowConflictError);
     expect(() => writeWorkflow(project, AGENT_WORKFLOW, 'new\n', { expect: read.version })).toThrow(`${AGENT_WORKFLOW} changed since it was read`);
