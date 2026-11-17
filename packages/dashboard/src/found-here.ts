@@ -45,6 +45,19 @@ export async function foundsHere<T extends { found: FoundCommit | null }>(rows: 
 
 const posix = (p: string) => p.split(sep).join('/');
 
+/**
+ * A path as the system names it, as git names the repository's top: links resolved and, on Windows,
+ * short names (C:\Users\RUNNER~1) written out in full, which Node's JavaScript realpath keeps. That
+ * one answers where the system's can't (some network and RAM drives on Windows).
+ */
+function real(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return realpathSync(path);
+  }
+}
+
 /** `path` relative to `root`, or null where it is outside it. */
 function under(root: string, path: string): string | null {
   const rel = relative(root, path);
@@ -56,14 +69,14 @@ export function changeHere(change: FoundChange, project: string, top: string | n
   if (!top) return { ...change, path: null, outside: 0 };
   let folder: string;
   try {
-    folder = realpathSync(project);
-    top = realpathSync(top);
+    folder = real(project);
+    top = real(top);
   } catch {
     return { ...change, path: null, outside: 0 };
   }
   let path: string | null = null;
   try {
-    path = under(folder, realpathSync(join(top, change.file)));
+    path = under(folder, real(join(top, change.file)));
   } catch {
     // Not in the working tree now: nothing to open.
   }

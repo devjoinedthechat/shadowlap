@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { posix, relative, resolve, sep } from 'node:path';
+import { posix, resolve } from 'node:path';
 import { andList, migrateApplyProblem, patchFiles, quoteArgv, recordEvent, resolveAuthor, shortSessionId, staysWords, type MigrateApplyInput, type MigratePassRun, type MigrationApplied, type Store } from '@shadowlap/engine';
 import { DecisionsError } from './decisions.js';
 import { findSession } from './decisions-verify.js';
@@ -85,8 +85,10 @@ function checkedPatch(r: KeptMigration, sessionId: string, o: MigrateApplyOption
   const text = readFileSync(path, 'utf8');
   if (text !== r.configChange!.patch) throw new ApplyError(`${want} is not the config change ${short} checked: it changed since. Nothing was changed: apply it by hand if you changed it on purpose, or run the migration again`);
   const switched = new Set(r.configChange!.files.map((f) => slashes(f.path)));
-  // The patch names files from the folder migrate ran in, which may be inside the repository.
-  const prefix = relative(root, o.cwd).split(sep).join('/');
+  // The patch names files from the folder migrate ran in, which may be inside the repository: where,
+  // as git finds it, since the folder's path may be spelled otherwise than the repository's top is
+  // (through a link, or as Windows' short name, C:\Users\RUNNER~1, for C:\Users\runneradmin).
+  const prefix = git(o.cwd, ['rev-parse', '--show-prefix']).stdout.trim().replace(/\/+$/, '');
   const files = patchFiles(text);
   for (const f of files) {
     if (!switched.has(f)) throw new ApplyError(`the config change names ${f}, which is not among the files ${short} switched, so nothing was changed: run the migration again`);
