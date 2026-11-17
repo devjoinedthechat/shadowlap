@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from shadowlap.adapters._claude_hooks import QUERY_SETTINGS, component_files, hook_items, home_of, managed_file_of, project_dirs, settings_documents
+from shadowlap.adapters._claude_hooks import QUERY_SETTINGS, component_files, home_of, hook_items, managed_file_of, project_dirs, settings_documents
 from shadowlap.adapters._frontmatter import UNREADABLE, frontmatter
 
 _MISSING = object()
