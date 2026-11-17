@@ -233,7 +233,7 @@ describe('Settings → Project', () => {
     expect(r.one('#health-help').textContent.replace(/\u00a0/g, ' ')).toBe('1 problem, 1 warning.');
     const rows = r.all('.settab ul.doctor li');
     // What doctor found is set as copy: a file's name with a hyphen in it never splits there.
-    expect(rows[1]!.querySelector('.dd')!.querySelectorAll('ts-w').map((w) => w.textContent)).toEqual(['node-guard.mjs,', 'sitecustomize.py']);
+    expect(rows[1].querySelector('.dd')!.querySelectorAll('ts-w').map((w) => w.textContent)).toEqual(['node-guard.mjs,', 'sitecustomize.py']);
     expect(rows.map((li) => [li.querySelector('.st')!.textContent, li.querySelector('b')!.textContent, li.querySelector('.dfix')?.textContent.replace(/\u00a0/g, ' ') ?? null])).toEqual([
       ['ok', 'node', null],
       ['problem', 'network guard', 'Reinstall the shadowlap package; the guard directory ships with it.'],
