@@ -1,4 +1,4 @@
-import { basename, join, resolve } from 'node:path';
+import { basename, posix, resolve } from 'node:path';
 import { applyGoldens, defaultGoldenNames, fixLabelInfo, goldenNamesProblem, goldensFolder, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 
 /**
@@ -61,6 +61,8 @@ export function planCopies(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix
     if (named.has(at)) return { problem: `the recording of ${all[at]!.run} is named twice: give it one --name` };
     named.set(at, given.name);
   }
+  // A golden is named with `/` between its parts on every system, as the store keeps it and the messages say it.
+  const shown = o.goldens.replace(/\\/g, '/').replace(/(.)\/+$/, '$1') || '.';
   const made = defaultGoldenNames({ label: fixLabelInfo(store, fix).label, title: fix.title }, all.length);
   const nameOf = (i: number) => named.get(i) ?? made[i]!;
   const folder = goldensFolder(
@@ -69,7 +71,7 @@ export function planCopies(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix
   );
   const known = all.map((g) => {
     const at = folder.there.find((t) => t.run === g.run)?.at;
-    return g.copied ?? (at ? join(o.goldens, at) : null);
+    return g.copied ?? (at ? posix.join(shown, at) : null);
   });
   for (const [i, name] of named) {
     const at = known[i];
@@ -79,11 +81,11 @@ export function planCopies(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix
   const fresh = all.flatMap((g, i) => (known[i] ? [] : [{ run: g.run, name: nameOf(i) }]));
   const problem = goldenNamesProblem(
     fresh.map((c) => c.name),
-    { folder: o.goldens.split(/[\\/]+/).join('/').replace(/\/+$/, '') || '.', held: folder.held },
+    { folder: shown, held: folder.held },
   );
   if (problem) {
     const c = fresh[problem.at]!;
     return { problem: `${problem.text} Nothing was changed: name the recording of ${c.run} with --name ${c.run}=<name>` };
   }
-  return { copies: all.map((g, i) => ({ run: g.run, source: g.source, to: known[i] ?? join(o.goldens, nameOf(i)) })) };
+  return { copies: all.map((g, i) => ({ run: g.run, source: g.source, to: known[i] ?? posix.join(shown, nameOf(i)) })) };
 }
