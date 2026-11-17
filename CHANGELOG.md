@@ -14,6 +14,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 - **[`shadowlap init`](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/cli.md#init)** finds a project's model SDKs, framework, models, agent command and tools, and prints the steps to a first recording. It suggests an effect for each tool, and warns about a client that bypasses the sidecar or a Node pinned before 18.18.
 - **[`shadowlap doctor`](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/cli.md#doctor)** checks Node and its SQLite, the guard preloads, Python, the store and the configuration, and gives the fix for each problem. It also explains the newest run whose agent loaded no preload. Settings → Project's **Health** runs it and lists each check.
 - **[The Node it needs, in one line](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/cli.md)**. The CLI runs on Node 22.17 or later, not 23, and on another Node says so before it loads. An agent on a Node before 18.18, which refuses the guard's preload, is named the same way.
+- **[Windows, as on Linux and macOS](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/cli.md#run)**. Paths shadowlap shows or keeps take `/` there too, and a short folder name reads as the one git names. `migrate` takes fields out of CRLF files. Under block, the Python guard lets asyncio start. A store or dashboard that fails to open lets go of its files.
 
 #### Record
 
