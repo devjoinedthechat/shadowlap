@@ -1,0 +1,59 @@
+name: Windows probe
+
+# Temporary: runs the test files that failed on Windows, and the steps after the suite, on each
+# push to ci/windows, so a fix is seen in minutes rather than after the whole suite. Removed before
+# the branch is merged.
+
+on:
+  push:
+    branches: [ci/windows]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-probe
+  cancel-in-progress: true
+
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/testing/python-constraints.txt
+  PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/testing/python-constraints.txt
+
+jobs:
+  probe:
+    name: probe on windows node 24
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet anthropic openai google-genai boto3 aiohttp websockets aiobotocore
+      - run: npm ci
+      - run: npm run build
+      - name: Files that failed
+        shell: bash
+        run: npx vitest run $(cat .github/windows-probe-files.txt)
+      - name: Python SDK tests
+        if: always()
+        working-directory: sdks/python
+        shell: bash
+        run: |
+          python -m pip install --quiet pytest trio anyio -e .
+          python -m pytest -q
+      - name: SDK conformance
+        if: always()
+        run: node --test --test-reporter=spec testing/conformance/conformance.test.mjs
+      - name: shadowlap test (offline golden replay)
+        if: always()
+        shell: bash
+        run: |
+          node packages/cli/bin/shadowlap.js --db "$(mktemp -d)/shadowlap.db" test testing/golden/reference-agent --junit shadowlap-junit.xml
+          grep -q 'failures="0"' shadowlap-junit.xml
