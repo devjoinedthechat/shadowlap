@@ -126,7 +126,8 @@ describe.skipIf(!PYTHON)('Python SDK', () => {
     const { stdout, stderr } = await promisify(execFile)(PYTHON!, ['-m', 'unittest', 'discover', '-s', tests, '-p', 'test_*.py'], { encoding: 'utf8', env: { ...process.env, MYPY_CACHE_DIR: cache } }).finally(() => rmSync(cache, { recursive: true, force: true }));
     // Tests that need pytest are skipped where the interpreter has none: OK (skipped=N) passes too.
     expect(`${stdout}${stderr}`).toMatch(/\nOK( \(skipped=\d+\))?\s*$/);
-  });
+    // The whole Python suite, mypy's checks among it: 10 to 30 s on a laptop, longer on CI's Macs beside the rest of the suite.
+  }, 120_000);
 
   it('fails tools as --fail-at asks, sync and async, without running them', async () => {
     const calls = store.getCalls(recording.runId);
