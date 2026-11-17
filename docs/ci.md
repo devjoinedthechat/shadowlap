@@ -551,7 +551,7 @@ The shadowlap action is the one step to add after your agent is built, as the [q
 - **The job summary** gets a table of the recordings, and for each failure the diff of the first changed request, the normalizer hint if there is one, and the agent's last output lines. When a recording diverged, it names the `shadowlap test <dir> --update` command for a change you meant.
 - **Annotations.** Each failure is also annotated on the pull request.
 - **Python.** A Python agent needs its interpreter and packages installed before the action, as for any other step.
-- **Node.** The action itself needs Node 22.16 or later, not 23, on the runner.
+- **Node.** The action itself needs Node 22.17 or later, not 23, on the runner.
 
 The action reads `tests` from `shadowlap.config.json` in the working directory. A recording marked `fork` calls the providers after the fork, so pass their keys to the step as environment variables (`env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`).
 
@@ -868,7 +868,7 @@ A fix changes what the agent sends, so a golden that must replay exactly would d
 
 ### Set it up
 
-These are the steps of a job of their own: the branch checked out, Node 22.16 or later, the agent's dependencies (put your project's in place of `npm ci && npm run build`), then the action:
+These are the steps of a job of their own: the branch checked out, Node 22.17 or later, the agent's dependencies (put your project's in place of `npm ci && npm run build`), then the action:
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write, actions: write }
@@ -905,7 +905,7 @@ The job needs:
 | `github-token`, or `actions: write` and a `workflow_dispatch:` trigger | For the pull request's checks to start ([how they start](#how-a-fix-pull-requests-checks-start)) |
 | With Push from CI on, the bucket's credentials | So each fix reaches the [team store](#fixes-in-the-team-store) too |
 | A branch checked out, as the first step does | So the fix becomes a pull request into it ([below](#the-branch-it-checks-out)) |
-| Node 22.16 or later on the runner, not 23 | The second step sets it up |
+| Node 22.17 or later on the runner, not 23 | The second step sets it up |
 
 The YAML's first two comments say the same of the permissions and the trigger.
 
@@ -1135,7 +1135,7 @@ They need:
 - an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here);
 - the test step's `id`;
 - `pull-requests: write` in the job's `permissions`, for the action's [comment](#the-pull-request-comment) on a pull request, with `contents: read`, which a `permissions:` of your own otherwise takes away from the checkout;
-- Node 22.16 or later, not 23.
+- Node 22.17 or later, not 23.
 
 **Keys for goldens that run live.** A golden that runs live, one marked `fork` (a gate's golden is one) or with an [injection gate](#injection-gates), needs its providers' keys in the test step's `env`. Otherwise it fails, and Slack hears of it on every run. The dashboard's Settings → CI adds them by name, from the providers those goldens' recordings called and their judges' (`2 goldens run live (fork) · ANTHROPIC_API_KEY`). Where it can't name them, a comment in that `env` says to add your agent's own.
 

@@ -62,7 +62,7 @@ npm install -g shadowlap
 shadowlap demo
 ```
 
-The CLI needs Node 22.16 or later, not 23.
+The CLI needs Node 22.17 or later, not 23.
 
 `shadowlap demo` runs the whole loop in about half a minute. It records a refund agent breaking its policy, replays it with no upstream requests, finds the call that lost the run, then proposes, proves and applies a fix. Its model is a local stand-in with scripted answers, so the demo needs no key and comes out the same every time. The pictures in this README are made the same way, with the real CLI, dashboard and terminal UI.
 
@@ -79,7 +79,7 @@ shadowlap init
 # Node 18.18+
 npm install @shadowlap/sdk         # wrap tools
 npm install @shadowlap/adapters    # wrap them in your framework
-# Node 22.16+, not 23
+# Node 22.17+, not 23
 npm install -D @shadowlap/test     # record tests in Vitest, Jest or node:test
 # Python 3.9+
 pip install shadowlap              # all three in one package

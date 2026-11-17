@@ -133,4 +133,17 @@ describe('Gemini provider', () => {
     expect(result.toolErrors).toEqual(['send_email: ShadowlapWriteBlocked']);
     expect(sent).toBe(1);
   });
+
+  it('records a call on the v1 API as on v1beta: google-genai 3.x for Python asks for v1 unless told otherwise', async () => {
+    const run = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    process.env.SHADOWLAP_RUN_ID = run.runId;
+    const ai = new GoogleGenAI({ apiKey: 'AIza-test', apiVersion: 'v1' });
+    const res = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'Research shadowlap.' });
+    sidecar.endRun(run.runId, 'completed');
+    expect(res.functionCalls?.map((c) => c.name)).toEqual(['search_web']);
+    expect(mock.requests.at(-1)?.path).toBe('/v1/models/gemini-2.5-flash:generateContent');
+    const api = store.getCalls(run.runId).filter((c) => c.kind === 'api');
+    expect(api.map((c) => c.name)).toEqual(['POST /v1/models/gemini-2.5-flash:generateContent']);
+    expect(api[0]?.end?.meta).toMatchObject({ provider: 'gemini', stopReason: 'STOP' });
+  });
 });

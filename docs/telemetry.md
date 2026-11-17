@@ -54,7 +54,7 @@ It ships so that a team running shadowlap can see its own numbers; whether the d
 
 ## Hosting your own
 
-Install the collector from npm, and start it. It needs Node 22.16 or later, not 23.
+Install the collector from npm, and start it. It needs Node 22.17 or later, not 23.
 
 ```sh
 npm install -g @shadowlap/collector

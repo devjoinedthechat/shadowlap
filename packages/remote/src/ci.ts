@@ -89,7 +89,7 @@ function ownFolderNote(request: 'pull request' | 'merge request'): string {
 }
 
 /**
- * The steps before the tests on GitHub: the repository, Node 22.16 or later and not 23 (the CLI
+ * The steps before the tests on GitHub: the repository, Node 22.17 or later and not 23 (the CLI
  * says so on another), and the agent's own dependencies, which only the project knows: a
  * placeholder to make its own. The checkout keeps no token in the repository's git config, where
  * the agent the tests run could read it: nothing after it needs one.

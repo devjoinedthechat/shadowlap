@@ -1,5 +1,5 @@
 {
-  // The GitHub Action, which runs as plain JavaScript in a workflow (on Node 22.16 or later, as
+  // The GitHub Action, which runs as plain JavaScript in a workflow (on Node 22.17 or later, as
   // action.yml requires), type-checked from its JSDoc. The shapes it works with are in types.d.mts,
   // and `@import` brings in what it shares with the packages: the `test --json` report it reads is
   // the CLI's own type (PackResult), so the two can't drift.

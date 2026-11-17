@@ -35,8 +35,9 @@ the [exit statuses](#exit-status), the [JSON output](#json-output), the
 
 ## Requirements
 
-The CLI runs on Node 22.16 or later, but not on Node 23. That is because every store keeps a full-text
-index, which Node's built-in SQLite has from 22.16 on, and in 24 and later.
+The CLI runs on Node 22.17 or later, but not on Node 23. Node 23's built-in SQLite has no full-text
+search, which every store's index needs. Node 22.16 has it, but crashes `shadowlap ui` when its
+terminal closes.
 
 - **Another Node**: the CLI names the Node it needs and exits 2.
 - **A SQLite without full-text search**: a Node in that range can have a SQLite built without it,

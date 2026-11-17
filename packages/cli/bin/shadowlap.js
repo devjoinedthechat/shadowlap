@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Every store has a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and
-// later, never in 23. The Node is checked before the CLI loads, so an older one is named in one line
-// rather than failing at the first store it opens. A Node it can't run on is how this machine is set
-// up, so it ends with 2, as any configuration shadowlap can't use does (docs/cli.md, Exit status).
+// later, never in 23; and 22.16 itself crashes `shadowlap ui` when its terminal closes. The Node is
+// checked before the CLI loads, so another one is named in one line rather than failing at the first
+// store it opens. A Node it can't run on is how this machine is set up, so it ends with 2, as any
+// configuration shadowlap can't use does (docs/cli.md, Exit status).
 const [major, minor] = process.versions.node.split('.').map(Number);
-if (!((major === 22 && minor >= 16) || major >= 24)) {
-  console.error(`shadowlap: needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this is Node.js ${process.versions.node}`);
+if (!((major === 22 && minor >= 17) || major >= 24)) {
+  console.error(`shadowlap: needs Node.js 22.17 or later (not 23, whose built-in SQLite has no full-text search); this is Node.js ${process.versions.node}`);
   process.exit(2);
 }
 

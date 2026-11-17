@@ -28,7 +28,7 @@ What is least likely: large refactors, additional subsystems, and additional dep
 
 ## Set up
 
-You need Node 22.16 or later, not 23. Python 3.9 or later is needed only if you touch `sdks/python`.
+You need Node 22.17 or later, not 23. Python 3.9 or later is needed only if you touch `sdks/python`.
 
 ```sh
 git clone https://github.com/devjoinedthechat/shadowlap
@@ -100,7 +100,7 @@ What changes in the real `~/.shadowlap` while the tests run fails the run under 
 
 ## What CI runs
 
-CI runs all of it with Node 22 and 24, and the build, the tests and the CLI end to end (the golden replay, record, replay and fork) on Node 22.16.0 too, the oldest Node the packages support.
+CI runs all of it with Node 22 and 24, and the build, the tests and the CLI end to end (the golden replay, record, replay and fork) on Node 22.17.0 too, the oldest Node the packages support.
 
 Every push to main and every pull request runs it on Linux. macOS and Windows join a run started by hand (Actions, then CI, then Run workflow) while the repository is private, and every run once it is public. `.github/workflows/scope.yml` decides, and the framework suites, the coding-agent commands and the local model run on the same terms.
 
