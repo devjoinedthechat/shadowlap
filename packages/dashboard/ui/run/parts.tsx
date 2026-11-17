@@ -9,6 +9,7 @@ import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { outcomeOf, runType, TODAY } from '../runs.js';
 import { PageHeader, SrSpace } from '../components/bits.js';
+import { Command } from '../components/Copy.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
 import { Skeleton } from '../components/States.js';
@@ -224,7 +225,8 @@ export function ScopeBar({ run, scopes, scope, judge, onScope, blame = null }: {
       </div>
       {hint ? (
         <span className="shint">
-          {hint.lead}: <code>shadowlap blame {shortId(run.run.runId)} --scope {hint.scope}</code>
+          {/* A command in a line: it breaks only between its arguments, `--scope` kept with its value. */}
+          {hint.lead}: <Command cmd={`shadowlap blame ${shortId(run.run.runId)} --scope ${hint.scope}`} inline />
           {/* Where the run can be blamed, a press runs it: its ask opens with that agent picked. */}
           {blame ? (
             <>

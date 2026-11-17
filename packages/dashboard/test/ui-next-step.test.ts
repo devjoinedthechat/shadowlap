@@ -686,6 +686,8 @@ describe('the Agents bar’s Run blame', () => {
     // Where it can't be blamed, the hint says the command alone.
     page = await render(bar(app(), null));
     expect(page.one('.shint').textContent).toBe(`Blame only the agent, not the customer it answers: shadowlap blame ${REC.slice(0, 10)} --scope agent`);
+    // set as a command: the flag kept whole with its value, so `--scope` never breaks after a hyphen
+    expect(page.one('.shint code.ts-cmd .cf').textContent).toBe('--scope ');
     await page.unmount();
     const { a, started } = jobs();
     page = await render(bar(a, blame));
