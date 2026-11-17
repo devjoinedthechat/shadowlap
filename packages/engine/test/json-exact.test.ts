@@ -53,7 +53,8 @@ describe('JSON with exact numbers', () => {
     expect(() => parseJsonExact('{"s":"unclosed')).toThrow(SyntaxError);
   });
 
-  it('reads a request with no such number about as fast as JSON.parse: CPU time against it, on 4 MB', () => {
+  // Under coverage V8 counts every block parseJsonExact runs and nothing JSON.parse does: the ratio would time the counting.
+  it.skipIf(process.env.SHADOWLAP_TEST_COVERAGE)('reads a request with no such number about as fast as JSON.parse: CPU time against it, on 4 MB', () => {
     const messages = Array.from({ length: 3000 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: 'word '.repeat(200) }, { type: 'tool_result', tool_use_id: `t${i}`, content: JSON.stringify({ id: i, score: i / 7 }) }], meta: { n: i, f: i + 0.5 } }));
     const text = JSON.stringify({ model: 'm', max_tokens: 1024, messages });
     const cpu = (read: () => unknown) => {
