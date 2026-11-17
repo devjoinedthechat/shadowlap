@@ -1,4 +1,4 @@
-import { componentFiles, hookItems, managedFileOf, projectDirs, settingsDocuments, type SettingsDocument, type SettingsPlaces } from './claude-hooks.js';
+import { componentFiles, homeOf, hookItems, managedFileOf, projectDirs, settingsDocuments, type SettingsDocument, type SettingsPlaces } from './claude-hooks.js';
 import { frontmatter } from './frontmatter.js';
 import { isObject } from './is-object.js';
 import { load } from './load.js';
@@ -178,13 +178,14 @@ class Reach {
     const path = (await load('node:path')) as Path;
     const os = (await load('node:os')) as typeof import('node:os');
     const cwd = places.cwd ?? process.cwd();
-    return new Reach(query, places, cliEnv, fs, path, cwd, cliEnv.HOME || os.homedir(), await settingsDocuments(places, cwd));
+    return new Reach(query, places, cliEnv, fs, path, cwd, homeOf(cliEnv, os.homedir()), await settingsDocuments(places, cwd));
   }
 
-  /** A file as the summary names it: from the session's folder, or the home folder (`~`), and at most 60 characters. */
+  /** A file as the summary names it: from the session's folder, or the home folder (`~`), with `/` between its parts on every system, and at most 60 characters. */
   short(file: string): string {
     const { cwd, home, path } = this;
-    const rel = file.startsWith(cwd + path.sep) ? file.slice(cwd.length + 1) : file.startsWith(home + path.sep) ? `~${path.sep}${file.slice(home.length + 1)}` : file;
+    const portable = (rel: string) => rel.split(path.sep).join('/');
+    const rel = file.startsWith(cwd + path.sep) ? portable(file.slice(cwd.length + 1)) : file.startsWith(home + path.sep) ? `~/${portable(file.slice(home.length + 1))}` : file;
     return rel.length > 60 ? `…${rel.slice(-59)}` : rel;
   }
 

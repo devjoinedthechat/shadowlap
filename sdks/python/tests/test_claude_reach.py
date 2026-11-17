@@ -5,6 +5,7 @@ what the Claude Code CLI can reach that the network guard can't watch."""
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -26,8 +27,20 @@ PLACE_NAMES = {"managedFile": "managed_file", "addDirs": "add_dirs"}
 
 
 def rooted(value: Any, root: str) -> Any:
-    """``$ROOT`` in every string of a case, as the folder its files are written in."""
-    return json.loads(json.dumps(value).replace("$ROOT", root))
+    """``$ROOT`` in every string of a case, as the folder its files are written in: a path under it,
+    which the case writes with ``/``, as this system writes one (with ``\\`` on Windows)."""
+
+    def native(m: re.Match[str]) -> str:
+        return json.dumps(os.path.join(root, *m.group(1).split("/")[1:]))[1:-1]
+
+    return json.loads(re.sub(r'\$ROOT((?:/[^/\\",\s]+)*)', native, json.dumps(value)))
+
+
+def env_of(case: dict[str, Any], root: str) -> dict[str, str]:
+    """A case's environment, rooted: its HOME is the home folder, which on Windows the CLI takes from
+    USERPROFILE, as Node does."""
+    env: dict[str, str] = rooted(case["env"], root)
+    return {**env, "USERPROFILE": env["HOME"]} if sys.platform == "win32" and "HOME" in env else env
 
 
 class World(unittest.TestCase):
@@ -44,7 +57,7 @@ class World(unittest.TestCase):
 
     @staticmethod
     def places(case: dict[str, Any], root: str) -> dict[str, Any]:
-        return {PLACE_NAMES.get(k, k): v for k, v in rooted({**case["places"], "env": case["env"]}, root).items()}
+        return {PLACE_NAMES.get(k, k): v for k, v in {**rooted(case["places"], root), "env": env_of(case, root)}.items()}
 
 
 class Frontmatter(unittest.TestCase):
@@ -75,7 +88,7 @@ class Reach(World):
             with self.subTest(case["name"]):
                 root = self.world(case["files"])
                 query = {QUERY_NAMES.get(k, k): v for k, v in rooted(case["query"], root).items()}
-                self.assertEqual(claude_reach(query, self.places(case, root), rooted(case["env"], root), case["shadowlapBase"]), rooted(case["expect"], root))
+                self.assertEqual(claude_reach(query, self.places(case, root), env_of(case, root), case["shadowlapBase"]), rooted(case["expect"], root))
 
 
 if __name__ == "__main__":
