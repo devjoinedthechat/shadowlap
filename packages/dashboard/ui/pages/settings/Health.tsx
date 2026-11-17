@@ -1,6 +1,6 @@
 import { JOB_KINDS, type Client } from '../../api.js';
 import { ActionButton } from '../../components/ActionButton.js';
-import { Copy } from '../../components/Copy.js';
+import { Copy, Words } from '../../components/Copy.js';
 import { Status } from '../../components/Status.js';
 import { DOCTOR_WORDS, doctorChecks, doctorSum, type DoctorCheck } from '../../doctor.js';
 import { useLoad } from '../../hooks.js';
@@ -54,8 +54,15 @@ function Health() {
             <li key={`${i}:${c.name}`}>
               <Status tone={DOCTOR_WORDS[c.verdict].tone}>{DOCTOR_WORDS[c.verdict].word}</Status>
               <b>{c.name}</b>
-              <span className="dd">{c.detail}</span>
-              {c.fix ? <span className="dfix">{c.fix}</span> : null}
+              {/* Its words glued and kept whole: a path breaks only after a slash, and full-text or 512 runs never splits. */}
+              <span className="dd">
+                <Words>{c.detail}</Words>
+              </span>
+              {c.fix ? (
+                <span className="dfix">
+                  <Words>{c.fix}</Words>
+                </span>
+              ) : null}
             </li>
           ))}
         </ul>
