@@ -250,6 +250,20 @@ tcp, udp = int(os.environ["TCP_PORT"]), int(os.environ["UDP_PORT"])
 out = {"connect": drive(loop.sock_connect(socket.socket(), ("127.0.0.1", tcp)))}
 if hasattr(loop, "sock_sendto"):
     out["sock_sendto"] = drive(loop.sock_sendto(socket.socket(socket.AF_INET, socket.SOCK_DGRAM), b"x", ("127.0.0.1", udp)))
+# A datagram transport hands a failed send to its protocol, as the selector loop's does.
+class Errors(asyncio.DatagramProtocol):
+    def __init__(self):
+        self.errors = []
+    def error_received(self, exc):
+        self.errors.append(exc)
+p = Errors()
+t = pe._ProactorDatagramTransport(loop, socket.socket(socket.AF_INET, socket.SOCK_DGRAM), p)
+if os.environ.get("SHADOWLAP_GUARD") == "block":
+    try:
+        t.sendto(b"x", ("127.0.0.1", udp))
+        out["transport_sendto"] = "error:%s" % errno.errorcode.get(p.errors[0].errno, p.errors[0].errno) if p.errors else "ok"
+    except OSError as e:
+        out["transport_sendto"] = "raised:%s" % errno.errorcode.get(e.errno, e.errno)
 out["asked"] = proactor.asked
 loop.close()
 print(json.dumps(out))
@@ -257,6 +271,7 @@ print(json.dumps(out))
     const blocked = await guarded([...PYTHON!, '-c', script], 'block');
     expect(blocked.out.connect).toBe('error:EPERM');
     if ('sock_sendto' in blocked.out) expect(blocked.out.sock_sendto).toBe('error:EPERM');
+    expect(blocked.out.transport_sendto).toBe('error:EPERM');
     expect(blocked.out.asked).toEqual([]);
     expect(blocked.unguarded.find((u) => u.target === `127.0.0.1:${tcpPort}`)).toMatchObject({ action: 'blocked' });
     const warned = await guarded([...PYTHON!, '-c', script], 'warn');

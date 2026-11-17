@@ -327,7 +327,13 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
             def guarded_sendto(self: Any, data: Any, addr: Any = None) -> Any:
                 if addr is not None:
-                    _check(self._sock, addr)
+                    try:
+                        _check(self._sock, addr)
+                    except OSError as refused:
+                        # A datagram transport hands a failed send to its protocol, never to its caller,
+                        # as the selector loop's does with the socket's refusal.
+                        self._protocol.error_received(refused)
+                        return None
                 return sendto(self, data, addr)
 
             setattr(transport, "sendto", guarded_sendto)
