@@ -6,6 +6,7 @@ import { Checks } from './Checks.js';
 import { rowOpen } from '../components/Table.js';
 import { glossed } from '../components/Term.js';
 import { dotParts, RuleText } from '../components/Verdict.js';
+import { wholeCounts, wholeTallies } from '../format.js';
 import { changedLine, sourceText } from '../goldens.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
@@ -167,16 +168,21 @@ const partWords = (text: string) =>
 /**
  * The last result's line, broken only after a dot with its tally and bound kept whole, each part
  * through the glossary, so the first bound on the page is a defined term (Term decides which is first).
+ * A part that may wrap (on a phone, every part past 18 characters) keeps a tally whole and a count
+ * with its unit: "0 of 5 attempts passed" breaks before "passed", never after "5".
  */
 function LastLine({ text }: { text: string }) {
   return (
     <>
-      {dotParts(text, 18, 24).map((p, i) => (
-        <Fragment key={i}>
-          {i ? ' ' : null}
-          {p.keep ? <span className={p.keep === 'whole' ? 'nw' : 'kc'}>{partWords(p.text)}</span> : partWords(p.text)}
-        </Fragment>
-      ))}
+      {dotParts(text, 18, 24).map((p, i) => {
+        const words = partWords(p.keep === 'whole' ? p.text : wholeCounts(wholeTallies(p.text)));
+        return (
+          <Fragment key={i}>
+            {i ? ' ' : null}
+            {p.keep ? <span className={p.keep === 'whole' ? 'nw' : 'kc'}>{words}</span> : words}
+          </Fragment>
+        );
+      })}
     </>
   );
 }
