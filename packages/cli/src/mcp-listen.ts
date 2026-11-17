@@ -463,7 +463,8 @@ export function sessionRun(client: ClientEnd, cwd: string, skip: DiscoverySkip =
   if (active && !runs.has(active.runId)) runs.set(active.runId, { target: active, from: join(cwd, '.shadowlap', 'active.json') });
   const all = [...runs.values()];
   if (all.length === 1) return { kind: 'sidecar', target: all[0]!.target, from: all[0]!.from };
-  if (all.length > 1) return { kind: 'unusable', reason: `${all.length} shadowlap runs are active (${all.map((r) => r.target.runId.slice(0, 10)).join(', ')}), and which one this session's client belongs to can't be told` };
+  // Named in the order of their ids: the folder they register in is read in no order of its own.
+  if (all.length > 1) return { kind: 'unusable', reason: `${all.length} shadowlap runs are active (${all.map((r) => r.target.runId.slice(0, 10)).sort().join(', ')}), and which one this session's client belongs to can't be told` };
   return { kind: 'none' };
 }
 
