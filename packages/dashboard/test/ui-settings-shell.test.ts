@@ -232,7 +232,10 @@ describe('Settings → Project', () => {
     await r.until('its checks', () => r!.all('.settab ul.doctor li').length === 3);
     expect(r.one('#health-help').textContent.replace(/\u00a0/g, ' ')).toBe('1 problem, 1 warning.');
     const rows = r.all('.settab ul.doctor li');
-    expect(rows.map((li) => [li.querySelector('.st')!.textContent, li.querySelector('b')!.textContent, li.querySelector('.dfix')?.textContent ?? null])).toEqual([
+    // What doctor found is set as copy: a file's name with a hyphen in it never splits there, and a path is code, breaking only after a slash.
+    expect(rows[1].querySelector('.dd')!.querySelectorAll('ts-w').map((w) => w.textContent)).toEqual(['node-guard.mjs,', 'sitecustomize.py']);
+    expect(rows[1].querySelector('.dd')!.querySelectorAll('code').map((w) => w.textContent)).toEqual(['/opt/shadowlap/guard/']);
+    expect(rows.map((li) => [li.querySelector('.st')!.textContent, li.querySelector('b')!.textContent, li.querySelector('.dfix')?.textContent.replace(/\u00a0/g, ' ') ?? null])).toEqual([
       ['ok', 'node', null],
       ['problem', 'network guard', 'Reinstall the shadowlap package; the guard directory ships with it.'],
       ['warning', 'python', 'Only needed for Python agents; the Python SDK requires Python ≥ 3.9.'],

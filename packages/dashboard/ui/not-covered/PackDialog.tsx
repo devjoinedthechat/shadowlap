@@ -97,12 +97,8 @@ export function PackDialog({ group: g, fork, onClose }: PackDialogProps) {
         {
           label: 'Changes',
           value: 'your working tree',
-          quiet: (
-            <>
-              a golden’s folder under <code>goldens/</code>
-              {fork ? ', and its entry in shadowlap.config.json with your checks' : null}
-            </>
-          ),
+          // Words, so the row keeps `under` with the folder's name, which never ends it alone.
+          quiet: `a golden’s folder under \`goldens/\`${fork ? ', and its entry in shadowlap.config.json with your checks' : ''}`,
         },
         { label: 'Tools', value: 'answered from the capture', quiet: 'a tool with no result there runs live, writes stubbed' },
       ]}

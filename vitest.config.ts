@@ -2,6 +2,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
+/** Whether this run counts coverage (`vitest run --coverage`, CI's coverage job), which the tests read as SHADOWLAP_TEST_COVERAGE. */
+const COVERAGE = process.argv.some((a) => /^--coverage(\.enabled)?(=true)?$/.test(a));
+
 /** The repository's root, where every run's paths start. */
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const src = (pkg: string) => fileURLToPath(new URL(`./packages/${pkg}/src/index.ts`, import.meta.url));
@@ -54,8 +57,11 @@ export function testsIn(folder = ROOT) {
       // Each test file a home of its own in the run's, which the processes it starts inherit, and the guard
       // that fails a test writing in the real home's shadowlap files, or starting a process to (home-guard.mjs).
       setupFiles: ['./testing/file-home.mjs'],
-      // Python, which the guard's and the SDK's tests start, writes no __pycache__ beside what it imports.
-      env: { PYTHONDONTWRITEBYTECODE: '1' },
+      // Python, which the guard's and the SDK's tests start, writes no __pycache__ beside what it imports. Under
+      // coverage V8 counts each block of the packages' code and none of what native code runs, so a test timing the one
+      // against the other (JSON.parse) has nothing to time, and a long simulation needs longer: SHADOWLAP_TEST_COVERAGE
+      // says so.
+      env: { PYTHONDONTWRITEBYTECODE: '1', ...(COVERAGE ? { SHADOWLAP_TEST_COVERAGE: '1' } : {}) },
       // A JUnit report alongside the usual output, so a failure survives the run. Test files execute
       // in parallel workers, and a summary line scrolling past in a CI log is how an intermittent
       // failure becomes "something failed once" instead of a name you can act on. No `retry`: a flake

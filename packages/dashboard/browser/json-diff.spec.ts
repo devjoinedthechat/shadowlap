@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, RESET_RETRY, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, PHONE_TEXT, RESET_RETRY, seriousViolations } from './dashboard.js';
 
 /**
  * Show diff in the inspector's place (ui/run/RequestDiff.tsx): the request a fork or a diverged test
@@ -11,6 +11,8 @@ import { dash, demoId, openPage, RESET_RETRY, seriousViolations } from './dashbo
 
 // A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
 test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+// Its user id's lines are read at a phone's 390 and 360, laid out as a phone lays them out.
+test.use(PHONE_TEXT);
 
 /** Presses Show diff and waits for the structural diff to draw. */
 async function showDiff(page: Page): Promise<void> {

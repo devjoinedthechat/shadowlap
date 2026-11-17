@@ -39,6 +39,14 @@ export function demoId(name: string): string {
  */
 export const RESET_RETRY = { maxRetries: 1 } as const;
 
+/**
+ * For a file of phone widths: text laid out as a phone lays it, at fractional advances. Headless Chromium on
+ * Linux at 1x rounds each glyph's advance to a whole pixel (12.5px JetBrains Mono takes 8px a character, not 7.5),
+ * as a Linux desktop does and no phone does; this switch turns that off. macOS never rounds, so there it changes
+ * nothing. Files at a desk's widths keep Linux's own layout.
+ */
+export const PHONE_TEXT = { launchOptions: { args: ['--font-render-hinting=none'] } };
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
@@ -65,8 +73,9 @@ export interface Served {
 export async function serveDashboard(demo: string, project: string): Promise<Served & { stop: () => Promise<void> }> {
   const port = await freePort();
   // No provider's key reaches the dashboard a test drives, so listing the models a switch can take, or
-  // anything else it does, never asks a real provider.
-  const keyless = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/_(API_KEY|AUTH_TOKEN)$/.test(k)));
+  // anything else it does, never asks a real provider. Nor does a CI marker or this machine's SHADOWLAP_AUTHOR: in
+  // CI the dashboard would take `ci` for its user, where "you" is the demo project's git user, as on a person's machine.
+  const keyless = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/_(API_KEY|AUTH_TOKEN)$|^(CI|GITHUB_ACTIONS|GITLAB_CI|BUILDKITE|CIRCLECI|JENKINS_URL|TF_BUILD|BITBUCKET_BUILD_NUMBER|SHADOWLAP_AUTHOR)$/.test(k)));
   const env = { ...keyless, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
   const child = spawn(process.execPath, [cli, 'dashboard', '--no-open', '--port', String(port)], { cwd: join(demo, project), env, stdio: ['ignore', 'ignore', 'pipe'] });
   const link = await new Promise<string>((resolve, reject) => {

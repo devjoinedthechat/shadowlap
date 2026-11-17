@@ -465,6 +465,13 @@ describe('Tests\' states, parts and keys', () => {
     expect(all(passes, '.rsub > .nw').map((p) => p.textContent.split('The tally')[0])).toEqual(['passed ·', '12 of 12 ·', 'rate >= 0.78 (95%)']);
   });
 
+  it('keeps a tally whole and a count with its unit in a last line’s part that may wrap, and a part kept whole as written', async () => {
+    const line = 'failed · 0 of 5 attempts passed';
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, line } } : row)) }));
+    const passes = page.all('table.gt tbody tr[data-rowkey]').find((tr) => one(tr, 'code.gn').textContent === 'passes')!;
+    expect([all(passes, '.rsub > .nw').map((p) => p.textContent), all(passes, '.rsub > .kc').map((p) => p.textContent)]).toEqual([['failed ·'], ['0\u00a0of\u00a05\u00a0attempts passed']]);
+  });
+
   it('keys each golden by where it leads, and offers on ⌘K what its report offers, pressing the report\'s own button', async () => {
     const RUN = '01M5H2DKE9AAAAAAAAAAAAAAAA';
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/judged' ? { ...row, runId: RUN } : row)) }));

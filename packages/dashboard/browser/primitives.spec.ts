@@ -136,6 +136,25 @@ test('breaks a command only between its arguments, a long one whole where its li
   }
 });
 
+test('breaks a short JSON argument from its flag where the two don’t fit a line together, each kept whole inside its box', async ({ page }) => {
+  // Where each piece kept whole ends past the box's content edge, by how much: none may reach into its padding.
+  const past = () =>
+    page.evaluate(() => {
+      const box = document.querySelector<HTMLElement>('#expect .cmdline')!;
+      const cs = getComputedStyle(box);
+      const edge = box.getBoundingClientRect().right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+      return [...box.querySelectorAll('.nw')].filter((el) => el.getBoundingClientRect().right > edge + 0.5).map((el) => el.textContent);
+    });
+  await open(page, 682);
+  // a line holds the two: the flag keeps its value, its space inside it
+  await expect(page.locator('#expect .cf')).toHaveText('--expect ');
+  expect(await past()).toEqual([]);
+  // 30 characters of JSON fit a line, not with `--expect ` before them: the line breaks after the flag
+  await setWidth(page, 300);
+  await expect(page.locator('#expect .cf')).toHaveText('--expect');
+  expect(await past()).toEqual([]);
+});
+
 test('draws more than six attempts as a strip axe finds no fault in, at a desk and on a phone', async ({ page }) => {
   await open(page, 900);
   expect(await page.locator('#attempts .astrip .ac').count()).toBe(12);
