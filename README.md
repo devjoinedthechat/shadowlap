@@ -44,17 +44,6 @@ shadowlap records your agent's model calls and the tools you wrap, then re-runs 
   <sub>Record, replay, blame and fix, in the real CLI (<a href="scripts/demo-svg.mjs">source</a>).</sub>
 </p>
 
-## Highlights
-
-- **[Exact replays](docs/how-it-works.md).** A failing run replays call for call, offline, with no real key.
-- **[What-ifs at any call](docs/interventions.md).** Override a result, switch the model, plant an instruction.
-- **[Blame](docs/blame.md).** Finds the model call that lost the run, and says how sure it is.
-- **[Proven fixes](docs/verify.md).** A fix is proposed, then proven on failing, held-out and good runs.
-- **[Goldens in CI](docs/ci.md).** Runs become offline tests, and the Action proposes a fix when one fails.
-- **[Model and prompt changes](docs/decisions.md).** See which decisions change before you ship one.
-- **[Dashboard](docs/dashboard.md) and [terminal UI](docs/tui.md).** Step through a run, fork from any call, compare runs.
-- **And more:** [injection tests](docs/injection.md), [error paths](docs/error-paths.md), [bisect](docs/cli.md#bisect), [coverage](docs/coverage.md), [production traffic](docs/gateways.md), a [team store](docs/team.md), [training data](docs/training.md).
-
 ## Quickstart
 
 ```sh
@@ -64,58 +53,7 @@ shadowlap demo
 
 The CLI needs Node 22.17 or later, not 23.
 
-`shadowlap demo` runs the whole loop in about half a minute. It records a refund agent breaking its policy, replays it with no upstream requests, finds the call that lost the run, then proposes, proves and applies a fix. Its model is a local stand-in with scripted answers, so the demo needs no key and comes out the same every time. The pictures in this README are made the same way, with the real CLI, dashboard and terminal UI.
-
-### Set up your agent
-
-```sh
-cd your-agent
-shadowlap init
-```
-
-`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Tools need the SDK for your language:
-
-```sh
-# Node 18.18+
-npm install @shadowlap/sdk         # wrap tools
-npm install @shadowlap/adapters    # wrap them in your framework
-# Node 22.17+, not 23
-npm install -D @shadowlap/test     # record tests in Vitest, Jest or node:test
-# Python 3.9+
-pip install shadowlap              # all three in one package
-```
-
-Wrap each tool where you define it, and declare its effect: `read`, `write` or `pure`.
-
-```ts
-import { tool } from '@shadowlap/sdk';
-
-export const issueRefund =
-  tool('issue_refund', { effect: 'write' }, refund);
-```
-
-```python
-from shadowlap import tool
-
-@tool(effect="read")
-def lookup_order(order_id): ...
-```
-
-Outside shadowlap the wrapper only calls your function, so wrapped tools ship unchanged.
-
-A tool you don't wrap runs for real on every replay, and `run` names each one.
-
-A replay won't run one that writes, or one whose effect nothing declares, until you wrap it, declare its effect in `tools.unrecorded`, or pass `--allow-unrecorded` to run it anyway.
-
-### Record and replay
-
-```sh
-shadowlap run -- node agent.mjs   # record, with your usual key
-shadowlap replay <run>            # replay it; no real key if clean
-shadowlap dashboard               # step through it in your browser
-```
-
-The [quickstart](docs/quickstart.md) walks through each step and what it prints.
+`shadowlap demo` runs the whole loop in about half a minute. It records a refund agent breaking its policy, replays it with no upstream requests, finds the call that lost the run, then proposes, proves and applies a fix. Its model is a scripted stand-in, so the demo needs no key and comes out the same every time. The pictures in this README are made the same way, with the real CLI, dashboard and terminal UI.
 
 ## From failure to proof
 
@@ -154,7 +92,7 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 …
 ```
 
-[Verify](docs/verify.md) accepts a fix only when it fixes the failing runs, held-out runs included, and leaves no good run 10 points or more worse, at 5% risk a run. It exits 0 when it accepts, 1 when it rejects and 3 when it can't decide. `shadowlap verify` proves a fix you wrote yourself the same way.
+[Verify](docs/verify.md) accepts a fix only when it fixes the failing runs, held-out runs included, and leaves no good run 10 points or more worse, at 5% risk a run. `shadowlap verify` proves a fix you wrote yourself the same way.
 
 `--repairer anthropic` needs the Anthropic SDK beside the CLI: `npm install -g @anthropic-ai/sdk`.
 
@@ -194,19 +132,54 @@ On GitHub, add one step after checkout, Node setup and your build ([full workflo
 
 With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix for a golden that fails, verifies it on your goldens and opens a pull request with it. On pull requests, it keeps one comment with each golden's verdict.
 
+## Use it on your agent
+
+```sh
+cd your-agent
+shadowlap init
+```
+
+`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Tools need the SDK for your language:
+
+```sh
+# Node 18.18+
+npm install @shadowlap/sdk         # wrap tools
+npm install @shadowlap/adapters    # wrap them in your framework
+# Node 22.17+, not 23
+npm install -D @shadowlap/test     # record tests in Vitest, Jest or node:test
+# Python 3.9+
+pip install shadowlap              # all three in one package
+```
+
+Wrap each tool where you define it, and declare its effect: `read`, `write` or `pure`. Outside shadowlap the wrapper only calls your function, so wrapped tools ship unchanged.
+
+```ts
+import { tool } from '@shadowlap/sdk';
+
+export const issueRefund =
+  tool('issue_refund', { effect: 'write' }, refund);
+```
+
+```python
+from shadowlap import tool
+
+@tool(effect="read")
+def lookup_order(order_id): ...
+```
+
+Then record and replay:
+
+```sh
+shadowlap run -- node agent.mjs   # record, with your usual key
+shadowlap replay <run>            # replay it; no real key if clean
+shadowlap dashboard               # step through it in your browser
+```
+
+`run` names every tool you haven't wrapped: those run for real on every replay. The [quickstart](docs/quickstart.md) walks through each step and what it prints.
+
 ## Dashboard and terminal UI
 
 `shadowlap dashboard` opens your runs on 127.0.0.1. A failed run opens where it went wrong: at the call blame found it lost, or else where it first failed. Fork from any call, edit a tool's result and fork from there, or compare two runs side by side. A fork's page ranks what it did differently.
-
-<p align="center">
-  <picture>
-    <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fork-phone.png" width="390">
-    <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fork-medium.png" width="640">
-    <img src=".github/assets/readme/dashboard-fork.png" alt="The shadowlap dashboard on a fork of the second agent's refund run: forked at call 17 after lookup_policy's result was overridden with the EU policy, the calls after it escalating with the write blocked, and the request's diff, where refund_limit now reaches the model." width="880">
-  </picture>
-  <br>
-  <sub>What if <code>lookup_policy</code> had returned the EU limit? The run forks at call 17 (<a href="scripts/readme-shots.mjs">source</a>).</sub>
-</p>
 
 `shadowlap ui` brings the same views to your terminal. Each call has conversation, request, response and meta tabs. Press `:` for the what-ifs at the selected call, or to blame, repair or verify the run.
 
@@ -222,6 +195,28 @@ With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix fo
   <br>
   <sub>The terminal UI on the same project: the failed run, a fork and the fork menu (<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
+
+## Also
+
+- **[What-ifs at any call](docs/interventions.md).** Override a result, switch the model, plant an instruction.
+- **[Model and prompt changes](docs/decisions.md).** See which decisions change before you ship one.
+- **And more:** [injection tests](docs/injection.md), [error paths](docs/error-paths.md), [bisect](docs/cli.md#bisect), [coverage](docs/coverage.md), [production traffic](docs/gateways.md), a [team store](docs/team.md), [training data](docs/training.md).
+
+## Integrations
+
+| Area | Works with |
+|:---|:---|
+| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure OpenAI, Amazon Bedrock, Gemini Enterprise Agent Platform (Vertex AI) and Claude on Microsoft Foundry |
+| [Gateways](docs/providers.md) | Vercel's AI Gateway, OpenAI&#8209;compatible servers (Ollama, vLLM, OpenRouter, Groq) and any host that speaks one of these formats |
+| [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the [wire protocol](docs/protocol.md) |
+| [Frameworks (TypeScript)](docs/frameworks.md) | Mastra, Vercel AI SDK, OpenAI Agents SDK, LangChain, LangGraph, Claude Agent SDK, the tool runner in Anthropic's TypeScript SDK |
+| [Frameworks (Python)](docs/frameworks.md) | CrewAI, OpenAI Agents SDK, LangChain, LangGraph, Pydantic AI, Google ADK, LlamaIndex, Microsoft Agent Framework, Strands, smolagents, Agno, Claude Agent SDK |
+| [Test suites](docs/testing.md) | pytest, Vitest, Jest and node:test: a test records once, then replays offline |
+| [MCP](docs/mcp.md) | Servers over stdio or Streamable HTTP, through the `shadowlap mcp` proxy |
+| [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any other CI |
+| [Coding agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot, through JSON output and skills |
+| [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith, Phoenix, Logfire |
+| [Exports](docs/cli.md#export-html) | Packs, one&#8209;file HTML reports, HAR, OpenTelemetry, eval datasets and preference pairs |
 
 ## How it works
 
@@ -247,21 +242,14 @@ shadowlap run -- node agent.mjs
 
 [How it works](docs/how-it-works.md) covers fingerprints, matching, effects and the network guard.
 
-## Integrations
+## Security
 
-| Area | Works with |
-|:---|:---|
-| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure OpenAI, Amazon Bedrock, Gemini Enterprise Agent Platform (Vertex AI) and Claude on Microsoft Foundry |
-| [Gateways](docs/providers.md) | Vercel's AI Gateway, OpenAI&#8209;compatible servers (Ollama, vLLM, OpenRouter, Groq) and any host that speaks one of these formats |
-| [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the [wire protocol](docs/protocol.md) |
-| [Frameworks (TypeScript)](docs/frameworks.md) | Mastra, Vercel AI SDK, OpenAI Agents SDK, LangChain, LangGraph, Claude Agent SDK, the tool runner in Anthropic's TypeScript SDK |
-| [Frameworks (Python)](docs/frameworks.md) | CrewAI, OpenAI Agents SDK, LangChain, LangGraph, Pydantic AI, Google ADK, LlamaIndex, Microsoft Agent Framework, Strands, smolagents, Agno, Claude Agent SDK |
-| [Test suites](docs/testing.md) | pytest, Vitest, Jest and node:test: a test records once, then replays offline |
-| [MCP](docs/mcp.md) | Servers over stdio or Streamable HTTP, through the `shadowlap mcp` proxy |
-| [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any other CI |
-| [Coding agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot, through JSON output and skills |
-| [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith, Phoenix, Logfire |
-| [Exports](docs/cli.md#export-html) | Packs, one&#8209;file HTML reports, HAR, OpenTelemetry, eval datasets and preference pairs |
+- **Local only.** The sidecar and dashboard listen on 127.0.0.1, behind a token. Runs stay in your project.
+- **Keys never stored.** API keys pass through to the provider and are never written.
+- **Masked on the way out.** Every copy of a run masks the credentials shadowlap recognises. Packs, exports, share links and what repair shows its model also apply your redaction rules.
+- **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run, and [what is sent](docs/telemetry.md) never includes prompts or tool data. `DO_NOT_TRACK=1` opts out.
+
+[SECURITY.md](SECURITY.md) lists every safeguard and how to report a vulnerability.
 
 ## Contributing
 
@@ -274,15 +262,6 @@ npx vitest run && npm run typecheck:tests
 # regenerate the README's terminal, examples and pictures
 npm run demo && node scripts/readme-shots.mjs
 ```
-
-## Security
-
-- **Local only.** The sidecar and dashboard listen on 127.0.0.1, behind a token. Runs stay in your project.
-- **Keys never stored.** API keys pass through to the provider and are never written.
-- **Masked on the way out.** Every copy of a run masks the credentials shadowlap recognises. Packs, exports, share links and what repair shows its model also apply your redaction rules.
-- **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run, and [what is sent](docs/telemetry.md) never includes prompts or tool data. `DO_NOT_TRACK=1` opts out.
-
-[SECURITY.md](SECURITY.md) lists every safeguard and how to report a vulnerability.
 
 ## License
 

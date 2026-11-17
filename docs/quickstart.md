@@ -212,6 +212,8 @@ import { tool } from '@shadowlap/sdk';
 export const sendEmail = tool('send_email', { effect: 'write' }, async (args) => mailer.send(args));
 ```
 
+Outside shadowlap the wrapper only calls your function, so wrapped tools ship unchanged. A tool you don't wrap runs for real on every replay, and `run` names each one. A replay won't run one that writes, or one whose effect nothing declares, until you wrap it, declare its effect in `tools.unrecorded`, or pass `--allow-unrecorded` to run it anyway.
+
 Then replay the run:
 
 ```sh

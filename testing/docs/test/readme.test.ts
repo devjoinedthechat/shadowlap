@@ -181,7 +181,7 @@ describe('the README pictures', () => {
     expect(local.length).toBeGreaterThan(10);
     expect(local.filter((t) => !existsSync(join(root, t.path!))).map((t) => t.path), 'pictures the README names that are not here').toEqual([]);
     const sized = local.filter((t) => t.tag.startsWith('<source') && / width="\d+"/.test(t.tag));
-    expect(sized.map((t) => t.path!.replace(/^.*\./, '')).sort()).toEqual(['png', 'png', 'png', 'png', 'svg', 'svg', 'svg', 'svg', 'svg', 'svg', 'svg', 'svg']);
+    expect(sized.map((t) => t.path!.replace(/^.*\./, '')).sort()).toEqual(['png', 'png', 'svg', 'svg', 'svg', 'svg', 'svg', 'svg', 'svg', 'svg']);
     for (const { tag, path } of sized) {
       const file = readFileSync(join(root, path!));
       // A PNG's width is in its header (IHDR), at twice the pixels; an SVG's on its root element.
