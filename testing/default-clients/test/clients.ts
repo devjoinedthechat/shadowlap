@@ -131,10 +131,11 @@ export function workdir(prefix: string): { dir: string; empty: string; remove():
  * `extra`. Azure OpenAI's endpoint is a resource's, and Bedrock's the region's: in-process capture
  * takes their calls by those hosts, offline too, and the sidecar sends them to the fronts. Of the
  * SHADOWLAP_ variables, only the run's own home for this machine's files is kept (testing/no-stray-stores.mjs).
+ * PROMPT, which the agents ask the model, is left out too: on Windows it holds cmd's own prompt ($P$G).
  */
 export function ciEnv(p: Providers, empty: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { ...process.env };
-  for (const k of Object.keys(out)) if ((k.startsWith('SHADOWLAP_') && k !== 'SHADOWLAP_HOME') || k.startsWith('AWS_') || k.startsWith('AZURE_') || CREDENTIALS.includes(k) || k.endsWith('_BASE_URL') || ['CI', 'NODE_OPTIONS', 'XDG_CONFIG_HOME', 'OPENAI_API_VERSION'].includes(k)) delete out[k];
+  for (const k of Object.keys(out)) if ((k.startsWith('SHADOWLAP_') && k !== 'SHADOWLAP_HOME') || k.startsWith('AWS_') || k.startsWith('AZURE_') || CREDENTIALS.includes(k) || k.endsWith('_BASE_URL') || ['CI', 'NODE_OPTIONS', 'XDG_CONFIG_HOME', 'OPENAI_API_VERSION', 'PROMPT'].includes(k)) delete out[k];
   return {
     ...out,
     ANTHROPIC_CONFIG_DIR: empty,

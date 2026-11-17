@@ -12,6 +12,7 @@ others awaits ``after_the_others()``, so no timer decides which answered last.""
 
 import asyncio
 import contextvars
+import os
 import re
 from typing import Any, Callable, Optional
 
@@ -199,8 +200,10 @@ class FakeClaudeCode:
         return {k: v for k, v in given.items() if k in known}
 
     def _path(self, p: Any) -> str:
+        # The project's paths are POSIX ones (/proj); a scratch file the fence names is this
+        # system's, which on Windows starts with a drive.
         s = str(p)
-        return s if s.startswith("/") else f"{self.cwd}/{s}"
+        return s if s.startswith("/") or os.path.isabs(s) else f"{self.cwd}/{s}"
 
     def _validate(self, tool: str, inp: dict[str, Any]) -> Optional[str]:
         if tool == "Read" and self._path(inp["file_path"]) not in self.files:

@@ -25,9 +25,19 @@ afterAll(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
 
-/** `$ROOT` in every string of a case, as the folder its files are written in. */
+/**
+ * `$ROOT` in every string of a case, as the folder its files are written in: a path under it, which
+ * the case writes with `/`, as this system writes one (with `\` on Windows).
+ */
 function rooted<T>(value: T, root: string): T {
-  return JSON.parse(JSON.stringify(value).replaceAll('$ROOT', root)) as T;
+  const text = JSON.stringify(value).replace(/\$ROOT((?:\/[^/\\",\s]+)*)/g, (_, rest: string) => JSON.stringify(join(root, ...rest.split('/'))).slice(1, -1));
+  return JSON.parse(text) as T;
+}
+
+/** A case's environment, rooted: its HOME is the home folder, which on Windows the CLI takes from USERPROFILE, as Node does. */
+function envOf(env: Record<string, string>, root: string): Record<string, string> {
+  const rootedEnv = rooted(env, root);
+  return process.platform === 'win32' && rootedEnv.HOME ? { ...rootedEnv, USERPROFILE: rootedEnv.HOME } : rootedEnv;
 }
 
 /** A folder of the case's own with its files in it, objects written as JSON. */
@@ -54,7 +64,7 @@ describe('the frontmatter of a skill or a subagent', () => {
 describe('the PreToolUse hooks Claude Code runs beside the fence', () => {
   it.each(CASES.hooks.map((c) => [c.name, c] as const))('%s', async (_, c) => {
     const root = world(c.files);
-    const places = rooted({ ...c.places, env: c.env }, root);
+    const places = { ...rooted(c.places, root), env: envOf(c.env, root) };
     expect(await settingsPreToolUse(places, places.cwd!)).toEqual(rooted(c.expect, root));
   });
 });
@@ -62,8 +72,8 @@ describe('the PreToolUse hooks Claude Code runs beside the fence', () => {
 describe('what the Claude Code CLI can reach that the guard can\'t watch', () => {
   it.each(CASES.reach.map((c) => [c.name, c] as const))('%s', async (_, c) => {
     const root = world(c.files);
-    const env = rooted(c.env, root);
-    expect(await claudeReach(rooted(c.query, root), rooted({ ...c.places, env }, root), env, c.shadowlapBase)).toEqual(rooted(c.expect, root));
+    const env = envOf(c.env, root);
+    expect(await claudeReach(rooted(c.query, root), { ...rooted(c.places, root), env }, env, c.shadowlapBase)).toEqual(rooted(c.expect, root));
   });
 });
 
@@ -74,7 +84,7 @@ describe("the query's managedSettings, an embedding host's policy", () => {
 
   it("is taken at its disableAllHooks false, but not at its true, which Claude Code ignores on a machine with managed settings of its own", async () => {
     const root = world({ 'proj/.git/HEAD': 'ref: refs/heads/main\n', 'proj/.claude/settings.json': HOOK, 'home/.claude/settings.json': {} });
-    const env = { HOME: join(root, 'home'), CLAUDE_CONFIG_DIR: join(root, 'home', '.claude'), ANTHROPIC_BASE_URL: BASE, ANTHROPIC_API_KEY: 'sk-test', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+    const env = { HOME: join(root, 'home'), USERPROFILE: join(root, 'home'), CLAUDE_CONFIG_DIR: join(root, 'home', '.claude'), ANTHROPIC_BASE_URL: BASE, ANTHROPIC_API_KEY: 'sk-test', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
     const reach = (managedSettings: Record<string, unknown>, user: Record<string, unknown> = {}) => {
       writeFileSync(join(root, 'home', '.claude', 'settings.json'), JSON.stringify(user));
       return claudeReach({ disallowedTools: ['WebFetch'] }, { cwd: join(root, 'proj'), sources: ['user', 'project', 'local'], managedFile: join(root, 'home', 'managed', 'managed-settings.json'), managedSettings, env }, env, BASE);

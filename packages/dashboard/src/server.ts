@@ -160,18 +160,33 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   // With several projects every job asks `place`; the store given here is never used then.
   const jobs = new JobManager({ store: opts.store ?? stores.standInStore(), spawnCli: opts.spawnCli, project, uploads, log, stopGraceMs: opts.jobStopGraceMs, ...(several ? { place: () => several.place() } : {}) });
   const base: RouteBase = { opts, jobs, uploads, modules: [...ROUTE_MODULES, ...(opts.routes ?? [])], log, readOnly, readOnlyReason, requireWritable, address, boot: randomBytes(6).toString('hex') };
-  const servingNow = several ? servingProjects(several, new ProjectRoutes(several, stores, base)) : servingOne(opts, project, stores, base);
-  // The status bar's counts (/api/meta, on every page) come from the run index: read now, before the
-  // page asks, so its first look doesn't wait for every run to be read and classified. The run
-  // totals the read models keep later change nothing it reads, so it stays read while they warm.
+  // A dashboard that can't start (a route module that fails, a port taken) lets go of what it opened
+  // first: a store left open holds its project's folder, which on Windows can't then be moved or removed.
+  const letGo = async () => {
+    unhold?.();
+    stores.stopWatching();
+    await jobs.close();
+    uploads.close();
+    await stores.close();
+  };
+  let servingNow: ServingNow;
+  let server: Server;
   try {
-    countRuns(several ? several.storeOf(several.current()) : opts.store!);
-  } catch {
-    // a store that can't be read now says so on its pages
+    servingNow = several ? servingProjects(several, new ProjectRoutes(several, stores, base)) : servingOne(opts, project, stores, base);
+    // The status bar's counts (/api/meta, on every page) come from the run index: read now, before the
+    // page asks, so its first look doesn't wait for every run to be read and classified. The run
+    // totals the read models keep later change nothing it reads, so it stays read while they warm.
+    try {
+      countRuns(several ? several.storeOf(several.current()) : opts.store!);
+    } catch {
+      // a store that can't be read now says so on its pages
+    }
+    server = createServer((req, res) => answer(req, res, { uiDir, log, allowedHosts, api: (url) => api(req, res, url, { token, allowedHosts, servingNow, requireWritable, projects }) }));
+    await listen(server, host, opts.port);
+  } catch (err) {
+    await letGo();
+    throw err;
   }
-
-  const server: Server = createServer((req, res) => answer(req, res, { uiDir, log, allowedHosts, api: (url) => api(req, res, url, { token, allowedHosts, servingNow, requireWritable, projects }) }));
-  await listen(server, host, opts.port);
   port = (server.address() as AddressInfo).port;
   const url = `http://${address()}`;
 

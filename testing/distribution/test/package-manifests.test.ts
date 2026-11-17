@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -156,7 +156,8 @@ describe('source maps in the packed packages', () => {
   it("each name a file in the package's own src, carry none inline, and resolve where the package ships its src", async () => {
     const built = published.every(({ dir }) => existsSync(join(ROOT, dir, 'dist')));
     expect(built, 'npm run build first').toBe(true);
-    const { stdout } = await run('npm', ['pack', '--dry-run', '--json', ...published.flatMap(({ dir }) => ['--workspace', dir])], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    // Through a shell: on Windows npm is npm.cmd, which Node runs only that way. The folders hold no space or quote.
+    const { stdout } = await promisify(exec)(['npm', 'pack', '--dry-run', '--json', ...published.flatMap(({ dir }) => ['--workspace', dir])].join(' '), { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     const packs = JSON.parse(stdout) as Array<{ name: string; files: Array<{ path: string }> }>;
     expect(packs.map((p) => p.name).sort()).toEqual(published.map(({ pkg }) => pkg.name).sort());
     expect(packs.filter((p) => p.files.some((f) => f.path.startsWith('src/'))).map((p) => p.name).sort()).toEqual([...SHIPS_SOURCES].sort());

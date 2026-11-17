@@ -360,6 +360,8 @@ describe('the config change takes a field out with the model', () => {
     project = mkdtempSync(join(tmpdir(), 'sl-migrate-leave-'));
     const git = (...args: string[]) => execFileSync('git', args, { cwd: project, stdio: 'ignore' });
     git('init', '-q');
+    // Its files as written, LF: Git for Windows' core.autocrlf would check them out again with CRLF (the case below).
+    git('config', 'core.autocrlf', 'false');
     // Two calls far apart: the second hunk starts a line earlier in the new file, once the first lost one.
     const py = ['import anthropic', '', 'client = anthropic.Anthropic()', '', '', 'def ask(messages):', ...call('    '), ...Array.from({ length: 12 }, (_, i) => `# ${i}`), '', 'def summarize(messages):', ...call('    '), ''];
     writeFileSync(join(project, 'agent.py'), py.join('\n'));
@@ -389,6 +391,23 @@ describe('the config change takes a field out with the model', () => {
     expect(after.match(/model="claude-opus-5",\n {8}max_tokens=1024,\n {8}messages=messages,/g)).toHaveLength(2);
     expect(readFileSync(join(project, 'agent.yaml'), 'utf8')).toBe('model: claude-opus-5\ntemperature: 0\n');
     execFileSync('git', ['checkout', '--', '.'], { cwd: project });
+  });
+
+  it('takes the field out of a file whose lines end with CRLF, as Windows keeps them, and leaves its line endings', () => {
+    const crlf = mkdtempSync(join(tmpdir(), 'sl-migrate-crlf-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: crlf });
+      writeFileSync(join(crlf, 'agent.py'), ['import anthropic', '', 'client = anthropic.Anthropic()', '', 'def ask(messages):', ...call('    '), ''].join('\r\n'));
+      execFileSync('git', ['add', '.'], { cwd: crlf });
+      const change = modelMentions(crlf, [FROM_PY], 'claude-opus-5', [remedy('temperature'), remedy('top_p')]);
+      if (!change || change === 'no-git') throw new Error('no config change');
+      expect(change.leftOut).toEqual([{ field: 'temperature', path: 'agent.py', line: 9 }, { field: 'top_p', path: 'agent.py', line: 10 }]);
+      writeFileSync(join(crlf, 'check.patch'), change.patch);
+      execFileSync('git', ['-c', 'core.autocrlf=false', 'apply', 'check.patch'], { cwd: crlf });
+      expect(readFileSync(join(crlf, 'agent.py'), 'utf8')).toBe(['import anthropic', '', 'client = anthropic.Anthropic()', '', 'def ask(messages):', '    return client.messages.create(', '        model="claude-opus-5",', '        max_tokens=1024,', '        messages=messages,', '    )', ''].join('\r\n'));
+    } finally {
+      rmSync(crlf, { recursive: true, force: true });
+    }
   });
 
   it("says in the terminal what the patch takes out, and what it leaves for the hand", () => {

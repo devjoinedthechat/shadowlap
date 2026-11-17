@@ -23,9 +23,11 @@ const write = (path: string, text: string) => {
 };
 
 function repository(): string {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-tree-')));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-tree-')));
   dirs.push(root);
   sh(root, 'init', '-q', '-b', 'main');
+  // Files checked out as committed, as on Linux and macOS: Git for Windows' core.autocrlf would give them CRLF.
+  sh(root, 'config', 'core.autocrlf', 'false');
   write(join(root, '.gitignore'), '.env\ndist/\ndata/\nnode_modules/\n.venv/\n__pycache__/\n');
   write(join(root, 'agent', 'agent.mjs'), "export const system = 'Follow the refund policy.';\n");
   write(join(root, 'agent', 'gone.mjs'), 'export {};\n');
@@ -82,7 +84,7 @@ describe("a candidate's worktree", () => {
   });
 
   it('copies everything from a repository with no commit yet', () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-tree-')));
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-tree-')));
     dirs.push(root);
     sh(root, 'init', '-q');
     write(join(root, 'agent.mjs'), 'export {};\n');
@@ -103,7 +105,7 @@ describe.skipIf(process.platform === 'win32')('a prompt file that is a link', ()
    * it and inside it, beside the folder they point out to.
    */
   function linked(): { base: string; repo: string; outside: string } {
-    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-links-')));
+    const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-links-')));
     dirs.push(base);
     const outside = join(base, 'outside');
     write(join(outside, 'abs.md'), 'ORIGINAL abs\n');
@@ -163,7 +165,7 @@ describe.skipIf(process.platform === 'win32')('a prompt file that is a link', ()
   });
 
   it('is never read in a git dir by another name inside the repository, which git lists as files it does not track', () => {
-    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-gitdir-')));
+    const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-gitdir-')));
     dirs.push(base);
     sh(base, 'init', '-q', '-b', 'main', `--separate-git-dir=${join(base, '.repo-git')}`);
     write(join(base, 'agent.mjs'), "export const system = 'Follow the refund policy.';\n");
@@ -230,7 +232,7 @@ describe.skipIf(process.platform === 'win32')('a prompt file whose folder anothe
   // folder on the way becomes a link to a folder outside, which holds a file of the same name. The
   // swap happens through the race hooks, at the one point the walk can't see, so the test is exact.
   function setup() {
-    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-race-')));
+    const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-repair-race-')));
     dirs.push(base);
     const root = join(base, 'repo');
     write(join(root, 'prompts', 'policy.md'), 'Follow the refund policy, which is long enough to be cut short.\n');

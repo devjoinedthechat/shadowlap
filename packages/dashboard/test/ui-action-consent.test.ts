@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError, type ActionItem, type JobView } from '../ui/api.js';
@@ -108,7 +108,8 @@ describe('an action on someone else’s run', () => {
     // Every page that asks this yes (a fix's steps, blame, a run's actions, Edit and fork) asks it
     // with ConsentDialog, never a dialog of its own that would open on its Run.
     const ui = join(import.meta.dirname, '..', 'ui');
-    const files = readdirSync(ui, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.tsx'));
+    // Named with `/`, as the parts below are, on Windows too.
+    const files = readdirSync(ui, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.tsx')).map((f) => f.split(sep).join('/'));
     const asking = files.filter((f) => readFileSync(join(ui, f), 'utf8').includes('consentAsked('));
     expect(asking.length).toBeGreaterThanOrEqual(5);
     for (const f of asking) {

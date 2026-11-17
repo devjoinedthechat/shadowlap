@@ -44,10 +44,14 @@ import { countsOf, readTeamStoreInput } from '../team-store.js';
 
 export const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
 
-/** A message with paths under the home folder written as the rest of these screens write them: `~/x`. */
+/** A message with paths under the home folder written as the rest of these screens write them (tildePath): `~/x`, with `/` on Windows too. */
 export function homeAsTilde(h: ProjectHost<ProjectConfig>, text: string): string {
   let out = text;
-  for (const home of new Set([h.registry.realHome, h.registry.home])) out = out.split(`${home}${sep}`).join(`~${sep}`);
+  for (const home of new Set([h.registry.realHome, h.registry.home])) {
+    const parts = out.split(`${home}${sep}`);
+    // The rest of each path, up to the space, quote or end that closes it, takes `/` between its parts.
+    out = parts.map((part, i) => (i === 0 ? part : `~/${part.replace(/^[^\s'"`’]*/, (rest) => rest.split(sep).join('/'))}`)).join('');
+  }
   return out;
 }
 

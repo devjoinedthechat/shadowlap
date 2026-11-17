@@ -829,12 +829,13 @@ describe('planning fixes from a test report', () => {
       execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
       const member = { result: { name: 'x', dir: outside, mode: 'replay' as const, ok: false }, skip: null, fixes: ['01K5CQ4V3H8M2XWQH6V3T9RB1D'], keeps: [] };
       const state = refreshGoldens({ cli: CLI, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'p', branch: 'b' } }, env: process.env, scratch: dir });
-      expect(state.goldens).toEqual([{ state: 'stale', golden: outside, why: `\`${outside}\` is not inside the repository` }]);
+      // A golden is named with `/` between its parts, on Windows too.
+      const named = outside.replaceAll('\\', '/');
+      expect(state.goldens).toEqual([{ state: 'stale', golden: named, why: `\`${named}\` is not inside the repository` }]);
       // In the pull request, the path is a code span: the @ in it mentions no one.
-      expect(goldenNote(state.goldens[0])).toContain(`It was not re-recorded automatically: \`${outside}\` is not inside the repository.`);
+      expect(goldenNote(state.goldens[0])).toContain(`It was not re-recorded automatically: \`${named}\` is not inside the repository.`);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
+      for (const made of [dir, outside]) rmSync(made, { recursive: true, force: true });
     }
   });
 
@@ -925,7 +926,7 @@ describe('pushing a fix CI opened to the team store', () => {
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
     store.endRun(run.runId, 'completed');
     store.close();
-    return { workdir: dir, db, env: { PATH: process.env.PATH ?? '', HOME: join(dir, 'home'), NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', AWS_EC2_METADATA_DISABLED: 'true', ...extra } };
+    return { workdir: dir, db, env: { PATH: process.env.PATH ?? '', SYSTEMROOT: process.env.SYSTEMROOT, HOME: join(dir, 'home'), USERPROFILE: join(dir, 'home'), NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', AWS_EC2_METADATA_DISABLED: 'true', ...extra } };
   }
 
   /** A port on this machine nothing listens on. */

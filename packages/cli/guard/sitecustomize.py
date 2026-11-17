@@ -187,11 +187,31 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
     setattr(socket, "getaddrinfo", _getaddrinfo)
 
+    # Where the system has no socketpair of its own (Windows), socket.socketpair joins two sockets
+    # over loopback: a listener it makes, and a connection to it, which reaches nothing outside the
+    # process. asyncio makes one for every event loop it starts, so the guard lets it through, as it
+    # does the fallback Python keeps for that (socket._fallback_socketpair, 3.12 on) everywhere.
+    _pairing = threading.local()
+
+    def _joined(pair: Callable[..., Any]) -> Callable[..., Any]:
+        def socketpair(*args: Any, **kwargs: Any) -> Any:
+            _pairing.active = True
+            try:
+                return pair(*args, **kwargs)
+            finally:
+                _pairing.active = False
+
+        return socketpair
+
+    for _pair in ("socketpair", "_fallback_socketpair"):
+        if hasattr(socket, _pair):
+            setattr(socket, _pair, _joined(getattr(socket, _pair)))
+
     def _bypass(host: Any, port: Any, datagram: bool = False) -> None:
         """Reports a connection to host:port, or a datagram sent there, that bypasses shadowlap, and
         refuses it under block. `host` is an address or, where a loop resolves the name itself
         (uvloop), the name the agent gave."""
-        if getattr(_reporting, "active", False):
+        if getattr(_reporting, "active", False) or getattr(_pairing, "active", False):
             return
         # A DNS query reads nothing of the agent's and changes nothing.
         if datagram and str(port) == "53":
@@ -307,7 +327,13 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
             def guarded_sendto(self: Any, data: Any, addr: Any = None) -> Any:
                 if addr is not None:
-                    _check(self._sock, addr)
+                    try:
+                        _check(self._sock, addr)
+                    except OSError as refused:
+                        # A datagram transport hands a failed send to its protocol, never to its caller,
+                        # as the selector loop's does with the socket's refusal.
+                        self._protocol.error_received(refused)
+                        return None
                 return sendto(self, data, addr)
 
             setattr(transport, "sendto", guarded_sendto)
