@@ -25,7 +25,11 @@ const SIZES = new Map<string, { seed: number; replicas: number; sessions: number
   ['1 0.5', { seed: 15, replicas: 12, sessions: 30 }],
 ]);
 
-describe('a healthy agent’s goldens gated against their own history, from their first session on', { timeout: 900_000 }, () => {
+// Under coverage (CI's coverage job) V8 counts every block these loops run, several times slower: there a test may take
+// most of 45 minutes, which the job's 90 hold.
+const TIMEOUT = process.env.SHADOWLAP_TEST_COVERAGE ? 2_700_000 : 900_000;
+
+describe('a healthy agent’s goldens gated against their own history, from their first session on', { timeout: TIMEOUT }, () => {
   // Each loop runs once, when a test first asks for it: with every inconclusive counted, or by default.
   const cases = new Map<string, Loop>();
   const healthy = (goldens: number, rate: number, counted = false): Loop => {

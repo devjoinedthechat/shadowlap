@@ -59,7 +59,8 @@ export function testsIn(folder = ROOT) {
       setupFiles: ['./testing/file-home.mjs'],
       // Python, which the guard's and the SDK's tests start, writes no __pycache__ beside what it imports. Under
       // coverage V8 counts each block of the packages' code and none of what native code runs, so a test timing the one
-      // against the other (JSON.parse) has nothing to time: SHADOWLAP_TEST_COVERAGE says so.
+      // against the other (JSON.parse) has nothing to time, and a long simulation needs longer: SHADOWLAP_TEST_COVERAGE
+      // says so.
       env: { PYTHONDONTWRITEBYTECODE: '1', ...(COVERAGE ? { SHADOWLAP_TEST_COVERAGE: '1' } : {}) },
       // A JUnit report alongside the usual output, so a failure survives the run. Test files execute
       // in parallel workers, and a summary line scrolling past in a CI log is how an intermittent
