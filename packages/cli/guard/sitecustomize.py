@@ -187,11 +187,31 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
     setattr(socket, "getaddrinfo", _getaddrinfo)
 
+    # Where the system has no socketpair of its own (Windows), socket.socketpair joins two sockets
+    # over loopback: a listener it makes, and a connection to it, which reaches nothing outside the
+    # process. asyncio makes one for every event loop it starts, so the guard lets it through, as it
+    # does the fallback Python keeps for that (socket._fallback_socketpair, 3.12 on) everywhere.
+    _pairing = threading.local()
+
+    def _joined(pair: Callable[..., Any]) -> Callable[..., Any]:
+        def socketpair(*args: Any, **kwargs: Any) -> Any:
+            _pairing.active = True
+            try:
+                return pair(*args, **kwargs)
+            finally:
+                _pairing.active = False
+
+        return socketpair
+
+    for _pair in ("socketpair", "_fallback_socketpair"):
+        if hasattr(socket, _pair):
+            setattr(socket, _pair, _joined(getattr(socket, _pair)))
+
     def _bypass(host: Any, port: Any, datagram: bool = False) -> None:
         """Reports a connection to host:port, or a datagram sent there, that bypasses shadowlap, and
         refuses it under block. `host` is an address or, where a loop resolves the name itself
         (uvloop), the name the agent gave."""
-        if getattr(_reporting, "active", False):
+        if getattr(_reporting, "active", False) or getattr(_pairing, "active", False):
             return
         # A DNS query reads nothing of the agent's and changes nothing.
         if datagram and str(port) == "53":

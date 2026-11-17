@@ -182,6 +182,31 @@ describe.skipIf(!PYTHON)('UDP and asyncio, in Python', () => {
     expect(r.stderr.match(/a UDP datagram to 127\.0\.0\.1:\d+ bypasses shadowlap/g)).toHaveLength(1);
   });
 
+  // Where the system has no socketpair (Windows), Python joins two sockets over loopback, as its
+  // fallback does everywhere (3.12 on): asyncio makes one for every loop, which block must leave alone.
+  it("leaves alone the loopback join socketpair makes, and still refuses the next connection under block", async () => {
+    const script = `
+import errno, json, os, socket
+out = {}
+pair = getattr(socket, "_fallback_socketpair", None) or socket.socketpair
+a, b = pair()
+a.sendall(b"x")
+out["pair"] = b.recv(1).decode()
+a.close(); b.close()
+try:
+    socket.create_connection(("127.0.0.1", int(os.environ["TCP_PORT"]))).close()
+    out["after"] = "ok"
+except OSError as e:
+    out["after"] = "error:%s" % errno.errorcode.get(e.errno, e.errno)
+print(json.dumps(out))
+`;
+    const hits = tcpHits;
+    const r = await guarded([...PYTHON!, '-c', script], 'block');
+    expect(r.out).toEqual({ pair: 'x', after: 'error:EPERM' });
+    expect(tcpHits - hits).toBe(0);
+    expect(r.unguarded).toEqual([{ target: `127.0.0.1:${tcpPort}`, count: 1, action: 'blocked' }]);
+  });
+
   // The proactor loop is Windows' default and connects through overlapped I/O, past socket.connect():
   // here it runs on a stand-in for the Windows proactor, which records what it was asked to do.
   it("refuses a connection and a datagram on asyncio's proactor loop before the proactor sees them", async () => {
