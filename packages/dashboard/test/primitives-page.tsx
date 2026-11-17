@@ -66,6 +66,9 @@ function Page() {
           <div id="set">
             <CodeBox command={`shadowlap replay 01K5CQ4N7G --set '{"amount": 240, "currency": "EUR", "reason": "above the regional refund limit"}'`} />
           </div>
+          <div id="expect">
+            <CodeBox command={`shadowlap check 01M7NCZVSR --expect '{"tools":{"issue_refund":0}}'`} />
+          </div>
           <div id="s3">
             <CodeBox command="shadowlap store push --to s3://northwind-agent-runs/support-agent/runs ." />
           </div>

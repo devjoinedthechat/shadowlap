@@ -490,6 +490,13 @@ interface Room {
 /** A value wider than its line breaks after its `=` and its slashes ("2=@payloads/" / "exfil-email.txt"). */
 const valuePieces = (v: string) => v.split(/(?<=[=/])(?=[^/])/);
 
+/** A value's text up to its first place to break: what a line must hold with the flag before it. */
+function leadText(p: CmdPiece): string {
+  if (!('arg' in p)) return pieceText(p);
+  const end = p.arg.findIndex((q) => 'wbr' in q || ('text' in q && !q.whole));
+  return (end < 0 ? p.arg : p.arg.slice(0, end)).map(pieceText).join('');
+}
+
 /** One piece of a command drawn, its neighbours read for its flag: see `CommandPieces`. */
 function commandPiece(pieces: readonly CmdPiece[], i: number, fits: (s: string) => boolean, measured: boolean): ReactNode {
   const p = pieces[i]!;
@@ -503,8 +510,9 @@ function commandPiece(pieces: readonly CmdPiece[], i: number, fits: (s: string) 
       </span>
     );
   const next = pieces[i + 1];
-  // a flag and a value that can't break inside it, too wide for the line together, break between them at a plain space
-  if (p.flag && next && 'text' in next && !fits(p.text + next.text))
+  // a flag and a value that can't break inside it (an id), or a long argument whose first piece can't (short JSON), too
+  // wide for the line together, break between them at a plain space
+  if (p.flag && next && !('wbr' in next) && !fits(p.text + leadText(next)))
     return (
       <Fragment key={i}>
         <span className="nw cf">{p.text.trimEnd()}</span>{' '}
