@@ -39,6 +39,14 @@ export function demoId(name: string): string {
  */
 export const RESET_RETRY = { maxRetries: 1 } as const;
 
+/**
+ * For a file of phone widths: text laid out as a phone lays it, at fractional advances. Headless Chromium on
+ * Linux at 1x rounds each glyph's advance to a whole pixel (12.5px JetBrains Mono takes 8px a character, not 7.5),
+ * as a Linux desktop does and no phone does; this switch turns that off. macOS never rounds, so there it changes
+ * nothing. Files at a desk's widths keep Linux's own layout.
+ */
+export const PHONE_TEXT = { launchOptions: { args: ['--font-render-hinting=none'] } };
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
