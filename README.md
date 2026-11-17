@@ -7,8 +7,8 @@
 
 <p align="center">
   <b>Change safety for agents.</b><br>
-  Record, replay and fork AI agent runs: reproduce a failure exactly,<br>
-  find the call that lost the run, and prove your fix holds before it ships.
+  Record, replay and fork AI agent runs: reproduce&nbsp;a&nbsp;failure&nbsp;exactly,<br>
+  find the call that lost the run, and&nbsp;prove&nbsp;your&nbsp;fix&nbsp;holds&nbsp;before&nbsp;it&nbsp;ships.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@
 Your agent refunded $240 it should have escalated. Run it again, and it behaves.<br>
 You can't make it fail on demand, so you can't prove a fix works.
 
-shadowlap records your agent's model calls and the tools you wrap, then re-runs your real code against that recording. The refund happens again, call for call, with nothing sent upstream and nothing done twice. Change one thing, and the run forks at the first request that differs.
+shadowlap records your agent's model calls and the tools you wrap, then re&#8209;runs your real code against that recording. The refund happens again, call for call, with nothing sent upstream and nothing done twice. Change one thing, and the run forks at the first request that differs.
 
 <p align="center">
   <picture>
@@ -53,7 +53,7 @@ shadowlap demo
 
 The CLI needs Node 22.17 or later, not 23.
 
-`shadowlap demo` runs the whole loop in about half a minute. It records a refund agent breaking its policy, replays it with no upstream requests, finds the call that lost the run, then proposes, proves and applies a fix. Its model is a scripted stand-in, so the demo needs no key and comes out the same every time. The pictures in this README are made the same way, with the real CLI, dashboard and terminal UI.
+`shadowlap demo` runs the whole loop in about half a minute. It records a refund agent breaking its policy, replays it with no upstream requests, finds the call that lost the run, then proposes, proves and applies a fix. Its model is a scripted stand&#8209;in, so the demo needs no key and comes out the same every time. The pictures in this README are made the same way, with the real CLI, dashboard and terminal UI.
 
 ## From failure to proof
 
@@ -92,9 +92,13 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 …
 ```
 
-[Verify](docs/verify.md) accepts a fix only when it fixes the failing runs, held-out runs included, and leaves no good run 10 points or more worse, at 5% risk a run. `shadowlap verify` proves a fix you wrote yourself the same way.
+[Verify](docs/verify.md) accepts a fix only when it fixes the failing runs, held&#8209;out runs included, and leaves no good run 10 points or more worse, at 5% risk a run. `shadowlap verify` proves a fix you wrote yourself the same way.
 
-`--repairer anthropic` needs the Anthropic SDK beside the CLI: `npm install -g @anthropic-ai/sdk`.
+`--repairer anthropic` needs the Anthropic SDK beside the CLI:
+
+```sh
+npm install -g @anthropic-ai/sdk
+```
 
 <p align="center">
   <picture>
@@ -179,9 +183,9 @@ shadowlap dashboard               # step through it in your browser
 
 ## Dashboard and terminal UI
 
-`shadowlap dashboard` opens your runs on 127.0.0.1. A failed run opens where it went wrong: at the call blame found it lost, or else where it first failed. Fork from any call, edit a tool's result and fork from there, or compare two runs side by side. A fork's page ranks what it did differently.
+`shadowlap dashboard` opens your runs on&nbsp;127.0.0.1. A failed run opens where it went wrong: at the call blame found it lost, or else where it first failed. Fork from any call, edit a tool's result and fork from there, or compare two runs side by side. A fork's page ranks what it did differently.
 
-`shadowlap ui` brings the same views to your terminal. Each call has conversation, request, response and meta tabs. Press `:` for the what-ifs at the selected call, or to blame, repair or verify the run.
+`shadowlap ui` brings the same views to your terminal. Each call has conversation, request, response and meta tabs. Press `:` for the what&#8209;ifs at the selected call, or to blame, repair or verify the run.
 
 <p align="center">
   <picture>
@@ -198,7 +202,7 @@ shadowlap dashboard               # step through it in your browser
 
 ## Also
 
-- **[What-ifs at any call](docs/interventions.md).** Override a result, switch the model, plant an instruction.
+- **[What&#8209;ifs at any call](docs/interventions.md).** Override a result, switch the model, plant an instruction.
 - **[Model and prompt changes](docs/decisions.md).** See which decisions change before you ship one.
 - **And more:** [injection tests](docs/injection.md), [error paths](docs/error-paths.md), [bisect](docs/cli.md#bisect), [coverage](docs/coverage.md), [production traffic](docs/gateways.md), a [team store](docs/team.md), [training data](docs/training.md).
 
@@ -206,17 +210,17 @@ shadowlap dashboard               # step through it in your browser
 
 | Area | Works with |
 |:---|:---|
-| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure OpenAI, Amazon Bedrock, Gemini Enterprise Agent Platform (Vertex AI) and Claude on Microsoft Foundry |
+| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure OpenAI, Amazon Bedrock, Gemini Enterprise Agent Platform (Vertex AI) and Claude on Microsoft&nbsp;Foundry |
 | [Gateways](docs/providers.md) | Vercel's AI Gateway, OpenAI&#8209;compatible servers (Ollama, vLLM, OpenRouter, Groq) and any host that speaks one of these formats |
-| [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the [wire protocol](docs/protocol.md) |
-| [Frameworks (TypeScript)](docs/frameworks.md) | Mastra, Vercel AI SDK, OpenAI Agents SDK, LangChain, LangGraph, Claude Agent SDK, the tool runner in Anthropic's TypeScript SDK |
-| [Frameworks (Python)](docs/frameworks.md) | CrewAI, OpenAI Agents SDK, LangChain, LangGraph, Pydantic AI, Google ADK, LlamaIndex, Microsoft Agent Framework, Strands, smolagents, Agno, Claude Agent SDK |
-| [Test suites](docs/testing.md) | pytest, Vitest, Jest and node:test: a test records once, then replays offline |
+| [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the [wire&nbsp;protocol](docs/protocol.md) |
+| [Frameworks&nbsp;(TypeScript)](docs/frameworks.md) | Mastra, Vercel AI SDK, OpenAI Agents SDK, LangChain, LangGraph, Claude Agent SDK, the tool runner in Anthropic's TypeScript SDK |
+| [Frameworks&nbsp;(Python)](docs/frameworks.md) | CrewAI, OpenAI Agents SDK, LangChain, LangGraph, Pydantic AI, Google ADK, LlamaIndex, Microsoft Agent Framework, Strands, smolagents, Agno, Claude Agent SDK |
+| [Test&nbsp;suites](docs/testing.md) | pytest, Vitest, Jest and node:test: a test records once, then replays offline |
 | [MCP](docs/mcp.md) | Servers over stdio or Streamable HTTP, through the `shadowlap mcp` proxy |
 | [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any other CI |
-| [Coding agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot, through JSON output and skills |
+| [Coding&nbsp;agents](docs/agents.md) | Claude Code, Codex, Cursor and Copilot, through JSON output and skills |
 | [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith, Phoenix, Logfire |
-| [Exports](docs/cli.md#export-html) | Packs, one&#8209;file HTML reports, HAR, OpenTelemetry, eval datasets and preference pairs |
+| [Exports](docs/cli.md#export-html) | Packs, one&#8209;file HTML reports, HAR, OpenTelemetry, eval datasets and preference&nbsp;pairs |
 
 ## How it works
 
