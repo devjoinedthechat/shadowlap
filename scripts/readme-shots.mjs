@@ -16,15 +16,11 @@
 //
 // It writes into .github/assets/readme/:
 //
-//   dashboard-fork.png         the override fork: its strip of calls, the calls from the fork on, and
-//                              the diff of the request that changed, at its change
 //   dashboard-fix.png          the fix: the call blame found, the prompt repair proposed, and verify's
 //                              verdict on every failing and good run
-//   dashboard-fork-medium.png  the same pages 640 px wide, in the dashboard's narrow layout, for the
-//   dashboard-fix-medium.png   README's column on a tablet or in a narrow window: the fix down to
-//                              verify's verdict
-//   dashboard-fork-phone.png   the same pages in the dashboard's phone layout: the fork down to its
-//   dashboard-fix-phone.png    strip of calls, the fix down to verify's verdict
+//   dashboard-fix-medium.png   the same page 640 px wide, in the dashboard's narrow layout, for the
+//                              README's column on a tablet or in a narrow window: down to verify's verdict
+//   dashboard-fix-phone.png    the same page in the dashboard's phone layout, down to verify's verdict
 //   dashboard-walkthrough.svg  the whole window, from Runs › Failed to the newest failed run at the call
 //                              blame found, its fix with verify's verdict, and the patch: four pages
 //                              and a pointer that presses through them, looping (walkthrough-svg.mjs)
@@ -305,22 +301,6 @@ try {
   const token = /token=([\w-]+)/.exec(link)[1];
   const text = (s) => `document.body.innerText.includes(${JSON.stringify(s)})`;
   const shots = [
-    {
-      name: 'dashboard-fork',
-      open: `/run/${runs.override}`,
-      async ready() {
-        await until(`!!document.querySelector('.banner.fork') && !!document.querySelector('.cells')`, 'the fork’s banner and calls');
-        // The diff of the request that changed opens from the banner.
-        await evaluate(`[...document.querySelectorAll('.banner.fork button')].find((b) => b.textContent.trim() === 'Show diff')?.click()`);
-        await until(`!!document.querySelector('.diffpanel .jl.del, .diffpanel .jl.add')`, 'the fork’s diff');
-        // It opens at the top of the request; what changed is the lines further down, brought into view.
-        await evaluate(`(document.querySelector('.diffpanel .jl.del, .diffpanel .jl.add').scrollIntoView({ block: 'center' }), true)`);
-      },
-      // On a desktop the whole page, the diff open beside the calls ('window': down to the status
-      // bar). Narrower, where the diff goes under every call, down to the strip of the calls the fork
-      // made and its key: the strip's box lays its parts out apart there, the cells kept at the top.
-      end: { desktop: 'window', medium: '.strip .legend', phone: '.strip .legend' },
-    },
     {
       name: 'dashboard-fix',
       open: `/fixes/${runs.refundFix}`,
