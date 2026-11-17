@@ -287,6 +287,9 @@ describe('the switcher', () => {
     const broken: RouteModule = { register: () => { throw new Error('broken module'); } };
     await expect(startDashboard({ projects: host, routes: [broken] })).rejects.toThrow('broken module');
     host.close();
+    // What it opened for the project it let go of: on Windows a store left open holds the folder, which can't then be removed.
+    rmSync(home, { recursive: true });
+    expect(existsSync(home)).toBe(false);
   });
 
   it('shows an empty stand-in for a project whose folder is gone, so the switcher still works, and refuses its jobs with the reason', async () => {

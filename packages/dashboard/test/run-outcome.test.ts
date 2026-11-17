@@ -358,8 +358,11 @@ describe("a run's page", () => {
 describe('a run of 100,000 calls', () => {
   const dirs: string[] = [];
   let dash: Dashboard | null = null;
+  let store: Store | null = null;
   afterAll(async () => {
     await dash?.close();
+    // Closed before its folder goes: on Windows an open store can't be removed.
+    store?.close();
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   });
 
@@ -367,14 +370,14 @@ describe('a run of 100,000 calls', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sl-run-outcome-'));
     dirs.push(dir);
     const dbPath = join(dir, 'shadowlap.db');
-    const store = Store.open(dbPath);
-    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'report.mjs'], cwd: dir }, startedAt: T0 });
-    recordLoop(store, run, 100_000);
+    const opened = (store = Store.open(dbPath));
+    const run = opened.createRun({ mode: 'record', command: { argv: ['node', 'report.mjs'], cwd: dir }, startedAt: T0 });
+    recordLoop(opened, run, 100_000);
     // Its golden allows ten reads: the eleventh, call #22, is where it failed, by today's checks.
     writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/report': { expect: { tools: { read_file: '<= 10' } } } } }));
     const golden: GoldenSource = { path: 'goldens/report', runId: run.runId, packedAt: Date.now(), mode: 'replay', repeat: 1, passes: 1, checks: ['read_file called at most 10 times'] };
-    dash = await startDashboard({ store, dbPath, port: 0, project: { path: dir }, goldens: () => [golden] });
-    const read = vi.spyOn(store, 'getCalls');
+    dash = await startDashboard({ store: opened, dbPath, port: 0, project: { path: dir }, goldens: () => [golden] });
+    const read = vi.spyOn(opened, 'getCalls');
     const get = async (path: string) => {
       const res = await fetch(`${dash!.url}/api/runs/${run.runId}${path}`, { headers: { 'x-shadowlap-token': dash!.token } });
       expect(res.status).toBe(200);
