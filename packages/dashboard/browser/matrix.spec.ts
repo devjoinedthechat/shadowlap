@@ -264,6 +264,9 @@ test('gives a cell with a card and no link the focus, and a band the focus only 
 
 test('starts the key where the cells start while their columns hold its first line, else across the whole width', async ({ page }) => {
   await open(page);
+  // At 1200 five columns show, room for the key's first line with a column to spare: at 900 four hold it on macOS and
+  // three on Linux, whose Chromium rounds each glyph's advance to a whole pixel at 1x. At 400 they never do.
+  await setWidth(page, 'many', 1200);
   const pad = () => page.locator('#many .rmx-key0').evaluate((k) => parseFloat(getComputedStyle(k).paddingLeft));
   const fit = await fitOf(page, 'many');
   expect(await pad()).toBe(fit.rh + 4);

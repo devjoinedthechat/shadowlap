@@ -53,6 +53,12 @@ const HELD_P99_MS = 60;
  * took 70% of it on the server's thread, in 50 ms slices every 20 ms.
  */
 const BUSY_SHARE = 1 / 2;
+/**
+ * What one status-bar poll may cost the server's thread (median): a few milliseconds for the runs
+ * written since the last poll, where a read of every run took 80. Coverage counts every block it runs,
+ * so there the bar is 30, still well under a read of every run.
+ */
+const POLL_MS = process.env.SHADOWLAP_TEST_COVERAGE ? 30 : 10;
 
 /**
  * What a request worked out beside the server may cost its thread: under half the time the request
@@ -274,7 +280,7 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       said(`/api/meta while a session wrote ${RUNS_WRITTEN} runs into ${RUNS} runs: ${busy.length} polls, each costing the server's thread ${median(busy).toFixed(1)} ms (median)`, t);
       // Each poll took in the runs written since: a few milliseconds, not a read of every run (80 ms here, 137 in the review).
       expect(busy.length).toBeGreaterThan(10);
-      expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(10);
+      expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(POLL_MS);
       expect((await ask(d, 'meta')).body.counts.runs).toBe(runsBefore + RUNS_WRITTEN);
       await session.terminate();
     } finally {
@@ -334,7 +340,7 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       said(`/api/meta while a run made ${CALLS} calls into ${RUNS} runs: ${metas.length} polls, median ${median(metas).toFixed(1)} ms, each costing the server's thread ${median(busy).toFixed(1)} ms (median)`, t);
       // Every poll saw the recording grow, and each cost a few milliseconds of the thread, not a read of every run.
       expect(metas.length).toBeGreaterThan(20);
-      expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(10);
+      expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(POLL_MS);
       expect(t.p99, 'the server’s event loop, 99th percentile').toBeLessThan(HELD_P99_MS);
       expect((await ask(d, 'meta')).body.counts.runs).toBe(runsBefore + 1);
       await recorder.terminate();

@@ -408,9 +408,12 @@ describe('shadowlap mcp --listen started on its own, beside run, pack and test',
     // Stopped, it takes its registration with it.
     const code = new Promise<number | null>((resolve) => started.once('exit', resolve));
     started.kill('SIGTERM');
-    expect(await code).toBe(143);
+    // A signal is POSIX's: on Windows, kill ends a process at once (TerminateProcess), with no code of
+    // its own and nothing run on the way out; a registration it leaves the next one there prunes,
+    // its process being gone, and the guard lets no connection through on it meanwhile.
+    expect(await code).toBe(process.platform === 'win32' ? null : 143);
     proxy = null;
-    expect(readdirSync(join(box.slhome, 'mcp'))).toEqual([]);
+    if (process.platform !== 'win32') expect(readdirSync(join(box.slhome, 'mcp'))).toEqual([]);
   }, 120_000);
 });
 
@@ -474,8 +477,9 @@ try {
     expect(test.out).toMatch(/1 passed, 0 failed/);
     expect(test.out).not.toMatch(/outbound connection|bypassed shadowlap|blocked/);
     expect(server.calls).toHaveLength(2);
-    // Each proxy, stopped, took its registration with it.
-    expect(readdirSync(join(box.slhome, 'mcp'))).toEqual([]);
+    // Each proxy, stopped, took its registration with it; on Windows, where the agent's kill ends it
+    // at once, each registration was pruned by the next, and the last stays until another comes.
+    expect(readdirSync(join(box.slhome, 'mcp'))).toHaveLength(process.platform === 'win32' ? 1 : 0);
   }, 120_000);
 });
 

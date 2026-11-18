@@ -13,13 +13,14 @@ function cpuSince(since: NodeJS.CpuUsage): number {
 
 /**
  * How long one call of each of `work` takes here, in CPU milliseconds. Each is called over and over
- * until a round has taken `atLeast` ms, enough for a clock that counts in ticks of 15.6 ms (Windows'),
- * and the least of `rounds` rounds is kept: what the work costs, since a pause (a collection, code not
+ * until a round has taken `atLeast` ms: 50 by default, and 250 on Windows, whose clock counts CPU time
+ * in ticks of 15.6 ms, so a round of 50 could be off by a third and one of 250 by a sixteenth. The least
+ * of `rounds` rounds is kept: what the work costs, since a pause (a collection, code not
  * yet compiled) only ever adds to a round. The rounds take each in turn, so whatever else the machine
  * does meanwhile reaches all of them alike.
  */
 export function timesOf<K extends string>(work: Record<K, () => unknown>, options: { rounds?: number; atLeast?: number } = {}): Record<K, number> {
-  const { rounds = 3, atLeast = 50 } = options;
+  const { rounds = 3, atLeast = process.platform === 'win32' ? 250 : 50 } = options;
   const names = Object.keys(work) as K[];
   const least = Object.fromEntries(names.map((name) => [name, Infinity])) as Record<K, number>;
   for (let round = 0; round < rounds; round++) {

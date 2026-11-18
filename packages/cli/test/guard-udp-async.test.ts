@@ -182,6 +182,31 @@ describe.skipIf(!PYTHON)('UDP and asyncio, in Python', () => {
     expect(r.stderr.match(/a UDP datagram to 127\.0\.0\.1:\d+ bypasses shadowlap/g)).toHaveLength(1);
   });
 
+  // Where the system has no socketpair (Windows), Python joins two sockets over loopback, as its
+  // fallback does everywhere (3.12 on): asyncio makes one for every loop, which block must leave alone.
+  it("leaves alone the loopback join socketpair makes, and still refuses the next connection under block", async () => {
+    const script = `
+import errno, json, os, socket
+out = {}
+pair = getattr(socket, "_fallback_socketpair", None) or socket.socketpair
+a, b = pair()
+a.sendall(b"x")
+out["pair"] = b.recv(1).decode()
+a.close(); b.close()
+try:
+    socket.create_connection(("127.0.0.1", int(os.environ["TCP_PORT"]))).close()
+    out["after"] = "ok"
+except OSError as e:
+    out["after"] = "error:%s" % errno.errorcode.get(e.errno, e.errno)
+print(json.dumps(out))
+`;
+    const hits = tcpHits;
+    const r = await guarded([...PYTHON!, '-c', script], 'block');
+    expect(r.out).toEqual({ pair: 'x', after: 'error:EPERM' });
+    expect(tcpHits - hits).toBe(0);
+    expect(r.unguarded).toEqual([{ target: `127.0.0.1:${tcpPort}`, count: 1, action: 'blocked' }]);
+  });
+
   // The proactor loop is Windows' default and connects through overlapped I/O, past socket.connect():
   // here it runs on a stand-in for the Windows proactor, which records what it was asked to do.
   it("refuses a connection and a datagram on asyncio's proactor loop before the proactor sees them", async () => {
@@ -225,6 +250,20 @@ tcp, udp = int(os.environ["TCP_PORT"]), int(os.environ["UDP_PORT"])
 out = {"connect": drive(loop.sock_connect(socket.socket(), ("127.0.0.1", tcp)))}
 if hasattr(loop, "sock_sendto"):
     out["sock_sendto"] = drive(loop.sock_sendto(socket.socket(socket.AF_INET, socket.SOCK_DGRAM), b"x", ("127.0.0.1", udp)))
+# A datagram transport hands a failed send to its protocol, as the selector loop's does.
+class Errors(asyncio.DatagramProtocol):
+    def __init__(self):
+        self.errors = []
+    def error_received(self, exc):
+        self.errors.append(exc)
+p = Errors()
+t = pe._ProactorDatagramTransport(loop, socket.socket(socket.AF_INET, socket.SOCK_DGRAM), p)
+if os.environ.get("SHADOWLAP_GUARD") == "block":
+    try:
+        t.sendto(b"x", ("127.0.0.1", udp))
+        out["transport_sendto"] = "error:%s" % errno.errorcode.get(p.errors[0].errno, p.errors[0].errno) if p.errors else "ok"
+    except OSError as e:
+        out["transport_sendto"] = "raised:%s" % errno.errorcode.get(e.errno, e.errno)
 out["asked"] = proactor.asked
 loop.close()
 print(json.dumps(out))
@@ -232,6 +271,7 @@ print(json.dumps(out))
     const blocked = await guarded([...PYTHON!, '-c', script], 'block');
     expect(blocked.out.connect).toBe('error:EPERM');
     if ('sock_sendto' in blocked.out) expect(blocked.out.sock_sendto).toBe('error:EPERM');
+    expect(blocked.out.transport_sendto).toBe('error:EPERM');
     expect(blocked.out.asked).toEqual([]);
     expect(blocked.unguarded.find((u) => u.target === `127.0.0.1:${tcpPort}`)).toMatchObject({ action: 'blocked' });
     const warned = await guarded([...PYTHON!, '-c', script], 'warn');

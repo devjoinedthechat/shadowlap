@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { emptyCounts, Store, type TestResultData } from '@shadowlap/engine';
 import { verifyReport } from '../../engine/test/fix-fixtures.js';
@@ -225,8 +225,15 @@ describe('a session’s pull request', () => {
   beforeAll(async () => {
     // gh, saying the pull request merged.
     bin = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-verdicts-gh-')));
-    writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '{"state":"MERGED"}\\n'\n`, { mode: 0o755 });
-    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    if (process.platform === 'win32') {
+      // There execFile finds a program only as an .exe, as gh.exe is: node.exe copied to that name,
+      // which a preload turns into gh when it runs under it, and leaves every other node alone.
+      copyFileSync(process.execPath, join(bin, 'gh.exe'));
+      writeFileSync(join(bin, 'gh.cjs'), `if (require('node:path').basename(process.execPath).toLowerCase() === 'gh.exe') { require('node:fs').writeSync(1, '{"state":"MERGED"}\\n'); process.exit(0); }\n`);
+      // With `/`: NODE_OPTIONS reads a backslash in quotes as an escape.
+      vi.stubEnv('NODE_OPTIONS', `--require "${join(bin, 'gh.cjs').replaceAll('\\', '/')}" ${process.env.NODE_OPTIONS ?? ''}`.trim());
+    } else writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '{"state":"MERGED"}\\n'\n`, { mode: 0o755 });
+    vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
     prStore = Store.open(':memory:');
     const s = prStore.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'a1a1a1a', actor: 'ci', startedAt: T0, owner: null });
     goldens.forEach((g, i) => prStore.addTestResult({ sessionId: s.sessionId, golden: g.path, ok: !i, ...(i ? { failure: 'exit' as const, reason: 'the agent exited with code 1' } : {}), runId: null, revision: 'a1a1a1a', at: T0 + i + 1, data: { mode: 'replay', verdict: i ? 'failed' : 'passed' } }));

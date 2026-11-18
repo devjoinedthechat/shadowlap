@@ -190,7 +190,7 @@ export interface SettingsHook {
  * Where Claude Code finds settings for the query, as its options say: the sources it loads
  * (`settingSources`; all three when absent), its working folder, `settings` (a settings object,
  * JSON text or a file, as the CLI's `--settings` takes, or a list of them), `managedSettings`, the
- * environment the CLI gets (`CLAUDE_CONFIG_DIR`, `HOME`), the folders it adds
+ * environment the CLI gets (`CLAUDE_CONFIG_DIR`, `HOME`, or `USERPROFILE` on Windows), the folders it adds
  * (`additionalDirectories`) and the folders of the local plugins it loads (`plugins`).
  */
 export interface SettingsPlaces {
@@ -240,9 +240,14 @@ export function managedFileOf(places: SettingsPlaces, path: Path): string | null
   return places.managedFile === undefined ? managedFile(process.platform, path) : places.managedFile;
 }
 
+/** The home folder the CLI takes, as Node's os.homedir() does: HOME, or USERPROFILE on Windows; `home` when that is unset. */
+export function homeOf(env: Readonly<Record<string, string | undefined>>, home: string): string {
+  return (process.platform === 'win32' ? env.USERPROFILE : env.HOME) || home;
+}
+
 /** The folder Claude Code keeps its own files in: `CLAUDE_CONFIG_DIR`, else `~/.claude`. */
 export function configDirOf(env: Readonly<Record<string, string | undefined>>, path: Path, home: string): string {
-  return env.CLAUDE_CONFIG_DIR || path.join(env.HOME || home, '.claude');
+  return env.CLAUDE_CONFIG_DIR || path.join(homeOf(env, home), '.claude');
 }
 
 /** The environment the CLI reads its folders from: the process's, with the query's on top. */

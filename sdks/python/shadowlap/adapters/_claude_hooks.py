@@ -223,9 +223,15 @@ def env_of(places: Mapping[str, Any]) -> dict[str, str]:
     return {**os.environ, **(places.get("env") or {})}
 
 
+def home_of(env: Mapping[str, str]) -> str:
+    """The home folder the CLI takes, as Node's os.homedir() does: ``HOME``, or ``USERPROFILE`` on
+    Windows; this process's when that is unset."""
+    return env.get("USERPROFILE" if sys.platform == "win32" else "HOME") or os.path.expanduser("~")
+
+
 def config_dir_of(env: Mapping[str, str]) -> str:
     """The folder Claude Code keeps its own files in: ``CLAUDE_CONFIG_DIR``, else ``~/.claude``."""
-    return env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    return env.get("CLAUDE_CONFIG_DIR") or os.path.join(home_of(env), ".claude")
 
 
 def _sources(places: Mapping[str, Any]) -> list[str]:

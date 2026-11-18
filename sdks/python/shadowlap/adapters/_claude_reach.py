@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from shadowlap.adapters._claude_hooks import QUERY_SETTINGS, component_files, hook_items, managed_file_of, project_dirs, settings_documents
+from shadowlap.adapters._claude_hooks import QUERY_SETTINGS, component_files, home_of, hook_items, managed_file_of, project_dirs, settings_documents
 from shadowlap.adapters._frontmatter import UNREADABLE, frontmatter
 
 _MISSING = object()
@@ -161,7 +161,7 @@ class _Reach:
         self.places = places
         self.cli_env = cli_env
         self.cwd: str = places.get("cwd") or os.getcwd()
-        self.home = cli_env.get("HOME") or os.path.expanduser("~")
+        self.home = home_of(cli_env)
         sources = places.get("sources")
         self.sources: list[str] = ["user", "project", "local"] if sources is None else list(sources)
         self.docs = settings_documents(places, self.cwd)
@@ -171,9 +171,10 @@ class _Reach:
         self.out: list[str] = []
 
     def short(self, path: str) -> str:
-        """A file as the summary names it: from the session's folder, or the home folder (``~``), and at most 60 characters."""
+        """A file as the summary names it: from the session's folder, or the home folder (``~``), with ``/``
+        between its parts on every system, and at most 60 characters."""
         cwd, home = self.cwd, self.home
-        rel = path[len(cwd) + 1 :] if path.startswith(cwd + os.sep) else "~" + os.sep + path[len(home) + 1 :] if path.startswith(home + os.sep) else path
+        rel = path[len(cwd) + 1 :].replace(os.sep, "/") if path.startswith(cwd + os.sep) else "~/" + path[len(home) + 1 :].replace(os.sep, "/") if path.startswith(home + os.sep) else path
         return "…" + rel[-59:] if len(rel) > 60 else rel
 
     def named(self, source: str) -> str:

@@ -299,7 +299,8 @@ describe('shadowlap mcp --listen, as a command', () => {
     expect(err).toMatch(/a session started that can't be recorded \(no shadowlap run is active for it\): write tools are refused, read tools pass through unrecorded/);
     const code = new Promise<number | null>((resolve) => child.once('exit', resolve));
     child.kill('SIGTERM');
-    expect(await code).toBe(143);
+    // A signal is POSIX's: on Windows, kill ends a process at once (TerminateProcess), with no code of its own.
+    expect(await code).toBe(process.platform === 'win32' ? null : 143);
     await server.close();
   });
 });

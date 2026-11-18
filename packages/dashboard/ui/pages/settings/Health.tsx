@@ -1,6 +1,6 @@
 import { JOB_KINDS, type Client } from '../../api.js';
 import { ActionButton } from '../../components/ActionButton.js';
-import { Copy } from '../../components/Copy.js';
+import { Code, Copy, Words } from '../../components/Copy.js';
 import { Status } from '../../components/Status.js';
 import { DOCTOR_WORDS, doctorChecks, doctorSum, type DoctorCheck } from '../../doctor.js';
 import { useLoad } from '../../hooks.js';
@@ -54,8 +54,8 @@ function Health() {
             <li key={`${i}:${c.name}`}>
               <Status tone={DOCTOR_WORDS[c.verdict].tone}>{DOCTOR_WORDS[c.verdict].word}</Status>
               <b>{c.name}</b>
-              <span className="dd">{c.detail}</span>
-              {c.fix ? <span className="dfix">{c.fix}</span> : null}
+              <span className="dd">{found(c.detail)}</span>
+              {c.fix ? <span className="dfix">{found(c.fix)}</span> : null}
             </li>
           ))}
         </ul>
@@ -63,6 +63,15 @@ function Health() {
     </>
   );
 }
+
+/** A path in what doctor says (the store, the guard's folder, the config), up to the colon or comma after it. */
+const PATH = /((?:^|(?<=\s))(?:[A-Za-z]:)?[\\/][^\s,]*?)(?=[:,]?(?:\s|$))/;
+
+/**
+ * What doctor found, or what to do, as a line of it: a path as code, which breaks only after a slash,
+ * and the words around it glued and kept whole, so full-text or 512 runs never splits on a phone.
+ */
+const found = (text: string) => text.split(PATH).map((part, i) => (i % 2 ? <Code key={i}>{part}</Code> : part ? <Words key={i}>{part}</Words> : null));
 
 /** A sum as a sentence: its first letter in capitals. */
 const sentenceOf = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;

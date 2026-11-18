@@ -703,7 +703,7 @@ describe('store setup', () => {
       const r = await new Promise<{ code: number | null; stderr: string }>((done) => {
         const child = spawn(process.execPath, [CLI, 'store', 'set', url, '--check'], {
           cwd: m.cwd,
-          env: { PATH: process.env.PATH ?? '', ...m.env, HOME: join(work, 'no-home'), AWS_EC2_METADATA_DISABLED: 'true', SHADOWLAP_EVENTS_FD: '3' },
+          env: { PATH: process.env.PATH ?? '', SYSTEMROOT: process.env.SYSTEMROOT, ...m.env, HOME: join(work, 'no-home'), USERPROFILE: join(work, 'no-home'), AWS_EC2_METADATA_DISABLED: 'true', SHADOWLAP_EVENTS_FD: '3' },
           stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
         });
         let stderr = '';

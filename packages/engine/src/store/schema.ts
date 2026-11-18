@@ -791,6 +791,18 @@ export function openDatabase(path: string, o: { create?: boolean } = {}): Sqlite
   // Without `create`, SQLite is asked to open the file only (mode=rw), never to make it: a store
   // deleted after it was looked for here stays deleted.
   const db = new DatabaseSync(create || path === ':memory:' ? path : `${pathToFileURL(path).href}?mode=rw`);
+  try {
+    bringUp(db, path);
+  } catch (err) {
+    // A connection left open holds the file: on Windows nothing could remove or replace it after.
+    db.close();
+    throw err;
+  }
+  return db;
+}
+
+/** A store's connection made ready: a lock waited for rather than failed, WAL, and the schema brought up to this version. */
+function bringUp(db: SqliteDatabase, path: string): void {
   // The CLI, the TUI, the dashboard and test workers may open one store at once; wait for a lock
   // rather than fail. First, because switching a new database to WAL already needs one.
   db.exec('PRAGMA busy_timeout = 10000');
@@ -859,7 +871,6 @@ export function openDatabase(path: string, o: { create?: boolean } = {}): Sqlite
     rollBack(db);
     throw err;
   }
-  return db;
 }
 
 /** The connection Store.openReadOnly makes: to a store that is a regular file of this user's, as Store.open opens one. */

@@ -202,7 +202,7 @@
 .pop.picker.sheet .opt { min-height: 44px; align-items: center; }
 .pop.picker.sheet .pfilter { height: 44px; }
 
-.help { width: min(760px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-overlay); }
+.help { width: min(780px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-overlay); }
 .help:focus { outline: none; }
 .help > header { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 0; }
 .help .hbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px 6px; }

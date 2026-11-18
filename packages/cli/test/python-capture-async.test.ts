@@ -88,7 +88,7 @@ asyncio.run(main())
     try {
       const env = { ...process.env, ...guardEnv('off', {}), SHADOWLAP_CAPTURE: JSON.stringify({ routes: [], hosts: {}, http: [['^svc\\.internal$', null]] }), SHADOWLAP_URL: `http://127.0.0.1:${(fake.address() as AddressInfo).port}/t/token`, SHADOWLAP_RUN_ID: 'R1' };
       const script = `
-import aiohttp, asyncio, json
+import aiohttp, asyncio, errno, json
 async def main():
     out = {}
     async with aiohttp.ClientSession() as session:
@@ -99,7 +99,7 @@ async def main():
             except aiohttp.ServerTimeoutError as e:
                 out[path] = ["ServerTimeoutError", isinstance(e, asyncio.TimeoutError)]
             except aiohttp.ClientOSError as e:
-                out[path] = ["ClientOSError", e.errno == 54 or e.errno == 104, str(e)]
+                out[path] = ["ClientOSError", e.errno == errno.ECONNRESET, str(e)]
     print(json.dumps(out))
 asyncio.run(main())
 `;

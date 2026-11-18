@@ -2,7 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
@@ -61,7 +61,7 @@ beforeEach(() => {
   work = mkdtempSync(join(tmpdir(), 'fp-verify-base-'));
   db = join(work, 'store.db');
   // The agent reads its prompt from the file next to it, so the base's checkout reads the base's.
-  writeFileSync(join(work, 'agent.mjs'), `import { readFileSync } from 'node:fs';\nprocess.env.AGENT_SYSTEM = readFileSync(new URL('./prompt.txt', import.meta.url), 'utf8').trim();\nawait import(${JSON.stringify(SUPPORT)});\n`);
+  writeFileSync(join(work, 'agent.mjs'), `import { readFileSync } from 'node:fs';\nprocess.env.AGENT_SYSTEM = readFileSync(new URL('./prompt.txt', import.meta.url), 'utf8').trim();\nawait import(${JSON.stringify(pathToFileURL(SUPPORT).href)});\n`);
   writeFileSync(join(work, 'prompt.txt'), `${ORIGINAL}\n`);
   writeFileSync(join(work, '.gitignore'), 'store.db*\noutbox.jsonl\n');
   git('init', '-q');

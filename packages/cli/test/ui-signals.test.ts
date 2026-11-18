@@ -43,12 +43,18 @@ const python = findPython();
  * command ended, and the terminal's mode then.
  */
 const HARNESS = `
-import fcntl, json, os, pty, select, struct, sys, termios, time
+import fcntl, json, os, pty, re, select, struct, sys, termios, time
 spec = json.loads(sys.argv[1])
 pid, fd = pty.fork()
 if pid == 0:
     fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', spec['rows'], spec['cols'], 0, 0))
     os.execve(spec['argv'][0], spec['argv'], spec['env'])
+
+# What the terminal shows, its colours left out: a marker is text on the screen, and a UI that colours
+# its keys (as it does wherever colours are on, GitHub Actions among them) draws ESC[1mq ESC[22m quit.
+SGR = re.compile(rb'\\x1b\\[[0-9;:]*m')
+def shown(data):
+    return SGR.sub(b'', data)
 
 def mode():
     try:
@@ -71,7 +77,7 @@ while time.time() < deadline:
         was_raw = True
     if steps:
         marker, action = steps[0]
-        due = (was_raw and (mode() == 'cooked' or b'q quit' in out)) if marker == 'cooked-after-raw' else marker.encode() in out[pos:]
+        due = (was_raw and (mode() == 'cooked' or b'q quit' in shown(out))) if marker == 'cooked-after-raw' else marker.encode() in shown(out[pos:])
         if due:
             steps.pop(0)
             pos = len(out)

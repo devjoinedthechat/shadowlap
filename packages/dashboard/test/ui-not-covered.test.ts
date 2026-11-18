@@ -288,6 +288,8 @@ describe('Tests › Not covered', () => {
       ['Changes', 'your working treea golden’s folder under goldens/'],
       ['Tools', 'answered from the capturea tool with no result there runs live, writes stubbed'],
     ]);
+    // the folder's name never ends the row alone: `under` is kept with it
+    expect(r.all('.dialog .dfacts dd small')[0].textContent).toMatch(/ under\u00a0goldens\/$/);
     expect(r.one('.dialog .cvk').getAttribute('aria-label')).toBe('get_ticket, then lookup_order, then get_policy, then check_stock, then lookup_customer, then lookup_history, then issue_refund, then send_email, then answered. Writes issue_refund, send_email.');
     expect(r.all('.dialog .cvc code').map((c) => c.textContent)).toEqual(['get_ticket', 'lookup_order', 'get_policy', 'check_stock', 'lookup_customer', 'lookup_history', 'issue_refund', 'send_email']);
     expect(r.one('.dialog input.cvin').value).toBe("python agent.py '{message}'");

@@ -7,7 +7,7 @@ import { evidenceWords } from '../src/tests-evidence.js';
 import { gateRuleOf } from '../src/verdict.js';
 import { ARTICLES, SMALL } from '../ui/typeset.js';
 import type { DecisionSessionDetail, NextStep, TestsView } from '../ui/types.js';
-import { dash, demoId, patched, RESET_RETRY, serveDashboard, sideways, type Served } from './dashboard.js';
+import { dash, demoId, patched, PHONE_TEXT, RESET_RETRY, serveDashboard, sideways, type Served } from './dashboard.js';
 import { buildInjectionStore, type InjectionStore } from './injection-fixture.js';
 import { asksFirst, at, cardStates, click, DIALOG, dialogWalk, escape, fixes, injectionRoutes, menu, overlayStates, press, PREVIEW, previewed, ROUTES, run, runs, settled, show, type RouteState, type State } from './routes.js';
 import { routeTestsFixture } from './tests-fixture.js';
@@ -33,6 +33,8 @@ import { routeTestsFixture } from './tests-fixture.js';
  */
 
 test.describe.configure({ timeout: 300_000 });
+// Every width here is a phone's.
+test.use(PHONE_TEXT);
 
 // A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
 test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));

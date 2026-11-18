@@ -154,8 +154,8 @@ function isValue(kind: FileKind, line: string, at: number, name: string): boolea
 /** A literal a field is set to: a number, a quoted string, a boolean or a null, in the spellings code writes them. */
 const LITERAL = String.raw`(?:-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?|"[^"\\\n]*"|'[^'\\\n]*'|true|false|True|False|None|null)`;
 
-/** A line that holds only `field` set to a literal, as an argument or a key with a comma after it: `temperature=0,`, `temperature: 0,`, `"temperature": 0,`. */
-const fieldLine = (field: string) => new RegExp(String.raw`^[ \t]*(["']?)${escape(field)}\1\s*[=:]\s*${LITERAL}\s*,[ \t]*$`);
+/** A line that holds only `field` set to a literal, as an argument or a key with a comma after it: `temperature=0,`, `temperature: 0,`, `"temperature": 0,`. A line that ends with CRLF, as files on Windows do, keeps its \r once the file is split at \n. */
+const fieldLine = (field: string) => new RegExp(String.raw`^[ \t]*(["']?)${escape(field)}\1\s*[=:]\s*${LITERAL}\s*,[ \t]*\r?$`);
 
 const indentOf = (line: string) => /^[ \t]*/.exec(line)![0];
 

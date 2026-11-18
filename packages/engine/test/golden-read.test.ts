@@ -16,11 +16,11 @@ import { DONE, ESCALATE, LOOKUP, POLICY, recordRun } from './training-fixtures.j
  */
 
 // Stands in for a file swapped for a link between the check and the read: lstat, asked about
-// `lying`, says a regular file is there, as it was a moment before the swap.
-let lying: string | null = null;
+// `lying.path`, says the regular file at `lying.was` is there, as it was a moment before the swap.
+let lying: { path: string; was: string } | null = null;
 vi.mock('node:fs', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:fs')>();
-  const lstatSync = ((path: fs.PathLike, options?: fs.StatSyncOptions) => (lying !== null && String(path) === lying ? Object.assign(real.statSync(lying), { isSymbolicLink: () => false, isFile: () => true }) : real.lstatSync(path, options))) as typeof real.lstatSync;
+  const lstatSync = ((path: fs.PathLike, options?: fs.StatSyncOptions) => (lying !== null && String(path) === lying.path ? Object.assign(real.statSync(lying.was), { isSymbolicLink: () => false, isFile: () => true }) : real.lstatSync(path, options))) as typeof real.lstatSync;
   return { ...real, lstatSync };
 });
 
@@ -50,8 +50,15 @@ describe('a golden’s pack', () => {
       writeFileSync(outside, readFileSync(join(dir, 'run.json')));
       renameSync(join(dir, 'run.json'), join(root, 'moved.json'));
       symlinkSync(outside, join(dir, 'run.json'));
-      lying = join(dir, 'run.json');
-      expect(() => readGolden(dir, 'goldens/escalate')).toThrow(/run\.json is a symbolic link; packs contain only regular files/);
+      // Where the system opens a file without following a link (O_NOFOLLOW), the open itself refuses
+      // the link. Windows has none: the file opened is held to the one checked, and is another.
+      if (process.platform === 'win32') {
+        lying = { path: join(dir, 'run.json'), was: join(root, 'moved.json') };
+        expect(() => readGolden(dir, 'goldens/escalate')).toThrow(/run\.json was replaced while it was read/);
+      } else {
+        lying = { path: join(dir, 'run.json'), was: join(dir, 'run.json') };
+        expect(() => readGolden(dir, 'goldens/escalate')).toThrow(/run\.json is a symbolic link; packs contain only regular files/);
+      }
     } finally {
       store.close();
     }

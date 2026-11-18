@@ -33,7 +33,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, posix, relative } from 'node:path';
+import { join, posix, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -107,7 +107,8 @@ function listing(dir) {
       const path = join(at, name);
       try {
         const st = lstatSync(path);
-        out.set(relative(dir, path), `${st.mtimeMs}:${st.size}`);
+        // By its path in the folder with / between its parts, as messages name it, on Windows too.
+        out.set(relative(dir, path).split(sep).join('/'), `${st.mtimeMs}:${st.size}`);
         if (st.isDirectory() && depth < 3) walk(path, depth + 1);
       } catch {
         // gone while it was read

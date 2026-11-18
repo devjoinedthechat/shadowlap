@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +14,9 @@ import { blameReport, EXPECT, makeRun, ORACLE } from './fix-fixtures.js';
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (p: string) => { exec(sql: string): void; prepare(sql: string): { all(...a: unknown[]): Array<Record<string, unknown>>; run(...a: unknown[]): unknown }; close(): void } };
+
+/** The files this process holds open, where the system lists them (/dev/fd); none on Windows, where an open file can't be removed, which the cleanup below would meet. */
+const openFiles = (): string[] => (process.platform === 'win32' ? [] : readdirSync('/dev/fd'));
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -120,8 +123,11 @@ describe('store schema v6', () => {
     const raw = new DatabaseSync(path);
     raw.exec(`UPDATE meta SET value = '${SCHEMA_VERSION + 1}' WHERE key = 'schema_version'`);
     raw.close();
+    // Refused, it keeps no connection to the file, which on Windows nothing could remove while one is open.
+    const before = openFiles();
     expect(() => Store.open(path)).toThrow(`${path} was written by a newer shadowlap (store schema v7; this build understands v6). Upgrade shadowlap, or point --db at another store.`);
     expect(() => Store.openReadOnly(path)).toThrow('this build understands v6');
+    expect(openFiles()).toEqual(before);
   });
 });
 

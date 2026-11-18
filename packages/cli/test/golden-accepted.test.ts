@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
@@ -64,7 +64,7 @@ beforeEach(async () => {
   if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   work = mkdtempSync(join(tmpdir(), 'sl-accepted-'));
   db = join(work, 'store.db');
-  writeFileSync(join(work, 'agent.mjs'), `import { readFileSync } from 'node:fs';\nprocess.env.AGENT_SYSTEM = readFileSync(new URL('./prompt.txt', import.meta.url), 'utf8').trim();\nawait import(${JSON.stringify(SUPPORT)});\n`);
+  writeFileSync(join(work, 'agent.mjs'), `import { readFileSync } from 'node:fs';\nprocess.env.AGENT_SYSTEM = readFileSync(new URL('./prompt.txt', import.meta.url), 'utf8').trim();\nawait import(${JSON.stringify(pathToFileURL(SUPPORT).href)});\n`);
   prompt(ORIGINAL);
   const recorded = await shadowlap(['run', '--', process.execPath, join(work, 'agent.mjs')]);
   const runId = /recording run (\w{26})/.exec(recorded.out)![1];

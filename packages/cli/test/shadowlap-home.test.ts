@@ -139,7 +139,8 @@ describe('commands and proxies given the same SHADOWLAP_HOME', () => {
     started.kill('SIGTERM');
     await code;
     listener = null;
-    expect(readdirSync(join(own, 'mcp'))).toEqual([]);
+    // On Windows, kill ends it at once (TerminateProcess), and its registration stays for the next one there to prune.
+    if (process.platform !== 'win32') expect(readdirSync(join(own, 'mcp'))).toEqual([]);
     expect(existsSync(join(home, '.shadowlap'))).toBe(false);
   }, 60_000);
 

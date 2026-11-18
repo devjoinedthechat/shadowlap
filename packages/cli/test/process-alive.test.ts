@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { processAlive } from '@shadowlap/engine';
@@ -69,7 +69,7 @@ describe('whether a process runs', () => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, e.name);
         if (e.isDirectory()) walk(path);
-        else if (/\.(ts|tsx|mjs)$/.test(e.name) && /process\.kill\([^,()]+,\s*0\)/.test(readFileSync(path, 'utf8'))) copies.push(relative(ROOT, path));
+        else if (/\.(ts|tsx|mjs)$/.test(e.name) && /process\.kill\([^,()]+,\s*0\)/.test(readFileSync(path, 'utf8'))) copies.push(relative(ROOT, path).split(sep).join('/'));
       }
     };
     for (const pkg of readdirSync(join(ROOT, 'packages'))) if (existsSync(join(ROOT, 'packages', pkg, 'src'))) walk(join(ROOT, 'packages', pkg, 'src'));
