@@ -20,7 +20,7 @@ import { DONE, ESCALATE, LOOKUP, POLICY, recordRun } from './training-fixtures.j
 let lying: { path: string; was: string } | null = null;
 vi.mock('node:fs', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:fs')>();
-  const lstatSync = ((path: fs.PathLike, options?: fs.StatSyncOptions) => (lying !== null && String(path) === lying.path ? Object.assign(real.statSync(lying.was), { isSymbolicLink: () => false, isFile: () => true }) : real.lstatSync(path, options))) as typeof real.lstatSync;
+  const lstatSync = ((path: fs.PathLike, options?: fs.StatSyncOptions) => (lying !== null && String(path) === lying.path ? Object.assign(real.statSync(lying.was, options)!, { isSymbolicLink: () => false, isFile: () => true }) : real.lstatSync(path, options))) as typeof real.lstatSync;
   return { ...real, lstatSync };
 });
 

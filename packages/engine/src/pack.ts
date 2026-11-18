@@ -412,12 +412,13 @@ function mismatch(store: StoreOf<'recording' | 'readModels'>, held: RunRecord, p
  * from (fstat), so a link or anything else swapped in after a check is never read; O_NONBLOCK keeps
  * a FIFO put in its place from stalling the open. It is read up to the size it had then, and
  * refused if it grew or shrank meanwhile. Where the system has no O_NOFOLLOW (Windows), the file is
- * checked before it is opened, and refused when the file opened is not the one checked.
+ * checked before it is opened, and refused when the file opened is not the one checked. Both are
+ * read as bigint: a Windows file id takes 64 bits, and as a number two files' ids can round to one.
  */
 export function readPackFile(path: string, limit: number, what: string): Buffer {
   const link = () => new PackError(PACK_REFUSALS.link(what));
   const noFollow = constants.O_NOFOLLOW as number | undefined;
-  const checked = noFollow === undefined ? lstatSync(path) : null;
+  const checked = noFollow === undefined ? lstatSync(path, { bigint: true }) : null;
   if (checked?.isSymbolicLink()) throw link();
   let fd: number;
   try {
@@ -430,11 +431,12 @@ export function readPackFile(path: string, limit: number, what: string): Buffer 
     throw err;
   }
   try {
-    const st = fstatSync(fd);
+    const st = fstatSync(fd, { bigint: true });
+    const size = Number(st.size);
     if (!st.isFile()) throw new PackError(PACK_REFUSALS.notRegular(what));
     if (checked && (checked.ino !== st.ino || checked.dev !== st.dev)) throw new PackError(`${what} was replaced while it was read`);
-    if (st.size > limit) throw new PackError(PACK_REFUSALS.tooLarge(what, st.size, limit));
-    const bytes = Buffer.alloc(st.size);
+    if (size > limit) throw new PackError(PACK_REFUSALS.tooLarge(what, size, limit));
+    const bytes = Buffer.alloc(size);
     let read = 0;
     while (read < bytes.length) {
       const n = readSync(fd, bytes, read, bytes.length - read, read);
