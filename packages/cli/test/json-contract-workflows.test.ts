@@ -18,6 +18,11 @@ import { departures, type ShapeName } from './json-shapes.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const SUPPORT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
+/**
+ * The Fixes workflow runs the CLI one command after another: about a minute on Linux and macOS,
+ * and 200 to 300 seconds on Windows, where each start of a process costs several times as much.
+ */
+const FIXES_TIMEOUT = process.platform === 'win32' ? 600_000 : 300_000;
 const TRAINING = fileURLToPath(new URL('./training-agent.mjs', import.meta.url));
 const ORACLE = JSON.stringify({ tools: { issue_refund: { count: 0, args: { amount: 240 } } } });
 const FIX = 'You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.';
@@ -173,7 +178,7 @@ describe('Fixes: blame, verify, repair and fix', () => {
     expect(test.code, test.out).toBe(0);
     const report = JSON.parse(readFileSync(join(project, 'report.json'), 'utf8')) as Record<string, unknown>;
     hold([['test', report], ['testResult', first(report.results)]]);
-  }, 300_000);
+  }, FIXES_TIMEOUT);
 });
 
 describe('bisect', () => {
