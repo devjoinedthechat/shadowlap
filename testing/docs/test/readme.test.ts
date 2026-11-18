@@ -14,11 +14,11 @@ import { FORK_MENU_KEYS, FORK_MENU_LEAD, INSPECTOR_KEYS, TIMELINE_KEYS } from '.
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const readme = readFileSync(join(root, 'README.md'), 'utf8');
 
-/** The fenced block under "## How it works". */
+/** The text block under "## How it works" that names the sidecar's routes, below its flow diagram. */
 const diagram = (() => {
   const after = readme.slice(readme.indexOf('## How it works'));
-  const open = after.indexOf('```');
-  return after.slice(open + 3, after.indexOf('```', open + 3));
+  const open = after.indexOf('```text\n');
+  return after.slice(open + 8, after.indexOf('```', open + 8));
 })();
 
 describe('the architecture diagram', () => {

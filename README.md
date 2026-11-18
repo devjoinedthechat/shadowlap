@@ -51,7 +51,9 @@ npm install -g shadowlap
 shadowlap demo
 ```
 
-The CLI needs Node 22.17 or later, not 23.
+From Python, `pip install shadowlap` gives the same command. Or try it with nothing installed: `npx shadowlap demo`.
+
+The CLI needs Node 22.17 or later (not 23), on macOS, Linux or Windows, also when installed from Python.
 
 `shadowlap demo` runs the whole loop in about half a minute. It records a refund agent breaking its policy, replays it with no upstream requests, finds the call that lost the run, then proposes, proves and applies a fix. Its model is a scripted stand&#8209;in, so the demo needs no key and comes out the same every time. The pictures in this README are made the same way, with the real CLI, dashboard and terminal UI.
 
@@ -62,6 +64,12 @@ One bug, from failure to fix. A support agent refunds three $240 orders, labelle
 ### 1. Find the call that lost the run
 
 [`shadowlap blame`](docs/blame.md) asks model calls again, each from a fork that replays everything before it as recorded. It names the last call where a different answer can still save the run.
+
+What a run must do is a check. Here, <code>refund&#8209;check.json</code> says `issue_refund` is never called with amount 240:
+
+```json
+{ "tools": { "issue_refund": { "count": 0, "args": { "amount": 240 } } } }
+```
 
 ```console
 $ shadowlap blame 01M64J32D4 --expect @refund-check.json
@@ -92,13 +100,15 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 …
 ```
 
-[Verify](docs/verify.md) accepts a fix only when it fixes the failing runs, held&#8209;out runs included, and leaves no good run 10 points or more worse, at 5% risk a run. `shadowlap verify` proves a fix you wrote yourself the same way.
+[Verify](docs/verify.md) accepts a fix only when it fixes the failing runs, held&#8209;out runs included, and no good run passes 10 points or more less often than before the change. Each of those verdicts is wrong at most 5% of the time. `shadowlap verify` proves a fix you wrote yourself the same way.
 
-`--repairer anthropic` needs the Anthropic SDK beside the CLI:
+`--repairer anthropic` needs the Anthropic SDK beside the CLI, and an API key:
 
 ```sh
 npm install -g @anthropic-ai/sdk
 ```
+
+`--repairer claude-code` asks your own Claude Code instead, with no key.
 
 <p align="center">
   <picture>
@@ -225,6 +235,18 @@ shadowlap dashboard               # step through it in your browser
 ## How it works
 
 `shadowlap run` starts a sidecar on 127.0.0.1 and points your agent at it:
+
+```mermaid
+flowchart LR
+  agent(["Your agent"]) --> sidecar["shadowlap sidecar<br/>127.0.0.1, a free port"]
+  sidecar -->|"record"| upstream(["Model APIs, tools, HTTP"])
+  sidecar -->|"record"| store[("Store<br/>.shadowlap/shadowlap.db")]
+  store -->|"replay: served, 0 upstream requests"| sidecar
+  sidecar -->|"fork, from the first change"| live["Model calls and read tools<br/>run live"]
+  sidecar -.->|"write tools"| blocked["Blocked or stubbed<br/>no second refund"]
+```
+
+Its routes, and what it tells your agent:
 
 ```text
 shadowlap run -- node agent.mjs
