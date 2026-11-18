@@ -145,6 +145,9 @@ describe('the Fixes page at scale', () => {
     console.log(`fixesView over ${FIXES} fixes and ${UNBLAMED} failed runs nobody blamed: ${t.changed.toFixed(1)} ms CPU after a change to fixes, ${t.poll.toFixed(1)} ms a poll; a read of every run's row ${t.runs.toFixed(1)} ms`);
     // Held against this machine: a poll, which works out nothing again, costs about a tenth of a plain
     // read of every run's row, and the read after a change to fixes, every row again, 25 to 30 times.
+    // Under coverage V8 counts every block fixesView runs and none of SQLite's own reading, so the
+    // ratios would time the counting: the calls held above say what a poll and a change read there.
+    if (process.env.SHADOWLAP_TEST_COVERAGE) return;
     expect(t.poll, `a poll took ${times(t.poll, t.runs)} a read of every run`).toBeLessThan(t.runs);
     expect(t.changed, `a read after a change took ${times(t.changed, t.runs)} a read of every run`).toBeLessThan(80 * t.runs);
   });
