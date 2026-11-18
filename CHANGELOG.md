@@ -2,7 +2,7 @@
 
 Every notable change to shadowlap is listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The release workflow lifts a version's section into its GitHub release notes, and publishes nothing for a version without one.
 
-## [Unreleased]
+## [0.1.0] - 2026-11-18
 
 The first release: record, replay and fork AI agent runs, find the call that lost a run, and prove a fix before it ships. Each entry links to the page with its details.
 
@@ -270,4 +270,4 @@ The first release: record, replay and fork AI agent runs, find the call that los
 - **Light to install**. Every package together is 4.1 MB to download and 16 MB installed. The `shadowlap` package exports its module and `package.json` only; its command is the `bin` the manifest names.
 - **Source maps without the source**. Source maps name each file's TypeScript without carrying it, except in the SDKs, the adapters and `@shadowlap/test`, which ship their source. Their CommonJS copies are type-checked as CommonJS, and mapped too.
 
-[Unreleased]: https://github.com/devjoinedthechat/shadowlap/commits/main
+[0.1.0]: https://github.com/devjoinedthechat/shadowlap/releases/tag/v0.1.0

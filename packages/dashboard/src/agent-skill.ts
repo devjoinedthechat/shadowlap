@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
  *
  * The owner publishes the plugin by hand, and flips this to true once it is published.
  */
-export const SKILL_PUBLISHED = false;
+export const SKILL_PUBLISHED = true;
 
 /** The repository, which is its own Claude Code plugin marketplace (`.claude-plugin/marketplace.json`). */
 export const SKILL_REPOSITORY = 'devjoinedthechat/shadowlap';
