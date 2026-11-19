@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { canonicalize } from '../src/canonical.js';
 import { fingerprintTool } from '../src/fingerprint.js';
 import { isRawNumber, matchable, parseJsonExact, reportable } from '../src/json-exact.js';
+import { times, timesOf } from './timing.js';
 
 describe('JSON with exact numbers', () => {
   it('writes back every number as it was read', () => {
@@ -57,19 +58,10 @@ describe('JSON with exact numbers', () => {
   it.skipIf(process.env.SHADOWLAP_TEST_COVERAGE)('reads a request with no such number about as fast as JSON.parse: CPU time against it, on 4 MB', () => {
     const messages = Array.from({ length: 3000 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: 'word '.repeat(200) }, { type: 'tool_result', tool_use_id: `t${i}`, content: JSON.stringify({ id: i, score: i / 7 }) }], meta: { n: i, f: i + 0.5 } }));
     const text = JSON.stringify({ model: 'm', max_tokens: 1024, messages });
-    // Each sample reads it ten times: Windows counts CPU time in steps of about 16 ms, longer than one read.
-    const cpu = (read: () => unknown) => {
-      let best = Infinity;
-      for (let i = 0; i < 5; i++) {
-        const c0 = process.cpuUsage();
-        for (let j = 0; j < 10; j++) read();
-        const c = process.cpuUsage(c0);
-        best = Math.min(best, c.user + c.system);
-      }
-      return best;
-    };
-    const plain = cpu(() => JSON.parse(text));
+    // Rounds long enough for Windows' clock, which counts CPU time in steps of about 16 ms: ten reads
+    // came to one step of JSON.parse there, so the ratio was off by up to a step either way.
+    const t = timesOf({ plain: () => JSON.parse(text), exact: () => parseJsonExact(text) });
     // A reviver on every value made it five times JSON.parse; read whole only where a number needs it.
-    expect(cpu(() => parseJsonExact(text))).toBeLessThan(plain * 3);
+    expect(t.exact, `parseJsonExact took ${times(t.exact, t.plain)} as long as JSON.parse`).toBeLessThan(t.plain * 3);
   });
 });
